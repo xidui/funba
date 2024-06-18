@@ -47,4 +47,5 @@ def get_nba_teams():
 
 
 if __name__ == "__main__":
-    get_nba_teams()
+    pass
+    # get_nba_teams()

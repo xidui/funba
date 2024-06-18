@@ -19,19 +19,19 @@ def get_team_id(session, matchup):
         parts = matchup.split(' vs. ')
         home, road = parts[0], parts[1]
 
-    homeTeam = session.query(Team).filter_by(abbr=home).first()
-    roadTeam = session.query(Team).filter_by(abbr=road).first()
+    homeTeamList = [team_id[0] for team_id in session.query(Team.canonical_team_id).filter_by(abbr=home).all()]
+    roadTeamList = [team_id[0] for team_id in session.query(Team.canonical_team_id).filter_by(abbr=road).all()]
 
-    if homeTeam is None or roadTeam is None:
+    if not homeTeamList or not roadTeamList:
         raise "Failed to get home or road team"
 
-    return homeTeam.team_id, roadTeam.team_id
+    return homeTeamList, roadTeamList
 
 
 @retry(
     wait=wait_exponential(multiplier=1, max=60),  # Wait 1, 2, 4, ..., up to 60 seconds
     stop=stop_after_attempt(10),  # Retry up to 5 times
-    retry=retry_if_exception_type((ConnectionError, Timeout)),  # Retry on network issues and timeouts
+    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),  # Retry on network issues and timeouts
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
 def fetch_game_details(game_id):
@@ -40,7 +40,7 @@ def fetch_game_details(game_id):
         return boxscore.get_normalized_dict()  # Includes stats for each team in the game
     except Exception as e:
         logger.error(f"Failed to fetch game details for {game_id}, error: {e}")
-        raise
+        raise e
 
 
 def create_team_game_stats(session, game_id, team_stats, on_road, win):
@@ -153,12 +153,19 @@ def back_fill_game_detail(game, game_record, sess, commit):
     # figure out who is home and visitor
     home_team_stats = None
     road_team_stats = None
-    home_team_id, road_team_id = get_team_id(sess, game['MATCHUP'])
+    home_team_id_list, road_team_id_list = get_team_id(sess, game['MATCHUP'])
+    home_team_id, road_team_id = None, None
+
     for team_status in game_details['TeamStats']:
-        if team_status['TEAM_ID'] == int(home_team_id):
+        if str(team_status['TEAM_ID']) in home_team_id_list:
             home_team_stats = team_status
-        if team_status['TEAM_ID'] == int(road_team_id):
+            home_team_id = str(team_status['TEAM_ID'])
+        if str(team_status['TEAM_ID']) in road_team_id_list:
             road_team_stats = team_status
+            road_team_id = str(team_status['TEAM_ID'])
+
+    if home_team_id is None or road_team_id is None:
+        raise "empty team id"
 
     # store to the Game table
     game_record.season = game['SEASON_ID'],

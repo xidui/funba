@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @retry(
     wait=wait_exponential(multiplier=1, max=60),  # Wait 1, 2, 4, ..., up to 60 seconds
     stop=stop_after_attempt(10),  # Retry up to 5 times
-    retry=retry_if_exception_type((ConnectionError, Timeout)),  # Retry on network issues and timeouts
+    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),  # Retry on network issues and timeouts
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
 def fetch_game_play_by_play(game_id):
@@ -23,7 +23,7 @@ def fetch_game_play_by_play(game_id):
         return playbyplayv2.PlayByPlayV2(game_id=game_id).get_normalized_dict()
     except Exception as e:
         logger.error(f"Failed to fetch game pbp for {game_id}, error: {e}")
-        raise
+        raise e
 
 
 def is_game_pbp_back_filled(game_id, sess):

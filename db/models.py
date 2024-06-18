@@ -13,15 +13,19 @@ Base = declarative_base()
 class Team(Base):
     __tablename__ = 'Team'
 
-    id = Column(Integer, unique=True, autoincrement=True)
-    team_id = Column(String(50), unique=True, primary_key=True)
-    season = Column(String(50), primary_key=True, default="")
+    id = Column(Integer, primary_key=True)
+    team_id = Column(String(50), unique=True)
     full_name = Column(String(100))
     abbr = Column(String(5))
     nick_name = Column(String(100))
     city = Column(String(50))
     state = Column(String(50))
     year_founded = Column(Integer)
+    active = Column(Boolean)
+    is_legacy = Column(Boolean)
+    canonical_team_id = Column(String(50), ForeignKey('Team.team_id'))
+    start_season = Column(String(10))
+    end_season = Column(String(10))
 
 
 class Player(Base):
