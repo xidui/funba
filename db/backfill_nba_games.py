@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from models import Game, engine
 from backfill_nba_game_pbp import back_fill_pbp
 from backfill_nba_game_detail import back_fill_game_detail
+from backfill_nba_player_shot_detail import back_fill_game_shot_record
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import sys
@@ -36,6 +37,9 @@ def process_and_store_game(sess, game):
         # play by play info is not available 1995 and before
         back_fill_pbp(game_id, sess, False)
 
+    if False:
+        back_fill_game_shot_record(sess, game_id, False)
+
     try:
         sess.commit()
     except Exception as e:
@@ -67,5 +71,5 @@ if __name__ == "__main__":
     if len(seasons) == 0:
         seasons = [f"{year}-{str(year + 1)[-2:]}" for year in range(1985, 1996)]
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(process_and_store_season, seasons[::-1])
