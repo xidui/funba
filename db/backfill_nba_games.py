@@ -32,7 +32,9 @@ def process_and_store_game(sess, game):
     back_fill_game_detail(game, game_record, sess, False)
 
     # backfill game play by play info
-    back_fill_pbp(game_id, sess, False)
+    if game['SEASON_ID'][1:] > '1995':
+        # play by play info is not available 1995 and before
+        back_fill_pbp(game_id, sess, False)
 
     try:
         sess.commit()
@@ -63,7 +65,7 @@ if __name__ == "__main__":
         logger.info("No arguments provided.")
 
     if len(seasons) == 0:
-        seasons = [f"{year}-{str(year + 1)[-2:]}" for year in range(1995, 2004)]
+        seasons = [f"{year}-{str(year + 1)[-2:]}" for year in range(1985, 1996)]
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         executor.map(process_and_store_season, seasons[::-1])

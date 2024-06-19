@@ -51,7 +51,7 @@ def create_team_game_stats(session, game_id, team_stats, on_road, win):
             team_id=team_stats['TEAM_ID'],
             on_road=on_road,
             win=win,
-            min=team_stats['MIN'].split('.')[0],  # Assumes 'MIN' contains a period
+            min=str(team_stats['MIN']).split('.')[0],  # Assumes 'MIN' contains a period
             pts=team_stats['PTS'],
             fgm=team_stats['FGM'],
             fga=team_stats['FGA'],
@@ -102,8 +102,8 @@ def create_player_game_stats(session, player_stats):
             team_id=str(player_stats['TEAM_ID']),
             player_id=str(player_stats['PLAYER_ID']),
             comment=player_stats['COMMENT'],
-            min=0 if player_stats['MIN'] is None else int(player_stats['MIN'].split('.')[0]),
-            sec=0 if player_stats['MIN'] is None else int(player_stats['MIN'].split(':')[1]),
+            min=0 if player_stats['MIN'] is None else int(str(player_stats['MIN']).split('.')[0]),
+            sec=0 if player_stats['MIN'] is None or len(str(player_stats['MIN']).split(':')) < 2 else int(str(player_stats['MIN']).split(':')[1]),
             starter=bool(player_stats['START_POSITION']),
             position=player_stats['START_POSITION'],
             pts=player_stats['PTS'],
@@ -187,7 +187,7 @@ def back_fill_game_detail(game, game_record, sess, commit):
     for player_stats in game_details['PlayerStats']:
         starter += create_player_game_stats(sess, player_stats)
     if starter != 10:
-        raise 'not 10 starters in the game {}'.format(game['MATCHUP'])
+        logger.warning('not 10 starters in the game {}'.format(game['MATCHUP']))
 
     if commit:
         try:
