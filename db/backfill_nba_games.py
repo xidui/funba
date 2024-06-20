@@ -69,7 +69,7 @@ if __name__ == "__main__":
         logger.info("No arguments provided.")
 
     if len(seasons) == 0:
-        seasons = [f"{year}-{str(year + 1)[-2:]}" for year in range(1985, 1996)]
+        seasons = [f"{year}-{str(year + 1)[-2:]}" for year in range(1983, 1985)]
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         executor.map(process_and_store_season, seasons[::-1])
