@@ -53,6 +53,7 @@ class Game(Base):
     wining_team_id = Column(String(50), ForeignKey('Team.team_id'))
     home_team_score = Column(Integer)
     road_team_score = Column(Integer)
+    pity_loss = Column(Boolean)
 
 
 class TeamGameStats(Base):
