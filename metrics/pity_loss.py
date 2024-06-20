@@ -1,10 +1,57 @@
 from db.models import Game, GamePlayByPlay, engine
 from sqlalchemy.orm import sessionmaker
 from static_numbers.event_msg_type import EventMsgType
+from sqlalchemy import text
 
 import concurrent.futures
 
 Session = sessionmaker(bind=engine)
+
+
+PITY_LOSS_PER_SEASON_SQL='''
+WITH A AS (
+    SELECT 
+        season,
+        CASE
+            WHEN home_team_score > road_team_score THEN road_team_id
+            ELSE road_team_id
+        END AS pity_loss_team_id,
+        wining_team_id as close_win_team_id,
+        game_id
+    FROM
+        Game
+    WHERE
+        pity_loss = 1
+), 
+B AS (
+    SELECT 
+        A.*,
+        full_name
+    FROM 
+        A 
+    LEFT JOIN 
+        Team 
+    ON 
+        A.pity_loss_team_id = Team.team_id
+)
+SELECT 
+    full_name, 
+    season, 
+    COUNT(*) AS c
+FROM 
+    B
+GROUP BY 
+    full_name, 
+    season 
+ORDER BY 
+    c DESC;
+
+'''
+
+
+def get_pity_loss_count():
+    session = Session()
+    return session.execute(text(PITY_LOSS_PER_SEASON_SQL)).all()
 
 
 def check_and_set_pity_loss(game_id, sess=None):
