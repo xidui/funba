@@ -178,8 +178,30 @@ Index('ix_ShotRecord_game_id', 'game_id'),
 Index('ix_ShotRecord_player_id', 'player_id'),
 Index('ix_ShotRecord_team_id', 'team_id'),
 Index('ix_ShotRecord_season', 'season'),
+Index('ix_ShotRecord_player_id_season_team_id', 'player_id', 'season', 'team_id'),
 Index('ix_ShotRecord_player_id_season', 'player_id', 'season'),
 Index('ix_ShotRecord_season_zone', 'season', 'shot_zone_area'),
+
+
+class PlayerSeasonMetrics(Base):
+    __tablename__ = 'PlayerSeasonMetrics'
+
+    id = Column(Integer, primary_key=True)
+    player_id = Column(String(50), ForeignKey('Player.player_id'))
+    team_id = Column(String(50), ForeignKey('Team.team_id'))
+    season = Column(String(50))
+
+    # metrics
+    three_pointer_made = Column(Float)
+    three_pointer_attempt = Column(Float)
+    three_pointer_made_after_one_miss = Column(Float)
+    three_pointer_attempt_after_one_miss = Column(Float)
+    three_pointer_made_after_two_miss = Column(Float)
+    three_pointer_attempt_after_two_miss = Column(Float)
+
+    __table_args__ = (
+        Index('idx_PlayerSeasonMetrics_player_team_season', 'player_id', 'team_id', 'season', unique=True),
+    )
 
 
 Base.metadata.create_all(engine)
