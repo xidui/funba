@@ -23,7 +23,7 @@ class Team(Base):
     year_founded = Column(Integer)
     active = Column(Boolean)
     is_legacy = Column(Boolean)
-    canonical_team_id = Column(String(50), ForeignKey('Team.team_id'))
+    canonical_team_id = Column(String(50), ForeignKey('Team.team_id'), index=True)
     start_season = Column(String(10))
     end_season = Column(String(10))
 
@@ -198,6 +198,9 @@ class PlayerSeasonMetrics(Base):
     three_pointer_attempt_after_one_miss = Column(Float)
     three_pointer_made_after_two_miss = Column(Float)
     three_pointer_attempt_after_two_miss = Column(Float)
+
+    shot_made_after_made = Column(Float)
+    shot_attempt_after_made = Column(Float)
 
     __table_args__ = (
         Index('idx_PlayerSeasonMetrics_player_team_season', 'player_id', 'team_id', 'season', unique=True),
