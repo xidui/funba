@@ -5,8 +5,7 @@ import concurrent.futures
 
 Session = sessionmaker(bind=engine)
 
-
-SHOT_PCT_AFTER_MISS_SQL='''
+SHOT_PCT_AFTER_MISS_SQL = '''
 SELECT 
     full_name,
     PlayerSeasonMetrics.player_id,
