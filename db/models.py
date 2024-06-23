@@ -191,7 +191,7 @@ class PlayerSeasonMetrics(Base):
     team_id = Column(String(50), ForeignKey('Team.team_id'))
     season = Column(String(50))
 
-    # metrics
+    # three pointer metrics
     three_pointer_made = Column(Float)
     three_pointer_attempt = Column(Float)
     three_pointer_made_after_one_miss = Column(Float)
@@ -199,6 +199,9 @@ class PlayerSeasonMetrics(Base):
     three_pointer_made_after_two_miss = Column(Float)
     three_pointer_attempt_after_two_miss = Column(Float)
 
+    # field goal metrics
+    shot_made = Column(Float)
+    shot_attempt = Column(Float)
     shot_made_after_made = Column(Float)
     shot_attempt_after_made = Column(Float)
 
