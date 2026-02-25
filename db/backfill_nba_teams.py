@@ -1,7 +1,7 @@
 from nba_api.stats.static import teams
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
-from models import Team, Player, engine
+from db.models import Team, Player, engine
 
 Session = sessionmaker(bind=engine)
 session = Session()
@@ -47,5 +47,4 @@ def get_nba_teams():
 
 
 if __name__ == "__main__":
-    pass
-    # get_nba_teams()
+    get_nba_teams()

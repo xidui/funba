@@ -14,7 +14,7 @@ WITH A AS (
         season,
         CASE
             WHEN home_team_score > road_team_score THEN road_team_id
-            ELSE road_team_id
+            ELSE home_team_id
         END AS pity_loss_team_id,
         wining_team_id as close_win_team_id,
         game_id

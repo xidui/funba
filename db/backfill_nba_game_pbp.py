@@ -1,6 +1,6 @@
 from nba_api.stats.endpoints import playbyplayv2
 from sqlalchemy.orm import sessionmaker
-from models import Game, GamePlayByPlay, Player, engine
+from db.models import Game, GamePlayByPlay, Player, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 from collections import defaultdict

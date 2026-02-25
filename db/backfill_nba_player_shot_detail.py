@@ -1,6 +1,6 @@
 from nba_api.stats.endpoints import shotchartdetail
 from sqlalchemy.orm import aliased, sessionmaker
-from models import PlayerGameStats, ShotRecord, engine
+from db.models import PlayerGameStats, ShotRecord, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 from sqlalchemy import func, or_, and_, text

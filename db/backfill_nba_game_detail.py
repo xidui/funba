@@ -1,6 +1,6 @@
 from nba_api.stats.endpoints import boxscoretraditionalv2
 from datetime import datetime
-from models import Team, TeamGameStats, PlayerGameStats, Player, engine
+from db.models import Team, TeamGameStats, PlayerGameStats, Player, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 import logging
@@ -19,11 +19,14 @@ def get_team_id(session, matchup):
         parts = matchup.split(' vs. ')
         home, road = parts[0], parts[1]
 
-    homeTeamList = [team_id[0] for team_id in session.query(Team.canonical_team_id).filter_by(abbr=home).all()]
-    roadTeamList = [team_id[0] for team_id in session.query(Team.canonical_team_id).filter_by(abbr=road).all()]
+    home_team_rows = session.query(Team.team_id, Team.canonical_team_id).filter_by(abbr=home).all()
+    road_team_rows = session.query(Team.team_id, Team.canonical_team_id).filter_by(abbr=road).all()
+
+    homeTeamList = [str(canonical_id or team_id) for team_id, canonical_id in home_team_rows]
+    roadTeamList = [str(canonical_id or team_id) for team_id, canonical_id in road_team_rows]
 
     if not homeTeamList or not roadTeamList:
-        raise "Failed to get home or road team"
+        raise RuntimeError(f"Failed to get home/road team for matchup: {matchup}")
 
     return homeTeamList, roadTeamList
 
@@ -81,10 +84,11 @@ def create_player_game_stats(session, player_stats):
     ).first()
     if player_record is None:
         logger.error(f"Create player {player_stats['PLAYER_NAME']}, id: {player_stats['PLAYER_ID']}")
+        name_parts = player_stats['PLAYER_NAME'].split()
         player_record = Player(
             player_id=str(player_stats['PLAYER_ID']),
-            first_name=player_stats['PLAYER_NAME'].split()[0],
-            last_name=player_stats['PLAYER_NAME'].split()[1],
+            first_name=name_parts[0] if name_parts else player_stats['PLAYER_NAME'],
+            last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
             full_name=player_stats['PLAYER_NAME'],
             nick_name=player_stats['NICKNAME'],
             is_active=False,
@@ -165,16 +169,16 @@ def back_fill_game_detail(game, game_record, sess, commit):
             road_team_id = str(team_status['TEAM_ID'])
 
     if home_team_id is None or road_team_id is None:
-        raise "empty team id"
+        raise RuntimeError(f"Unable to resolve team IDs for game {game['GAME_ID']}")
 
     # store to the Game table
-    game_record.season = game['SEASON_ID'],
-    game_record.game_date = datetime.strptime(game['GAME_DATE'], '%Y-%m-%d'),
-    game_record.home_team_id = home_team_id,
-    game_record.road_team_id = road_team_id,
-    game_record.home_team_score = home_team_stats['PTS'],
-    game_record.road_team_score = road_team_stats['PTS'],
-    game_record.wining_team_id = home_team_id if home_team_stats['PTS'] > road_team_stats['PTS'] else road_team_id,
+    game_record.season = game['SEASON_ID']
+    game_record.game_date = datetime.strptime(game['GAME_DATE'], '%Y-%m-%d')
+    game_record.home_team_id = home_team_id
+    game_record.road_team_id = road_team_id
+    game_record.home_team_score = home_team_stats['PTS']
+    game_record.road_team_score = road_team_stats['PTS']
+    game_record.wining_team_id = home_team_id if home_team_stats['PTS'] > road_team_stats['PTS'] else road_team_id
 
     # Store stats for home and visitor team
     create_team_game_stats(sess, game['GAME_ID'], home_team_stats, False,

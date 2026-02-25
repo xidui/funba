@@ -1,7 +1,7 @@
 from nba_api.stats.static import players
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
-from models import Player, engine
+from db.models import Player, engine
 
 Session = sessionmaker(bind=engine)
 session = Session()

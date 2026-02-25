@@ -1,10 +1,10 @@
-from sqlalchemy import create_engine, Index, text
+from sqlalchemy import Boolean, BLOB, Column, DATE, Float, ForeignKey, Index, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, String, DATE, BLOB, Integer, ForeignKey, Boolean, Float
 
+from db.config import get_database_url
 
-# Create an engine to connect to your MySQL database
-engine = create_engine('mysql+pymysql://root:xixihaha@localhost/nba_data')
+# Create an engine to connect to your database
+engine = create_engine(get_database_url())
 
 # Create a base class for declarative class definitions
 Base = declarative_base()
@@ -62,7 +62,7 @@ class TeamGameStats(Base):
     game_id = Column(String(50), ForeignKey('Game.game_id'), primary_key=True)
     team_id = Column(String(50), ForeignKey('Team.team_id'), primary_key=True)
     on_road = Column(Boolean)
-    win = Column(Boolean)  # win or lose
+    win = Column(Boolean)
     min = Column(Integer)
     pts = Column(Integer)
     fgm = Column(Integer)
@@ -80,8 +80,8 @@ class TeamGameStats(Base):
     ast = Column(Integer)
     stl = Column(Integer)
     blk = Column(Integer)
-    tov = Column(Integer)  # turn over
-    pf = Column(Integer)  # personal foul
+    tov = Column(Integer)
+    pf = Column(Integer)
 
 
 class PlayerGameStats(Base):
@@ -111,8 +111,8 @@ class PlayerGameStats(Base):
     ast = Column(Integer)
     stl = Column(Integer)
     blk = Column(Integer)
-    tov = Column(Integer)  # turn over
-    pf = Column(Integer)  # personal foul
+    tov = Column(Integer)
+    pf = Column(Integer)
     plus = Column(Integer)
 
     __table_args__ = (
@@ -125,35 +125,36 @@ class PlayerGameStats(Base):
 class GamePlayByPlay(Base):
     __tablename__ = 'GamePlayByPlay'
 
-    id = Column(Integer, primary_key=True)  # Unique ID for each record
-    game_id = Column(String(50), ForeignKey('Game.game_id'))  # Assuming a 'games' table exists
-    event_num = Column(Integer)  # Event number in the game
-    event_msg_type = Column(Integer)  # Type of event
-    event_msg_action_type = Column(Integer)  # Subtype of event
-    period = Column(Integer)  # Game period
-    wc_time = Column(String(20))  # Wall-clock time
-    pc_time = Column(String(20))  # Play-clock time
-    home_description = Column(String(200))  # Description of event for home team
-    neutral_description = Column(String(200))  # Neutral description of event
-    visitor_description = Column(String(200))  # Description of event for visitor team
-    score = Column(String(20))  # Score after event
-    score_margin = Column(String(20))  # Score margin after event
+    id = Column(Integer, primary_key=True)
+    game_id = Column(String(50), ForeignKey('Game.game_id'))
+    event_num = Column(Integer)
+    event_msg_type = Column(Integer)
+    event_msg_action_type = Column(Integer)
+    period = Column(Integer)
+    wc_time = Column(String(20))
+    pc_time = Column(String(20))
+    home_description = Column(String(200))
+    neutral_description = Column(String(200))
+    visitor_description = Column(String(200))
+    score = Column(String(20))
+    score_margin = Column(String(20))
     player1_id = Column(String(50), ForeignKey('Player.player_id'))
     player2_id = Column(String(50), ForeignKey('Player.player_id'))
     player3_id = Column(String(50), ForeignKey('Player.player_id'))
 
 
-Index('ix_PlayerGameStats_game_id', 'game_id'),
-Index('ix_PlayerGameStats_game_id_time',
-      GamePlayByPlay.game_id.asc(),
-      GamePlayByPlay.period.asc(),
-      GamePlayByPlay.pc_time.desc(),
-      ),
+Index(
+    'ix_GamePlayByPlay_game_id_period_pc_time',
+    GamePlayByPlay.game_id.asc(),
+    GamePlayByPlay.period.asc(),
+    GamePlayByPlay.pc_time.desc(),
+)
 
 
 class ShotRecord(Base):
     __tablename__ = 'ShotRecord'
-    id = Column(Integer, primary_key=True)  # Unique ID for each record
+
+    id = Column(Integer, primary_key=True)
     game_id = Column(String(50), ForeignKey('Game.game_id'))
     team_id = Column(String(50), ForeignKey('Team.team_id'))
     player_id = Column(String(50), ForeignKey('Player.player_id'))
@@ -174,13 +175,13 @@ class ShotRecord(Base):
     shot_made = Column(Boolean)
 
 
-Index('ix_ShotRecord_game_id', 'game_id'),
-Index('ix_ShotRecord_player_id', 'player_id'),
-Index('ix_ShotRecord_team_id', 'team_id'),
-Index('ix_ShotRecord_season', 'season'),
-Index('ix_ShotRecord_player_id_season_team_id', 'player_id', 'season', 'team_id'),
-Index('ix_ShotRecord_player_id_season', 'player_id', 'season'),
-Index('ix_ShotRecord_season_zone', 'season', 'shot_zone_area'),
+Index('ix_ShotRecord_game_id', ShotRecord.game_id)
+Index('ix_ShotRecord_player_id', ShotRecord.player_id)
+Index('ix_ShotRecord_team_id', ShotRecord.team_id)
+Index('ix_ShotRecord_season', ShotRecord.season)
+Index('ix_ShotRecord_player_id_season_team_id', ShotRecord.player_id, ShotRecord.season, ShotRecord.team_id)
+Index('ix_ShotRecord_player_id_season', ShotRecord.player_id, ShotRecord.season)
+Index('ix_ShotRecord_season_zone', ShotRecord.season, ShotRecord.shot_zone_area)
 
 
 class PlayerSeasonMetrics(Base):
@@ -191,7 +192,6 @@ class PlayerSeasonMetrics(Base):
     team_id = Column(String(50), ForeignKey('Team.team_id'))
     season = Column(String(50))
 
-    # three pointer metrics
     three_pointer_made = Column(Float)
     three_pointer_attempt = Column(Float)
     three_pointer_made_after_one_miss = Column(Float)
@@ -199,7 +199,6 @@ class PlayerSeasonMetrics(Base):
     three_pointer_made_after_two_miss = Column(Float)
     three_pointer_attempt_after_two_miss = Column(Float)
 
-    # field goal metrics
     shot_made = Column(Float)
     shot_attempt = Column(Float)
     shot_made_after_made = Column(Float)
@@ -210,4 +209,6 @@ class PlayerSeasonMetrics(Base):
     )
 
 
-Base.metadata.create_all(engine)
+def init_db() -> None:
+    """Create tables for local bootstrap/dev if they do not exist."""
+    Base.metadata.create_all(engine)
