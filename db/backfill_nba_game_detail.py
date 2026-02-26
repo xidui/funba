@@ -1,4 +1,4 @@
-from nba_api.stats.endpoints import boxscoretraditionalv2
+from nba_api.stats.endpoints import boxscoretraditionalv3
 from datetime import datetime
 from db.models import Team, TeamGameStats, PlayerGameStats, Player, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
@@ -9,6 +9,116 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _to_int(value, default=0):
+    if value is None or value == '':
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    s = str(value).strip()
+    if not s:
+        return default
+    if '.' in s:
+        return int(float(s))
+    return int(s)
+
+
+def _to_float(value, default=0.0):
+    if value is None or value == '':
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    return float(str(value).strip())
+
+
+def _build_player_name(player):
+    first = (player.get('firstName') or '').strip()
+    last = (player.get('familyName') or '').strip()
+    full_name = f"{first} {last}".strip()
+    return full_name or (player.get('nameI') or '')
+
+
+def _parse_minutes(value):
+    if value is None:
+        return 0, 0
+    s = str(value).strip()
+    if not s:
+        return 0, 0
+    try:
+        if ':' in s:
+            min_part, sec_part = s.split(':', 1)
+            return int(float(min_part or 0)), int(float(sec_part or 0))
+        if '.' in s:
+            return int(float(s)), 0
+        return int(s), 0
+    except (TypeError, ValueError):
+        return 0, 0
+
+
+def _normalize_team_stats(team):
+    stats = team.get('statistics') or {}
+    return {
+        'TEAM_ID': team.get('teamId'),
+        'MIN': stats.get('minutes'),
+        'PTS': _to_int(stats.get('points')),
+        'FGM': _to_int(stats.get('fieldGoalsMade')),
+        'FGA': _to_int(stats.get('fieldGoalsAttempted')),
+        'FG_PCT': _to_float(stats.get('fieldGoalsPercentage')),
+        'FG3M': _to_int(stats.get('threePointersMade')),
+        'FG3A': _to_int(stats.get('threePointersAttempted')),
+        'FG3_PCT': _to_float(stats.get('threePointersPercentage')),
+        'FTM': _to_int(stats.get('freeThrowsMade')),
+        'FTA': _to_int(stats.get('freeThrowsAttempted')),
+        'FT_PCT': _to_float(stats.get('freeThrowsPercentage')),
+        'OREB': _to_int(stats.get('reboundsOffensive')),
+        'DREB': _to_int(stats.get('reboundsDefensive')),
+        'REB': _to_int(stats.get('reboundsTotal')),
+        'AST': _to_int(stats.get('assists')),
+        'STL': _to_int(stats.get('steals')),
+        'BLK': _to_int(stats.get('blocks')),
+        'TO': _to_int(stats.get('turnovers')),
+        'PF': _to_int(stats.get('foulsPersonal')),
+    }
+
+
+def _normalize_player_stats(player, team_id, game_id):
+    stats = player.get('statistics') or {}
+    full_name = _build_player_name(player)
+    return {
+        'GAME_ID': game_id,
+        'TEAM_ID': team_id,
+        'PLAYER_ID': player.get('personId'),
+        'PLAYER_NAME': full_name,
+        'NICKNAME': player.get('nameI') or full_name,
+        'COMMENT': player.get('comment') or '',
+        'MIN': stats.get('minutes'),
+        # In V3 the five starters carry position values; bench rows are blank.
+        'START_POSITION': (player.get('position') or '').strip(),
+        'PTS': _to_int(stats.get('points')),
+        'FGM': _to_int(stats.get('fieldGoalsMade')),
+        'FGA': _to_int(stats.get('fieldGoalsAttempted')),
+        'FG_PCT': _to_float(stats.get('fieldGoalsPercentage')),
+        'FG3M': _to_int(stats.get('threePointersMade')),
+        'FG3A': _to_int(stats.get('threePointersAttempted')),
+        'FG3_PCT': _to_float(stats.get('threePointersPercentage')),
+        'FTM': _to_int(stats.get('freeThrowsMade')),
+        'FTA': _to_int(stats.get('freeThrowsAttempted')),
+        'FT_PCT': _to_float(stats.get('freeThrowsPercentage')),
+        'OREB': _to_int(stats.get('reboundsOffensive')),
+        'DREB': _to_int(stats.get('reboundsDefensive')),
+        'REB': _to_int(stats.get('reboundsTotal')),
+        'AST': _to_int(stats.get('assists')),
+        'STL': _to_int(stats.get('steals')),
+        'BLK': _to_int(stats.get('blocks')),
+        'TO': _to_int(stats.get('turnovers')),
+        'PF': _to_int(stats.get('foulsPersonal')),
+        'PLUS_MINUS': _to_int(stats.get('plusMinusPoints')),
+    }
 
 
 def get_team_id(session, matchup):
@@ -32,29 +142,52 @@ def get_team_id(session, matchup):
 
 
 @retry(
-    wait=wait_exponential(multiplier=1, max=60),  # Wait 1, 2, 4, ..., up to 60 seconds
-    stop=stop_after_attempt(10),  # Retry up to 5 times
-    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),  # Retry on network issues and timeouts
+    wait=wait_exponential(multiplier=1, max=4),  # Wait 1, 2, 4 seconds
+    stop=stop_after_attempt(2),  # Retry up to 2 times
+    retry=retry_if_exception_type((ConnectionError, Timeout)),  # Retry only network issues
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
 def fetch_game_details(game_id):
     try:
-        boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
-        return boxscore.get_normalized_dict()  # Includes stats for each team in the game
+        raw = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id, timeout=30).get_dict()
+        boxscore = raw.get('boxScoreTraditional') or {}
+
+        home_team = boxscore.get('homeTeam') or {}
+        away_team = boxscore.get('awayTeam') or {}
+        teams = [home_team, away_team]
+
+        team_stats = []
+        player_stats = []
+        for team in teams:
+            if not team:
+                continue
+            if team.get('statistics'):
+                team_stats.append(_normalize_team_stats(team))
+
+            team_id = team.get('teamId')
+            for player in team.get('players') or []:
+                player_stats.append(_normalize_player_stats(player, team_id, game_id))
+
+        return {
+            'TeamStats': team_stats,
+            'PlayerStats': player_stats,
+        }
     except Exception as e:
         logger.error(f"Failed to fetch game details for {game_id}, error: {e}")
         raise e
 
 
 def create_team_game_stats(session, game_id, team_stats, on_road, win):
-    team_game_status_record = session.query(TeamGameStats).filter_by(game_id=game_id, team_id=team_stats['TEAM_ID']).first()
+    team_id = str(team_stats['TEAM_ID'])
+    team_game_status_record = session.query(TeamGameStats).filter_by(game_id=game_id, team_id=team_id).first()
     if team_game_status_record is None:
+        min_value, _ = _parse_minutes(team_stats.get('MIN'))
         team_game_status_record = TeamGameStats(
             game_id=game_id,
-            team_id=team_stats['TEAM_ID'],
+            team_id=team_id,
             on_road=on_road,
             win=win,
-            min=str(team_stats['MIN']).split('.')[0],  # Assumes 'MIN' contains a period
+            min=min_value,
             pts=team_stats['PTS'],
             fgm=team_stats['FGM'],
             fga=team_stats['FGA'],
@@ -101,13 +234,14 @@ def create_player_game_stats(session, player_stats):
         team_id=str(player_stats['TEAM_ID'])
     ).first()
     if player_game_status_record is None:
+        min_value, sec_value = _parse_minutes(player_stats.get('MIN'))
         player_game_status_record = PlayerGameStats(
             game_id=player_stats['GAME_ID'],
             team_id=str(player_stats['TEAM_ID']),
             player_id=str(player_stats['PLAYER_ID']),
             comment=player_stats['COMMENT'],
-            min=0 if player_stats['MIN'] is None else int(str(player_stats['MIN']).split('.')[0]),
-            sec=0 if player_stats['MIN'] is None or len(str(player_stats['MIN']).split(':')) < 2 else int(str(player_stats['MIN']).split(':')[1]),
+            min=min_value,
+            sec=sec_value,
             starter=bool(player_stats['START_POSITION']),
             position=player_stats['START_POSITION'],
             pts=player_stats['PTS'],
@@ -145,7 +279,7 @@ def is_game_detail_back_filled(game_id, sess):
 def back_fill_game_detail(game, game_record, sess, commit):
     if is_game_detail_back_filled(game['GAME_ID'], sess):
         logger.info("skip back filling game detail for game {}, id {}".format(game['MATCHUP'], game['GAME_ID']))
-        return
+        return True
 
     # get game detail
     try:
@@ -155,12 +289,17 @@ def back_fill_game_detail(game, game_record, sess, commit):
         raise e
 
     # figure out who is home and visitor
+    team_stats = game_details.get('TeamStats', [])
+    if len(team_stats) < 2:
+        logger.info("skip game detail for %s: no team stats yet", game['GAME_ID'])
+        return False
+
     home_team_stats = None
     road_team_stats = None
     home_team_id_list, road_team_id_list = get_team_id(sess, game['MATCHUP'])
     home_team_id, road_team_id = None, None
 
-    for team_status in game_details['TeamStats']:
+    for team_status in team_stats:
         if str(team_status['TEAM_ID']) in home_team_id_list:
             home_team_stats = team_status
             home_team_id = str(team_status['TEAM_ID'])
@@ -179,6 +318,10 @@ def back_fill_game_detail(game, game_record, sess, commit):
     game_record.home_team_score = home_team_stats['PTS']
     game_record.road_team_score = road_team_stats['PTS']
     game_record.wining_team_id = home_team_id if home_team_stats['PTS'] > road_team_stats['PTS'] else road_team_id
+
+    # Ensure parent Game row exists before inserting child stats rows.
+    sess.add(game_record)
+    sess.flush()
 
     # Store stats for home and visitor team
     create_team_game_stats(sess, game['GAME_ID'], home_team_stats, False,
@@ -199,6 +342,8 @@ def back_fill_game_detail(game, game_record, sess, commit):
         except Exception as e:
             logger.info(f"Failed to insert game detail for game {game['GAME_ID']}: {e}")
             sess.rollback()
+
+    return True
 
 
 if __name__ == "__main__":
