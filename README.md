@@ -71,11 +71,16 @@ python -m db.backfill_nba_games 2023-24
 Targeted backfill (day/season/team/player):
 
 ```bash
-# Warriors, 2025-26, regular + playoffs (missing games only)
+# Warriors, 2025-26, regular + playoffs
+# Default behavior: only process games not fully backfilled yet
+# (Game row + game detail + play-by-play)
 python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26
 
 # Single day
 python -m db.backfill_nba_games_targeted --day 2026-02-10
+
+# Reprocess existing games too
+python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26 --include-existing
 ```
 
 ### 5) Run metrics

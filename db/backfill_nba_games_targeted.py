@@ -10,13 +10,13 @@ Use this script when you want to backfill games for:
 - or any combination of the above
 
 Examples:
-  # 1) Backfill missing Warriors games in 2025-26 (regular + playoffs)
+  # 1) Backfill Warriors games in 2025-26 (regular + playoffs)
   python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26
 
-  # 2) Backfill missing games for one day
+  # 2) Backfill games for one day
   python -m db.backfill_nba_games_targeted --day 2026-02-10
 
-  # 3) Backfill missing games for a player in a season
+  # 3) Backfill games for a player in a season
   python -m db.backfill_nba_games_targeted --player-name "Stephen Curry" --season 2025-26
 
   # 4) Backfill a date range for one team and include PlayIn too
@@ -29,8 +29,9 @@ Examples:
       --season-type PlayIn
 
 Notes:
-- By default this script processes only games that do not already exist in `Game`.
-- Add `--include-existing` if you want to reprocess existing games as well.
+- By default this script processes games that are not fully backfilled.
+  "Fully backfilled" means `Game` + game detail + play-by-play are present.
+- Add `--include-existing` to reprocess existing games too.
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ from nba_api.stats.static import teams as teams_static
 from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_games import process_and_store_game
+from db.backfill_nba_game_detail import is_game_detail_back_filled
+from db.backfill_nba_game_pbp import is_game_pbp_back_filled
 from db.models import Game, engine
 
 logging.basicConfig(level=logging.INFO)
@@ -170,8 +173,10 @@ def parse_args():
     parser.add_argument(
         "--include-existing",
         action="store_true",
-        help="Reprocess games already existing in DB (default: process only missing games).",
+        dest="include_existing",
+        help="Reprocess all matched games (default: only games not fully backfilled).",
     )
+    parser.set_defaults(include_existing=False)
 
     args = parser.parse_args()
 
@@ -247,41 +252,88 @@ def main():
     Session = sessionmaker(bind=engine)
     success = 0
     failed = 0
-    skipped_existing = 0
+    skipped_fully_backfilled = 0
+
+    def _backfill_status(sess, game_id: str) -> tuple[bool, bool, bool]:
+        """
+        Return backfill status as:
+          (exists_game_row, has_detail, has_pbp)
+        """
+        exists_game = sess.query(Game.game_id).filter(Game.game_id == game_id).first() is not None
+        if not exists_game:
+            return False, False, False
+        try:
+            has_detail = is_game_detail_back_filled(game_id, sess)
+            has_pbp = is_game_pbp_back_filled(game_id, sess)
+            return True, has_detail, has_pbp
+        except Exception:
+            # If checks fail (e.g., transient DB issue), do not skip by default.
+            return exists_game, False, False
 
     with Session() as sess:
-        game_ids = [str(row["GAME_ID"]) for row in rows]
-        existing = {
-            gid for (gid,) in sess.query(Game.game_id).filter(Game.game_id.in_(game_ids)).all()
-        }
-
-        for row in rows:
+        total_rows = len(rows)
+        for idx, row in enumerate(rows, start=1):
             gid = str(row["GAME_ID"])
-            if not args.include_existing and gid in existing:
-                skipped_existing += 1
+            exists_game, has_detail, has_pbp = _backfill_status(sess, gid)
+            missing_parts = []
+            if not exists_game:
+                missing_parts.append("Game")
+            if not has_detail:
+                missing_parts.append("detail")
+            if not has_pbp:
+                missing_parts.append("PBP")
+
+            logger.info(
+                "[%s/%s] game_id=%s date=%s season_id=%s matchup=%s status(game=%s,detail=%s,pbp=%s) missing=%s",
+                idx,
+                total_rows,
+                gid,
+                row.get("GAME_DATE", ""),
+                row.get("SEASON_ID", ""),
+                row.get("MATCHUP", ""),
+                exists_game,
+                has_detail,
+                has_pbp,
+                ",".join(missing_parts) if missing_parts else "-",
+            )
+
+            if not args.include_existing and exists_game and has_detail and has_pbp:
+                skipped_fully_backfilled += 1
+                logger.info("[%s/%s] skip game_id=%s reason=fully_backfilled", idx, total_rows, gid)
                 continue
 
             try:
+                logger.info("[%s/%s] backfill game_id=%s start", idx, total_rows, gid)
                 process_and_store_game(sess, row)
                 rec = sess.query(Game.game_id).filter(Game.game_id == gid).first()
                 if rec is not None:
                     success += 1
+                    exists_game_after, has_detail_after, has_pbp_after = _backfill_status(sess, gid)
+                    logger.info(
+                        "[%s/%s] backfill game_id=%s done status_after(game=%s,detail=%s,pbp=%s)",
+                        idx,
+                        total_rows,
+                        gid,
+                        exists_game_after,
+                        has_detail_after,
+                        has_pbp_after,
+                    )
                 else:
                     failed += 1
+                    logger.info("[%s/%s] backfill game_id=%s failed reason=game_row_missing_after_run", idx, total_rows, gid)
             except Exception as exc:
                 failed += 1
                 sess.rollback()
-                logger.info("failed game_id=%s err=%s", gid, exc)
+                logger.info("[%s/%s] backfill game_id=%s failed err=%s", idx, total_rows, gid, exc)
 
     logger.info(
-        "done total_candidates=%s processed_ok=%s failed=%s skipped_existing=%s",
+        "done total_candidates=%s processed_ok=%s failed=%s skipped_fully_backfilled=%s",
         len(rows),
         success,
         failed,
-        skipped_existing,
+        skipped_fully_backfilled,
     )
 
 
 if __name__ == "__main__":
     main()
-
