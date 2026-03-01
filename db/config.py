@@ -1,6 +1,6 @@
 import os
 
-DEFAULT_DB_URL = "mysql+pymysql://root:xixihaha@localhost/nba_data"
+DEFAULT_DB_URL = "mysql+pymysql://root@localhost/nba_data"
 
 
 def get_database_url() -> str:

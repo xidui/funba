@@ -68,6 +68,16 @@ python -m db.backfill_nba_player
 python -m db.backfill_nba_games 2023-24
 ```
 
+Targeted backfill (day/season/team/player):
+
+```bash
+# Warriors, 2025-26, regular + playoffs (missing games only)
+python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26
+
+# Single day
+python -m db.backfill_nba_games_targeted --day 2026-02-10
+```
+
 ### 5) Run metrics
 
 ```bash
@@ -75,6 +85,17 @@ python -m metrics.shot_pct_after_made
 python -m metrics.shot_pct_after_miss
 python -m metrics.pity_loss
 ```
+
+### 6) Run web pages
+
+```bash
+python -m web.app
+```
+
+Open `http://127.0.0.1:5000` and browse:
+- Player page: `/players/<player_id>` (includes season switch + per-game status table)
+- Team page: `/teams/<team_id>` (season win/loss table + current season game status table)
+- Game page: `/games/<game_id>` (detailed game/team/player stats)
 
 ## Immediate fixes applied in this revival pass
 

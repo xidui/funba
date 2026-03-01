@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>NBA Data Browser</h1>
+  <p class="meta">Browse players, teams, and games from your database.</p>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Players</h2>
+    <ul class="list">
+      {% for player in players %}
+      <li>
+        <a href="{{ url_for('player_page', player_id=player.player_id) }}">{{ player.full_name }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Teams</h2>
+    <ul class="list">
+      {% for team in teams %}
+      <li>
+        <a href="{{ url_for('team_page', team_id=team.team_id) }}">{{ team.full_name }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent Games</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Season</th>
+        <th>Matchup</th>
+        <th>Score</th>
+        <th>Game</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for game in recent_games %}
+      <tr>
+        <td class="nowrap">{{ fmt_date(game.game_date) }}</td>
+        <td>{{ season_label(game.season) }}</td>
+        <td>{{ team_name(team_lookup, game.road_team_id) }} @ {{ team_name(team_lookup, game.home_team_id) }}</td>
+        <td>
+          {{ game.road_team_score if game.road_team_score is not none else "-" }} -
+          {{ game.home_team_score if game.home_team_score is not none else "-" }}
+        </td>
+        <td><a href="{{ url_for('game_page', game_id=game.game_id) }}">{{ game.game_id }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

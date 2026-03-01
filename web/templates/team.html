@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>{{ team.full_name }}</h1>
+  <p class="meta">
+    Team ID: {{ team.team_id }} |
+    Active: {{ "Yes" if team.active else "No" }} |
+    Founded: {{ team.year_founded or "-" }} |
+    City: {{ team.city or "-" }}
+  </p>
+</div>
+
+<div class="card">
+  <h2>Season Win/Loss</h2>
+  {% if season_summary %}
+  <table>
+    <thead>
+      <tr>
+        <th>Season</th>
+        <th>Wins</th>
+        <th>Losses</th>
+        <th>Total Games</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in season_summary %}
+      <tr>
+        <td>{{ season_label(row.season) }}</td>
+        <td>{{ row.wins }}</td>
+        <td>{{ row.losses }}</td>
+        <td>{{ row.games }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No season records found.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Current Season Games {% if current_season %}({{ season_label(current_season) }}){% endif %}</h2>
+  {% if current_games %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Opponent</th>
+        <th>Home/Away</th>
+        <th>Result</th>
+        <th>Score</th>
+        <th>Status</th>
+        <th>Game</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in current_games %}
+      <tr>
+        <td class="nowrap">{{ row.game_date }}</td>
+        <td><a href="{{ url_for('team_page', team_id=row.opponent_id) }}">{{ row.opponent_name }}</a></td>
+        <td>{{ row.where }}</td>
+        <td>{{ row.result }}</td>
+        <td>{{ row.score }}</td>
+        <td>{{ row.status }}</td>
+        <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">{{ row.game_id }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No games found in the latest season.</p>
+  {% endif %}
+</div>
+{% endblock %}
+

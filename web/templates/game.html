@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Game {{ game.game_id }}</h1>
+  <p class="meta">
+    Date: {{ fmt_date(game.game_date) }} |
+    Season: {{ season_label(game.season) }}
+  </p>
+  <p>
+    <a href="{{ url_for('team_page', team_id=game.road_team_id) }}">{{ team_name(game.road_team_id) }}</a>
+    @
+    <a href="{{ url_for('team_page', team_id=game.home_team_id) }}">{{ team_name(game.home_team_id) }}</a>
+  </p>
+  <p class="meta">
+    Final Score: {{ game.road_team_score if game.road_team_score is not none else "-" }}
+    -
+    {{ game.home_team_score if game.home_team_score is not none else "-" }}
+  </p>
+</div>
+
+<div class="card">
+  <h2>Team Stats</h2>
+  {% if team_stats %}
+  <table>
+    <thead>
+      <tr>
+        <th>Team</th>
+        <th>W/L</th>
+        <th>PTS</th>
+        <th>REB</th>
+        <th>AST</th>
+        <th>FG%</th>
+        <th>3P%</th>
+        <th>FT%</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in team_stats %}
+      <tr>
+        <td><a href="{{ url_for('team_page', team_id=row.team_id) }}">{{ team_name(row.team_id) }}</a></td>
+        <td>
+          {% if row.win is none %}
+          -
+          {% elif row.win %}
+          W
+          {% else %}
+          L
+          {% endif %}
+        </td>
+        <td>{{ row.pts if row.pts is not none else "-" }}</td>
+        <td>{{ row.reb if row.reb is not none else "-" }}</td>
+        <td>{{ row.ast if row.ast is not none else "-" }}</td>
+        <td>{{ row.fg_pct if row.fg_pct is not none else "-" }}</td>
+        <td>{{ row.fg3_pct if row.fg3_pct is not none else "-" }}</td>
+        <td>{{ row.ft_pct if row.ft_pct is not none else "-" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No team stats found for this game.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Player Stats</h2>
+  {% for team_id in ordered_team_ids %}
+  {% set players = players_by_team.get(team_id, []) %}
+  <h3>{{ team_name(team_id) }}</h3>
+  {% if players %}
+  <table>
+    <thead>
+      <tr>
+        <th>Player</th>
+        <th>Status</th>
+        <th>Min</th>
+        <th>PTS</th>
+        <th>REB</th>
+        <th>AST</th>
+        <th>+/-</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in players %}
+      <tr>
+        <td><a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a></td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.minutes }}</td>
+        <td>{{ row.pts }}</td>
+        <td>{{ row.reb }}</td>
+        <td>{{ row.ast }}</td>
+        <td>{{ row.plus_minus }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No player stats found for this team in this game.</p>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

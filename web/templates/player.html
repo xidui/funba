@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>{{ player.full_name }}</h1>
+  <p class="meta">
+    Player ID: {{ player.player_id }} |
+    Active: {{ "Yes" if player.is_active else "No" }}
+  </p>
+</div>
+
+<div class="card">
+  <h2>Season Games</h2>
+  {% if season_options %}
+  <label for="season-picker">Season:</label>
+  <select
+    id="season-picker"
+    onchange="window.location.href='{{ url_for('player_page', player_id=player.player_id) }}?season=' + this.value"
+  >
+    {% for season in season_options %}
+    <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>
+      {{ season_label(season) }}
+    </option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <p class="meta">No game stats found for this player.</p>
+  {% endif %}
+
+  {% if game_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Matchup</th>
+        <th>Result</th>
+        <th>Status</th>
+        <th>Min</th>
+        <th>PTS</th>
+        <th>REB</th>
+        <th>AST</th>
+        <th>Game</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in game_rows %}
+      <tr>
+        <td class="nowrap">{{ row.game_date }}</td>
+        <td>{{ row.matchup }}</td>
+        <td>{{ row.result }}</td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.minutes }}</td>
+        <td>{{ row.pts }}</td>
+        <td>{{ row.reb }}</td>
+        <td>{{ row.ast }}</td>
+        <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">{{ row.game_id }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}
