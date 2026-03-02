@@ -4,11 +4,12 @@ from collections import defaultdict
 from datetime import date
 import os
 
-from flask import Flask, abort, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import case, func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, Player, PlayerGameStats, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
 SessionLocal = sessionmaker(bind=engine)
@@ -60,6 +61,10 @@ def _fmt_date(d: date | None) -> str:
     return d.isoformat()
 
 
+def _pbp_text(play: GamePlayByPlay) -> str:
+    return (play.home_description or play.visitor_description or play.neutral_description or "").strip()
+
+
 def _season_label(season_id: str | None) -> str:
     if not season_id:
         return "-"
@@ -85,6 +90,37 @@ def _season_label(season_id: str | None) -> str:
             return s
 
     return s
+
+
+def _season_sort_key(season_id: str | None) -> tuple[int, int]:
+    """
+    Sort seasons by actual year first, then type priority.
+    Higher tuple means newer/preferred.
+    """
+    if not season_id:
+        return (-1, -1)
+    s = str(season_id).strip()
+    if len(s) == 5 and s.isdigit():
+        year = int(s[1:])
+        # Prefer regular season view for "current" when same year exists.
+        type_priority = {
+            "2": 5,  # Regular Season
+            "5": 4,  # PlayIn
+            "4": 3,  # Playoffs
+            "1": 2,  # Pre Season
+            "3": 1,  # All Star
+        }.get(s[0], 0)
+        return (year, type_priority)
+    return (-1, -1)
+
+
+def _pick_current_season(season_ids: list[str]) -> str | None:
+    if not season_ids:
+        return None
+    regular = [s for s in season_ids if str(s).startswith("2")]
+    if regular:
+        return max(regular, key=_season_sort_key)
+    return max(season_ids, key=_season_sort_key)
 
 
 @app.context_processor
@@ -131,13 +167,12 @@ def player_page(player_id: str):
             .join(PlayerGameStats, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id == player_id, Game.season.isnot(None))
             .distinct()
-            .order_by(Game.season.desc())
             .all()
         )
-        season_options = [row[0] for row in seasons]
+        season_options = sorted([row[0] for row in seasons], key=_season_sort_key, reverse=True)
         selected_season = request.args.get("season")
         if selected_season not in season_options:
-            selected_season = season_options[0] if season_options else None
+            selected_season = _pick_current_season(season_options)
 
         game_rows = []
         teams = _team_map(session)
@@ -215,16 +250,31 @@ def team_page(team_id: str):
             }
             for row in season_summary_rows
         ]
+        season_summary.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
 
-        current_season = season_summary[0]["season"] if season_summary else None
+        season_kind = request.args.get("season_kind", "regular")
+        if season_kind not in {"regular", "playoffs"}:
+            season_kind = "regular"
+
+        if season_kind == "regular":
+            season_summary_view = [row for row in season_summary if str(row["season"]).startswith("2")]
+        else:
+            season_summary_view = [row for row in season_summary if str(row["season"]).startswith("4")]
+
+        current_season = _pick_current_season([row["season"] for row in season_summary])
+        season_options = [row["season"] for row in season_summary]
+        selected_games_season = request.args.get("games_season")
+        if selected_games_season not in season_options:
+            selected_games_season = current_season
+
         teams = _team_map(session)
         current_games = []
 
-        if current_season is not None:
+        if selected_games_season is not None:
             rows = (
                 session.query(TeamGameStats, Game)
                 .join(Game, TeamGameStats.game_id == Game.game_id)
-                .filter(TeamGameStats.team_id == team_id, Game.season == current_season)
+                .filter(TeamGameStats.team_id == team_id, Game.season == selected_games_season)
                 .order_by(Game.game_date.desc(), Game.game_id.desc())
                 .all()
             )
@@ -272,8 +322,11 @@ def team_page(team_id: str):
     return render_template(
         "team.html",
         team=team,
-        season_summary=season_summary,
+        season_summary=season_summary_view,
+        season_kind=season_kind,
         current_season=current_season,
+        season_options=season_options,
+        selected_games_season=selected_games_season,
         current_games=current_games,
     )
 
@@ -322,6 +375,85 @@ def game_page(game_id: str):
             if team_id not in ordered_team_ids:
                 ordered_team_ids.append(team_id)
 
+        pbp_rows_raw = (
+            session.query(GamePlayByPlay)
+            .filter(GamePlayByPlay.game_id == game_id)
+            .order_by(GamePlayByPlay.period.asc(), GamePlayByPlay.event_num.asc(), GamePlayByPlay.id.asc())
+            .all()
+        )
+        pbp_rows = [
+            {
+                "event_num": row.event_num if row.event_num is not None else "-",
+                "period": row.period if row.period is not None else "-",
+                "clock": row.pc_time or row.wc_time or "-",
+                "event_type": row.event_msg_type if row.event_msg_type is not None else "-",
+                "description": _pbp_text(row) or "-",
+                "score": row.score or "-",
+                "margin": row.score_margin or "-",
+            }
+            for row in pbp_rows_raw
+        ]
+
+        shot_rows_raw = (
+            session.query(ShotRecord)
+            .filter(ShotRecord.game_id == game_id, ShotRecord.shot_attempted.is_(True))
+            .order_by(ShotRecord.id.asc())
+            .all()
+        )
+        shot_player_ids = sorted({str(row.player_id) for row in shot_rows_raw if row.player_id})
+        shot_player_map = {}
+        if shot_player_ids:
+            shot_players = session.query(Player).filter(Player.player_id.in_(shot_player_ids)).all()
+            shot_player_map = {
+                str(player.player_id): (player.full_name or str(player.player_id))
+                for player in shot_players
+            }
+        shot_rows = []
+        shot_rows_by_team: dict[str, list[dict[str, str | int | bool]]] = defaultdict(list)
+        shot_made_count_by_team: dict[str, int] = defaultdict(int)
+        shot_miss_count_by_team: dict[str, int] = defaultdict(int)
+        made_count = 0
+        miss_count = 0
+        for row in shot_rows_raw:
+            if row.loc_x is None or row.loc_y is None:
+                continue
+            is_made = bool(row.shot_made)
+            period = int(row.period or 0)
+            if period <= 4:
+                period_label = f"Q{period}" if period > 0 else "-"
+            else:
+                period_label = f"OT{period - 4}"
+            if is_made:
+                made_count += 1
+            else:
+                miss_count += 1
+            shot = {
+                "x": row.loc_x,
+                "y": row.loc_y,
+                "made": is_made,
+                "period": period,
+                "period_label": period_label,
+                "clock": _fmt_minutes(row.min, row.sec),
+                "team_id": row.team_id,
+                "team_name": _team_name(teams, row.team_id),
+                "player_id": row.player_id,
+                "player_name": shot_player_map.get(str(row.player_id), str(row.player_id or "-")),
+                "shot_type": row.shot_type or "-",
+                "shot_distance": row.shot_distance if row.shot_distance is not None else "-",
+            }
+            shot_rows.append(shot)
+            if row.team_id:
+                shot_rows_by_team[row.team_id].append(shot)
+                if is_made:
+                    shot_made_count_by_team[row.team_id] += 1
+                else:
+                    shot_miss_count_by_team[row.team_id] += 1
+
+        shot_chart_team_ids = [tid for tid in [game.road_team_id, game.home_team_id] if tid]
+        for team_id in shot_rows_by_team:
+            if team_id not in shot_chart_team_ids:
+                shot_chart_team_ids.append(team_id)
+
     return render_template(
         "game.html",
         game=game,
@@ -331,7 +463,49 @@ def game_page(game_id: str):
         team_stats=team_stats,
         players_by_team=players_by_team,
         ordered_team_ids=ordered_team_ids,
+        pbp_rows=pbp_rows,
+        shot_rows=shot_rows,
+        shot_rows_by_team=shot_rows_by_team,
+        shot_chart_team_ids=shot_chart_team_ids,
+        shot_made_count=made_count,
+        shot_miss_count=miss_count,
+        shot_made_count_by_team=shot_made_count_by_team,
+        shot_miss_count_by_team=shot_miss_count_by_team,
+        shot_backfill_status=request.args.get("shot_backfill"),
+        shot_backfill_count=request.args.get("shot_count"),
     )
+
+
+@app.post("/games/<game_id>/shotchart/backfill")
+def game_shotchart_backfill(game_id: str):
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            abort(404, description=f"Game {game_id} not found")
+
+        try:
+            count = back_fill_game_shot_record_from_api(session, game_id, commit=True, replace_existing=False)
+            return redirect(url_for("game_page", game_id=game_id, shot_backfill="ok", shot_count=count))
+        except Exception:
+            session.rollback()
+            app.logger.exception("manual shotchart backfill failed for game_id=%s", game_id)
+            return redirect(url_for("game_page", game_id=game_id, shot_backfill="error"))
+
+
+@app.post("/api/games/<game_id>/shotchart/backfill")
+def game_shotchart_backfill_api(game_id: str):
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            return jsonify({"ok": False, "error": f"Game {game_id} not found"}), 404
+
+        try:
+            count = back_fill_game_shot_record_from_api(session, game_id, commit=True, replace_existing=False)
+            return jsonify({"ok": True, "game_id": game_id, "shot_count": int(count)})
+        except Exception as exc:
+            session.rollback()
+            app.logger.exception("manual shotchart backfill failed for game_id=%s", game_id)
+            return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 if __name__ == "__main__":
