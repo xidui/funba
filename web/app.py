@@ -155,6 +155,25 @@ def home():
     )
 
 
+@app.route("/api/players/hints")
+def player_hints_api():
+    query = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 12))
+    except ValueError:
+        limit = 12
+    limit = max(1, min(limit, 30))
+
+    with SessionLocal() as session:
+        q = session.query(Player).filter(Player.full_name.isnot(None))
+        if query:
+            q = q.filter(Player.full_name.ilike(f"%{query}%"))
+        players = q.order_by(Player.is_active.desc(), Player.full_name.asc()).limit(limit).all()
+
+    items = [{"player_id": p.player_id, "full_name": p.full_name} for p in players if p.player_id and p.full_name]
+    return jsonify({"items": items})
+
+
 @app.route("/players/<player_id>")
 def player_page(player_id: str):
     with SessionLocal() as session:

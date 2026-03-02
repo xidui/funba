@@ -1,5 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .player-search {
+    display: flex;
+    gap: 8px;
+    margin: 4px 0 12px;
+  }
+
+  .player-search input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 11px;
+    font-size: 14px;
+    color: var(--ink);
+    background: #fff;
+  }
+
+  .player-search input:focus {
+    outline: 2px solid var(--ring);
+    border-color: var(--accent);
+  }
+
+  .player-search button {
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 9px 13px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .player-search button:hover {
+    filter: brightness(0.95);
+  }
+</style>
 <div class="card">
   <h1>NBA Data Browser</h1>
   <p class="meta">Browse players, teams, and games from your database.</p>
@@ -8,6 +46,12 @@
 <div class="grid-2">
   <div class="card">
     <h2>Players</h2>
+    <div class="player-search">
+      <input id="player-search-input" list="player-search-hints" type="search" placeholder="Search player name..." autocomplete="off" />
+      <datalist id="player-search-hints"></datalist>
+      <button id="player-search-open" type="button">Open</button>
+    </div>
+    <p class="meta">Type a name and choose a suggestion to jump to profile.</p>
     <ul class="list">
       {% for player in players %}
       <li>
@@ -57,4 +101,83 @@
     </tbody>
   </table>
 </div>
+<script>
+(() => {
+  const input = document.getElementById("player-search-input");
+  const hints = document.getElementById("player-search-hints");
+  const openBtn = document.getElementById("player-search-open");
+  if (!input || !hints || !openBtn) return;
+
+  const valueToPlayerId = new Map();
+  let timer = null;
+  let controller = null;
+  const baseProfileUrl = "{{ url_for('player_page', player_id='__PLAYER_ID__') }}";
+  const hintsApiUrl = "{{ url_for('player_hints_api') }}";
+
+  function navigateToPlayer() {
+    const value = (input.value || "").trim();
+    if (!value) return;
+    let playerId = valueToPlayerId.get(value);
+    if (!playerId) {
+      const matched = value.match(/\(([^)]+)\)\s*$/);
+      if (matched) {
+        playerId = matched[1];
+      }
+    }
+    if (!playerId) return;
+    window.location.href = baseProfileUrl.replace("__PLAYER_ID__", playerId);
+  }
+
+  async function loadHints(query) {
+    if (controller) {
+      controller.abort();
+    }
+    controller = new AbortController();
+
+    const url = new URL(hintsApiUrl, window.location.origin);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", "12");
+
+    let payload = { items: [] };
+    try {
+      const response = await fetch(url.toString(), { signal: controller.signal });
+      if (!response.ok) return;
+      payload = await response.json();
+    } catch (error) {
+      return;
+    }
+
+    valueToPlayerId.clear();
+    hints.innerHTML = "";
+    for (const item of payload.items || []) {
+      const label = `${item.full_name} (${item.player_id})`;
+      if (!valueToPlayerId.has(item.full_name)) {
+        valueToPlayerId.set(item.full_name, item.player_id);
+      }
+      valueToPlayerId.set(label, item.player_id);
+      const option = document.createElement("option");
+      option.value = label;
+      hints.appendChild(option);
+    }
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      loadHints((input.value || "").trim());
+    }, 180);
+  });
+
+  input.addEventListener("change", navigateToPlayer);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      navigateToPlayer();
+    }
+  });
+  openBtn.addEventListener("click", navigateToPlayer);
+
+  loadHints("");
+})();
+</script>
 {% endblock %}
