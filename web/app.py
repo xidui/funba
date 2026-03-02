@@ -129,6 +129,176 @@ def _pct_text(made: int, attempted: int) -> str:
     return f"{(made / attempted):.3f}"
 
 
+SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
+    {
+        "key": "left_corner_3",
+        "label": "Left Corner 3",
+        "x": -235.0,
+        "y": 24.0,
+        "path_d": "M -250 -47.5 L -220 -47.5 L -220 92.5 L -250 92.5 Z",
+    },
+    {
+        "key": "right_corner_3",
+        "label": "Right Corner 3",
+        "x": 235.0,
+        "y": 24.0,
+        "path_d": "M 220 -47.5 L 250 -47.5 L 250 92.5 L 220 92.5 Z",
+    },
+    {
+        "key": "left_above_break_3",
+        "label": "Left Above Break 3",
+        "x": -172.0,
+        "y": 277.0,
+        "path_d": "M -250 92.5 L -220 92.5 L -208 188 L -150 232 L -82 252 L -110 320 L -250 320 Z",
+    },
+    {
+        "key": "center_above_break_3",
+        "label": "Center Above Break 3",
+        "x": 0.0,
+        "y": 290.0,
+        "path_d": "M -110 320 L -82 252 L 82 252 L 110 320 Z",
+    },
+    {
+        "key": "right_above_break_3",
+        "label": "Right Above Break 3",
+        "x": 172.0,
+        "y": 277.0,
+        "path_d": "M 220 92.5 L 250 92.5 L 250 320 L 110 320 L 82 252 L 150 232 L 208 188 Z",
+    },
+    {
+        "key": "left_mid_range",
+        "label": "Left Mid-Range",
+        "x": -150.0,
+        "y": 145.0,
+        "path_d": "M -220 -47.5 L -80 -47.5 L -80 142.5 L -150 232 L -208 188 L -220 92.5 Z",
+    },
+    {
+        "key": "center_mid_range",
+        "label": "Center Mid-Range",
+        "x": 0.0,
+        "y": 200.0,
+        "path_d": "M -150 232 L -80 142.5 L 80 142.5 L 150 232 L 82 252 L -82 252 Z",
+    },
+    {
+        "key": "right_mid_range",
+        "label": "Right Mid-Range",
+        "x": 150.0,
+        "y": 145.0,
+        "path_d": "M 80 -47.5 L 220 -47.5 L 220 92.5 L 208 188 L 150 232 L 80 142.5 Z",
+    },
+    {
+        "key": "paint_non_ra",
+        "label": "Paint (Non-RA)",
+        "x": 0.0,
+        "y": 104.0,
+        "path_d": "M -80 -47.5 L -80 142.5 L 80 142.5 L 80 -47.5 Z",
+    },
+    {
+        "key": "restricted_area",
+        "label": "Restricted Area",
+        "x": 0.0,
+        "y": 14.0,
+        "path_d": "M -40 -47.5 L -40 0 A 40 40 0 0 0 40 0 L 40 -47.5 Z",
+    },
+    {
+        "key": "backcourt",
+        "label": "Backcourt",
+        "x": 0.0,
+        "y": 372.0,
+        "path_d": "M -250 320 L 250 320 L 250 422.5 L -250 422.5 Z",
+    },
+]
+SHOT_ZONE_META = {str(row["key"]): row for row in SHOT_ZONE_LAYOUT}
+
+
+def _shot_zone_key(zone_basic: str | None, zone_area: str | None) -> str | None:
+    basic = (zone_basic or "").strip().lower()
+    area = (zone_area or "").strip().lower()
+
+    if not basic:
+        return None
+    if basic == "restricted area":
+        return "restricted_area"
+    if basic == "in the paint (non-ra)":
+        return "paint_non_ra"
+    if basic == "left corner 3":
+        return "left_corner_3"
+    if basic == "right corner 3":
+        return "right_corner_3"
+    if basic == "backcourt":
+        return "backcourt"
+
+    if "left" in area:
+        side = "left"
+    elif "right" in area:
+        side = "right"
+    else:
+        side = "center"
+
+    if basic == "above the break 3":
+        return f"{side}_above_break_3"
+    if basic == "mid-range":
+        return f"{side}_mid_range"
+    return None
+
+
+def _build_shot_zone_heatmap(
+    shot_rows: list[tuple[str | None, str | None, bool | int | None]],
+) -> tuple[list[dict[str, float | int | str]], int, int]:
+    buckets: dict[str, dict[str, float | int | str]] = {}
+    attempts_total = 0
+    made_total = 0
+
+    for zone_basic, zone_area, raw_made in shot_rows:
+        key = _shot_zone_key(zone_basic, zone_area)
+        if key is None or key not in SHOT_ZONE_META:
+            continue
+        zone_meta = SHOT_ZONE_META[key]
+        if key not in buckets:
+            buckets[key] = {
+                "zone_key": key,
+                "zone_label": str(zone_meta["label"]),
+                "x": float(zone_meta["x"]),
+                "y": float(zone_meta["y"]),
+                "path_d": str(zone_meta["path_d"]),
+                "attempts": 0,
+                "made": 0,
+            }
+        buckets[key]["attempts"] = int(buckets[key]["attempts"]) + 1
+        if bool(raw_made):
+            buckets[key]["made"] = int(buckets[key]["made"]) + 1
+            made_total += 1
+        attempts_total += 1
+
+    max_attempts = max((int(b["attempts"]) for b in buckets.values()), default=0)
+    zones: list[dict[str, float | int | str]] = []
+    for zone in SHOT_ZONE_LAYOUT:
+        key = str(zone["key"])
+        b = buckets.get(key, {})
+        attempts = int(b.get("attempts", 0))
+        made = int(b.get("made", 0))
+        density = (attempts / max_attempts) if max_attempts > 0 else 0.0
+        hue = int(210 - (210 * density))  # blue -> red based on attempt density
+        lightness = int(88 - (38 * density))
+        alpha = round(0.08 + (0.72 * density), 3) if attempts > 0 else 0.035
+        zones.append(
+            {
+                "zone_key": key,
+                "zone_label": str(zone["label"]),
+                "x": float(zone["x"]),
+                "y": float(zone["y"]),
+                "path_d": str(zone["path_d"]),
+                "attempts": attempts,
+                "made": made,
+                "fg_pct": _pct_text(made, attempts),
+                "color": f"hsl({hue} 86% {lightness}%)",
+                "alpha": alpha,
+            }
+        )
+
+    return zones, attempts_total, made_total
+
+
 @app.context_processor
 def inject_template_helpers():
     return {
@@ -295,6 +465,39 @@ def player_page(player_id: str):
         )
         career_overall = _to_summary(overall_row)
 
+        heatmap_season_rows = (
+            session.query(Game.season)
+            .join(ShotRecord, ShotRecord.game_id == Game.game_id)
+            .filter(
+                ShotRecord.player_id == player_id,
+                Game.season.like(f"{season_prefix}%"),
+                ShotRecord.shot_zone_basic.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        heatmap_season_options = sorted([row[0] for row in heatmap_season_rows], key=_season_sort_key, reverse=True)
+        selected_heatmap_season = request.args.get("heatmap_season", "overall")
+        if selected_heatmap_season != "overall" and selected_heatmap_season not in heatmap_season_options:
+            selected_heatmap_season = "overall"
+
+        heatmap_query = (
+            session.query(ShotRecord.shot_zone_basic, ShotRecord.shot_zone_area, ShotRecord.shot_made)
+            .join(Game, ShotRecord.game_id == Game.game_id)
+            .filter(
+                ShotRecord.player_id == player_id,
+                Game.season.like(f"{season_prefix}%"),
+                ShotRecord.shot_zone_basic.isnot(None),
+            )
+        )
+        if selected_heatmap_season != "overall":
+            heatmap_query = heatmap_query.filter(Game.season == selected_heatmap_season)
+
+        heatmap_zones, heatmap_attempts, heatmap_made = _build_shot_zone_heatmap(heatmap_query.all())
+        heatmap_scope_label = (
+            f"Overall {career_kind_label}" if selected_heatmap_season == "overall" else _season_label(selected_heatmap_season)
+        )
+
         seasons = (
             session.query(Game.season)
             .join(PlayerGameStats, Game.game_id == PlayerGameStats.game_id)
@@ -352,6 +555,12 @@ def player_page(player_id: str):
         career_kind_label=career_kind_label,
         career_overall=career_overall,
         career_season_rows=career_season_rows,
+        selected_heatmap_season=selected_heatmap_season,
+        heatmap_season_options=heatmap_season_options,
+        heatmap_scope_label=heatmap_scope_label,
+        heatmap_zones=heatmap_zones,
+        heatmap_attempts=heatmap_attempts,
+        heatmap_made=heatmap_made,
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,
