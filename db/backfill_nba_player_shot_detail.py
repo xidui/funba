@@ -213,8 +213,58 @@ def back_fill_game_shot_record(sess, game_id, commit=False):
         logger.info('skip game {} as it has back filled'.format(game_id))
         return
 
-    for _, player_id, team_id in get_un_back_filled_game_and_player(sess, game_id):
-        back_fill_game_player_shot_record(sess, game_id, player_id, team_id)
+    # One API call per game for both teams/all players.
+    # ShotChartDetail supports team_id=0, player_id=0 with game_id filter.
+    shots = fetch_shot_chart(0, 0, game_id).get('Shot_Chart_Detail', [])
+
+    # Group full-shot payload by (player_id, team_id) so we can fill only missing pairs.
+    shots_by_pair = defaultdict(list)
+    for shot in shots:
+        pair = (str(shot['PLAYER_ID']), str(shot['TEAM_ID']))
+        shots_by_pair[pair].append(shot)
+
+    missing_pairs = list(get_un_back_filled_game_and_player(sess, game_id))
+    for _, player_id, team_id in missing_pairs:
+        player_id = str(player_id)
+        team_id = str(team_id)
+        pair_shots = shots_by_pair.get((player_id, team_id), [])
+
+        if not pair_shots:
+            logger.warning(
+                "No shot-chart rows found for game_id=%s player_id=%s team_id=%s",
+                game_id, player_id, team_id
+            )
+            continue
+
+        # Replace partial/incomplete rows for this player-game-team to avoid duplicates
+        # and guarantee count aligns with upstream shot chart data.
+        sess.query(ShotRecord).filter(
+            ShotRecord.game_id == game_id,
+            ShotRecord.player_id == player_id,
+            ShotRecord.team_id == team_id,
+        ).delete(synchronize_session=False)
+
+        for shot in pair_shots:
+            sess.add(ShotRecord(
+                game_id=game_id,
+                team_id=team_id,
+                player_id=player_id,
+                season='TBD',
+                period=int(shot['PERIOD']),
+                min=int(shot['MINUTES_REMAINING']),
+                sec=int(shot['SECONDS_REMAINING']),
+                event_type=shot['EVENT_TYPE'],
+                action_type=shot['ACTION_TYPE'],
+                shot_type=shot['SHOT_TYPE'],
+                shot_zone_basic=shot['SHOT_ZONE_BASIC'],
+                shot_zone_area=shot['SHOT_ZONE_AREA'],
+                shot_zone_range=shot['SHOT_ZONE_RANGE'],
+                shot_distance=int(shot['SHOT_DISTANCE']),
+                loc_x=int(shot['LOC_X']),
+                loc_y=int(shot['LOC_Y']),
+                shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
+                shot_made=bool(shot['SHOT_MADE_FLAG']),
+            ))
 
     if commit:
         try:
@@ -222,6 +272,53 @@ def back_fill_game_shot_record(sess, game_id, commit=False):
         except Exception as e:
             logger.info(f"Failed to back fill shot record {game_id}, {player_id}: {e}")
             sess.rollback()
+
+
+def back_fill_game_shot_record_from_api(sess, game_id, commit=False, replace_existing=False):
+    """
+    Manual one-shot fetch for full game shot chart from nba_api.
+    This does not rely on PlayerGameStats presence and can be used from UI actions.
+    """
+    logger.info("manual backfill shot chart for game_id(%s)", game_id)
+    if sess is None:
+        sess = Session()
+
+    shots = fetch_shot_chart(0, 0, game_id).get('Shot_Chart_Detail', [])
+
+    if replace_existing:
+        sess.query(ShotRecord).filter(ShotRecord.game_id == game_id).delete(synchronize_session=False)
+
+    for shot in shots:
+        sess.add(ShotRecord(
+            game_id=game_id,
+            team_id=str(shot['TEAM_ID']),
+            player_id=str(shot['PLAYER_ID']),
+            season='TBD',
+            period=int(shot['PERIOD']),
+            min=int(shot['MINUTES_REMAINING']),
+            sec=int(shot['SECONDS_REMAINING']),
+            event_type=shot['EVENT_TYPE'],
+            action_type=shot['ACTION_TYPE'],
+            shot_type=shot['SHOT_TYPE'],
+            shot_zone_basic=shot['SHOT_ZONE_BASIC'],
+            shot_zone_area=shot['SHOT_ZONE_AREA'],
+            shot_zone_range=shot['SHOT_ZONE_RANGE'],
+            shot_distance=int(shot['SHOT_DISTANCE']),
+            loc_x=int(shot['LOC_X']),
+            loc_y=int(shot['LOC_Y']),
+            shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
+            shot_made=bool(shot['SHOT_MADE_FLAG']),
+        ))
+
+    if commit:
+        try:
+            sess.commit()
+        except Exception as e:
+            logger.info(f"Failed manual shot chart backfill for {game_id}: {e}")
+            sess.rollback()
+            raise
+
+    return len(shots)
 
 
 if __name__ == "__main__":

@@ -30,28 +30,99 @@ Examples:
 
 Notes:
 - By default this script processes games that are not fully backfilled.
-  "Fully backfilled" means `Game` + game detail + play-by-play are present.
+  "Fully backfilled" means `Game` + game detail + play-by-play + shot detail are present.
 - Add `--include-existing` to reprocess existing games too.
+- Add `--without-shot-detail` to skip shot-detail backfill.
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import logging
+from datetime import datetime
 from typing import Iterable
 
 from nba_api.stats.endpoints import leaguegamefinder
 from nba_api.stats.static import players as players_static
 from nba_api.stats.static import teams as teams_static
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_games import process_and_store_game
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.models import Game, engine
+from db.backfill_nba_player_shot_detail import (
+    back_fill_game_shot_record,
+    get_un_back_filled_game_and_player,
+    is_game_shot_back_filled,
+)
+from db.models import Game, PlayerGameStats, ShotRecord, engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+DEFAULT_WORKERS = 3
+
+
+def _build_shot_mismatch_note(sess, game_id: str) -> str:
+    expected = int(
+        sess.query(func.coalesce(func.sum(PlayerGameStats.fga), 0))
+        .filter(PlayerGameStats.game_id == game_id)
+        .scalar()
+        or 0
+    )
+    actual = int(
+        sess.query(func.count(ShotRecord.id))
+        .filter(ShotRecord.game_id == game_id)
+        .scalar()
+        or 0
+    )
+    missing = max(expected - actual, 0)
+
+    missing_pairs = list(get_un_back_filled_game_and_player(sess, game_id, None))
+    pair_labels = [f"{str(player_id)}@{str(team_id)}" for _, player_id, team_id in missing_pairs[:8]]
+    if len(missing_pairs) > 8:
+        pair_labels.append(f"...+{len(missing_pairs) - 8}")
+    pairs_text = "|".join(pair_labels) if pair_labels else "-"
+
+    return (
+        "SHOT_FGA_GAP "
+        f"expected={expected} actual={actual} missing={missing} "
+        f"missing_pairs={pairs_text}"
+    )
+
+
+def _set_game_mismatch(sess, game_id: str, note: str) -> bool:
+    game = sess.query(Game).filter(Game.game_id == game_id).first()
+    if not game:
+        return False
+
+    changed = (
+        game.backfill_mismatch is not True
+        or (game.backfill_mismatch_note or "") != note
+    )
+    if not changed:
+        return False
+
+    game.backfill_mismatch = True
+    game.backfill_mismatch_note = note
+    game.backfill_mismatch_updated_at = datetime.now()
+    return True
+
+
+def _clear_game_mismatch(sess, game_id: str) -> bool:
+    game = sess.query(Game).filter(Game.game_id == game_id).first()
+    if not game:
+        return False
+
+    changed = bool(game.backfill_mismatch or game.backfill_mismatch_note)
+    if not changed:
+        return False
+
+    game.backfill_mismatch = False
+    game.backfill_mismatch_note = None
+    game.backfill_mismatch_updated_at = datetime.now()
+    return True
 
 
 def _normalize_season_type(value: str) -> str:
@@ -177,6 +248,17 @@ def parse_args():
         help="Reprocess all matched games (default: only games not fully backfilled).",
     )
     parser.set_defaults(include_existing=False)
+    parser.add_argument(
+        "--without-shot-detail",
+        action="store_true",
+        help="Skip shot-detail backfill (faster but not fully complete).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"Number of worker threads (default: {DEFAULT_WORKERS}). Lower this when timeouts are frequent.",
+    )
 
     args = parser.parse_args()
 
@@ -207,6 +289,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    with_shot_detail = not args.without_shot_detail
+    workers = max(1, int(args.workers or DEFAULT_WORKERS))
 
     season_types = args.season_type or ["Regular Season", "Playoffs"]
     season_types = [_normalize_season_type(s) for s in season_types]
@@ -215,7 +299,7 @@ def main():
     player_id = _resolve_player_id(args.player_id, args.player_name)
 
     logger.info(
-        "filters season=%s day=%s date_from=%s date_to=%s game_id=%s team_id=%s player_id=%s season_types=%s include_existing=%s",
+        "filters season=%s day=%s date_from=%s date_to=%s game_id=%s team_id=%s player_id=%s season_types=%s include_existing=%s with_shot_detail=%s",
         args.season,
         args.day,
         args.date_from,
@@ -225,6 +309,7 @@ def main():
         player_id,
         season_types,
         args.include_existing,
+        with_shot_detail,
     )
 
     data_frames = []
@@ -253,28 +338,34 @@ def main():
     success = 0
     failed = 0
     skipped_fully_backfilled = 0
+    upstream_mismatch = 0
+    failed_game_ids: list[str] = []
+    mismatch_game_ids: list[str] = []
 
-    def _backfill_status(sess, game_id: str) -> tuple[bool, bool, bool]:
+    def _backfill_status(sess, game_id: str) -> tuple[bool, bool, bool, bool]:
         """
         Return backfill status as:
-          (exists_game_row, has_detail, has_pbp)
+          (exists_game_row, has_detail, has_pbp, has_shot)
         """
         exists_game = sess.query(Game.game_id).filter(Game.game_id == game_id).first() is not None
         if not exists_game:
-            return False, False, False
+            return False, False, False, False
         try:
             has_detail = is_game_detail_back_filled(game_id, sess)
             has_pbp = is_game_pbp_back_filled(game_id, sess)
-            return True, has_detail, has_pbp
+            has_shot = is_game_shot_back_filled(sess, game_id) if with_shot_detail else True
+            return True, has_detail, has_pbp, has_shot
         except Exception:
             # If checks fail (e.g., transient DB issue), do not skip by default.
-            return exists_game, False, False
+            return exists_game, False, False, False
 
-    with Session() as sess:
-        total_rows = len(rows)
-        for idx, row in enumerate(rows, start=1):
-            gid = str(row["GAME_ID"])
-            exists_game, has_detail, has_pbp = _backfill_status(sess, gid)
+    total_rows = len(rows)
+    task_rows = [(idx, row.to_dict()) for idx, row in enumerate(rows, start=1)]
+
+    def _process_one(task_idx: int, task_row: dict):
+        gid = str(task_row["GAME_ID"])
+        with Session() as sess:
+            exists_game, has_detail, has_pbp, has_shot = _backfill_status(sess, gid)
             missing_parts = []
             if not exists_game:
                 missing_parts.append("Game")
@@ -282,57 +373,138 @@ def main():
                 missing_parts.append("detail")
             if not has_pbp:
                 missing_parts.append("PBP")
+            if with_shot_detail and not has_shot:
+                missing_parts.append("shot")
 
             logger.info(
-                "[%s/%s] game_id=%s date=%s season_id=%s matchup=%s status(game=%s,detail=%s,pbp=%s) missing=%s",
-                idx,
+                "[%s/%s] game_id=%s date=%s season_id=%s matchup=%s status(game=%s,detail=%s,pbp=%s,shot=%s) missing=%s",
+                task_idx,
                 total_rows,
                 gid,
-                row.get("GAME_DATE", ""),
-                row.get("SEASON_ID", ""),
-                row.get("MATCHUP", ""),
+                task_row.get("GAME_DATE", ""),
+                task_row.get("SEASON_ID", ""),
+                task_row.get("MATCHUP", ""),
                 exists_game,
                 has_detail,
                 has_pbp,
+                has_shot,
                 ",".join(missing_parts) if missing_parts else "-",
             )
 
-            if not args.include_existing and exists_game and has_detail and has_pbp:
-                skipped_fully_backfilled += 1
-                logger.info("[%s/%s] skip game_id=%s reason=fully_backfilled", idx, total_rows, gid)
-                continue
+            fully_backfilled_before = exists_game and has_detail and has_pbp and (has_shot or not with_shot_detail)
+            if not args.include_existing and fully_backfilled_before:
+                if _clear_game_mismatch(sess, gid):
+                    sess.commit()
+                logger.info("[%s/%s] skip game_id=%s reason=fully_backfilled", task_idx, total_rows, gid)
+                return "skipped", gid
 
             try:
-                logger.info("[%s/%s] backfill game_id=%s start", idx, total_rows, gid)
-                process_and_store_game(sess, row)
+                logger.info("[%s/%s] backfill game_id=%s start", task_idx, total_rows, gid)
+                process_and_store_game(sess, task_row)
+                if with_shot_detail:
+                    # Detail/PBP refresh can change expected shot totals.
+                    # Re-check shot completeness after processing to avoid leaving shot=False.
+                    _exists_now, _detail_now, _pbp_now, has_shot_now = _backfill_status(sess, gid)
+                    if args.include_existing or not has_shot_now:
+                        back_fill_game_shot_record(sess, gid, False)
+                        sess.commit()
                 rec = sess.query(Game.game_id).filter(Game.game_id == gid).first()
                 if rec is not None:
-                    success += 1
-                    exists_game_after, has_detail_after, has_pbp_after = _backfill_status(sess, gid)
+                    exists_game_after, has_detail_after, has_pbp_after, has_shot_after = _backfill_status(sess, gid)
                     logger.info(
-                        "[%s/%s] backfill game_id=%s done status_after(game=%s,detail=%s,pbp=%s)",
-                        idx,
+                        "[%s/%s] backfill game_id=%s done status_after(game=%s,detail=%s,pbp=%s,shot=%s)",
+                        task_idx,
                         total_rows,
                         gid,
                         exists_game_after,
                         has_detail_after,
                         has_pbp_after,
+                        has_shot_after,
                     )
-                else:
-                    failed += 1
-                    logger.info("[%s/%s] backfill game_id=%s failed reason=game_row_missing_after_run", idx, total_rows, gid)
+                    fully_backfilled_after = exists_game_after and has_detail_after and has_pbp_after and (
+                        has_shot_after or not with_shot_detail
+                    )
+                    if fully_backfilled_after:
+                        if _clear_game_mismatch(sess, gid):
+                            sess.commit()
+                        return "success", gid
+
+                    missing_after = []
+                    if not exists_game_after:
+                        missing_after.append("Game")
+                    if not has_detail_after:
+                        missing_after.append("detail")
+                    if not has_pbp_after:
+                        missing_after.append("PBP")
+                    if with_shot_detail and not has_shot_after:
+                        missing_after.append("shot")
+                    logger.info(
+                        "[%s/%s] backfill game_id=%s failed reason=incomplete_after_run missing_after=%s",
+                        task_idx,
+                        total_rows,
+                        gid,
+                        ",".join(missing_after) if missing_after else "-",
+                    )
+                    if exists_game_after and has_detail_after and has_pbp_after and with_shot_detail and not has_shot_after:
+                        mismatch_note = _build_shot_mismatch_note(sess, gid)
+                        if _set_game_mismatch(sess, gid, mismatch_note):
+                            sess.commit()
+                        logger.info(
+                            "[%s/%s] backfill game_id=%s upstream_mismatch note=%s",
+                            task_idx,
+                            total_rows,
+                            gid,
+                            mismatch_note,
+                        )
+                        return "upstream_mismatch", gid
+                    return "failed", gid
+
+                logger.info(
+                    "[%s/%s] backfill game_id=%s failed reason=game_row_missing_after_run",
+                    task_idx,
+                    total_rows,
+                    gid,
+                )
+                return "failed", gid
+            except Exception as exc:
+                sess.rollback()
+                logger.info("[%s/%s] backfill game_id=%s failed err=%s", task_idx, total_rows, gid, exc)
+                return "failed", gid
+
+    logger.info("processing %s candidate games with max_workers=%s", total_rows, workers)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_process_one, idx, row_dict) for idx, row_dict in task_rows]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                result, _gid = future.result()
             except Exception as exc:
                 failed += 1
-                sess.rollback()
-                logger.info("[%s/%s] backfill game_id=%s failed err=%s", idx, total_rows, gid, exc)
+                logger.info("worker future failed err=%s", exc)
+                continue
+
+            if result == "success":
+                success += 1
+            elif result == "failed":
+                failed += 1
+                failed_game_ids.append(_gid)
+            elif result == "upstream_mismatch":
+                upstream_mismatch += 1
+                mismatch_game_ids.append(_gid)
+            else:
+                skipped_fully_backfilled += 1
 
     logger.info(
-        "done total_candidates=%s processed_ok=%s failed=%s skipped_fully_backfilled=%s",
+        "done total_candidates=%s processed_ok=%s upstream_mismatch=%s failed=%s skipped_fully_backfilled=%s",
         len(rows),
         success,
+        upstream_mismatch,
         failed,
         skipped_fully_backfilled,
     )
+    if mismatch_game_ids:
+        logger.info("upstream_mismatch_game_ids=%s", ",".join(sorted(set(mismatch_game_ids))))
+    if failed_game_ids:
+        logger.info("failed_game_ids=%s", ",".join(sorted(set(failed_game_ids))))
 
 
 if __name__ == "__main__":

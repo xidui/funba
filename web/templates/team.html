@@ -12,6 +12,14 @@
 
 <div class="card">
   <h2>Season Win/Loss</h2>
+  <label for="season-kind-picker">Type:</label>
+  <select
+    id="season-kind-picker"
+    onchange="updateTeamPageQuery('season_kind', this.value)"
+  >
+    <option value="regular" {% if season_kind == "regular" %}selected{% endif %}>Regular Season</option>
+    <option value="playoffs" {% if season_kind == "playoffs" %}selected{% endif %}>Playoffs</option>
+  </select>
   {% if season_summary %}
   <table>
     <thead>
@@ -39,7 +47,20 @@
 </div>
 
 <div class="card">
-  <h2>Current Season Games {% if current_season %}({{ season_label(current_season) }}){% endif %}</h2>
+  <h2>Season Games {% if selected_games_season %}({{ season_label(selected_games_season) }}){% endif %}</h2>
+  {% if season_options %}
+  <label for="games-season-picker">Season:</label>
+  <select
+    id="games-season-picker"
+    onchange="updateTeamPageQuery('games_season', this.value)"
+  >
+    {% for season in season_options %}
+    <option value="{{ season }}" {% if season == selected_games_season %}selected{% endif %}>
+      {{ season_label(season) }}
+    </option>
+    {% endfor %}
+  </select>
+  {% endif %}
   {% if current_games %}
   <table>
     <thead>
@@ -68,8 +89,15 @@
     </tbody>
   </table>
   {% else %}
-  <p class="meta">No games found in the latest season.</p>
+  <p class="meta">No games found for the selected season.</p>
   {% endif %}
 </div>
-{% endblock %}
 
+<script>
+  function updateTeamPageQuery(key, value) {
+    const u = new URL(window.location.href);
+    u.searchParams.set(key, value);
+    window.location.href = u.toString();
+  }
+</script>
+{% endblock %}

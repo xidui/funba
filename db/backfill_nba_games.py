@@ -1,3 +1,13 @@
+"""
+DEPRECATED: prefer `db.backfill_nba_games_targeted`.
+
+Reason:
+- Future ingestion should run as incremental daily backfill (`--day YYYY-MM-DD`)
+  instead of broad season-wide scans.
+
+This module is kept for backward compatibility and shared game-processing logic.
+"""
+
 from nba_api.stats.endpoints import leaguegamefinder
 from sqlalchemy.orm import sessionmaker
 from db.models import Game, engine
@@ -75,6 +85,10 @@ def process_and_store_season(season, sess=None):
 
 
 if __name__ == "__main__":
+    logger.warning(
+        "DEPRECATED script: db.backfill_nba_games. "
+        "Use db.backfill_nba_games_targeted (recommended daily usage: --day YYYY-MM-DD)."
+    )
     seasons = []
     if len(sys.argv) > 1:
         logger.info("Arguments received:")

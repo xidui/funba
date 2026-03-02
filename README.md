@@ -18,7 +18,7 @@ This repo was half-finished; this README reflects a revived runnable baseline.
    - Teams: `db/backfill_nba_teams.py`
    - Players: `db/backfill_nba_player.py`
 3. **Backfill game facts**
-   - Games + box score + PBP: `db/backfill_nba_games.py`
+   - Games + box score + PBP (targeted): `db/backfill_nba_games_targeted.py`
 4. **Backfill shot detail**
    - Seasonal shot detail: `db/backfill_nba_player_shot_detail.py`
 5. **Build metrics**
@@ -65,7 +65,8 @@ python -c "from db.models import init_db; init_db()"
 ```bash
 python -m db.backfill_nba_teams
 python -m db.backfill_nba_player
-python -m db.backfill_nba_games 2023-24
+# Recommended daily incremental backfill
+python -m db.backfill_nba_games_targeted --day 2026-03-01
 ```
 
 Targeted backfill (day/season/team/player):
@@ -73,7 +74,7 @@ Targeted backfill (day/season/team/player):
 ```bash
 # Warriors, 2025-26, regular + playoffs
 # Default behavior: only process games not fully backfilled yet
-# (Game row + game detail + play-by-play)
+# (Game row + game detail + play-by-play + shot detail)
 python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26
 
 # Single day
@@ -81,7 +82,13 @@ python -m db.backfill_nba_games_targeted --day 2026-02-10
 
 # Reprocess existing games too
 python -m db.backfill_nba_games_targeted --team-abbr GSW --season 2025-26 --include-existing
+
+# Skip shot-detail for a faster run
+python -m db.backfill_nba_games_targeted --day 2026-02-10 --without-shot-detail
 ```
+
+Deprecated:
+- `python -m db.backfill_nba_games ...` (kept for backward compatibility)
 
 ### 5) Run metrics
 

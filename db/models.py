@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, BLOB, Column, DATE, Float, ForeignKey, Index, Integer, String, create_engine
+from sqlalchemy import BLOB, DATE, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, create_engine
 from sqlalchemy.orm import declarative_base
 
 from db.config import get_database_url
@@ -54,6 +54,9 @@ class Game(Base):
     home_team_score = Column(Integer)
     road_team_score = Column(Integer)
     pity_loss = Column(Boolean)
+    backfill_mismatch = Column(Boolean, nullable=False, default=False)
+    backfill_mismatch_note = Column(Text)
+    backfill_mismatch_updated_at = Column(DateTime)
 
 
 class TeamGameStats(Base):

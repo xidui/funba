@@ -143,7 +143,7 @@ def get_team_id(session, matchup):
 
 @retry(
     wait=wait_exponential(multiplier=1, max=4),  # Wait 1, 2, 4 seconds
-    stop=stop_after_attempt(2),  # Retry up to 2 times
+    stop=stop_after_attempt(5),  # Retry up to 5 times
     retry=retry_if_exception_type((ConnectionError, Timeout)),  # Retry only network issues
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
