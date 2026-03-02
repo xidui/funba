@@ -1,27 +1,182 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .player-header {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+
+  .player-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: #f5f8fb;
+    object-fit: cover;
+  }
+
+  @media (max-width: 640px) {
+    .player-header {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
 <div class="card">
-  <h1>{{ player.full_name }}</h1>
-  <p class="meta">
-    Player ID: {{ player.player_id }} |
-    Active: {{ "Yes" if player.is_active else "No" }}
-  </p>
+  <div class="player-header">
+    <img
+      class="player-avatar"
+      src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png"
+      alt="{{ player.full_name }}"
+      loading="lazy"
+      onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
+    />
+    <div>
+      <h1>{{ player.full_name }}</h1>
+      <p class="meta">
+        Player ID: {{ player.player_id }} |
+        Active: {{ "Yes" if player.is_active else "No" }}
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Career Summary</h2>
+  <form method="get" class="control-row" style="margin-bottom: 8px;">
+    <label for="career-kind-picker">Type:</label>
+    <select id="career-kind-picker" name="career_kind" onchange="this.form.submit()">
+      <option value="regular" {% if selected_career_kind == "regular" %}selected{% endif %}>Regular Season</option>
+      <option value="playoffs" {% if selected_career_kind == "playoffs" %}selected{% endif %}>Playoffs</option>
+    </select>
+    {% if selected_season %}
+    <input type="hidden" name="season" value="{{ selected_season }}" />
+    {% endif %}
+  </form>
+  <p class="meta">{{ career_kind_label }} totals by season, plus overall.</p>
+
+  {% if career_season_rows %}
+  <div class="table-wrap" style="margin-top: 12px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Season</th>
+          <th>Games</th>
+          <th>Played</th>
+          <th>MIN</th>
+          <th>PTS</th>
+          <th>REB</th>
+          <th>AST</th>
+          <th>STL</th>
+          <th>BLK</th>
+          <th>TOV</th>
+          <th>FG</th>
+          <th>3PT</th>
+          <th>FT</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set s = career_overall %}
+        <tr>
+          <td>Overall</td>
+          <td>{{ s.games_tracked }}</td>
+          <td>{{ s.games_played }}</td>
+          <td>{{ s.minutes }}</td>
+          <td>{{ s.pts }}</td>
+          <td>{{ s.reb }}</td>
+          <td>{{ s.ast }}</td>
+          <td>{{ s.stl }}</td>
+          <td>{{ s.blk }}</td>
+          <td>{{ s.tov }}</td>
+          <td>{{ s.fgm }}/{{ s.fga }} ({{ s.fg_pct }})</td>
+          <td>{{ s.fg3m }}/{{ s.fg3a }} ({{ s.fg3_pct }})</td>
+          <td>{{ s.ftm }}/{{ s.fta }} ({{ s.ft_pct }})</td>
+        </tr>
+        {% for row in career_season_rows %}
+        {% set s = row.stats %}
+        <tr>
+          <td>{{ season_label(row.season) }}</td>
+          <td>{{ s.games_tracked }}</td>
+          <td>{{ s.games_played }}</td>
+          <td>{{ s.minutes }}</td>
+          <td>{{ s.pts }}</td>
+          <td>{{ s.reb }}</td>
+          <td>{{ s.ast }}</td>
+          <td>{{ s.stl }}</td>
+          <td>{{ s.blk }}</td>
+          <td>{{ s.tov }}</td>
+          <td>{{ s.fgm }}/{{ s.fga }} ({{ s.fg_pct }})</td>
+          <td>{{ s.fg3m }}/{{ s.fg3a }} ({{ s.fg3_pct }})</td>
+          <td>{{ s.ftm }}/{{ s.fta }} ({{ s.ft_pct }})</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Per Game (Played)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Season</th>
+          <th>MPG</th>
+          <th>PPG</th>
+          <th>RPG</th>
+          <th>APG</th>
+          <th>SPG</th>
+          <th>BPG</th>
+          <th>TPG</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set s = career_overall %}
+        <tr>
+          <td>Overall</td>
+          <td>{{ s.mpg }}</td>
+          <td>{{ s.ppg }}</td>
+          <td>{{ s.rpg }}</td>
+          <td>{{ s.apg }}</td>
+          <td>{{ s.spg }}</td>
+          <td>{{ s.bpg }}</td>
+          <td>{{ s.tpg }}</td>
+        </tr>
+        {% for row in career_season_rows %}
+        {% set s = row.stats %}
+        <tr>
+          <td>{{ season_label(row.season) }}</td>
+          <td>{{ s.mpg }}</td>
+          <td>{{ s.ppg }}</td>
+          <td>{{ s.rpg }}</td>
+          <td>{{ s.apg }}</td>
+          <td>{{ s.spg }}</td>
+          <td>{{ s.bpg }}</td>
+          <td>{{ s.tpg }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="meta">No {{ career_kind_label|lower }} stats found for this player.</p>
+  {% endif %}
 </div>
 
 <div class="card">
   <h2>Season Games</h2>
   {% if season_options %}
-  <label for="season-picker">Season:</label>
-  <select
-    id="season-picker"
-    onchange="window.location.href='{{ url_for('player_page', player_id=player.player_id) }}?season=' + this.value"
-  >
-    {% for season in season_options %}
-    <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>
-      {{ season_label(season) }}
-    </option>
-    {% endfor %}
-  </select>
+  <form method="get" class="control-row" style="margin-bottom: 8px;">
+    <label for="season-picker">Season:</label>
+    <select id="season-picker" name="season" onchange="this.form.submit()">
+      {% for season in season_options %}
+      <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>
+        {{ season_label(season) }}
+      </option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="career_kind" value="{{ selected_career_kind }}" />
+  </form>
   {% else %}
   <p class="meta">No game stats found for this player.</p>
   {% endif %}

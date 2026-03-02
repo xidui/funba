@@ -123,6 +123,12 @@ def _pick_current_season(season_ids: list[str]) -> str | None:
     return max(season_ids, key=_season_sort_key)
 
 
+def _pct_text(made: int, attempted: int) -> str:
+    if attempted <= 0:
+        return "-"
+    return f"{(made / attempted):.3f}"
+
+
 @app.context_processor
 def inject_template_helpers():
     return {
@@ -181,6 +187,114 @@ def player_page(player_id: str):
         if player is None:
             abort(404, description=f"Player {player_id} not found")
 
+        played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
+        selected_career_kind = request.args.get("career_kind", "regular")
+        if selected_career_kind not in {"regular", "playoffs"}:
+            selected_career_kind = "regular"
+        season_prefix = "2" if selected_career_kind == "regular" else "4"
+        career_kind_label = "Regular Season" if selected_career_kind == "regular" else "Playoffs"
+
+        def _summary_fields():
+            return [
+                func.count(PlayerGameStats.game_id).label("games_tracked"),
+                func.sum(case((played_condition, 1), else_=0)).label("games_played"),
+                func.sum(func.coalesce(PlayerGameStats.min, 0)).label("total_min"),
+                func.sum(func.coalesce(PlayerGameStats.sec, 0)).label("total_sec"),
+                func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("pts"),
+                func.sum(func.coalesce(PlayerGameStats.reb, 0)).label("reb"),
+                func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
+                func.sum(func.coalesce(PlayerGameStats.stl, 0)).label("stl"),
+                func.sum(func.coalesce(PlayerGameStats.blk, 0)).label("blk"),
+                func.sum(func.coalesce(PlayerGameStats.tov, 0)).label("tov"),
+                func.sum(func.coalesce(PlayerGameStats.fgm, 0)).label("fgm"),
+                func.sum(func.coalesce(PlayerGameStats.fga, 0)).label("fga"),
+                func.sum(func.coalesce(PlayerGameStats.fg3m, 0)).label("fg3m"),
+                func.sum(func.coalesce(PlayerGameStats.fg3a, 0)).label("fg3a"),
+                func.sum(func.coalesce(PlayerGameStats.ftm, 0)).label("ftm"),
+                func.sum(func.coalesce(PlayerGameStats.fta, 0)).label("fta"),
+            ]
+
+        def _to_summary(raw_row) -> dict[str, str | int]:
+            games_tracked = int(raw_row.games_tracked or 0)
+            games_played = int(raw_row.games_played or 0)
+            total_sec = int(raw_row.total_sec or 0)
+            total_min = int(raw_row.total_min or 0) + (total_sec // 60)
+
+            summary = {
+                "games_tracked": games_tracked,
+                "games_played": games_played,
+                "minutes": total_min,
+                "pts": int(raw_row.pts or 0),
+                "reb": int(raw_row.reb or 0),
+                "ast": int(raw_row.ast or 0),
+                "stl": int(raw_row.stl or 0),
+                "blk": int(raw_row.blk or 0),
+                "tov": int(raw_row.tov or 0),
+                "fgm": int(raw_row.fgm or 0),
+                "fga": int(raw_row.fga or 0),
+                "fg3m": int(raw_row.fg3m or 0),
+                "fg3a": int(raw_row.fg3a or 0),
+                "ftm": int(raw_row.ftm or 0),
+                "fta": int(raw_row.fta or 0),
+            }
+            summary["fg_pct"] = _pct_text(summary["fgm"], summary["fga"])
+            summary["fg3_pct"] = _pct_text(summary["fg3m"], summary["fg3a"])
+            summary["ft_pct"] = _pct_text(summary["ftm"], summary["fta"])
+
+            if games_played > 0:
+                summary["mpg"] = f"{summary['minutes'] / games_played:.1f}"
+                summary["ppg"] = f"{summary['pts'] / games_played:.1f}"
+                summary["rpg"] = f"{summary['reb'] / games_played:.1f}"
+                summary["apg"] = f"{summary['ast'] / games_played:.1f}"
+                summary["spg"] = f"{summary['stl'] / games_played:.1f}"
+                summary["bpg"] = f"{summary['blk'] / games_played:.1f}"
+                summary["tpg"] = f"{summary['tov'] / games_played:.1f}"
+            else:
+                summary["mpg"] = "-"
+                summary["ppg"] = "-"
+                summary["rpg"] = "-"
+                summary["apg"] = "-"
+                summary["spg"] = "-"
+                summary["bpg"] = "-"
+                summary["tpg"] = "-"
+            return summary
+
+        season_rows_raw = (
+            session.query(
+                Game.season.label("season"),
+                *_summary_fields(),
+            )
+            .join(Game, PlayerGameStats.game_id == Game.game_id)
+            .filter(
+                PlayerGameStats.player_id == player_id,
+                Game.season.like(f"{season_prefix}%"),
+            )
+            .group_by(Game.season)
+            .all()
+        )
+
+        career_season_rows = []
+        for row in season_rows_raw:
+            season_stats = _to_summary(row)
+            career_season_rows.append(
+                {
+                    "season": row.season,
+                    "stats": season_stats,
+                }
+            )
+        career_season_rows.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
+
+        overall_row = (
+            session.query(*_summary_fields())
+            .join(Game, PlayerGameStats.game_id == Game.game_id)
+            .filter(
+                PlayerGameStats.player_id == player_id,
+                Game.season.like(f"{season_prefix}%"),
+            )
+            .one()
+        )
+        career_overall = _to_summary(overall_row)
+
         seasons = (
             session.query(Game.season)
             .join(PlayerGameStats, Game.game_id == PlayerGameStats.game_id)
@@ -234,6 +348,10 @@ def player_page(player_id: str):
     return render_template(
         "player.html",
         player=player,
+        selected_career_kind=selected_career_kind,
+        career_kind_label=career_kind_label,
+        career_overall=career_overall,
+        career_season_rows=career_season_rows,
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,
