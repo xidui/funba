@@ -8,7 +8,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 from sqlalchemy import case, func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, MetricResult as MetricResultModel, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -59,6 +59,29 @@ def _fmt_date(d: date | None) -> str:
     if d is None:
         return "-"
     return d.isoformat()
+
+
+def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> list:
+    import json
+    q = (
+        session.query(MetricResultModel)
+        .filter(MetricResultModel.entity_type == entity_type, MetricResultModel.entity_id == entity_id)
+    )
+    if season:
+        q = q.filter(MetricResultModel.season == season)
+    rows = q.order_by(MetricResultModel.noteworthiness.desc()).all()
+    results = []
+    for r in rows:
+        results.append({
+            "metric_key": r.metric_key,
+            "value_num": r.value_num,
+            "value_str": r.value_str,
+            "noteworthiness": r.noteworthiness,
+            "notable_reason": r.notable_reason,
+            "context": json.loads(r.context_json) if r.context_json else {},
+            "computed_at": r.computed_at,
+        })
+    return results
 
 
 def _pbp_text(play: GamePlayByPlay) -> str:
@@ -569,6 +592,8 @@ def player_page(player_id: str):
                     }
                 )
 
+        player_metrics = _get_metric_results(session, "player", player_id, selected_season)
+
     return render_template(
         "player.html",
         player=player,
@@ -585,6 +610,7 @@ def player_page(player_id: str):
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,
+        player_metrics=player_metrics,
     )
 
 
@@ -686,6 +712,8 @@ def team_page(team_id: str):
                     }
                 )
 
+        team_metrics = _get_metric_results(session, "team", team_id, current_season)
+
     return render_template(
         "team.html",
         team=team,
@@ -695,6 +723,7 @@ def team_page(team_id: str):
         season_options=season_options,
         selected_games_season=selected_games_season,
         current_games=current_games,
+        team_metrics=team_metrics,
     )
 
 
@@ -821,6 +850,8 @@ def game_page(game_id: str):
             if team_id not in shot_chart_team_ids:
                 shot_chart_team_ids.append(team_id)
 
+        game_metrics = _get_metric_results(session, "game", game_id, game.season)
+
     return render_template(
         "game.html",
         game=game,
@@ -840,6 +871,58 @@ def game_page(game_id: str):
         shot_miss_count_by_team=shot_miss_count_by_team,
         shot_backfill_status=request.args.get("shot_backfill"),
         shot_backfill_count=request.args.get("shot_count"),
+        game_metrics=game_metrics,
+    )
+
+
+@app.route("/metrics")
+def metrics_browse():
+    import json
+    scope = request.args.get("scope", "")
+    notable_only = request.args.get("notable", "") == "1"
+    page = max(1, int(request.args.get("page", 1)))
+    per_page = 50
+
+    with SessionLocal() as session:
+        q = session.query(MetricResultModel)
+        if scope in ("player", "team", "game"):
+            q = q.filter(MetricResultModel.entity_type == scope)
+        if notable_only:
+            q = q.filter(MetricResultModel.noteworthiness >= 0.75)
+        total = q.count()
+        rows = (
+            q.order_by(MetricResultModel.noteworthiness.desc(), MetricResultModel.computed_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        metric_rows = [
+            {
+                "id": r.id,
+                "metric_key": r.metric_key,
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "season": r.season,
+                "game_id": r.game_id,
+                "value_num": r.value_num,
+                "value_str": r.value_str,
+                "noteworthiness": r.noteworthiness,
+                "notable_reason": r.notable_reason,
+                "context": json.loads(r.context_json) if r.context_json else {},
+                "computed_at": r.computed_at,
+            }
+            for r in rows
+        ]
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return render_template(
+        "metrics.html",
+        metric_rows=metric_rows,
+        scope=scope,
+        notable_only=notable_only,
+        page=page,
+        total_pages=total_pages,
+        total=total,
     )
 
 

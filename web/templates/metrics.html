@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .metrics-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .metrics-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .filter-chip {
+    display: inline-block;
+    padding: 5px 13px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    border: 1px solid var(--border-2);
+    color: var(--muted-2);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+
+  .filter-chip:hover { color: var(--text); border-color: var(--border-2); }
+
+  .filter-chip.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  .metrics-table-wrap { overflow-x: auto; }
+
+  .metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .metrics-table th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+
+  .metrics-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  .metrics-table tr:hover td { background: var(--surface-2); }
+
+  .metrics-table tr.notable-row td { border-left: 2px solid var(--accent); }
+
+  .metric-name-cell {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .entity-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .entity-link:hover { text-decoration: underline; }
+
+  .score-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .score-bar {
+    flex: 1;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--muted-2);
+    transition: width 0.3s;
+  }
+
+  .score-bar-fill.high { background: var(--accent); }
+
+  .reason-cell {
+    font-size: 12px;
+    color: var(--muted-2);
+    max-width: 320px;
+  }
+
+  .pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .pagination a {
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .pagination a:hover { border-color: var(--accent); color: var(--accent); }
+
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .empty-state p { margin-top: 8px; font-size: 13px; }
+</style>
+
+<div class="metrics-header">
+  <div>
+    <h1 style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; margin-bottom:2px;">Metrics</h1>
+    <div style="font-size:13px; color:var(--muted);">{{ total }} result{{ 's' if total != 1 else '' }}</div>
+  </div>
+
+  <div class="metrics-filters">
+    <a href="{{ url_for('metrics_browse') }}" class="filter-chip{% if not scope %} active{% endif %}">All</a>
+    <a href="{{ url_for('metrics_browse', scope='player', notable='1' if notable_only else '') }}" class="filter-chip{% if scope == 'player' %} active{% endif %}">Player</a>
+    <a href="{{ url_for('metrics_browse', scope='team', notable='1' if notable_only else '') }}" class="filter-chip{% if scope == 'team' %} active{% endif %}">Team</a>
+    <a href="{{ url_for('metrics_browse', scope='game', notable='1' if notable_only else '') }}" class="filter-chip{% if scope == 'game' %} active{% endif %}">Game</a>
+    <a href="{{ url_for('metrics_browse', scope=scope, notable='' if notable_only else '1') }}" class="filter-chip{% if notable_only %} active{% endif %}">⭐ Notable</a>
+  </div>
+</div>
+
+{% if metric_rows %}
+<div class="metrics-table-wrap">
+  <table class="metrics-table">
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Scope</th>
+        <th>Entity</th>
+        <th>Season</th>
+        <th>Value</th>
+        <th>Noteworthiness</th>
+        <th>Insight</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in metric_rows %}
+      {% set is_notable = m.noteworthiness and m.noteworthiness >= 0.75 %}
+      <tr{% if is_notable %} class="notable-row"{% endif %}>
+        <td class="metric-name-cell">{{ m.metric_key | replace('_', ' ') | title }}</td>
+        <td><span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted)">{{ m.entity_type }}</span></td>
+        <td>
+          {% if m.entity_type == 'player' %}
+            <a class="entity-link" href="{{ url_for('player_page', player_id=m.entity_id) }}">{{ m.entity_id }}</a>
+          {% elif m.entity_type == 'team' %}
+            <a class="entity-link" href="{{ url_for('team_page', team_id=m.entity_id) }}">{{ m.entity_id }}</a>
+          {% elif m.entity_type == 'game' %}
+            <a class="entity-link" href="{{ url_for('game_page', game_id=m.entity_id) }}">{{ m.entity_id }}</a>
+          {% else %}
+            {{ m.entity_id }}
+          {% endif %}
+        </td>
+        <td style="color:var(--muted-2)">{{ m.season or '—' }}</td>
+        <td style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700;">{{ m.value_str or m.value_num }}</td>
+        <td>
+          {% if m.noteworthiness is not none %}
+          <div class="score-bar-wrap">
+            <div class="score-bar">
+              <div class="score-bar-fill{% if m.noteworthiness >= 0.75 %} high{% endif %}" style="width:{{ (m.noteworthiness * 100) | int }}%"></div>
+            </div>
+            <span style="font-size:11px; color:{{ 'var(--accent)' if m.noteworthiness >= 0.75 else 'var(--muted)' }}; font-weight:600; min-width:30px;">{{ "%.2f"|format(m.noteworthiness) }}</span>
+          </div>
+          {% else %}
+          <span style="color:var(--muted)">—</span>
+          {% endif %}
+        </td>
+        <td class="reason-cell">{{ m.notable_reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="{{ url_for('metrics_browse', scope=scope, notable='1' if notable_only else '', page=page-1) }}">&larr; Prev</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="{{ url_for('metrics_browse', scope=scope, notable='1' if notable_only else '', page=page+1) }}">Next &rarr;</a>
+  {% endif %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div style="font-size:32px">📊</div>
+  <div style="font-size:16px; font-weight:600; margin-top:12px;">No metrics computed yet</div>
+  <p>Run <code>python -m metrics.framework.daily_job</code> to compute metrics for recent games.</p>
+</div>
+{% endif %}
+{% endblock %}

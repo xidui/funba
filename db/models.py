@@ -212,6 +212,28 @@ class PlayerSeasonMetrics(Base):
     )
 
 
+class MetricResult(Base):
+    __tablename__ = 'MetricResult'
+
+    id = Column(Integer, primary_key=True)
+    metric_key = Column(String(64), nullable=False, index=True)
+    entity_type = Column(String(16), nullable=False)   # player | team | game | league
+    entity_id = Column(String(50), nullable=True)      # player_id or team_id
+    season = Column(String(10), nullable=True)
+    game_id = Column(String(20), nullable=True)
+    value_num = Column(Float, nullable=True)
+    value_str = Column(String(255), nullable=True)
+    context_json = Column(Text, nullable=True)         # JSON string
+    noteworthiness = Column(Float, nullable=True)      # 0.0–1.0, AI-scored
+    notable_reason = Column(Text, nullable=True)
+    computed_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_MetricResult_entity', 'entity_type', 'entity_id', 'season'),
+        Index('ix_MetricResult_notable', 'noteworthiness', 'computed_at'),
+    )
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

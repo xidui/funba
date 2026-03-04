@@ -597,4 +597,24 @@
     }
   })();
 </script>
+
+{% if game_metrics %}
+<section class="section metrics-section">
+  <h2 class="section-title">Game Analytics</h2>
+  <div class="metrics-grid">
+    {% for m in game_metrics %}
+    <div class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}">
+      <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
+      <div class="metric-value">{{ m.value_str or m.value_num }}</div>
+      {% if m.notable_reason %}
+      <div class="metric-reason">{{ m.notable_reason }}</div>
+      {% endif %}
+      {% if m.noteworthiness is not none %}
+      <div class="metric-score">Score: {{ "%.2f"|format(m.noteworthiness) }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 {% endblock %}
