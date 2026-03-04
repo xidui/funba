@@ -149,6 +149,7 @@
         <thead>
           <tr>
             <th>Season</th>
+            <th>Team</th>
             <th>GP</th>
             <th>Played</th>
             <th>MIN</th>
@@ -167,6 +168,7 @@
           {% set s = career_overall %}
           <tr class="row-overall">
             <td><strong>Overall</strong></td>
+            <td class="meta">—</td>
             <td>{{ s.games_tracked }}</td>
             <td>{{ s.games_played }}</td>
             <td>{{ s.minutes }}</td>
@@ -184,6 +186,7 @@
           {% set s = row.stats %}
           <tr>
             <td class="nowrap">{{ season_label(row.season) }}</td>
+            <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
             <td>{{ s.games_tracked }}</td>
             <td>{{ s.games_played }}</td>
             <td>{{ s.minutes }}</td>
@@ -210,6 +213,7 @@
         <thead>
           <tr>
             <th>Season</th>
+            <th>Team</th>
             <th>MPG</th>
             <th>PPG</th>
             <th>RPG</th>
@@ -223,6 +227,7 @@
           {% set s = career_overall %}
           <tr class="row-overall">
             <td><strong>Overall</strong></td>
+            <td class="meta">—</td>
             <td>{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>
@@ -235,6 +240,7 @@
           {% set s = row.stats %}
           <tr>
             <td class="nowrap">{{ season_label(row.season) }}</td>
+            <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
             <td>{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>

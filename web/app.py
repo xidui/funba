@@ -454,6 +454,28 @@ def player_page(player_id: str):
             )
         career_season_rows.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
 
+        teams = _team_map(session)
+
+        # Attach distinct team abbreviations to each season row
+        season_team_rows = (
+            session.query(Game.season, PlayerGameStats.team_id)
+            .join(Game, PlayerGameStats.game_id == Game.game_id)
+            .filter(
+                PlayerGameStats.player_id == player_id,
+                Game.season.like(f"{season_prefix}%"),
+                PlayerGameStats.team_id.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        season_team_abbrs: dict[str, list[str]] = defaultdict(list)
+        for st_row in season_team_rows:
+            abbr = _team_abbr(teams, st_row.team_id)
+            if abbr not in season_team_abbrs[st_row.season]:
+                season_team_abbrs[st_row.season].append(abbr)
+        for row in career_season_rows:
+            row["team_abbrs"] = season_team_abbrs.get(row["season"], [])
+
         overall_row = (
             session.query(*_summary_fields())
             .join(Game, PlayerGameStats.game_id == Game.game_id)
@@ -511,7 +533,6 @@ def player_page(player_id: str):
             selected_season = _pick_current_season(season_options)
 
         game_rows = []
-        teams = _team_map(session)
 
         if selected_season is not None:
             rows = (
