@@ -1,232 +1,446 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card">
-  <h1>Game {{ game.game_id }}</h1>
-  <p class="meta">
-    Date: {{ fmt_date(game.game_date) }} |
-    Season: {{ season_label(game.season) }}
-  </p>
-  <p>
-    <a href="{{ url_for('team_page', team_id=game.road_team_id) }}">{{ team_name(game.road_team_id) }}</a>
-    @
-    <a href="{{ url_for('team_page', team_id=game.home_team_id) }}">{{ team_name(game.home_team_id) }}</a>
-  </p>
-  <p class="meta">
-    Final Score: {{ game.road_team_score if game.road_team_score is not none else "-" }}
-    -
-    {{ game.home_team_score if game.home_team_score is not none else "-" }}
-  </p>
+<style>
+  /* ── Scoreboard ───────────────────────────────────────────────── */
+  .scoreboard {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 20px;
+    padding: 28px 22px;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(249,115,22,0.07), transparent 60%),
+      var(--surface);
+  }
+
+  .sb-team {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sb-team.away { align-items: flex-start; }
+  .sb-team.home { align-items: flex-end; text-align: right; }
+
+  .sb-abbr {
+    font-family: 'Outfit', sans-serif;
+    font-size: 2.6rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .sb-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted-2);
+    margin-top: 3px;
+  }
+
+  .sb-side {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .sb-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sb-scores {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .sb-score {
+    font-family: 'Outfit', sans-serif;
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+
+  .sb-score.winner { color: #fff; }
+  .sb-score.loser  { color: var(--muted); }
+  .sb-score.neutral { color: var(--muted-2); }
+
+  .sb-dash { color: var(--muted); font-family: 'Outfit', sans-serif; font-size: 1.8rem; }
+
+  .sb-final {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+  }
+
+  .sb-meta {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  @media (max-width: 560px) {
+    .scoreboard { grid-template-columns: 1fr auto 1fr; gap: 10px; }
+    .sb-abbr    { font-size: 1.8rem; }
+    .sb-score   { font-size: 2.2rem; }
+    .sb-name    { display: none; }
+  }
+
+  /* ── Player stats two-column ──────────────────────────────────── */
+  .box-score-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 4px;
+  }
+
+  .box-score-team h3 {
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    margin-top: 0;
+  }
+
+  @media (max-width: 860px) {
+    .box-score-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Shot chart grid ──────────────────────────────────────────── */
+  .shot-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 10px;
+  }
+
+  .shot-team-court {
+    display: block;
+    width: 100%;
+    height: 500px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f4e9d0;
+  }
+
+  .shot-team-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .shot-legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+
+  .shot-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+
+  .shot-legend-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .shot-quarter-filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .qf-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--muted-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    user-select: none;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .qf-label:has(input:checked) {
+    background: var(--surface-3);
+    color: var(--text);
+    border-color: var(--border-2);
+  }
+
+  .qf-label input { display: none; }
+
+  @media (max-width: 860px) {
+    .shot-charts-grid { grid-template-columns: 1fr; }
+    .shot-team-court  { height: 580px; }
+  }
+
+  /* ── PBP ──────────────────────────────────────────────────────── */
+  .pbp-wrap {
+    overflow: auto;
+    max-height: 520px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .pbp-table { min-width: 540px; }
+
+  .pbp-period-sep td {
+    background: var(--surface-3);
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-2);
+  }
+
+  .pbp-score-event td {
+    background: rgba(249, 115, 22, 0.05);
+  }
+</style>
+
+<!-- ── Scoreboard ─────────────────────────────────────────────────── -->
+{% set road_won = game.wining_team_id is not none and game.wining_team_id == game.road_team_id %}
+{% set home_won = game.wining_team_id is not none and game.wining_team_id == game.home_team_id %}
+
+<div class="card" style="padding:0; overflow:hidden;">
+  <div class="scoreboard">
+    <!-- Away team -->
+    <div class="sb-team away">
+      <a href="{{ url_for('team_page', team_id=game.road_team_id) }}" style="color:inherit; text-decoration:none;">
+        <div class="sb-abbr">{{ team_abbr(game.road_team_id) }}</div>
+        <div class="sb-name">{{ team_name(game.road_team_id) }}</div>
+      </a>
+      <div class="sb-side">Away</div>
+      {% if road_won %}
+      <div style="margin-top:6px;"><span class="badge badge-win">WIN</span></div>
+      {% elif home_won %}
+      <div style="margin-top:6px;"><span class="badge badge-loss">L</span></div>
+      {% endif %}
+    </div>
+
+    <!-- Scores -->
+    <div class="sb-center">
+      <div class="sb-scores">
+        <span class="sb-score {{ 'winner' if road_won else ('loser' if home_won else 'neutral') }}">
+          {{ game.road_team_score if game.road_team_score is not none else '—' }}
+        </span>
+        <span class="sb-dash">–</span>
+        <span class="sb-score {{ 'winner' if home_won else ('loser' if road_won else 'neutral') }}">
+          {{ game.home_team_score if game.home_team_score is not none else '—' }}
+        </span>
+      </div>
+      <div class="sb-final">Final</div>
+      <div class="sb-meta">
+        {{ fmt_date(game.game_date) }}&nbsp;·&nbsp;{{ season_label(game.season) }}
+      </div>
+    </div>
+
+    <!-- Home team -->
+    <div class="sb-team home">
+      <a href="{{ url_for('team_page', team_id=game.home_team_id) }}" style="color:inherit; text-decoration:none;">
+        <div class="sb-abbr">{{ team_abbr(game.home_team_id) }}</div>
+        <div class="sb-name">{{ team_name(game.home_team_id) }}</div>
+      </a>
+      <div class="sb-side">Home</div>
+      {% if home_won %}
+      <div style="margin-top:6px;"><span class="badge badge-win">WIN</span></div>
+      {% elif road_won %}
+      <div style="margin-top:6px;"><span class="badge badge-loss">L</span></div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
+<!-- ── Team Stats ─────────────────────────────────────────────────── -->
+{% if team_stats %}
 <div class="card">
   <h2>Team Stats</h2>
-  {% if team_stats %}
-  <table>
-    <thead>
-      <tr>
-        <th>Team</th>
-        <th>W/L</th>
-        <th>PTS</th>
-        <th>REB</th>
-        <th>AST</th>
-        <th>FG%</th>
-        <th>3P%</th>
-        <th>FT%</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in team_stats %}
-      <tr>
-        <td><a href="{{ url_for('team_page', team_id=row.team_id) }}">{{ team_name(row.team_id) }}</a></td>
-        <td>
-          {% if row.win is none %}
-          -
-          {% elif row.win %}
-          W
-          {% else %}
-          L
-          {% endif %}
-        </td>
-        <td>{{ row.pts if row.pts is not none else "-" }}</td>
-        <td>{{ row.reb if row.reb is not none else "-" }}</td>
-        <td>{{ row.ast if row.ast is not none else "-" }}</td>
-        <td>{{ row.fg_pct if row.fg_pct is not none else "-" }}</td>
-        <td>{{ row.fg3_pct if row.fg3_pct is not none else "-" }}</td>
-        <td>{{ row.ft_pct if row.ft_pct is not none else "-" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="meta">No team stats found for this game.</p>
-  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Team</th>
+          <th>PTS</th>
+          <th>REB</th>
+          <th>AST</th>
+          <th>FG%</th>
+          <th>3P%</th>
+          <th>FT%</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in team_stats %}
+        <tr class="{% if row.win %}row-win{% elif row.win is not none %}row-loss{% endif %}">
+          <td>
+            <a href="{{ url_for('team_page', team_id=row.team_id) }}">{{ team_name(row.team_id) }}</a>
+          </td>
+          <td><strong>{{ row.pts if row.pts is not none else '—' }}</strong></td>
+          <td>{{ row.reb if row.reb is not none else '—' }}</td>
+          <td>{{ row.ast if row.ast is not none else '—' }}</td>
+          <td>{{ row.fg_pct if row.fg_pct is not none else '—' }}</td>
+          <td>{{ row.fg3_pct if row.fg3_pct is not none else '—' }}</td>
+          <td>{{ row.ft_pct if row.ft_pct is not none else '—' }}</td>
+          <td>
+            {% if row.win is none %}
+            <span class="meta">—</span>
+            {% elif row.win %}
+            <span class="badge badge-win">W</span>
+            {% else %}
+            <span class="badge badge-loss">L</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
+{% endif %}
 
+<!-- ── Player Stats ───────────────────────────────────────────────── -->
 <div class="card">
   <h2>Player Stats</h2>
-  {% for team_id in ordered_team_ids %}
-  {% set players = players_by_team.get(team_id, []) %}
-  <h3>{{ team_name(team_id) }}</h3>
-  {% if players %}
-  <table>
-    <thead>
-      <tr>
-        <th>Player</th>
-        <th>Status</th>
-        <th>Min</th>
-        <th>PTS</th>
-        <th>REB</th>
-        <th>AST</th>
-        <th>+/-</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in players %}
-      <tr>
-        <td><a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a></td>
-        <td>{{ row.status }}</td>
-        <td>{{ row.minutes }}</td>
-        <td>{{ row.pts }}</td>
-        <td>{{ row.reb }}</td>
-        <td>{{ row.ast }}</td>
-        <td>{{ row.plus_minus }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="meta">No player stats found for this team in this game.</p>
-  {% endif %}
-  {% endfor %}
+  <div class="box-score-grid">
+    {% for team_id in ordered_team_ids %}
+    {% set players = players_by_team.get(team_id, []) %}
+    <div class="box-score-team">
+      <h3>{{ team_name(team_id) }}</h3>
+      {% if players %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Status</th>
+              <th>Min</th>
+              <th>PTS</th>
+              <th>REB</th>
+              <th>AST</th>
+              <th>+/−</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in players %}
+            <tr>
+              <td>
+                <a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a>
+              </td>
+              <td class="meta">{{ row.status }}</td>
+              <td>{{ row.minutes }}</td>
+              <td><strong>{{ row.pts }}</strong></td>
+              <td>{{ row.reb }}</td>
+              <td>{{ row.ast }}</td>
+              <td>
+                {% if row.plus_minus != '-' and row.plus_minus is not none %}
+                  {% if row.plus_minus > 0 %}
+                  <span class="pm-pos">+{{ row.plus_minus }}</span>
+                  {% elif row.plus_minus < 0 %}
+                  <span class="pm-neg">{{ row.plus_minus }}</span>
+                  {% else %}
+                  <span class="meta">0</span>
+                  {% endif %}
+                {% else %}
+                <span class="meta">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="meta">No player stats found.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
 </div>
 
+<!-- ── Shot Chart ─────────────────────────────────────────────────── -->
 <div class="card">
   <h2>Shot Chart</h2>
+
   {% if shot_backfill_status == "ok" %}
-  <p class="meta" style="color:#1f6b4f; font-weight:600;">
-    Shot chart fetched from NBA API successfully{% if shot_backfill_count %} ({{ shot_backfill_count }} shots){% endif %}.
+  <p class="meta" style="color:var(--win); font-weight:600; margin-bottom:8px;">
+    Shot chart loaded{% if shot_backfill_count %} ({{ shot_backfill_count }} shots){% endif %}.
   </p>
   {% elif shot_backfill_status == "error" %}
-  <p class="meta" style="color:#9a2a2a; font-weight:600;">
-    Failed to fetch shot chart from NBA API. Please retry.
+  <p class="meta" style="color:var(--loss); font-weight:600; margin-bottom:8px;">
+    Failed to fetch shot chart. Please retry.
   </p>
   {% endif %}
+
   {% if shot_rows %}
-  <style>
-    .shot-filter {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      margin-right: 10px;
-      margin-bottom: 8px;
-      font-size: 13px;
-    }
-    .shot-dot {
-      cursor: pointer;
-      transition: opacity 120ms ease;
-    }
-    .shot-dot:hover {
-      opacity: 1;
-      stroke-width: 1.5;
-    }
-    #shot-tooltip {
-      position: fixed;
-      display: none;
-      pointer-events: none;
-      background: #1d2a36;
-      color: #fff;
-      font-size: 12px;
-      line-height: 1.35;
-      padding: 8px 10px;
-      border-radius: 8px;
-      z-index: 60;
-      max-width: 240px;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
-    }
-    .shot-charts-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      align-items: start;
-      margin-top: 8px;
-    }
-    .shot-team-chart {
-      min-width: 0;
-    }
-    .shot-team-title {
-      margin: 0 0 4px;
-      font-size: 16px;
-    }
-    .shot-team-meta {
-      margin-top: 0;
-      margin-bottom: 8px;
-    }
-    .shot-team-court {
-      display: block;
-      width: 100%;
-      height: 520px;
-      border: 1px solid #d8dde3;
-      border-radius: 10px;
-      background: #fbfbfb;
-    }
-    @media (max-width: 980px) {
-      .shot-charts-grid {
-        grid-template-columns: 1fr;
-      }
-      .shot-team-court {
-        height: 620px;
-      }
-    }
-  </style>
-  <p class="meta">
-    Made: {{ shot_made_count }} |
-    Missed: {{ shot_miss_count }} |
-    Total: {{ shot_made_count + shot_miss_count }}
-  </p>
-  <div style="display:flex; gap:14px; align-items:center; margin-bottom:10px;">
-    <span style="display:inline-flex; align-items:center; gap:6px;">
-      <span style="width:12px; height:12px; border-radius:50%; background:#1a8f45; display:inline-block;"></span>
-      Made
+  <div class="shot-legend">
+    <span class="shot-legend-item">
+      <span class="shot-legend-dot" style="background:#1a8f45;"></span> Made
     </span>
-    <span style="display:inline-flex; align-items:center; gap:6px;">
-      <span style="width:12px; height:12px; border-radius:50%; background:#cf2f2f; display:inline-block;"></span>
-      Missed
+    <span class="shot-legend-item">
+      <span class="shot-legend-dot" style="background:#cf2f2f;"></span> Missed
+    </span>
+    <span class="meta">
+      {{ shot_made_count }} made · {{ shot_miss_count }} missed · {{ shot_made_count + shot_miss_count }} total
     </span>
   </div>
-  <div style="margin-bottom: 8px;">
-    <label class="shot-filter"><input type="checkbox" class="shot-quarter-filter" value="1" checked> Q1</label>
-    <label class="shot-filter"><input type="checkbox" class="shot-quarter-filter" value="2" checked> Q2</label>
-    <label class="shot-filter"><input type="checkbox" class="shot-quarter-filter" value="3" checked> Q3</label>
-    <label class="shot-filter"><input type="checkbox" class="shot-quarter-filter" value="4" checked> Q4</label>
-    <label class="shot-filter"><input type="checkbox" class="shot-quarter-filter" value="OT" checked> OT</label>
+
+  <div class="shot-quarter-filters">
+    {% for q, lbl in [('1','Q1'),('2','Q2'),('3','Q3'),('4','Q4'),('OT','OT')] %}
+    <label class="qf-label">
+      <input type="checkbox" class="shot-quarter-filter" value="{{ q }}" checked />
+      {{ lbl }}
+    </label>
+    {% endfor %}
   </div>
 
   <div class="shot-charts-grid">
     {% for team_id in shot_chart_team_ids %}
     {% set team_shots = shot_rows_by_team.get(team_id, []) %}
-    <div class="shot-team-chart">
-      <h3 class="shot-team-title">{{ team_name(team_id) }}</h3>
-      <p class="meta shot-team-meta">
-        Made: {{ shot_made_count_by_team.get(team_id, 0) }} |
-        Missed: {{ shot_miss_count_by_team.get(team_id, 0) }} |
-        Total: {{ shot_made_count_by_team.get(team_id, 0) + shot_miss_count_by_team.get(team_id, 0) }}
+    <div>
+      <div class="shot-team-title">{{ team_name(team_id) }}</div>
+      <p class="meta" style="font-size:11px; margin-bottom:8px;">
+        {{ shot_made_count_by_team.get(team_id, 0) }}M /
+        {{ shot_miss_count_by_team.get(team_id, 0) }}X /
+        {{ shot_made_count_by_team.get(team_id, 0) + shot_miss_count_by_team.get(team_id, 0) }} total
       </p>
-      <svg
-        viewBox="-250 -422.5 500 470"
-        preserveAspectRatio="xMidYMid meet"
-        class="shot-team-court"
-      >
+      <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="shot-team-court">
         <g transform="scale(1,-1)">
-          <!-- Court base lines -->
-          <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#888" stroke-width="2"></rect>
-          <circle cx="0" cy="0" r="7.5" fill="none" stroke="#888" stroke-width="2"></circle>
-          <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#888" stroke-width="2"></rect>
-          <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#888" stroke-width="2"></rect>
-          <circle cx="0" cy="142.5" r="60" fill="none" stroke="#888" stroke-width="2"></circle>
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#888" stroke-width="2"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#888" stroke-width="2"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#888" stroke-width="2"></path>
-          <line x1="-250" y1="375" x2="250" y2="375" stroke="#888" stroke-width="2"></line>
+          <!-- Court lines -->
+          <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#b09060" stroke-width="2"></rect>
+          <circle cx="0" cy="0" r="7.5" fill="none" stroke="#b09060" stroke-width="2"></circle>
+          <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#b09060" stroke-width="2"></rect>
+          <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#b09060" stroke-width="2"></rect>
+          <circle cx="0" cy="142.5" r="60" fill="none" stroke="#b09060" stroke-width="2"></circle>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#b09060" stroke-width="2"></path>
+          <line x1="-250" y1="375" x2="250" y2="375" stroke="#b09060" stroke-width="2"></line>
 
           {% for shot in team_shots %}
           <circle
@@ -243,114 +457,38 @@
             data-shot-type="{{ shot.shot_type }}"
             data-distance="{{ shot.shot_distance }}"
             fill="{% if shot.made %}#1a8f45{% else %}#cf2f2f{% endif %}"
-            fill-opacity="0.72"
-            stroke="{% if shot.made %}#0f5b2b{% else %}#8f1f1f{% endif %}"
+            fill-opacity="0.78"
+            stroke="{% if shot.made %}#0e5c2a{% else %}#8a1f1f{% endif %}"
             stroke-width="0.8"
           >
-            <title>{{ shot.period_label }} {{ shot.clock }} | {% if shot.made %}Made{% else %}Missed{% endif %} | Team: {{ shot.team_name }} | Player: {{ shot.player_name }} | {{ shot.shot_type }} ({{ shot.shot_distance }} ft)</title>
+            <title>{{ shot.period_label }} {{ shot.clock }} | {% if shot.made %}Made{% else %}Missed{% endif %} | {{ shot.player_name }} | {{ shot.shot_type }} ({{ shot.shot_distance }} ft)</title>
           </circle>
           {% endfor %}
 
-          <!-- 3PT line overlay: draw above dots for clarity -->
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.95"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.95"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.95"></path>
-
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#2f4355" stroke-width="2.8"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#2f4355" stroke-width="2.8"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#2f4355" stroke-width="2.8"></path>
+          <!-- 3PT line overlay -->
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.9"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.9"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.9"></path>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#3a4f62" stroke-width="2.5"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#3a4f62" stroke-width="2.5"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#3a4f62" stroke-width="2.5"></path>
         </g>
       </svg>
     </div>
     {% endfor %}
   </div>
   <div id="shot-tooltip"></div>
-  <script>
-    (function () {
-      const dots = Array.from(document.querySelectorAll('.shot-dot'));
-      const filters = Array.from(document.querySelectorAll('.shot-quarter-filter'));
-      const tooltip = document.getElementById('shot-tooltip');
-      if (!dots.length || !filters.length || !tooltip) return;
 
-      function applyShotFilters() {
-        const active = new Set(filters.filter((f) => f.checked).map((f) => f.value));
-        dots.forEach((dot) => {
-          const p = parseInt(dot.dataset.period || '0', 10);
-          const isOt = p > 4;
-          const visible = isOt ? active.has('OT') : active.has(String(p));
-          dot.style.display = visible ? '' : 'none';
-        });
-      }
-
-      filters.forEach((f) => f.addEventListener('change', applyShotFilters));
-      applyShotFilters();
-
-      dots.forEach((dot) => {
-        dot.addEventListener('mouseenter', () => {
-          tooltip.style.display = 'block';
-          tooltip.innerHTML =
-            '<strong>' + (dot.dataset.result || '-') + '</strong><br>' +
-            'Quarter: ' + (dot.dataset.periodLabel || '-') + '<br>' +
-            'Clock: ' + (dot.dataset.clock || '-') + '<br>' +
-            'Player: ' + (dot.dataset.player || '-') + '<br>' +
-            'Team: ' + (dot.dataset.team || '-') + '<br>' +
-            'Type: ' + (dot.dataset.shotType || '-') + '<br>' +
-            'Distance: ' + (dot.dataset.distance || '-') + ' ft';
-        });
-        dot.addEventListener('mousemove', (e) => {
-          tooltip.style.left = (e.clientX + 12) + 'px';
-          tooltip.style.top = (e.clientY + 12) + 'px';
-        });
-        dot.addEventListener('mouseleave', () => {
-          tooltip.style.display = 'none';
-        });
-      });
-    })();
-  </script>
   {% else %}
-  <p class="meta">No shot-detail records found for this game.</p>
-  <p id="shot-fetch-status" class="meta" style="font-weight:600;">Fetching shot chart from NBA API...</p>
-  <script>
-    (async function () {
-      const statusEl = document.getElementById('shot-fetch-status');
-      if (!statusEl) return;
-      try {
-        const resp = await fetch('{{ url_for("game_shotchart_backfill_api", game_id=game.game_id) }}', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json' },
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || !data.ok) {
-          statusEl.textContent = 'Failed to fetch shot chart from NBA API.';
-          statusEl.style.color = '#9a2a2a';
-          return;
-        }
-        const shotCount = Number(data.shot_count || 0);
-        statusEl.textContent = `Fetched ${shotCount} shots. Reloading...`;
-        setTimeout(() => {
-          window.location.href = '{{ url_for("game_page", game_id=game.game_id) }}?shot_backfill=ok&shot_count=' + shotCount;
-        }, 350);
-      } catch (_err) {
-        statusEl.textContent = 'Failed to fetch shot chart from NBA API.';
-        statusEl.style.color = '#9a2a2a';
-      }
-    })();
-  </script>
+  <p id="shot-fetch-status" class="meta" style="font-weight:600;">Fetching shot chart from NBA API…</p>
   {% endif %}
 </div>
 
+<!-- ── Play By Play ───────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Play By Play</h2>
+  <h2>Play by Play</h2>
   {% if pbp_rows %}
-  <style>
-    .pbp-table thead th {
-      position: sticky;
-      top: 0;
-      background: #ffffff;
-      z-index: 2;
-    }
-  </style>
-  <div style="overflow:auto; max-height:560px;">
+  <div class="pbp-wrap">
     <table class="pbp-table">
       <thead>
         <tr>
@@ -364,15 +502,26 @@
         </tr>
       </thead>
       <tbody>
+        {% set ns = namespace(last_period=None) %}
         {% for row in pbp_rows %}
-        <tr>
-          <td>{{ row.event_num }}</td>
-          <td>{{ row.period }}</td>
-          <td>{{ row.clock }}</td>
-          <td>{{ row.event_type }}</td>
+        {% if row.period != ns.last_period %}
+        <tr class="pbp-period-sep">
+          <td colspan="7">
+            {% if row.period is not string and row.period <= 4 %}Q{{ row.period }}
+            {% elif row.period is not string %}OT{{ row.period - 4 }}
+            {% else %}{{ row.period }}{% endif %}
+          </td>
+        </tr>
+        {% set ns.last_period = row.period %}
+        {% endif %}
+        <tr class="{{ 'pbp-score-event' if row.event_type in (1, 3) else '' }}">
+          <td class="meta">{{ row.event_num }}</td>
+          <td class="meta">{{ row.period }}</td>
+          <td class="nowrap meta">{{ row.clock }}</td>
+          <td class="meta">{{ row.event_type }}</td>
           <td>{{ row.description }}</td>
-          <td>{{ row.score }}</td>
-          <td>{{ row.margin }}</td>
+          <td class="nowrap">{{ row.score }}</td>
+          <td class="meta">{{ row.margin }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -382,4 +531,70 @@
   <p class="meta">No play-by-play records found for this game.</p>
   {% endif %}
 </div>
+
+<script>
+  (function () {
+    /* Shot chart tooltips + quarter filter */
+    const dots    = Array.from(document.querySelectorAll('.shot-dot'));
+    const filters = Array.from(document.querySelectorAll('.shot-quarter-filter'));
+    const tooltip = document.getElementById('shot-tooltip');
+
+    if (dots.length && filters.length) {
+      function apply() {
+        const active = new Set(filters.filter(f => f.checked).map(f => f.value));
+        dots.forEach(d => {
+          const p = parseInt(d.dataset.period || '0', 10);
+          d.style.display = (p > 4 ? active.has('OT') : active.has(String(p))) ? '' : 'none';
+        });
+      }
+      filters.forEach(f => f.addEventListener('change', apply));
+      apply();
+    }
+
+    if (dots.length && tooltip) {
+      dots.forEach(d => {
+        d.addEventListener('mouseenter', () => {
+          tooltip.style.display = 'block';
+          tooltip.innerHTML =
+            '<strong>' + (d.dataset.result || '-') + '</strong><br>' +
+            d.dataset.periodLabel + ' · ' + d.dataset.clock + '<br>' +
+            d.dataset.player + '<br>' +
+            d.dataset.shotType + ' · ' + d.dataset.distance + ' ft';
+        });
+        d.addEventListener('mousemove', e => {
+          tooltip.style.left = (e.clientX + 14) + 'px';
+          tooltip.style.top  = (e.clientY + 14) + 'px';
+        });
+        d.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+      });
+    }
+
+    /* Auto-fetch shot chart if empty */
+    const statusEl = document.getElementById('shot-fetch-status');
+    if (statusEl) {
+      (async function () {
+        try {
+          const resp = await fetch('{{ url_for("game_shotchart_backfill_api", game_id=game.game_id) }}', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            statusEl.textContent = 'Failed to fetch shot chart.';
+            statusEl.style.color = 'var(--loss)';
+            return;
+          }
+          const n = Number(data.shot_count || 0);
+          statusEl.textContent = 'Fetched ' + n + ' shots. Reloading…';
+          setTimeout(() => {
+            window.location.href = '{{ url_for("game_page", game_id=game.game_id) }}?shot_backfill=ok&shot_count=' + n;
+          }, 350);
+        } catch (_) {
+          statusEl.textContent = 'Failed to fetch shot chart.';
+          statusEl.style.color = 'var(--loss)';
+        }
+      })();
+    }
+  })();
+</script>
 {% endblock %}

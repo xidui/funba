@@ -1,100 +1,176 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .team-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .team-record-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 9px;
+    padding: 7px 14px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    color: #fff;
+  }
+
+  .team-record-w { color: var(--win); }
+  .team-record-l { color: var(--loss); }
+  .team-record-sep { color: var(--muted); font-weight: 400; }
+  .team-record-pct { color: var(--muted-2); font-size: 0.9rem; }
+</style>
+
+<!-- ── Team header ─────────────────────────────────────────────────── -->
 <div class="card">
   <h1>{{ team.full_name }}</h1>
-  <p class="meta">
-    Team ID: {{ team.team_id }} |
-    Active: {{ "Yes" if team.active else "No" }} |
-    Founded: {{ team.year_founded or "-" }} |
-    City: {{ team.city or "-" }}
-  </p>
+  <div class="team-header-meta">
+    {% if season_summary %}
+    {% set total_w = season_summary | sum(attribute='wins') %}
+    {% set total_l = season_summary | sum(attribute='losses') %}
+    {% set total_g = total_w + total_l %}
+    <div class="team-record-badge">
+      <span class="team-record-w">{{ total_w }}W</span>
+      <span class="team-record-sep">–</span>
+      <span class="team-record-l">{{ total_l }}L</span>
+      {% if total_g > 0 %}
+      <span class="team-record-pct">{{ "%.3f"|format(total_w / total_g) }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    <span class="meta">
+      {% if team.city %}{{ team.city }}{% endif %}
+      {% if team.year_founded %}&nbsp;· Est. {{ team.year_founded }}{% endif %}
+    </span>
+  </div>
 </div>
 
+<!-- ── Season Win/Loss ─────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Season Win/Loss</h2>
-  <label for="season-kind-picker">Type:</label>
-  <select
-    id="season-kind-picker"
-    onchange="updateTeamPageQuery('season_kind', this.value)"
-  >
-    <option value="regular" {% if season_kind == "regular" %}selected{% endif %}>Regular Season</option>
-    <option value="playoffs" {% if season_kind == "playoffs" %}selected{% endif %}>Playoffs</option>
-  </select>
+  <h2>Season Win / Loss</h2>
+
+  <div class="tab-bar">
+    <a
+      href="?season_kind=regular&games_season={{ selected_games_season or '' }}"
+      class="tab-btn {{ 'active' if season_kind == 'regular' }}"
+    >Regular Season</a>
+    <a
+      href="?season_kind=playoffs&games_season={{ selected_games_season or '' }}"
+      class="tab-btn {{ 'active' if season_kind == 'playoffs' }}"
+    >Playoffs</a>
+  </div>
+
   {% if season_summary %}
-  <table>
-    <thead>
-      <tr>
-        <th>Season</th>
-        <th>Wins</th>
-        <th>Losses</th>
-        <th>Total Games</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in season_summary %}
-      <tr>
-        <td>{{ season_label(row.season) }}</td>
-        <td>{{ row.wins }}</td>
-        <td>{{ row.losses }}</td>
-        <td>{{ row.games }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Season</th>
+          <th>W</th>
+          <th>L</th>
+          <th>GP</th>
+          <th>Win%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in season_summary %}
+        <tr>
+          <td class="nowrap">{{ season_label(row.season) }}</td>
+          <td style="color:var(--win); font-weight:600;">{{ row.wins }}</td>
+          <td style="color:var(--loss);">{{ row.losses }}</td>
+          <td>{{ row.games }}</td>
+          <td>
+            {% if row.games > 0 %}
+            {{ "%.3f"|format(row.wins / row.games) }}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <p class="meta">No season records found.</p>
+  <p class="meta">No {{ 'regular season' if season_kind == 'regular' else 'playoff' }} records found.</p>
   {% endif %}
 </div>
 
+<!-- ── Season Game Log ─────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Season Games {% if selected_games_season %}({{ season_label(selected_games_season) }}){% endif %}</h2>
+  <h2>
+    Season Games
+    {% if selected_games_season %}
+    <span class="meta" style="font-weight:400; font-size:13px;">— {{ season_label(selected_games_season) }}</span>
+    {% endif %}
+  </h2>
+
   {% if season_options %}
-  <label for="games-season-picker">Season:</label>
-  <select
-    id="games-season-picker"
-    onchange="updateTeamPageQuery('games_season', this.value)"
-  >
-    {% for season in season_options %}
-    <option value="{{ season }}" {% if season == selected_games_season %}selected{% endif %}>
-      {{ season_label(season) }}
-    </option>
-    {% endfor %}
-  </select>
-  {% endif %}
-  {% if current_games %}
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Opponent</th>
-        <th>Home/Away</th>
-        <th>Result</th>
-        <th>Score</th>
-        <th>Status</th>
-        <th>Game</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in current_games %}
-      <tr>
-        <td class="nowrap">{{ row.game_date }}</td>
-        <td><a href="{{ url_for('team_page', team_id=row.opponent_id) }}">{{ row.opponent_name }}</a></td>
-        <td>{{ row.where }}</td>
-        <td>{{ row.result }}</td>
-        <td>{{ row.score }}</td>
-        <td>{{ row.status }}</td>
-        <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">{{ row.game_id }}</a></td>
-      </tr>
+  <div class="control-row">
+    <label for="games-season-picker">Season:</label>
+    <select
+      id="games-season-picker"
+      onchange="updateQuery('games_season', this.value)"
+    >
+      {% for season in season_options %}
+      <option value="{{ season }}" {% if season == selected_games_season %}selected{% endif %}>
+        {{ season_label(season) }}
+      </option>
       {% endfor %}
-    </tbody>
-  </table>
+    </select>
+  </div>
+  {% endif %}
+
+  {% if current_games %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Opponent</th>
+          <th>H/A</th>
+          <th>Result</th>
+          <th>Score</th>
+          <th>Game</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in current_games %}
+        <tr class="{% if row.result == 'W' %}row-win{% elif row.result == 'L' %}row-loss{% endif %}">
+          <td class="nowrap meta">{{ row.game_date }}</td>
+          <td>
+            <a href="{{ url_for('team_page', team_id=row.opponent_id) }}">{{ row.opponent_name }}</a>
+          </td>
+          <td class="meta">{{ row.where }}</td>
+          <td>
+            {% if row.result == 'W' %}
+            <span class="badge badge-win">W</span>
+            {% elif row.result == 'L' %}
+            <span class="badge badge-loss">L</span>
+            {% else %}
+            <span class="meta">—</span>
+            {% endif %}
+          </td>
+          <td class="nowrap"><strong>{{ row.score }}</strong></td>
+          <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">↗</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="meta">No games found for the selected season.</p>
   {% endif %}
 </div>
 
 <script>
-  function updateTeamPageQuery(key, value) {
+  function updateQuery(key, value) {
     const u = new URL(window.location.href);
     u.searchParams.set(key, value);
     window.location.href = u.toString();

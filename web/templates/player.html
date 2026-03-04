@@ -1,84 +1,82 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
+  /* ── Player header ─────────────────────────────────────────────── */
   .player-header {
-    display: grid;
-    grid-template-columns: 120px 1fr;
-    gap: 14px;
+    display: flex;
     align-items: center;
+    gap: 20px;
   }
 
   .player-avatar {
-    width: 120px;
-    height: 120px;
-    border-radius: 14px;
-    border: 1px solid var(--line);
-    background: #f5f8fb;
-    object-fit: cover;
-  }
-
-  .player-heat-court {
-    display: block;
-    width: 100%;
-    max-width: 700px;
-    height: 620px;
-    border: 1px solid #d8dde3;
+    width: 100px;
+    height: 100px;
     border-radius: 12px;
-    background: #fbfbfb;
+    object-fit: cover;
+    border: 2px solid var(--border-2);
+    background: var(--surface-2);
+    flex-shrink: 0;
   }
 
-  .player-heat-legend {
+  .player-info h1 { margin-bottom: 4px; }
+
+  .player-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .player-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .player-status-dot.active { background: var(--win); }
+
+  @media (max-width: 540px) {
+    .player-header { flex-direction: column; align-items: flex-start; }
+    .player-avatar { width: 72px; height: 72px; }
+  }
+
+  /* ── Career section ─────────────────────────────────────────────── */
+  .career-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  /* JS stat-view toggle */
+  .stat-view { display: none; }
+  .stat-view.active { display: block; }
+
+  /* Heatmap legend */
+  .heatmap-legend {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 8px;
-    margin-bottom: 8px;
+    margin: 8px 0 10px;
   }
 
-  .player-heat-legend-bar {
-    width: 180px;
-    height: 10px;
+  .heatmap-legend-bar {
+    width: 160px;
+    height: 9px;
     border-radius: 999px;
-    background: linear-gradient(90deg, hsl(210 86% 88%), hsl(0 86% 50%));
-    border: 1px solid #d3dde8;
-  }
-
-  .player-heat-zone {
-    cursor: pointer;
-    transition: opacity 120ms ease, stroke-width 120ms ease;
-  }
-
-  .player-heat-zone:hover {
-    stroke-width: 2.2;
-  }
-
-  #player-heat-tooltip {
-    position: fixed;
-    display: none;
-    pointer-events: none;
-    background: #1d2a36;
-    color: #fff;
-    font-size: 12px;
-    line-height: 1.35;
-    padding: 8px 10px;
-    border-radius: 8px;
-    z-index: 60;
-    max-width: 220px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
-  }
-
-  @media (max-width: 980px) {
-    .player-heat-court {
-      height: 500px;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .player-header {
-      grid-template-columns: 1fr;
-    }
+    background: linear-gradient(90deg, hsl(210 80% 80%), hsl(0 80% 55%));
+    border: 1px solid var(--border-2);
   }
 </style>
+
+<!-- ── Player header ──────────────────────────────────────────────── -->
 <div class="card">
   <div class="player-header">
     <img
@@ -88,141 +86,178 @@
       loading="lazy"
       onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
     />
-    <div>
+    <div class="player-info">
+      <div class="player-status">
+        <span class="player-status-dot {{ 'active' if player.is_active else '' }}"></span>
+        {{ "Active" if player.is_active else "Inactive" }}
+      </div>
       <h1>{{ player.full_name }}</h1>
-      <p class="meta">
-        Player ID: {{ player.player_id }} |
-        Active: {{ "Yes" if player.is_active else "No" }}
-      </p>
+      {% if career_overall.ppg != '-' %}
+      <div class="stat-chips">
+        <div class="stat-chip">
+          <span class="stat-chip-val">{{ career_overall.ppg }}</span>
+          <span class="stat-chip-lbl">PPG</span>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-chip-val">{{ career_overall.rpg }}</span>
+          <span class="stat-chip-lbl">RPG</span>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-chip-val">{{ career_overall.apg }}</span>
+          <span class="stat-chip-lbl">APG</span>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-chip-val">{{ career_overall.mpg }}</span>
+          <span class="stat-chip-lbl">MPG</span>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
 
+<!-- ── Career Summary ─────────────────────────────────────────────── -->
 <div class="card">
   <h2>Career Summary</h2>
-  <form method="get" class="control-row" style="margin-bottom: 8px;">
-    <label for="career-kind-picker">Type:</label>
-    <select id="career-kind-picker" name="career_kind" onchange="this.form.submit()">
-      <option value="regular" {% if selected_career_kind == "regular" %}selected{% endif %}>Regular Season</option>
-      <option value="playoffs" {% if selected_career_kind == "playoffs" %}selected{% endif %}>Playoffs</option>
-    </select>
-    <input type="hidden" name="heatmap_season" value="{{ selected_heatmap_season }}" />
-    {% if selected_season %}
-    <input type="hidden" name="season" value="{{ selected_season }}" />
-    {% endif %}
-  </form>
-  <p class="meta">{{ career_kind_label }} totals by season, plus overall.</p>
+
+  <!-- Season type tabs (link-based, preserves other params) -->
+  <div class="career-controls">
+    <div class="tab-bar">
+      <a
+        href="?career_kind=regular&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
+        class="tab-btn {{ 'active' if selected_career_kind == 'regular' }}"
+      >Regular Season</a>
+      <a
+        href="?career_kind=playoffs&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
+        class="tab-btn {{ 'active' if selected_career_kind == 'playoffs' }}"
+      >Playoffs</a>
+    </div>
+
+    <!-- Totals / Per Game toggle (JS, no page reload) -->
+    <div class="tab-bar" id="stat-kind-bar">
+      <button class="tab-btn active" data-view="totals">Totals</button>
+      <button class="tab-btn" data-view="pergame">Per Game</button>
+    </div>
+  </div>
 
   {% if career_season_rows %}
-  <div class="table-wrap" style="margin-top: 12px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Season</th>
-          <th>Games</th>
-          <th>Played</th>
-          <th>MIN</th>
-          <th>PTS</th>
-          <th>REB</th>
-          <th>AST</th>
-          <th>STL</th>
-          <th>BLK</th>
-          <th>TOV</th>
-          <th>FG</th>
-          <th>3PT</th>
-          <th>FT</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% set s = career_overall %}
-        <tr>
-          <td>Overall</td>
-          <td>{{ s.games_tracked }}</td>
-          <td>{{ s.games_played }}</td>
-          <td>{{ s.minutes }}</td>
-          <td>{{ s.pts }}</td>
-          <td>{{ s.reb }}</td>
-          <td>{{ s.ast }}</td>
-          <td>{{ s.stl }}</td>
-          <td>{{ s.blk }}</td>
-          <td>{{ s.tov }}</td>
-          <td>{{ s.fgm }}/{{ s.fga }} ({{ s.fg_pct }})</td>
-          <td>{{ s.fg3m }}/{{ s.fg3a }} ({{ s.fg3_pct }})</td>
-          <td>{{ s.ftm }}/{{ s.fta }} ({{ s.ft_pct }})</td>
-        </tr>
-        {% for row in career_season_rows %}
-        {% set s = row.stats %}
-        <tr>
-          <td>{{ season_label(row.season) }}</td>
-          <td>{{ s.games_tracked }}</td>
-          <td>{{ s.games_played }}</td>
-          <td>{{ s.minutes }}</td>
-          <td>{{ s.pts }}</td>
-          <td>{{ s.reb }}</td>
-          <td>{{ s.ast }}</td>
-          <td>{{ s.stl }}</td>
-          <td>{{ s.blk }}</td>
-          <td>{{ s.tov }}</td>
-          <td>{{ s.fgm }}/{{ s.fga }} ({{ s.fg_pct }})</td>
-          <td>{{ s.fg3m }}/{{ s.fg3a }} ({{ s.fg3_pct }})</td>
-          <td>{{ s.ftm }}/{{ s.fta }} ({{ s.ft_pct }})</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+  <!-- Totals view -->
+  <div id="view-totals" class="stat-view active">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Season</th>
+            <th>GP</th>
+            <th>Played</th>
+            <th>MIN</th>
+            <th>PTS</th>
+            <th>REB</th>
+            <th>AST</th>
+            <th>STL</th>
+            <th>BLK</th>
+            <th>TOV</th>
+            <th>FG</th>
+            <th>3PT</th>
+            <th>FT</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set s = career_overall %}
+          <tr class="row-overall">
+            <td><strong>Overall</strong></td>
+            <td>{{ s.games_tracked }}</td>
+            <td>{{ s.games_played }}</td>
+            <td>{{ s.minutes }}</td>
+            <td>{{ s.pts }}</td>
+            <td>{{ s.reb }}</td>
+            <td>{{ s.ast }}</td>
+            <td>{{ s.stl }}</td>
+            <td>{{ s.blk }}</td>
+            <td>{{ s.tov }}</td>
+            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct }})</span></td>
+            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct }})</span></td>
+            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct }})</span></td>
+          </tr>
+          {% for row in career_season_rows %}
+          {% set s = row.stats %}
+          <tr>
+            <td class="nowrap">{{ season_label(row.season) }}</td>
+            <td>{{ s.games_tracked }}</td>
+            <td>{{ s.games_played }}</td>
+            <td>{{ s.minutes }}</td>
+            <td>{{ s.pts }}</td>
+            <td>{{ s.reb }}</td>
+            <td>{{ s.ast }}</td>
+            <td>{{ s.stl }}</td>
+            <td>{{ s.blk }}</td>
+            <td>{{ s.tov }}</td>
+            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct }})</span></td>
+            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct }})</span></td>
+            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct }})</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
-  <h3>Per Game (Played)</h3>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Season</th>
-          <th>MPG</th>
-          <th>PPG</th>
-          <th>RPG</th>
-          <th>APG</th>
-          <th>SPG</th>
-          <th>BPG</th>
-          <th>TPG</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% set s = career_overall %}
-        <tr>
-          <td>Overall</td>
-          <td>{{ s.mpg }}</td>
-          <td>{{ s.ppg }}</td>
-          <td>{{ s.rpg }}</td>
-          <td>{{ s.apg }}</td>
-          <td>{{ s.spg }}</td>
-          <td>{{ s.bpg }}</td>
-          <td>{{ s.tpg }}</td>
-        </tr>
-        {% for row in career_season_rows %}
-        {% set s = row.stats %}
-        <tr>
-          <td>{{ season_label(row.season) }}</td>
-          <td>{{ s.mpg }}</td>
-          <td>{{ s.ppg }}</td>
-          <td>{{ s.rpg }}</td>
-          <td>{{ s.apg }}</td>
-          <td>{{ s.spg }}</td>
-          <td>{{ s.bpg }}</td>
-          <td>{{ s.tpg }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- Per-Game view -->
+  <div id="view-pergame" class="stat-view">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Season</th>
+            <th>MPG</th>
+            <th>PPG</th>
+            <th>RPG</th>
+            <th>APG</th>
+            <th>SPG</th>
+            <th>BPG</th>
+            <th>TPG</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set s = career_overall %}
+          <tr class="row-overall">
+            <td><strong>Overall</strong></td>
+            <td>{{ s.mpg }}</td>
+            <td>{{ s.ppg }}</td>
+            <td>{{ s.rpg }}</td>
+            <td>{{ s.apg }}</td>
+            <td>{{ s.spg }}</td>
+            <td>{{ s.bpg }}</td>
+            <td>{{ s.tpg }}</td>
+          </tr>
+          {% for row in career_season_rows %}
+          {% set s = row.stats %}
+          <tr>
+            <td class="nowrap">{{ season_label(row.season) }}</td>
+            <td>{{ s.mpg }}</td>
+            <td>{{ s.ppg }}</td>
+            <td>{{ s.rpg }}</td>
+            <td>{{ s.apg }}</td>
+            <td>{{ s.spg }}</td>
+            <td>{{ s.bpg }}</td>
+            <td>{{ s.tpg }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
+
   {% else %}
   <p class="meta">No {{ career_kind_label|lower }} stats found for this player.</p>
   {% endif %}
 </div>
 
+<!-- ── Shot Heatmap ───────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Shot Heat Map</h2>
-  <form method="get" class="control-row" style="margin-bottom: 8px;">
+  <h2>Shot Heatmap</h2>
+  <form method="get" class="control-row" style="margin-bottom: 10px;">
     <label for="heatmap-season-picker">Scope:</label>
     <select id="heatmap-season-picker" name="heatmap_season" onchange="this.form.submit()">
       <option value="overall" {% if selected_heatmap_season == "overall" %}selected{% endif %}>
@@ -241,18 +276,19 @@
   </form>
 
   <p class="meta">
-    {{ heatmap_scope_label }} |
-    Attempts: {{ heatmap_attempts }} |
-    Made: {{ heatmap_made }} |
-    FG%: {% if heatmap_attempts > 0 %}{{ "%.3f"|format(heatmap_made / heatmap_attempts) }}{% else %}-{% endif %}
+    {{ heatmap_scope_label }} &nbsp;·&nbsp;
+    <strong style="color:var(--text);">{{ heatmap_attempts }}</strong> attempts &nbsp;·&nbsp;
+    <strong style="color:var(--text);">{{ heatmap_made }}</strong> made &nbsp;·&nbsp;
+    FG%: <strong style="color:var(--text);">{% if heatmap_attempts > 0 %}{{ "%.1f"|format(heatmap_made / heatmap_attempts * 100) }}%{% else %}—{% endif %}</strong>
   </p>
 
   {% if heatmap_zones %}
-  <div class="player-heat-legend">
-    <span class="meta">Low Density</span>
-    <div class="player-heat-legend-bar"></div>
-    <span class="meta">High Density</span>
+  <div class="heatmap-legend">
+    <span class="meta" style="font-size:11px;">Low density</span>
+    <div class="heatmap-legend-bar"></div>
+    <span class="meta" style="font-size:11px;">High density</span>
   </div>
+
   <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
     <g transform="scale(1,-1)">
       {% for zone in heatmap_zones %}
@@ -265,50 +301,48 @@
         data-fg="{{ zone.fg_pct }}"
         fill="{{ zone.color }}"
         fill-opacity="{{ zone.alpha }}"
-        stroke="#274057"
-        stroke-opacity="0.92"
-        stroke-width="1.6"
+        stroke="#3d5a70"
+        stroke-opacity="0.7"
+        stroke-width="1.4"
         vector-effect="non-scaling-stroke"
       >
         <title>{{ zone.zone_label }} | Attempts: {{ zone.attempts }} | Made: {{ zone.made }} | FG%: {{ zone.fg_pct }}</title>
       </path>
       {% endfor %}
 
-      <!-- Court base lines -->
-      <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#888" stroke-width="2"></rect>
-      <circle cx="0" cy="0" r="7.5" fill="none" stroke="#888" stroke-width="2"></circle>
-      <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#888" stroke-width="2"></rect>
-      <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#888" stroke-width="2"></rect>
-      <circle cx="0" cy="142.5" r="60" fill="none" stroke="#888" stroke-width="2"></circle>
-      <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#888" stroke-width="2"></line>
-      <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#888" stroke-width="2"></line>
-      <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#888" stroke-width="2"></path>
-      <line x1="-250" y1="375" x2="250" y2="375" stroke="#888" stroke-width="2"></line>
+      <!-- Court lines -->
+      <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#b09060" stroke-width="2"></rect>
+      <circle cx="0" cy="0" r="7.5" fill="none" stroke="#b09060" stroke-width="2"></circle>
+      <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#b09060" stroke-width="2"></rect>
+      <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#b09060" stroke-width="2"></rect>
+      <circle cx="0" cy="142.5" r="60" fill="none" stroke="#b09060" stroke-width="2"></circle>
+      <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
+      <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
+      <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#b09060" stroke-width="2"></path>
+      <line x1="-250" y1="375" x2="250" y2="375" stroke="#b09060" stroke-width="2"></line>
     </g>
   </svg>
   <div id="player-heat-tooltip"></div>
   <script>
     (function () {
-      const zones = Array.from(document.querySelectorAll('.player-heat-zone'));
+      const zones   = Array.from(document.querySelectorAll('.player-heat-zone'));
       const tooltip = document.getElementById('player-heat-tooltip');
       if (!zones.length || !tooltip) return;
-
-      zones.forEach((zone) => {
-        zone.addEventListener('mouseenter', () => {
+      zones.forEach(z => {
+        z.addEventListener('mouseenter', () => {
           tooltip.style.display = 'block';
+          const pct = z.dataset.fg || '-';
+          const att = z.dataset.attempts || '0';
           tooltip.innerHTML =
-            '<strong>' + (zone.dataset.zone || 'Zone') + '</strong><br>' +
-            'Attempts: ' + (zone.dataset.attempts || '-') + '<br>' +
-            'Made: ' + (zone.dataset.made || '-') + '<br>' +
-            'FG%: ' + (zone.dataset.fg || '-');
+            '<strong>' + z.dataset.zone + '</strong><br>' +
+            att + ' attempts &nbsp; ' + z.dataset.made + ' made<br>' +
+            'FG%: ' + pct;
         });
-        zone.addEventListener('mousemove', (e) => {
-          tooltip.style.left = (e.clientX + 12) + 'px';
-          tooltip.style.top = (e.clientY + 12) + 'px';
+        z.addEventListener('mousemove', e => {
+          tooltip.style.left = (e.clientX + 14) + 'px';
+          tooltip.style.top  = (e.clientY + 14) + 'px';
         });
-        zone.addEventListener('mouseleave', () => {
-          tooltip.style.display = 'none';
-        });
+        z.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
       });
     })();
   </script>
@@ -317,10 +351,11 @@
   {% endif %}
 </div>
 
+<!-- ── Season Game Log ────────────────────────────────────────────── -->
 <div class="card">
   <h2>Season Games</h2>
   {% if season_options %}
-  <form method="get" class="control-row" style="margin-bottom: 8px;">
+  <form method="get" class="control-row" style="margin-bottom: 10px;">
     <label for="season-picker">Season:</label>
     <select id="season-picker" name="season" onchange="this.form.submit()">
       {% for season in season_options %}
@@ -337,36 +372,63 @@
   {% endif %}
 
   {% if game_rows %}
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Matchup</th>
-        <th>Result</th>
-        <th>Status</th>
-        <th>Min</th>
-        <th>PTS</th>
-        <th>REB</th>
-        <th>AST</th>
-        <th>Game</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in game_rows %}
-      <tr>
-        <td class="nowrap">{{ row.game_date }}</td>
-        <td>{{ row.matchup }}</td>
-        <td>{{ row.result }}</td>
-        <td>{{ row.status }}</td>
-        <td>{{ row.minutes }}</td>
-        <td>{{ row.pts }}</td>
-        <td>{{ row.reb }}</td>
-        <td>{{ row.ast }}</td>
-        <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">{{ row.game_id }}</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Matchup</th>
+          <th>Result</th>
+          <th>Status</th>
+          <th>Min</th>
+          <th>PTS</th>
+          <th>REB</th>
+          <th>AST</th>
+          <th>Game</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in game_rows %}
+        <tr class="{% if row.result == 'W' %}row-win{% elif row.result == 'L' %}row-loss{% endif %}">
+          <td class="nowrap meta">{{ row.game_date }}</td>
+          <td class="nowrap">{{ row.matchup }}</td>
+          <td>
+            {% if row.result == 'W' %}
+            <span class="badge badge-win">W</span>
+            {% elif row.result == 'L' %}
+            <span class="badge badge-loss">L</span>
+            {% else %}
+            <span class="meta">—</span>
+            {% endif %}
+          </td>
+          <td class="meta">{{ row.status }}</td>
+          <td>{{ row.minutes }}</td>
+          <td><strong>{{ row.pts }}</strong></td>
+          <td>{{ row.reb }}</td>
+          <td>{{ row.ast }}</td>
+          <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">↗</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 </div>
+
+<script>
+  (function () {
+    const bar   = document.getElementById('stat-kind-bar');
+    const views = { totals: document.getElementById('view-totals'), pergame: document.getElementById('view-pergame') };
+    if (!bar) return;
+    bar.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        bar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        Object.values(views).forEach(v => v && v.classList.remove('active'));
+        const target = views[btn.dataset.view];
+        if (target) target.classList.add('active');
+      });
+    });
+  })();
+</script>
 {% endblock %}

@@ -1,183 +1,170 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .player-search {
+  .home-hero {
+    margin-bottom: 22px;
+  }
+
+  .home-hero h1 { margin-bottom: 4px; }
+
+  /* Teams grid */
+  .teams-grid {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    margin: 4px 0 12px;
+    margin-top: 4px;
   }
 
-  .player-search input {
-    flex: 1;
-    min-width: 0;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 9px 11px;
-    font-size: 14px;
-    color: var(--ink);
-    background: #fff;
-  }
-
-  .player-search input:focus {
-    outline: 2px solid var(--ring);
-    border-color: var(--accent);
-  }
-
-  .player-search button {
-    border: 1px solid var(--accent);
-    border-radius: 10px;
-    padding: 9px 13px;
-    background: var(--accent);
-    color: #fff;
+  .team-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
     font-weight: 600;
-    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+
+  .team-chip:hover {
+    background: var(--surface-3);
+    border-color: var(--border-2);
+    color: #fff;
+    text-decoration: none;
+  }
+
+  .team-chip-abbr {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent);
+  }
+
+  /* Game rows */
+  .game-rows { display: flex; flex-direction: column; gap: 1px; }
+
+  .game-row {
+    display: grid;
+    grid-template-columns: 110px 1fr auto 1fr 90px;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.1s;
+  }
+
+  .game-row:hover { background: var(--surface-3); }
+
+  .game-row-date {
+    color: var(--muted);
+    font-size: 12px;
     white-space: nowrap;
   }
 
-  .player-search button:hover {
-    filter: brightness(0.95);
+  .game-team {
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .game-team.winner { color: #fff; }
+  .game-team.loser  { color: var(--muted-2); }
+
+  .game-score-block {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .game-score { line-height: 1; }
+  .game-score.winner { color: #fff; }
+  .game-score.loser  { color: var(--muted-2); }
+  .game-sep { color: var(--muted); font-size: 0.9rem; font-weight: 400; }
+
+  .game-row-season {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @media (max-width: 640px) {
+    .game-row {
+      grid-template-columns: 80px 1fr auto 1fr;
+    }
+    .game-row-season { display: none; }
   }
 </style>
-<div class="card">
-  <h1>NBA Data Browser</h1>
-  <p class="meta">Browse players, teams, and games from your database.</p>
+
+<div class="home-hero">
+  <h1>NBA Court Vision</h1>
+  <p class="meta">Browse players, teams, and game data from your local database.</p>
 </div>
 
-<div class="grid-2">
-  <div class="card">
-    <h2>Players</h2>
-    <div class="player-search">
-      <input id="player-search-input" list="player-search-hints" type="search" placeholder="Search player name..." autocomplete="off" />
-      <datalist id="player-search-hints"></datalist>
-      <button id="player-search-open" type="button">Open</button>
-    </div>
-    <p class="meta">Type a name and choose a suggestion to jump to profile.</p>
-    <ul class="list">
-      {% for player in players %}
-      <li>
-        <a href="{{ url_for('player_page', player_id=player.player_id) }}">{{ player.full_name }}</a>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <div class="card">
-    <h2>Teams</h2>
-    <ul class="list">
-      {% for team in teams %}
-      <li>
-        <a href="{{ url_for('team_page', team_id=team.team_id) }}">{{ team.full_name }}</a>
-      </li>
-      {% endfor %}
-    </ul>
+<div class="card">
+  <h2>Teams</h2>
+  <div class="teams-grid">
+    {% for team in teams %}
+    <a class="team-chip" href="{{ url_for('team_page', team_id=team.team_id) }}">
+      <span class="team-chip-abbr">{{ team.abbr or team.full_name[:3].upper() }}</span>
+      <span>{{ team.full_name }}</span>
+    </a>
+    {% endfor %}
   </div>
 </div>
 
 <div class="card">
   <h2>Recent Games</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Season</th>
-        <th>Matchup</th>
-        <th>Score</th>
-        <th>Game</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for game in recent_games %}
-      <tr>
-        <td class="nowrap">{{ fmt_date(game.game_date) }}</td>
-        <td>{{ season_label(game.season) }}</td>
-        <td>{{ team_name(team_lookup, game.road_team_id) }} @ {{ team_name(team_lookup, game.home_team_id) }}</td>
-        <td>
-          {{ game.road_team_score if game.road_team_score is not none else "-" }} -
-          {{ game.home_team_score if game.home_team_score is not none else "-" }}
-        </td>
-        <td><a href="{{ url_for('game_page', game_id=game.game_id) }}">{{ game.game_id }}</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if recent_games %}
+  <div class="game-rows">
+    {% for game in recent_games %}
+    {% set road = team_lookup.get(game.road_team_id) %}
+    {% set home = team_lookup.get(game.home_team_id) %}
+    {% set road_score = game.road_team_score %}
+    {% set home_score = game.home_team_score %}
+    {% set road_won = game.wining_team_id is not none and game.wining_team_id == game.road_team_id %}
+    {% set home_won = game.wining_team_id is not none and game.wining_team_id == game.home_team_id %}
+    <a class="game-row" href="{{ url_for('game_page', game_id=game.game_id) }}">
+      <span class="game-row-date">{{ fmt_date(game.game_date) }}</span>
+      <span class="game-team {{ 'winner' if road_won else ('loser' if home_won else '') }}">
+        {{ road.abbr if road else (game.road_team_id or '-') }}
+        <span style="font-weight:400; color:var(--muted); font-size:11px;"> Away</span>
+      </span>
+      <span class="game-score-block">
+        <span class="game-score {{ 'winner' if road_won else ('loser' if home_won else '') }}">
+          {{ road_score if road_score is not none else '—' }}
+        </span>
+        <span class="game-sep">–</span>
+        <span class="game-score {{ 'winner' if home_won else ('loser' if road_won else '') }}">
+          {{ home_score if home_score is not none else '—' }}
+        </span>
+      </span>
+      <span class="game-team {{ 'winner' if home_won else ('loser' if road_won else '') }}" style="text-align:right;">
+        <span style="font-weight:400; color:var(--muted); font-size:11px;">Home </span>
+        {{ home.abbr if home else (game.home_team_id or '-') }}
+      </span>
+      <span class="game-row-season">{{ season_label(game.season) }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="meta">No recent games found.</p>
+  {% endif %}
 </div>
-<script>
-(() => {
-  const input = document.getElementById("player-search-input");
-  const hints = document.getElementById("player-search-hints");
-  const openBtn = document.getElementById("player-search-open");
-  if (!input || !hints || !openBtn) return;
-
-  const valueToPlayerId = new Map();
-  let timer = null;
-  let controller = null;
-  const baseProfileUrl = "{{ url_for('player_page', player_id='__PLAYER_ID__') }}";
-  const hintsApiUrl = "{{ url_for('player_hints_api') }}";
-
-  function navigateToPlayer() {
-    const value = (input.value || "").trim();
-    if (!value) return;
-    let playerId = valueToPlayerId.get(value);
-    if (!playerId) {
-      const matched = value.match(/\(([^)]+)\)\s*$/);
-      if (matched) {
-        playerId = matched[1];
-      }
-    }
-    if (!playerId) return;
-    window.location.href = baseProfileUrl.replace("__PLAYER_ID__", playerId);
-  }
-
-  async function loadHints(query) {
-    if (controller) {
-      controller.abort();
-    }
-    controller = new AbortController();
-
-    const url = new URL(hintsApiUrl, window.location.origin);
-    url.searchParams.set("q", query);
-    url.searchParams.set("limit", "12");
-
-    let payload = { items: [] };
-    try {
-      const response = await fetch(url.toString(), { signal: controller.signal });
-      if (!response.ok) return;
-      payload = await response.json();
-    } catch (error) {
-      return;
-    }
-
-    valueToPlayerId.clear();
-    hints.innerHTML = "";
-    for (const item of payload.items || []) {
-      const label = `${item.full_name} (${item.player_id})`;
-      if (!valueToPlayerId.has(item.full_name)) {
-        valueToPlayerId.set(item.full_name, item.player_id);
-      }
-      valueToPlayerId.set(label, item.player_id);
-      const option = document.createElement("option");
-      option.value = label;
-      hints.appendChild(option);
-    }
-  }
-
-  input.addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      loadHints((input.value || "").trim());
-    }, 180);
-  });
-
-  input.addEventListener("change", navigateToPlayer);
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      navigateToPlayer();
-    }
-  });
-  openBtn.addEventListener("click", navigateToPlayer);
-
-  loadHints("");
-})();
-</script>
 {% endblock %}
