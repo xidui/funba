@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from metrics.framework.base import MetricDefinition, MetricResult
 from metrics.framework.registry import register
-from db.models import ShotRecord
+from db.models import ShotRecord, Game
 
 
 class ColdStreakRecovery(MetricDefinition):
@@ -17,9 +17,10 @@ class ColdStreakRecovery(MetricDefinition):
     def compute(self, session, entity_id, season, game_id=None):
         shots = (
             session.query(ShotRecord.game_id, ShotRecord.period, ShotRecord.min, ShotRecord.sec, ShotRecord.shot_made)
+            .join(Game, ShotRecord.game_id == Game.game_id)
             .filter(
                 ShotRecord.player_id == entity_id,
-                ShotRecord.season == season,
+                Game.season == season,
                 ShotRecord.shot_attempted.is_(True),
             )
             .order_by(ShotRecord.game_id, ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())

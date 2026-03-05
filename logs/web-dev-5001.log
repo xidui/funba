@@ -1,0 +1,1169 @@
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 13:19:13] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:19:32] "GET / HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 13:19:48] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:19:48] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 13:20:21] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:20:22] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 13:20:38] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:21:14] "GET /players/1627750 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:21:37] "GET /players/1627750?season=22020 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 13:23:20] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 13:23:45] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:47:18] "GET / HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 15:50:57] "GET /players/1627750 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:50:57] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:50:59] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:51:04] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:51:13] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:51:30] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:59:15] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:59:20] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:59:24] "GET /players/1628988 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 15:59:33] "GET /games/0042200116 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 16:33:42] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 16:33:45] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 16:34:14] "GET / HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 18:07:26] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 18:07:32] "GET /teams/1610612744 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 18:08:40] "GET /players/1627750 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 18:08:42] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 18:44:23] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:34:43] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:35:00] "GET /games/0022500844 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:36:06] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:36:26] "GET /games/0022500844 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:37:45] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:37:48] "GET /games/0022500844 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:38:24] "GET /teams/1610612744 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:40:24] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:41:05] "GET /games/0022500257 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:42:54] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:42:56] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:43:06] "GET /games/0022500257 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:43:55] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:43:59] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:01] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:02] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:03] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:03] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:50] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:44:50] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:45:20] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:45:20] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 22:45:32] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:45:33] "GET /games/0022500257 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:45:33] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:45:33] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 22:45:36] "GET /teams/1610612748 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:45:41] "GET /games/0022500864 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 22:47:06] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:47:06] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 22:47:07] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 22:47:17] "GET /games/0022500864 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:33:50] "GET /games/0022500864 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:33:53] "GET /games/0022500864 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 23:34:58] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:34:58] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 23:35:13] "GET /games/0022500862 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:35:13] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [28/Feb/2026 23:35:38] "GET /games/0022500864 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:38:24] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:38:36] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:38:45] "GET /games/0022500864 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:38:57] "GET /teams/1610612741 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 23:40:36] "GET /teams/1610612744?season_kind=playoffs HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:40:38] "GET /teams/1610612744?season_kind=regular HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:41:30] "GET /teams/1610612741 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [28/Feb/2026 23:57:26] "GET /teams/1610612741 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:57:35] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:57:39] "GET /games/0022500860 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:57:48] "GET /teams/1610612752 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:57:55] "GET /games/0022500262 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:58:00] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:58:03] "GET /teams/1610612744 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:58:14] "GET /teams/1610612743 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:58:18] "GET /games/0022500820 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:59:05] "GET /games/0022500584 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:59:17] "GET /teams/1610612748 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Feb/2026 23:59:20] "GET /games/0022500758 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:db.backfill_nba_player_shot_detail:manual backfill shot chart for game_id(0022500009)
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:01:14] "GET /games/0022500009 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:01:17] "[32mPOST /games/0022500009/shotchart/backfill HTTP/1.1[0m" 302 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:01:22] "GET /games/0022500009?shot_backfill=ok&shot_count=180 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:03:17] "GET /games/0022500758 HTTP/1.1" 200 -
+INFO:db.backfill_nba_player_shot_detail:manual backfill shot chart for game_id(0022500758)
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:03:26] "[32mPOST /games/0022500758/shotchart/backfill HTTP/1.1[0m" 302 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:03:26] "GET /games/0022500758?shot_backfill=ok&shot_count=197 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:03:36] "GET /games/0022500758?shot_backfill=ok&shot_count=197 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:db.backfill_nba_player_shot_detail:manual backfill shot chart for game_id(0022500010)
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:05:45] "GET /games/0022500010 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:06:04] "POST /api/games/0022500010/shotchart/backfill HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:07:20] "GET /games/0022500758 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:07:28] "GET /games/0022500758 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:07:36] "GET /games/0022500332 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:08:03] "GET /teams/1610612753 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:08:06] "GET /games/0022500314 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:08:17] "GET /games/0022500138 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:09:29] "GET /teams/1610612744?season_kind=playoffs&games_season=42022 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:09:31] "GET /teams/1610612744?season_kind=regular&games_season=22023 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:09:57] "GET /teams/1610612753 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:10:01] "GET /teams/1610612753?games_season=22024 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:10:05] "GET /games/0022400845 HTTP/1.1" 200 -
+INFO:db.backfill_nba_player_shot_detail:manual backfill shot chart for game_id(0022400845)
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:10:08] "POST /api/games/0022400845/shotchart/backfill HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 00:10:09] "GET /games/0022400845?shot_backfill=ok&shot_count=168 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:37:13] "GET /games/0022400845?shot_backfill=ok&shot_count=168 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:37:17] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:37:27] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:37:32] "GET /games/0022500866 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:40:20] "GET /games/0022500866 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:46:45] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:47:56] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:57:23] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 22:57:46] "GET /games/0022500872 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:01:02] "GET /games/0022500876 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:27:03] "GET /players/1630639 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:47] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:47] "GET /api/players/hints?q=&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:49] "GET /api/players/hints?q=S&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:49] "GET /api/players/hints?q=St&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:50] "GET /api/players/hints?q=Ste&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:50] "GET /api/players/hints?q=St&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:51] "GET /api/players/hints?q=Ste&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:51] "GET /api/players/hints?q=Step&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:51] "GET /api/players/hints?q=Steph&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:32:53] "GET /players/201939 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:36:53] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:36:54] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:36:59] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:37:00] "GET /api/players/hints?q=&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:37:01] "GET /players/1630598 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [01/Mar/2026 23:37:06] "GET /players/1629599 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 00:33:53] "GET /players/201143 HTTP/1.1" 200 -
+ERROR:app:Exception on /games/0022500877 [GET]
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 813, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+    ~~~~~~~~~~^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 574, in query
+    self._execute_command(COMMAND.COM_QUERY, sql)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 865, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 816, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 1473, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 882, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 880, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 865, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/web/app.py", line 356, in game_page
+    game = session.query(Game).filter(Game.game_id == game_id).first()
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/sql/elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+    ~~~~~~~~~~^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 574, in query
+    self._execute_command(COMMAND.COM_QUERY, sql)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 865, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 816, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))")
+[SQL: SELECT `Game`.game_id AS `Game_game_id`, `Game`.season AS `Game_season`, `Game`.game_date AS `Game_game_date`, `Game`.highlight AS `Game_highlight`, `Game`.home_team_id AS `Game_home_team_id`, `Game`.road_team_id AS `Game_road_team_id`, `Game`.wining_team_id AS `Game_wining_team_id`, `Game`.home_team_score AS `Game_home_team_score`, `Game`.road_team_score AS `Game_road_team_score`, `Game`.pity_loss AS `Game_pity_loss`, `Game`.backfill_mismatch AS `Game_backfill_mismatch`, `Game`.backfill_mismatch_note AS `Game_backfill_mismatch_note`, `Game`.backfill_mismatch_updated_at AS `Game_backfill_mismatch_updated_at` 
+FROM `Game` 
+WHERE `Game`.game_id = %(game_id_1)s 
+ LIMIT %(param_1)s]
+[parameters: {'game_id_1': '0022500877', 'param_1': 1}]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:47:40] "[35m[1mGET /games/0022500877 HTTP/1.1[0m" 500 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:47:43] "GET /games/0022500877 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:53:05] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:54:26] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:54:27] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:54:28] "GET /players/201939 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:54:51] "GET /players/201939 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:57:28] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 14:58:29] "GET /players/201939?career_kind=playoffs&season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:01:20] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:01:21] "GET /api/players/hints?q=&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:01:23] "GET /players/1630197 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:02:19] "GET /players/1630197 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:16] "GET /players/1630197 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:27] "GET /players/1630197?heatmap_season=22023&career_kind=regular&season=22023 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:33] "GET /api/players/hints?q=s&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:34] "GET /api/players/hints?q=st&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:34] "GET /api/players/hints?q=ste&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:36] "GET /api/players/hints?q=step&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:36] "GET /api/players/hints?q=steph&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:38] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:09:52] "GET /players/201939?heatmap_season=22023&career_kind=regular&season=22025 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:12:53] "GET /players/201939?heatmap_season=22023&career_kind=regular&season=22025 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:19:00] "GET /players/201939?heatmap_season=22023&career_kind=regular&season=22025 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:26:59] "GET /players/201939?heatmap_season=22023&career_kind=regular&season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:32:40] "GET /games/0022500877 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [02/Mar/2026 15:32:56] "GET /games/0022500432 HTTP/1.1" 200 -
+ERROR:app:Exception on / [GET]
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 813, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+    ~~~~~~~~~~^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 574, in query
+    self._execute_command(COMMAND.COM_QUERY, sql)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 865, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 816, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 1473, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 882, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 880, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/flask/app.py", line 865, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/web/app.py", line 317, in home
+    .all()
+     ~~~^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+           ~~~~~~~~~~^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/sql/elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+    ~~~~~~~~~~^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 574, in query
+    self._execute_command(COMMAND.COM_QUERY, sql)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 865, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/yuewang/Documents/github/funba/.venv/lib/python3.14/site-packages/pymysql/connections.py", line 816, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))")
+[SQL: SELECT `Team`.id AS `Team_id`, `Team`.team_id AS `Team_team_id`, `Team`.full_name AS `Team_full_name`, `Team`.abbr AS `Team_abbr`, `Team`.nick_name AS `Team_nick_name`, `Team`.city AS `Team_city`, `Team`.state AS `Team_state`, `Team`.year_founded AS `Team_year_founded`, `Team`.active AS `Team_active`, `Team`.is_legacy AS `Team_is_legacy`, `Team`.canonical_team_id AS `Team_canonical_team_id`, `Team`.start_season AS `Team_start_season`, `Team`.end_season AS `Team_end_season` 
+FROM `Team` 
+WHERE `Team`.is_legacy IS false ORDER BY `Team`.full_name ASC 
+ LIMIT %(param_1)s]
+[parameters: {'param_1': 30}]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 12:55:11] "[35m[1mGET / HTTP/1.1[0m" 500 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 12:55:13] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 12:55:13] "GET /api/players/hints?q=&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:30:20] "GET /players/1630578 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:30:41] "GET /api/players/hints?q=s&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:30:41] "GET /api/players/hints?q=step&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:30:42] "GET /api/players/hints?q=stephen&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:30:43] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:31:04] "GET /players/201939 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:34:05] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:34:17] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:34:18] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [03/Mar/2026 13:40:53] "GET /players/201939 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:19:09] "GET /players/201939 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:19:16] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:19:25] "GET /teams/1610612738 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:19:37] "GET /games/0022500874 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:20:45] "GET /players/1626162 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:20:53] "GET /players/1626162?career_kind=playoffs&heatmap_season=overall&season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:20:55] "GET /players/1626162?career_kind=regular&heatmap_season=overall&season=22025 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 03:28:23] "GET /players/1626162?career_kind=regular&heatmap_season=overall&season=22025 HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:20] "GET /players/1626162?career_kind=regular&heatmap_season=overall&season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:26] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:31] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:34] "GET /metrics?scope=player&notable= HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:35] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 04:56:37] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:14] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:15] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:16] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:17] "GET /metrics?scope=player&notable= HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:18] "GET /metrics?scope=player&notable=1 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:13:19] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:14:13] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:14:37] "GET /metrics?scope=player&notable= HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:14:42] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:35:07] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:35:08] "GET /metrics HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:35:54] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:35:56] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:35:57] "GET /metrics HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:36:01] "GET /metrics?scope=player&notable= HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:44:44] "GET /players/1642264 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:44:58] "GET /metrics?scope=player&notable=&page=2 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 12:53:24] "GET /metrics HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:12] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:19] "GET /metrics?scope=player HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:20] "GET /metrics?scope=team HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:20] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:22] "GET /metrics/hot_hand HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:25] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:27] "GET /metrics/cold_streak_recovery HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:28] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:29] "GET /metrics/win_pct_leading_at_half HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:38] "GET /metrics/win_pct_leading_at_half?season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:31:54] "GET /metrics/close_game_record HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:32:01] "GET /metrics/hot_hand HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:36:22] "GET /metrics/hot_hand HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:36:23] "GET /metrics/hot_hand HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 13:36:52] "GET /metrics/multi_20pt_game HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:22:57] "GET /metrics/multi_20pt_game HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:13] "GET /metrics/multi_20pt_game?season=22025 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:17] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:21] "GET /metrics?scope=player HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:25] "GET /metrics?scope=team HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:28] "GET /metrics?scope=game HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:29] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:41] "GET /metrics/bench_scoring_share HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:23:59] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:24:33] "GET /metrics/cold_streak_recovery HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:24:46] "GET /metrics HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [04/Mar/2026 17:24:52] "GET /metrics/cold_streak_recovery HTTP/1.1" 200 -
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5001
+INFO:werkzeug:[33mPress CTRL+C to quit[0m

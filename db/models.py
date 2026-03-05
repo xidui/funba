@@ -234,6 +234,34 @@ class MetricResult(Base):
     )
 
 
+class MetricDefinition(Base):
+    __tablename__ = 'MetricDefinition'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(64), nullable=False, unique=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    scope = Column(String(16), nullable=False)        # player | team | game
+    category = Column(String(32), nullable=True)
+    group_key = Column(String(64), nullable=True, index=True)
+    source_type = Column(String(16), nullable=False, default='rule')  # rule | builtin
+    status = Column(String(16), nullable=False, default='draft')      # draft | published | archived
+    definition_json = Column(Text, nullable=True)     # JSON rule spec
+    expression = Column(Text, nullable=True)          # original plain-English input
+    min_sample = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+
+class MetricRunLog(Base):
+    __tablename__ = 'MetricRunLog'
+
+    game_id = Column(String(20), primary_key=True)
+    metric_key = Column(String(64), primary_key=True)
+    computed_at = Column(DateTime, nullable=False)
+    produced_result = Column(Boolean, nullable=False, default=True)  # False if metric returned None
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

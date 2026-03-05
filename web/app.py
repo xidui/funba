@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import case, func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, MetricResult as MetricResultModel, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -877,52 +880,273 @@ def game_page(game_id: str):
 
 @app.route("/metrics")
 def metrics_browse():
-    import json
-    scope = request.args.get("scope", "")
-    notable_only = request.args.get("notable", "") == "1"
-    page = max(1, int(request.args.get("page", 1)))
-    per_page = 50
+    from metrics.framework.registry import get_all as _get_all_metrics
+    from sqlalchemy import func as sqlfunc
+
+    scope_filter = request.args.get("scope", "")
+    status_filter = request.args.get("status", "")  # draft | published | ""
 
     with SessionLocal() as session:
-        q = session.query(MetricResultModel)
-        if scope in ("player", "team", "game"):
-            q = q.filter(MetricResultModel.entity_type == scope)
-        if notable_only:
-            q = q.filter(MetricResultModel.noteworthiness >= 0.75)
-        total = q.count()
-        rows = (
-            q.order_by(MetricResultModel.noteworthiness.desc(), MetricResultModel.computed_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
+        # Counts of computed results per metric_key
+        counts = {
+            row.metric_key: row.count
+            for row in session.query(
+                MetricResultModel.metric_key,
+                sqlfunc.count(MetricResultModel.id).label("count"),
+            ).group_by(MetricResultModel.metric_key).all()
+        }
+
+        # User-defined metrics from DB
+        db_q = session.query(MetricDefinitionModel).filter(
+            MetricDefinitionModel.status != "archived"
+        )
+        if scope_filter:
+            db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
+        if status_filter:
+            db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
+        db_metrics = [
+            {
+                "key": m.key,
+                "name": m.name,
+                "description": m.description,
+                "scope": m.scope,
+                "category": m.category or "",
+                "status": m.status,
+                "source_type": m.source_type,
+                "result_count": counts.get(m.key, 0),
+            }
+            for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
+        ]
+
+    # Builtin metrics from registry (not yet in DB)
+    db_keys = {m["key"] for m in db_metrics}
+    builtin_metrics = [
+        {
+            "key": m.key,
+            "name": m.name,
+            "description": m.description,
+            "scope": m.scope,
+            "category": m.category,
+            "status": "published",
+            "source_type": "builtin",
+            "result_count": counts.get(m.key, 0),
+        }
+        for m in _get_all_metrics()
+        if m.key not in db_keys and (not scope_filter or m.scope == scope_filter)
+    ]
+
+    metrics_list = builtin_metrics + db_metrics
+
+    return render_template(
+        "metrics.html",
+        metrics_list=metrics_list,
+        scope_filter=scope_filter,
+        status_filter=status_filter,
+    )
+
+
+@app.route("/metrics/new")
+def metric_new():
+    current_season = _pick_current_season(
+        [r[0] for r in SessionLocal().query(Game.season).distinct().all()]
+    )
+    return render_template("metric_new.html", current_season=current_season)
+
+
+@app.post("/api/metrics/generate")
+def api_metric_generate():
+    from metrics.framework.generator import generate
+    body = request.get_json(force=True)
+    expression = (body or {}).get("expression", "").strip()
+    if not expression:
+        return jsonify({"ok": False, "error": "expression is required"}), 400
+    try:
+        spec = generate(expression)
+        return jsonify({"ok": True, "spec": spec})
+    except Exception as exc:
+        logger.exception("metric generate failed")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/metrics/preview")
+def api_metric_preview():
+    from metrics.framework.rule_engine import preview as re_preview
+    body = request.get_json(force=True) or {}
+    definition = body.get("definition")
+    scope = body.get("scope", "player")
+    season = body.get("season", "")
+    if not definition:
+        return jsonify({"ok": False, "error": "definition is required"}), 400
+
+    with SessionLocal() as session:
+        # Resolve entity names for results
+        try:
+            rows = re_preview(session, definition, scope, season, limit=25)
+        except Exception as exc:
+            logger.exception("metric preview failed")
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        # Bulk resolve names
+        entity_ids = [r["entity_id"] for r in rows]
+        if scope == "player":
+            names = {
+                p.player_id: p.full_name
+                for p in session.query(Player.player_id, Player.full_name)
+                .filter(Player.player_id.in_(entity_ids)).all()
+            }
+        elif scope == "team":
+            tm = _team_map(session)
+            names = {tid: _team_name(tm, tid) for tid in entity_ids}
+        else:
+            names = {}
+
+        for r in rows:
+            r["entity_name"] = names.get(r["entity_id"], r["entity_id"])
+
+    return jsonify({"ok": True, "rows": rows})
+
+
+@app.post("/api/metrics")
+def api_metric_create():
+    import json as _json
+    from datetime import datetime
+    body = request.get_json(force=True) or {}
+
+    required = ("key", "name", "scope", "definition")
+    missing = [k for k in required if not body.get(k)]
+    if missing:
+        return jsonify({"ok": False, "error": f"Missing: {missing}"}), 400
+
+    key = body["key"].strip().lower().replace(" ", "_")
+
+    with SessionLocal() as session:
+        if session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == key).first():
+            return jsonify({"ok": False, "error": f"Key '{key}' already exists"}), 409
+
+        now = datetime.utcnow()
+        m = MetricDefinitionModel(
+            key=key,
+            name=body["name"],
+            description=body.get("description", ""),
+            scope=body["scope"],
+            category=body.get("category", ""),
+            group_key=body.get("group_key"),
+            source_type="rule",
+            status="draft",
+            definition_json=_json.dumps(body["definition"]),
+            expression=body.get("expression", ""),
+            min_sample=int(body.get("min_sample", 1)),
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(m)
+        session.commit()
+        return jsonify({"ok": True, "key": key}), 201
+
+
+@app.post("/api/metrics/<metric_key>/publish")
+def api_metric_publish(metric_key: str):
+    from datetime import datetime
+    with SessionLocal() as session:
+        m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
+        if m is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        m.status = "published"
+        m.updated_at = datetime.utcnow()
+        session.commit()
+    return jsonify({"ok": True, "key": metric_key, "status": "published"})
+
+
+def _resolve_entity_labels(session, rows):
+    """Bulk-resolve entity IDs to human-readable labels. Returns dict keyed by (entity_type, entity_id)."""
+    player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
+    team_ids   = {r.entity_id for r in rows if r.entity_type == "team"   and r.entity_id}
+    game_ids   = {r.entity_id for r in rows if r.entity_type == "game"   and r.entity_id}
+
+    player_names = {
+        p.player_id: p.full_name
+        for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(player_ids)).all()
+    } if player_ids else {}
+    team_map = _team_map(session)
+    game_info = {
+        g.game_id: (g.game_date, g.home_team_id, g.road_team_id)
+        for g in session.query(Game.game_id, Game.game_date, Game.home_team_id, Game.road_team_id)
+        .filter(Game.game_id.in_(game_ids)).all()
+    } if game_ids else {}
+
+    def _label(entity_type, entity_id):
+        if entity_type == "player":
+            return player_names.get(entity_id) or entity_id
+        if entity_type == "team":
+            t = team_map.get(entity_id)
+            return (t.full_name or t.abbr) if t else entity_id
+        if entity_type == "game" and entity_id in game_info:
+            gdate, home_id, road_id = game_info[entity_id]
+            return f"{_team_abbr(team_map, road_id)} @ {_team_abbr(team_map, home_id)} ({_fmt_date(gdate)})"
+        return entity_id
+
+    return {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
+
+
+@app.route("/metrics/<metric_key>")
+def metric_detail(metric_key: str):
+    import json
+    from metrics.framework.registry import get as _get_metric
+
+    metric_def = _get_metric(metric_key)
+    if metric_def is None:
+        abort(404, description=f"Metric '{metric_key}' not found.")
+
+    # Season filter
+    selected_season = request.args.get("season", "")
+
+    with SessionLocal() as session:
+        # Available seasons for this metric
+        season_rows = (
+            session.query(MetricResultModel.season)
+            .filter(MetricResultModel.metric_key == metric_key, MetricResultModel.season.isnot(None))
+            .distinct()
             .all()
         )
-        metric_rows = [
+        season_options = sorted(
+            [r.season for r in season_rows],
+            key=_season_sort_key,
+            reverse=True,
+        )
+        if not selected_season and season_options:
+            selected_season = season_options[0]
+
+        q = session.query(MetricResultModel).filter(MetricResultModel.metric_key == metric_key)
+        if selected_season:
+            q = q.filter(MetricResultModel.season == selected_season)
+        rows = q.order_by(MetricResultModel.value_num.desc()).all()
+
+        labels = _resolve_entity_labels(session, rows)
+
+        result_rows = [
             {
-                "id": r.id,
-                "metric_key": r.metric_key,
+                "rank": i + 1,
                 "entity_type": r.entity_type,
                 "entity_id": r.entity_id,
-                "season": r.season,
-                "game_id": r.game_id,
+                "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
+                "season": _season_label(r.season),
                 "value_num": r.value_num,
                 "value_str": r.value_str,
                 "noteworthiness": r.noteworthiness,
                 "notable_reason": r.notable_reason,
                 "context": json.loads(r.context_json) if r.context_json else {},
-                "computed_at": r.computed_at,
             }
-            for r in rows
+            for i, r in enumerate(rows)
         ]
 
-    total_pages = max(1, (total + per_page - 1) // per_page)
     return render_template(
-        "metrics.html",
-        metric_rows=metric_rows,
-        scope=scope,
-        notable_only=notable_only,
-        page=page,
-        total_pages=total_pages,
-        total=total,
+        "metric_detail.html",
+        metric_def=metric_def,
+        result_rows=result_rows,
+        season_options=season_options,
+        selected_season=selected_season,
+        season_label=_season_label(selected_season),
+        fmt_season=_season_label,
     )
 
 

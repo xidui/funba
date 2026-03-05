@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .new-metric-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .new-metric-layout { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+
+  .panel-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .form-group { margin-bottom: 14px; }
+
+  .form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .form-input, .form-select, .form-textarea {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 8px 11px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    border-color: var(--accent);
+  }
+  .form-textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+
+  .expression-wrap { position: relative; }
+  .expression-input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 14px;
+    padding: 12px 110px 12px 14px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  .expression-input:focus { border-color: var(--accent); }
+  .generate-btn {
+    position: absolute;
+    right: 6px; top: 50%; transform: translateY(-50%);
+    padding: 6px 14px;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .hint-text {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 5px;
+    line-height: 1.5;
+  }
+
+  .status-msg {
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 7px;
+    margin-top: 10px;
+    display: none;
+  }
+  .status-msg.error { background: color-mix(in srgb, var(--loss) 12%, transparent); color: var(--loss); display:block; }
+  .status-msg.info  { background: color-mix(in srgb, #60a5fa 10%, transparent); color: #60a5fa; display:block; }
+
+  /* Preview table */
+  .preview-wrap { margin-top: 20px; }
+  .preview-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .preview-table th {
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .preview-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .preview-table tr:hover td { background: var(--surface-2); }
+  .preview-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  .btn {
+    padding: 9px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .json-viewer {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 12px;
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--muted-2);
+    white-space: pre-wrap;
+    max-height: 260px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+</style>
+
+<a href="{{ url_for('metrics_browse') }}" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);text-decoration:none;margin-bottom:14px;">← Metrics</a>
+
+<h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:20px;">New Metric</h1>
+
+<div class="new-metric-layout">
+
+  <!-- Left: define the metric -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">Define</div>
+
+      <div class="form-group">
+        <label class="form-label">Describe your metric</label>
+        <div class="expression-wrap">
+          <input id="expression" class="expression-input" type="text"
+            placeholder="e.g. FG% in the final 2 minutes of Q4 vs overall FG%"
+            autocomplete="off" />
+          <button id="generate-btn" class="generate-btn">Generate</button>
+        </div>
+        <div class="hint-text">
+          Describe what you want to measure in plain English. Claude will convert it into a rule.<br>
+          Examples: "% of games where a player scores 30+", "team points from bench players", "3-point attempts per game"
+        </div>
+        <div id="status-msg" class="status-msg"></div>
+      </div>
+    </div>
+
+    <!-- Metadata panel (shown after generation) -->
+    <div id="meta-panel" class="panel" style="margin-top:16px;display:none;">
+      <div class="panel-title">Details</div>
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input id="f-name" class="form-input" type="text" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input id="f-desc" class="form-input" type="text" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Scope</label>
+          <select id="f-scope" class="form-select">
+            <option value="player">Player</option>
+            <option value="team">Team</option>
+            <option value="game">Game</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="f-category" class="form-select">
+            <option value="scoring">Scoring</option>
+            <option value="defense">Defense</option>
+            <option value="efficiency">Efficiency</option>
+            <option value="conditional">Conditional</option>
+            <option value="aggregate">Aggregate</option>
+            <option value="record">Record</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Key (unique identifier)</label>
+        <input id="f-key" class="form-input" type="text" placeholder="e.g. clutch_fg_pct_q4" />
+      </div>
+
+      <details style="margin-top:8px;">
+        <summary style="font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Rule JSON ›</summary>
+        <div id="json-viewer" class="json-viewer"></div>
+      </details>
+
+      <div class="action-row">
+        <button id="preview-btn" class="btn btn-secondary">Preview Results</button>
+        <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
+        <button id="publish-btn" class="btn btn-primary">Publish</button>
+      </div>
+      <div id="save-msg" class="status-msg"></div>
+    </div>
+  </div>
+
+  <!-- Right: live preview -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">Preview</div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Season</label>
+        <select id="preview-season" class="form-select">
+          <option value="{{ current_season }}">{{ current_season }}</option>
+        </select>
+      </div>
+      <div id="preview-placeholder" style="padding:40px 0;text-align:center;color:var(--muted);font-size:13px;">
+        Generate a metric definition first, then preview results here.
+      </div>
+      <div id="preview-wrap" class="preview-wrap" style="display:none;">
+        <div class="preview-title">Top results <span id="preview-count"></span></div>
+        <table class="preview-table">
+          <thead><tr>
+            <th>#</th><th>Entity</th><th style="text-align:right">Value</th>
+            <th style="text-align:right">Baseline</th>
+          </tr></thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  let currentSpec = null;
+
+  const expressionEl = document.getElementById('expression');
+  const generateBtn  = document.getElementById('generate-btn');
+  const statusMsg    = document.getElementById('status-msg');
+  const metaPanel    = document.getElementById('meta-panel');
+  const jsonViewer   = document.getElementById('json-viewer');
+  const previewBtn   = document.getElementById('preview-btn');
+  const saveDraftBtn = document.getElementById('save-draft-btn');
+  const publishBtn   = document.getElementById('publish-btn');
+  const saveMsg      = document.getElementById('save-msg');
+  const previewWrap  = document.getElementById('preview-wrap');
+  const previewPH    = document.getElementById('preview-placeholder');
+  const previewBody  = document.getElementById('preview-body');
+  const previewCount = document.getElementById('preview-count');
+
+  function setStatus(msg, type) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg ' + type;
+  }
+
+  function setSaveMsg(msg, type) {
+    saveMsg.textContent = msg;
+    saveMsg.className = 'status-msg ' + type;
+  }
+
+  function slugify(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  }
+
+  // ── Generate ──────────────────────────────────────────────────────────────
+  generateBtn.addEventListener('click', async () => {
+    const expr = expressionEl.value.trim();
+    if (!expr) return;
+
+    generateBtn.disabled = true;
+    generateBtn.textContent = '…';
+    setStatus('Asking Claude to interpret your metric…', 'info');
+
+    try {
+      const res = await fetch('/api/metrics/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ expression: expr }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setStatus(data.error, 'error'); return; }
+
+      currentSpec = data.spec;
+      statusMsg.className = 'status-msg';  // hide
+
+      // Populate form
+      document.getElementById('f-name').value     = currentSpec.name || '';
+      document.getElementById('f-desc').value     = currentSpec.description || '';
+      document.getElementById('f-scope').value    = currentSpec.scope || 'player';
+      document.getElementById('f-category').value = currentSpec.category || 'scoring';
+      document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
+      jsonViewer.textContent = JSON.stringify(currentSpec.definition, null, 2);
+      metaPanel.style.display = 'block';
+
+      // Auto-preview
+      await runPreview();
+
+    } catch (e) {
+      setStatus('Network error: ' + e.message, 'error');
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = 'Generate';
+    }
+  });
+
+  expressionEl.addEventListener('keydown', e => { if (e.key === 'Enter') generateBtn.click(); });
+
+  // ── Preview ───────────────────────────────────────────────────────────────
+  async function runPreview() {
+    if (!currentSpec) return;
+    previewPH.style.display = 'none';
+    previewBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
+    previewWrap.style.display = 'block';
+
+    const season = document.getElementById('preview-season').value;
+    const scope  = document.getElementById('f-scope').value;
+
+    try {
+      const res = await fetch('/api/metrics/preview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ definition: currentSpec.definition, scope, season }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
+        return;
+      }
+
+      previewCount.textContent = `— ${data.rows.length} result${data.rows.length !== 1 ? 's' : ''}`;
+      previewBody.innerHTML = data.rows.map((r, i) => `
+        <tr>
+          <td style="color:var(--muted);font-size:12px;">#${i+1}</td>
+          <td style="font-weight:600;">${r.entity_name}</td>
+          <td class="preview-val">${(r.value_num * 100).toFixed(1)}%</td>
+          <td class="preview-val" style="color:var(--muted-2);font-size:13px;">${r.baseline != null ? (r.baseline * 100).toFixed(1) + '%' : '—'}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results (min_sample not met)</td></tr>';
+
+    } catch (e) {
+      previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
+    }
+  }
+
+  previewBtn.addEventListener('click', runPreview);
+  document.getElementById('preview-season').addEventListener('change', runPreview);
+  document.getElementById('f-scope').addEventListener('change', runPreview);
+
+  // ── Save / Publish ────────────────────────────────────────────────────────
+  async function saveMetric(publish) {
+    if (!currentSpec) return;
+
+    const body = {
+      key:        document.getElementById('f-key').value.trim(),
+      name:       document.getElementById('f-name').value.trim(),
+      description:document.getElementById('f-desc').value.trim(),
+      scope:      document.getElementById('f-scope').value,
+      category:   document.getElementById('f-category').value,
+      definition: currentSpec.definition,
+      expression: expressionEl.value.trim(),
+      min_sample: currentSpec.min_sample || 1,
+    };
+
+    if (!body.key || !body.name) {
+      setSaveMsg('Name and key are required.', 'error'); return;
+    }
+
+    saveDraftBtn.disabled = publishBtn.disabled = true;
+    setSaveMsg('Saving…', 'info');
+
+    try {
+      const res = await fetch('/api/metrics', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok) { setSaveMsg(data.error, 'error'); return; }
+
+      if (publish) {
+        const pub = await fetch(`/api/metrics/${data.key}/publish`, { method: 'POST' });
+        const pubData = await pub.json();
+        if (!pubData.ok) { setSaveMsg(pubData.error, 'error'); return; }
+      }
+
+      window.location.href = `/metrics/${data.key}`;
+    } catch (e) {
+      setSaveMsg('Error: ' + e.message, 'error');
+    } finally {
+      saveDraftBtn.disabled = publishBtn.disabled = false;
+    }
+  }
+
+  saveDraftBtn.addEventListener('click', () => saveMetric(false));
+  publishBtn.addEventListener('click',   () => saveMetric(true));
+})();
+</script>
+{% endblock %}

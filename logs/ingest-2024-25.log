@@ -1,0 +1,187 @@
+INFO:__main__:Arguments received:
+INFO:__main__:Argument 1: 2024-25
+INFO:__main__:process game LAL vs. MIN
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400062, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400062: RetryError[<Future at 0x10b040c80 state=finished raised KeyError>]
+INFO:__main__:process game NYK @ BOS
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400061, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400061: RetryError[<Future at 0x10abeb4a0 state=finished raised KeyError>]
+INFO:__main__:process game ATL vs. BKN
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400064, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400064: RetryError[<Future at 0x10afc9c50 state=finished raised KeyError>]
+INFO:__main__:process game NOP vs. CHI
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400069, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400069: RetryError[<Future at 0x10afcb5d0 state=finished raised KeyError>]
+INFO:__main__:process game MEM @ UTA
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400070, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400070: RetryError[<Future at 0x10b0597d0 state=finished raised KeyError>]
+INFO:__main__:process game POR vs. GSW
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400072, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400072: RetryError[<Future at 0x10b059f50 state=finished raised KeyError>]
+INFO:__main__:process game LAC vs. PHX
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400071, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400071: RetryError[<Future at 0x10b05aad0 state=finished raised KeyError>]
+INFO:__main__:process game IND @ DET
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400063, error: 'resultSet'
+INFO:__main__:Failed to insert game 0022400063: RetryError[<Future at 0x10b0581d0 state=finished raised KeyError>]
+INFO:__main__:process game MIA vs. ORL
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 1 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 2 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 4 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 8 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 16 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 32 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.
+ERROR:db.backfill_nba_game_pbp:Failed to fetch game pbp for 0022400065, error: 'resultSet'
+INFO:db.backfill_nba_game_pbp:Retrying db.backfill_nba_game_pbp.fetch_game_play_by_play in 60 seconds as it raised KeyError: 'resultSet'.

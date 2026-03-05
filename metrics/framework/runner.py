@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from db.models import Game, MetricResult as MetricResultModel, Player, PlayerGameStats, Team
+from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, Team
 from metrics.framework import registry
 from metrics.framework.base import MetricResult
 from metrics.framework import scorer as scorer_module
@@ -82,6 +82,9 @@ def run_for_game(
     all_metrics = registry.get_all()
     results: list[MetricResult] = []
 
+    # Step 1: compute all metrics
+    score_inputs: list[tuple[MetricResult, object, str]] = []  # (result, metric_def, entity_name)
+
     for metric_def in all_metrics:
         targets: list[tuple[str, str | None]] = []
 
@@ -108,18 +111,32 @@ def run_for_game(
             if result is None:
                 continue
 
-            # AI noteworthiness scoring
+            results.append(result)
             if do_score:
                 name = _entity_name(session, entity_type, entity_id)
-                try:
-                    score, reason = scorer_module.score(result, metric_def, name)
-                    result.noteworthiness = score
-                    result.notable_reason = reason
-                except Exception as exc:
-                    logger.warning("Scoring failed for %s: %s", metric_def.key, exc)
+                score_inputs.append((result, metric_def, name))
 
-            _persist(session, result)
-            results.append(result)
+    # Step 2: batch-score all results in a single API call
+    if do_score and score_inputs:
+        scores = scorer_module.score_batch(score_inputs)
+        for (result, _metric_def, _name), (score, reason) in zip(score_inputs, scores):
+            result.noteworthiness = score
+            result.notable_reason = reason
+
+    # Step 3: persist results
+    result_keys = {r.metric_key for r in results}
+    for result in results:
+        _persist(session, result)
+
+    # Step 4: write one log row per metric so new metrics added later will be detected
+    now = datetime.utcnow()
+    for metric_def in all_metrics:
+        session.merge(MetricRunLog(
+            game_id=game_id,
+            metric_key=metric_def.key,
+            computed_at=now,
+            produced_result=metric_def.key in result_keys,
+        ))
 
     if commit:
         session.commit()
@@ -130,3 +147,15 @@ def run_for_game(
         game_id, len(results), len(notable),
     )
     return results
+
+
+def already_processed(session: Session, game_id: str) -> bool:
+    """Return True if every currently registered metric has a log entry for this game."""
+    registered_keys = {m.key for m in registry.get_all()}
+    logged_keys = {
+        r.metric_key
+        for r in session.query(MetricRunLog.metric_key)
+        .filter(MetricRunLog.game_id == game_id)
+        .all()
+    }
+    return registered_keys.issubset(logged_keys)

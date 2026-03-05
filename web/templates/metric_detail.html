@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    text-decoration: none;
+    margin-bottom: 10px;
+  }
+  .detail-back:hover { color: var(--accent); }
+
+  .detail-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .scope-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .scope-badge.player { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .scope-badge.team   { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
+  .scope-badge.game   { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
+
+  .detail-desc {
+    font-size: 13px;
+    color: var(--muted-2);
+    margin-top: 6px;
+    max-width: 600px;
+    line-height: 1.5;
+  }
+
+  .season-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .season-tab {
+    padding: 5px 13px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border-2);
+    color: var(--muted-2);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .season-tab:hover { color: var(--text); }
+  .season-tab.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  /* Rankings table */
+  .rankings-table-wrap { overflow-x: auto; margin-top: 20px; }
+
+  .rankings-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .rankings-table th {
+    text-align: left;
+    padding: 8px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+
+  .rankings-table th.right,
+  .rankings-table td.right { text-align: right; }
+
+  .rankings-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  .rankings-table tr:hover td { background: var(--surface-2); }
+  .rankings-table tr.notable-row td:first-child {
+    border-left: 2px solid var(--accent);
+  }
+
+  .rank-num {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--muted);
+    min-width: 32px;
+    display: inline-block;
+  }
+  .rank-num.top3 { color: var(--accent); }
+
+  .entity-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .entity-link:hover { color: var(--accent); }
+
+  .value-cell {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .score-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 100px;
+  }
+  .score-bar {
+    flex: 1;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--muted-2);
+  }
+  .score-bar-fill.high { background: var(--accent); }
+
+  .reason-text {
+    font-size: 12px;
+    color: var(--muted-2);
+    max-width: 300px;
+    line-height: 1.4;
+  }
+
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+</style>
+
+<a class="detail-back" href="{{ url_for('metrics_browse') }}">← All Metrics</a>
+
+<div class="detail-header">
+  <div>
+    <div class="detail-title">{{ metric_def.name }}</div>
+    <div class="detail-meta">
+      <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
+      <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
+    </div>
+    <div class="detail-desc">{{ metric_def.description }}</div>
+  </div>
+
+  {% if season_options %}
+  <div class="season-tabs">
+    {% for s in season_options %}
+    <a class="season-tab{% if s == selected_season %} active{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
+      {{ fmt_season(s) }}
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% if result_rows %}
+<div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
+  {{ result_rows|length }} result{{ 's' if result_rows|length != 1 }} — {{ season_label }}
+</div>
+
+<div class="rankings-table-wrap">
+  <table class="rankings-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>{{ metric_def.scope | capitalize }}</th>
+        <th class="right">Value</th>
+        {% if metric_def.scope != 'game' %}<th>Season</th>{% endif %}
+        <th>Noteworthiness</th>
+        <th>Insight</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in result_rows %}
+      {% set is_notable = r.noteworthiness and r.noteworthiness >= 0.75 %}
+      <tr{% if is_notable %} class="notable-row"{% endif %}>
+        <td>
+          <span class="rank-num{% if r.rank <= 3 %} top3{% endif %}">#{{ r.rank }}</span>
+        </td>
+        <td>
+          {% if r.entity_type == 'player' %}
+            <a class="entity-link" href="{{ url_for('player_page', player_id=r.entity_id) }}">{{ r.entity_label }}</a>
+          {% elif r.entity_type == 'team' %}
+            <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
+          {% elif r.entity_type == 'game' %}
+            <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id) }}">{{ r.entity_label }}</a>
+          {% else %}
+            {{ r.entity_label }}
+          {% endif %}
+        </td>
+        <td class="right">
+          <span class="value-cell">{{ r.value_str or r.value_num }}</span>
+        </td>
+        {% if metric_def.scope != 'game' %}<td style="color:var(--muted-2);font-size:12px;">{{ r.season }}</td>{% endif %}
+        <td>
+          {% if r.noteworthiness is not none %}
+          <div class="score-bar-wrap">
+            <div class="score-bar">
+              <div class="score-bar-fill{% if r.noteworthiness >= 0.75 %} high{% endif %}"
+                   style="width:{{ (r.noteworthiness * 100)|int }}%"></div>
+            </div>
+            <span style="font-size:11px;font-weight:600;color:{{ 'var(--accent)' if r.noteworthiness >= 0.75 else 'var(--muted)' }};min-width:28px;">
+              {{ "%.2f"|format(r.noteworthiness) }}
+            </span>
+          </div>
+          {% else %}
+          <span style="color:var(--muted)">—</span>
+          {% endif %}
+        </td>
+        <td class="reason-text">{{ r.notable_reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div style="font-size:32px">📊</div>
+  <div style="font-size:16px;font-weight:600;margin-top:12px;">No results yet</div>
+  <p style="font-size:13px;margin-top:6px;">Run the daily job to compute metrics for recent games.</p>
+</div>
+{% endif %}
+{% endblock %}
