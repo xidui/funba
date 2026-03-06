@@ -257,10 +257,14 @@ class MetricDefinition(Base):
 class MetricRunLog(Base):
     __tablename__ = 'MetricRunLog'
 
-    game_id = Column(String(20), primary_key=True)
-    metric_key = Column(String(64), primary_key=True)
-    computed_at = Column(DateTime, nullable=False)
-    produced_result = Column(Boolean, nullable=False, default=True)  # False if metric returned None
+    game_id       = Column(String(20), primary_key=True)
+    metric_key    = Column(String(64), primary_key=True)
+    entity_type   = Column(String(16), primary_key=True)   # player | team | game | league
+    entity_id     = Column(String(50), primary_key=True)   # player_id / team_id / game_id
+    season        = Column(String(10), primary_key=True)   # e.g. "22025" or "all" for career
+    computed_at   = Column(DateTime, nullable=False)
+    produced_result = Column(Boolean, nullable=False, default=True)
+    delta_json    = Column(Text, nullable=True)             # per-game delta for reprocessing
 
 
 def init_db() -> None:

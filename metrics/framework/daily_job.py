@@ -1,11 +1,14 @@
 """Daily metric job: find yesterday's (or a given date's) games and run metrics.
 
+Already-processed games are skipped by default. Use --force to reprocess.
+
 Usage:
-    python -m metrics.framework.daily_job                        # yesterday
+    python -m metrics.framework.daily_job                        # yesterday's games
     python -m metrics.framework.daily_job --date 2026-03-04
     python -m metrics.framework.daily_job --date 2026-03-04 --no-score
-    python -m metrics.framework.daily_job --season 2025          # all games in a season year
+    python -m metrics.framework.daily_job --season 22025         # all games in a season
     python -m metrics.framework.daily_job --since 2026-01-01     # all games from a date onward
+    python -m metrics.framework.daily_job --season 22025 --force # reprocess (caution: career double-count)
 """
 from __future__ import annotations
 
@@ -167,13 +170,13 @@ def main() -> None:
     group.add_argument("--season", default=None, help="Season year prefix, e.g. 2025 for 2025-26 season.")
     group.add_argument("--since", default=None, help="Run all games from this date onward (YYYY-MM-DD).")
     parser.add_argument("--no-score", action="store_true", help="Skip per-game noteworthiness scoring.")
-    parser.add_argument("--skip-existing", action="store_true", help="Skip games already in MetricRunLog.")
+    parser.add_argument("--force", action="store_true", help="Reprocess games already in MetricRunLog (risks double-counting career totals).")
     parser.add_argument("--workers", type=int, default=_DEFAULT_WORKERS, help=f"Parallel workers (default: {_DEFAULT_WORKERS}).")
     parser.add_argument("--rerank", default=None, metavar="SEASON", help="Rerank all results for a season (e.g. 22025) then exit.")
     args = parser.parse_args()
 
     do_score = not args.no_score
-    skip_existing = args.skip_existing
+    skip_existing = not args.force
     workers = args.workers
 
     if args.rerank:

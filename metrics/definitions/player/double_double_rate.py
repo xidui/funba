@@ -1,10 +1,9 @@
 """Double-Double Rate: % of games with a double-double."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import PlayerGameStats, Game
-from sqlalchemy import case, func
+from db.models import PlayerGameStats
 
 
 class DoubleDoubleRate(MetricDefinition):
@@ -14,40 +13,42 @@ class DoubleDoubleRate(MetricDefinition):
     scope = "player"
     category = "aggregate"
     min_sample = 10
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        played_cond = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
-
-        rows = (
-            session.query(
-                PlayerGameStats.pts,
-                PlayerGameStats.reb,
-                PlayerGameStats.ast,
-                PlayerGameStats.stl,
-                PlayerGameStats.blk,
-                PlayerGameStats.min,
-                PlayerGameStats.sec,
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        row = (
+            session.query(PlayerGameStats)
+            .filter(
+                PlayerGameStats.player_id == entity_id,
+                PlayerGameStats.game_id == game_id,
             )
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(PlayerGameStats.player_id == entity_id, Game.season == season)
-            .all()
+            .first()
         )
-
-        played = [
-            r for r in rows
-            if (r.min or 0) > 0 or (r.sec or 0) > 0
-        ]
-
-        if len(played) < self.min_sample:
+        if row is None:
             return None
+        played = 1 if (row.min or 0) > 0 or (row.sec or 0) > 0 else 0
+        if played == 0:
+            return {"games_played": 0, "dd_count": 0}
+        cats = [
+            row.pts or 0,
+            row.reb or 0,
+            row.ast or 0,
+            row.stl or 0,
+            row.blk or 0,
+        ]
+        is_dd = sum(1 for c in cats if c >= 10) >= 2
+        return {
+            "games_played": 1,
+            "dd_count": 1 if is_dd else 0,
+        }
 
-        def _is_dd(r) -> bool:
-            cats = [r.pts or 0, r.reb or 0, r.ast or 0, r.stl or 0, r.blk or 0]
-            return sum(1 for c in cats if c >= 10) >= 2
-
-        dd_count = sum(1 for r in played if _is_dd(r))
-        rate = dd_count / len(played)
-
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        gp = totals.get("games_played", 0)
+        if gp < self.min_sample:
+            return None
+        dd = totals.get("dd_count", 0)
+        rate = dd / gp
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
@@ -57,8 +58,8 @@ class DoubleDoubleRate(MetricDefinition):
             value_num=round(rate, 4),
             context={
                 "double_double_rate": round(rate, 4),
-                "double_doubles": dd_count,
-                "games_played": len(played),
+                "double_doubles": dd,
+                "games_played": gp,
             },
         )
 

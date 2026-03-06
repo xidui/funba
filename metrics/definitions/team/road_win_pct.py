@@ -1,10 +1,9 @@
 """Road Win %: win percentage in away games this season."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import TeamGameStats, Game
-from sqlalchemy import case, func
+from db.models import TeamGameStats
 
 
 class RoadWinPct(MetricDefinition):
@@ -14,30 +13,31 @@ class RoadWinPct(MetricDefinition):
     scope = "team"
     category = "record"
     min_sample = 10
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
         row = (
-            session.query(
-                func.sum(case((TeamGameStats.win.is_(True), 1), else_=0)).label("wins"),
-                func.count(TeamGameStats.game_id).label("games"),
-            )
-            .join(Game, TeamGameStats.game_id == Game.game_id)
+            session.query(TeamGameStats)
             .filter(
                 TeamGameStats.team_id == entity_id,
-                Game.season == season,
-                TeamGameStats.on_road.is_(True),
-                TeamGameStats.win.isnot(None),
+                TeamGameStats.game_id == game_id,
             )
-            .one()
+            .first()
         )
-
-        games = int(row.games or 0)
-        if games < self.min_sample:
+        if row is None or row.win is None:
             return None
+        on_road = 1 if row.on_road else 0
+        if on_road == 0:
+            return {"road_games": 0, "road_wins": 0}
+        return {"road_games": 1, "road_wins": 1 if row.win else 0}
 
-        wins = int(row.wins or 0)
-        win_pct = wins / games
-
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        road_games = totals.get("road_games", 0)
+        if road_games < self.min_sample:
+            return None
+        road_wins = totals.get("road_wins", 0)
+        win_pct = road_wins / road_games
         return MetricResult(
             metric_key=self.key,
             entity_type="team",
@@ -48,8 +48,8 @@ class RoadWinPct(MetricDefinition):
             value_str=f"{win_pct:.1%}",
             context={
                 "road_win_pct": round(win_pct, 4),
-                "road_wins": wins,
-                "road_games": games,
+                "road_wins": road_wins,
+                "road_games": road_games,
             },
         )
 

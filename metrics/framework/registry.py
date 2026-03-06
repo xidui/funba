@@ -1,22 +1,43 @@
-"""Central registry of all active MetricDefinitions.
-
-Import this module to access the global registry. Metric files register
-themselves by calling `register()` at module import time.
-"""
+"""Central registry of all active MetricDefinitions."""
 from __future__ import annotations
 
-from typing import Iterator
-
-from metrics.framework.base import MetricDefinition
+from metrics.framework.base import CAREER_SEASON, MetricDefinition
 
 _registry: dict[str, MetricDefinition] = {}
 
 
+def _make_career_sibling(season_metric: MetricDefinition) -> MetricDefinition:
+    """Auto-create a career variant of a season metric."""
+    base_cls = type(season_metric)
+    career_min = (
+        season_metric.career_min_sample
+        if season_metric.career_min_sample is not None
+        else season_metric.min_sample * 5
+    )
+
+    class _CareerVariant(base_cls):  # type: ignore[valid-type]
+        key = season_metric.key + "_career"
+        name = season_metric.name + season_metric.career_name_suffix
+        description = season_metric.description + " Computed across all seasons."
+        career = True
+        supports_career = False
+        min_sample = career_min
+
+    _CareerVariant.__name__ = base_cls.__name__ + "Career"
+    _CareerVariant.__qualname__ = base_cls.__qualname__ + "Career"
+    return _CareerVariant()
+
+
 def register(metric: MetricDefinition) -> None:
-    """Register a metric instance. Called once per metric module."""
+    """Register a metric instance. Auto-registers career sibling if supports_career=True."""
     if metric.key in _registry:
         raise ValueError(f"Metric key already registered: {metric.key!r}")
     _registry[metric.key] = metric
+
+    if metric.supports_career and not metric.career:
+        sibling = _make_career_sibling(metric)
+        if sibling.key not in _registry:
+            _registry[sibling.key] = sibling
 
 
 def get(key: str) -> MetricDefinition | None:
@@ -55,5 +76,4 @@ def _load_all() -> None:
     import metrics.definitions.game.lead_changes            # noqa: F401
 
 
-# Load all metrics on first import of the registry
 _load_all()

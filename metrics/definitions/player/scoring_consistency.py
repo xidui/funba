@@ -1,10 +1,9 @@
 """Scoring Consistency: % of games with 20+ points (when player actually played)."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import PlayerGameStats, Game
-from sqlalchemy import case, func
+from db.models import PlayerGameStats
 
 
 class ScoringConsistency(MetricDefinition):
@@ -14,31 +13,35 @@ class ScoringConsistency(MetricDefinition):
     scope = "player"
     category = "aggregate"
     min_sample = 10
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
-
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
         row = (
-            session.query(
-                func.sum(case((played_condition, 1), else_=0)).label("games_played"),
-                func.sum(
-                    case(((played_condition) & (PlayerGameStats.pts >= 20), 1), else_=0)
-                ).label("games_20_plus"),
-                func.avg(case((played_condition, PlayerGameStats.pts), else_=None)).label("avg_pts"),
+            session.query(PlayerGameStats)
+            .filter(
+                PlayerGameStats.player_id == entity_id,
+                PlayerGameStats.game_id == game_id,
             )
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(PlayerGameStats.player_id == entity_id, Game.season == season)
-            .one()
+            .first()
         )
+        if row is None:
+            return None
+        played = 1 if (row.min or 0) > 0 or (row.sec or 0) > 0 else 0
+        if played == 0:
+            return {"games_played": 0, "games_20_plus": 0}
+        pts = int(row.pts or 0)
+        return {
+            "games_played": 1,
+            "games_20_plus": 1 if pts >= 20 else 0,
+        }
 
-        games_played = int(row.games_played or 0)
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        games_played = totals.get("games_played", 0)
         if games_played < self.min_sample:
             return None
-
-        games_20_plus = int(row.games_20_plus or 0)
+        games_20_plus = totals.get("games_20_plus", 0)
         rate = games_20_plus / games_played
-        avg_pts = round(float(row.avg_pts or 0), 1)
-
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
@@ -50,7 +53,6 @@ class ScoringConsistency(MetricDefinition):
                 "rate_20_plus": round(rate, 4),
                 "games_20_plus": games_20_plus,
                 "games_played": games_played,
-                "avg_pts": avg_pts,
             },
         )
 

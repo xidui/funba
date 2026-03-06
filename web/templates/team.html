@@ -27,11 +27,31 @@
   .team-record-l { color: var(--loss); }
   .team-record-sep { color: var(--muted); font-weight: 400; }
   .team-record-pct { color: var(--muted-2); font-size: 0.9rem; }
+
+  .team-header-top {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 10px;
+  }
+
+  .team-logo {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
 </style>
 
 <!-- ── Team header ─────────────────────────────────────────────────── -->
 <div class="card">
-  <h1>{{ team.full_name }}</h1>
+  <div class="team-header-top">
+    <img class="team-logo"
+         src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
+         alt="{{ team.abbr }} logo"
+         onerror="this.style.display='none'">
+    <h1 style="margin:0;">{{ team.full_name }}</h1>
+  </div>
   <div class="team-header-meta">
     {% if season_summary %}
     {% set total_w = season_summary | sum(attribute='wins') %}
@@ -185,12 +205,15 @@
     <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
-      <div class="metric-value">{{ m.value_str or m.value_num }}</div>
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.notable_reason %}
       <div class="metric-reason">{{ m.notable_reason }}</div>
       {% endif %}
-      {% if m.noteworthiness is not none %}
-      <div class="metric-score">Score: {{ "%.2f"|format(m.noteworthiness) }}</div>
+      {% if m.career and m.career.value_num is not none %}
+      <div class="metric-career">
+        <span class="metric-career-label">Career</span>
+        <span class="metric-career-value">{{ m.career.value_str if m.career.value_str else ("%.3g"|format(m.career.value_num)) }}</span>
+      </div>
       {% endif %}
     </a>
     {% endfor %}

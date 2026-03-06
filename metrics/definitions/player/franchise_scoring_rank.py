@@ -14,6 +14,7 @@ class FranchiseScoringRank(MetricDefinition):
     scope = "player"
     category = "record"
     min_sample = 1
+    incremental = False
 
     def compute(self, session, entity_id, season, game_id=None):
         # Find the team this player is associated with in this season

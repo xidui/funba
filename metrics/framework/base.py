@@ -1,9 +1,12 @@
 """Base classes for the metrics framework."""
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, field
 from typing import Any
+
+# Sentinel season value for career / cross-season aggregation
+CAREER_SEASON = "all"
 
 
 @dataclass
@@ -14,10 +17,10 @@ class MetricResult:
     entity_id: str | None     # player_id or team_id; None for league-scope
     season: str | None
     game_id: str | None       # game that triggered the run; None for season-agg
-    value_num: float | None = None   # primary numeric value
-    value_str: str | None = None     # fallback for text/rank values
+    value_num: float | None = None
+    value_str: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
-    # Filled in by scorer after compute()
+    # Filled in by scorer after compute
     noteworthiness: float | None = None
     notable_reason: str | None = None
 
@@ -29,18 +32,61 @@ class MetricResult:
 
 
 class MetricDefinition(ABC):
-    """Abstract base class for all metric definitions.
+    """Abstract base for all metric definitions.
 
-    Subclasses must set class-level attributes and implement `compute`.
+    Two execution modes:
+
+    Incremental (incremental=True, default):
+        Implement compute_delta() + compute_value().
+        The runner accumulates running totals in MetricResult.context_json and
+        calls compute_value() after each merge. Efficient for season and career.
+
+    Full recompute (incremental=False):
+        Implement compute() instead.
+        Used for game-scoped metrics and rank-based metrics that cannot be
+        expressed as additive per-game deltas.
+
+    Career variants:
+        Set supports_career=True on a season metric to auto-register a career
+        sibling (key + "_career") that accumulates across all seasons
+        (season=CAREER_SEASON="all"). The sibling inherits compute_delta /
+        compute_value with a higher min_sample threshold.
     """
-    key: str         # unique snake_case identifier
-    name: str        # display name
-    description: str # one-sentence description
+    key: str
+    name: str
+    description: str
     scope: str       # 'player' | 'team' | 'game' | 'league'
-    category: str    # 'streak' | 'conditional' | 'record' | 'aggregate'
-    min_sample: int = 10  # minimum observations required to emit a result
+    category: str
+    min_sample: int = 10
 
-    @abstractmethod
+    # Incremental / career flags
+    incremental: bool = True       # False → use compute() instead
+    supports_career: bool = False  # True → auto-register career sibling on register()
+    career: bool = False           # True → this IS the career version
+
+    # Career sibling overrides (customisable per metric class)
+    career_min_sample: int | None = None  # None → min_sample * 5
+    career_name_suffix: str = " (Career)"
+
+    def compute_delta(self, session: Any, entity_id: str | None, game_id: str) -> dict | None:
+        """Return this game's additive contribution to running totals.
+
+        Return None if the entity did not participate in this game.
+        Numeric fields are added to existing totals; non-numeric overwrite.
+        Only called when incremental=True.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement compute_delta")
+
+    def compute_value(
+        self, totals: dict, season: str, entity_id: str | None
+    ) -> MetricResult | None:
+        """Derive a MetricResult from accumulated totals.
+
+        Return None if totals are below min_sample.
+        Only called when incremental=True.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement compute_value")
+
     def compute(
         self,
         session: Any,
@@ -48,7 +94,25 @@ class MetricDefinition(ABC):
         season: str | None,
         game_id: str | None = None,
     ) -> MetricResult | None:
-        """Compute the metric.
+        """Full recompute path — used when incremental=False."""
+        raise NotImplementedError(f"{self.__class__.__name__} must implement compute")
 
-        Returns None if there is insufficient data (below min_sample).
-        """
+
+def merge_totals(existing: dict, delta: dict) -> dict:
+    """Merge a per-game delta into an existing totals dict (numeric fields summed)."""
+    result = dict(existing)
+    for k, v in delta.items():
+        if isinstance(v, (int, float)):
+            result[k] = result.get(k, 0) + v
+        else:
+            result[k] = v
+    return result
+
+
+def subtract_delta(totals: dict, delta: dict) -> dict:
+    """Remove a game's contribution from accumulated totals (for reprocessing)."""
+    result = dict(totals)
+    for k, v in delta.items():
+        if isinstance(v, (int, float)):
+            result[k] = result.get(k, 0) - v
+    return result

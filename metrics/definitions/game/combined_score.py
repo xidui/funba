@@ -13,6 +13,7 @@ class CombinedScore(MetricDefinition):
     scope = "game"
     category = "scoring"
     min_sample = 1
+    incremental = False
 
     def compute(self, session, entity_id, season, game_id=None):
         target_game = entity_id

@@ -1,53 +1,57 @@
 """Home Court Advantage: home win% minus away win% for a team this season."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import TeamGameStats, Game
-from sqlalchemy import case, func
+from db.models import TeamGameStats
 
 
 class HomeCourtAdvantage(MetricDefinition):
     key = "home_court_advantage"
     name = "Home Court Advantage"
-    description = "Home win% minus road win% — how much better a team performs at home vs on the road."
+    description = "Home win% minus road win% — quantifies the boost from playing at home."
     scope = "team"
-    category = "conditional"
+    category = "record"
     min_sample = 10
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        rows = (
-            session.query(
-                TeamGameStats.on_road,
-                func.sum(case((TeamGameStats.win.is_(True), 1), else_=0)).label("wins"),
-                func.count(TeamGameStats.game_id).label("games"),
-            )
-            .join(Game, TeamGameStats.game_id == Game.game_id)
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        row = (
+            session.query(TeamGameStats)
             .filter(
                 TeamGameStats.team_id == entity_id,
-                Game.season == season,
-                TeamGameStats.win.isnot(None),
+                TeamGameStats.game_id == game_id,
             )
-            .group_by(TeamGameStats.on_road)
-            .all()
+            .first()
         )
-
-        home_wins = home_games = away_wins = away_games = 0
-        for r in rows:
-            if r.on_road:
-                away_wins = int(r.wins or 0)
-                away_games = int(r.games or 0)
-            else:
-                home_wins = int(r.wins or 0)
-                home_games = int(r.games or 0)
-
-        if home_games < 5 or away_games < 5:
+        if row is None or row.win is None:
             return None
+        if row.on_road:
+            return {
+                "road_games": 1,
+                "road_wins": 1 if row.win else 0,
+                "home_games": 0,
+                "home_wins": 0,
+            }
+        else:
+            return {
+                "home_games": 1,
+                "home_wins": 1 if row.win else 0,
+                "road_games": 0,
+                "road_wins": 0,
+            }
 
-        home_win_pct = home_wins / home_games
-        away_win_pct = away_wins / away_games
-        advantage = home_win_pct - away_win_pct
-
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        hg = totals.get("home_games", 0)
+        rg = totals.get("road_games", 0)
+        if hg < self.min_sample or rg < self.min_sample:
+            return None
+        hw = totals.get("home_wins", 0)
+        rw = totals.get("road_wins", 0)
+        home_pct = hw / hg
+        road_pct = rw / rg
+        advantage = home_pct - road_pct
         return MetricResult(
             metric_key=self.key,
             entity_type="team",
@@ -57,13 +61,11 @@ class HomeCourtAdvantage(MetricDefinition):
             value_num=round(advantage, 4),
             value_str=f"{advantage:+.1%}",
             context={
-                "home_court_advantage": round(advantage, 4),
-                "home_win_pct": round(home_win_pct, 4),
-                "away_win_pct": round(away_win_pct, 4),
-                "home_wins": home_wins,
-                "home_games": home_games,
-                "away_wins": away_wins,
-                "away_games": away_games,
+                "home_win_pct": round(home_pct, 4),
+                "road_win_pct": round(road_pct, 4),
+                "advantage": round(advantage, 4),
+                "home_games": hg,
+                "road_games": rg,
             },
         )
 

@@ -1,9 +1,9 @@
 """Cold Streak Recovery: FG% after 3+ consecutive misses vs. baseline."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import ShotRecord, Game
+from db.models import ShotRecord
 
 
 class ColdStreakRecovery(MetricDefinition):
@@ -13,42 +13,50 @@ class ColdStreakRecovery(MetricDefinition):
     scope = "player"
     category = "conditional"
     min_sample = 30
+    incremental = True
+    supports_career = True
+    career_min_sample = 100
 
-    def compute(self, session, entity_id, season, game_id=None):
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
         shots = (
-            session.query(ShotRecord.game_id, ShotRecord.period, ShotRecord.min, ShotRecord.sec, ShotRecord.shot_made)
-            .join(Game, ShotRecord.game_id == Game.game_id)
+            session.query(ShotRecord)
             .filter(
                 ShotRecord.player_id == entity_id,
-                Game.season == season,
+                ShotRecord.game_id == game_id,
                 ShotRecord.shot_attempted.is_(True),
             )
-            .order_by(ShotRecord.game_id, ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())
+            .order_by(ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())
             .all()
         )
-
-        if len(shots) < self.min_sample:
+        if not shots:
             return None
-
+        total_shots = len(shots)
         total_made = sum(1 for s in shots if s.shot_made)
-        baseline = total_made / len(shots)
-
         cold_opps = 0
-        cold_made = 0
+        cold_made_count = 0
         for i in range(3, len(shots)):
-            if shots[i].game_id != shots[i - 1].game_id:
-                continue
             if all(not shots[i - j].shot_made for j in range(1, 4)):
                 cold_opps += 1
                 if shots[i].shot_made:
-                    cold_made += 1
+                    cold_made_count += 1
+        return {
+            "total_shots": total_shots,
+            "total_made": total_made,
+            "cold_opps": cold_opps,
+            "cold_made": cold_made_count,
+        }
 
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        ts = totals.get("total_shots", 0)
+        if ts < self.min_sample:
+            return None
+        cold_opps = totals.get("cold_opps", 0)
         if cold_opps < 5:
             return None
-
+        cold_made = totals.get("cold_made", 0)
+        total_made = totals.get("total_made", 0)
         cold_pct = cold_made / cold_opps
-        lift = cold_pct - baseline
-
+        baseline = total_made / ts if ts > 0 else 0
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
@@ -59,9 +67,9 @@ class ColdStreakRecovery(MetricDefinition):
             context={
                 "baseline_fg_pct": round(baseline, 4),
                 "cold_recovery_fg_pct": round(cold_pct, 4),
-                "lift": round(lift, 4),
+                "lift": round(cold_pct - baseline, 4),
                 "cold_opportunities": cold_opps,
-                "total_shots": len(shots),
+                "total_shots": ts,
             },
         )
 

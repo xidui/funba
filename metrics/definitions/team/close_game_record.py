@@ -1,52 +1,51 @@
 """Close Game Record: W-L in games decided by 5 points or fewer."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import Game, TeamGameStats
+from db.models import TeamGameStats, Game
 
 
 class CloseGameRecord(MetricDefinition):
     key = "close_game_record"
     name = "Close Game Record"
-    description = "Win-loss record in games decided by 5 points or fewer at the final buzzer."
+    description = "Win-loss record in games decided by 5 points or fewer."
     scope = "team"
     category = "aggregate"
     min_sample = 5
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        rows = (
-            session.query(TeamGameStats.win, Game.home_team_score, Game.road_team_score)
-            .join(Game, TeamGameStats.game_id == Game.game_id)
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        tgs = (
+            session.query(TeamGameStats)
             .filter(
                 TeamGameStats.team_id == entity_id,
-                Game.season == season,
-                TeamGameStats.win.isnot(None),
-                Game.home_team_score.isnot(None),
-                Game.road_team_score.isnot(None),
+                TeamGameStats.game_id == game_id,
             )
-            .all()
+            .first()
         )
-
-        if not rows:
+        if tgs is None or tgs.win is None:
             return None
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None or game.home_team_score is None or game.road_team_score is None:
+            return {"close_wins": 0, "close_losses": 0, "total_games": 1}
+        margin = abs(game.home_team_score - game.road_team_score)
+        if margin <= 5:
+            return {
+                "close_wins": 1 if tgs.win else 0,
+                "close_losses": 0 if tgs.win else 1,
+                "total_games": 1,
+            }
+        return {"close_wins": 0, "close_losses": 0, "total_games": 1}
 
-        close_wins = 0
-        close_losses = 0
-        for r in rows:
-            margin = abs((r.home_team_score or 0) - (r.road_team_score or 0))
-            if margin <= 5:
-                if r.win:
-                    close_wins += 1
-                else:
-                    close_losses += 1
-
-        close_total = close_wins + close_losses
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        cw = totals.get("close_wins", 0)
+        cl = totals.get("close_losses", 0)
+        close_total = cw + cl
         if close_total < self.min_sample:
             return None
-
-        win_pct = close_wins / close_total
-
+        win_pct = cw / close_total
         return MetricResult(
             metric_key=self.key,
             entity_type="team",
@@ -54,13 +53,13 @@ class CloseGameRecord(MetricDefinition):
             season=season,
             game_id=None,
             value_num=round(win_pct, 4),
-            value_str=f"{close_wins}-{close_losses}",
+            value_str=f"{cw}-{cl}",
             context={
-                "close_wins": close_wins,
-                "close_losses": close_losses,
+                "close_wins": cw,
+                "close_losses": cl,
                 "close_game_total": close_total,
                 "close_win_pct": round(win_pct, 4),
-                "total_games": len(rows),
+                "total_games": totals.get("total_games", 0),
             },
         )
 

@@ -1,10 +1,9 @@
 """Assist-to-Turnover Ratio: AST / TOV — measures ball-handling quality."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import PlayerGameStats, Game
-from sqlalchemy import func
+from db.models import PlayerGameStats
 
 
 class AssistToTurnoverRatio(MetricDefinition):
@@ -14,45 +13,47 @@ class AssistToTurnoverRatio(MetricDefinition):
     scope = "player"
     category = "efficiency"
     min_sample = 20
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
         row = (
-            session.query(
-                func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
-                func.sum(func.coalesce(PlayerGameStats.tov, 0)).label("tov"),
-                func.count(PlayerGameStats.game_id).label("games"),
+            session.query(PlayerGameStats)
+            .filter(
+                PlayerGameStats.player_id == entity_id,
+                PlayerGameStats.game_id == game_id,
             )
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(PlayerGameStats.player_id == entity_id, Game.season == season)
-            .one()
+            .first()
         )
+        if row is None:
+            return None
+        ast = int(row.ast or 0)
+        tov = int(row.tov or 0)
+        played = 1 if (row.min or 0) > 0 or (row.sec or 0) > 0 else 0
+        return {"ast": ast, "tov": tov, "games": played}
 
-        games = int(row.games or 0)
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        games = totals.get("games", 0)
         if games < self.min_sample:
             return None
-
-        ast = float(row.ast or 0)
-        tov = float(row.tov or 0)
+        ast = totals.get("ast", 0)
+        tov = totals.get("tov", 0)
         if tov == 0:
             return None
-
         ratio = ast / tov
-
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
             entity_id=entity_id,
             season=season,
             game_id=None,
-            value_num=round(ratio, 2),
+            value_num=round(ratio, 3),
             value_str=f"{ratio:.2f}",
             context={
-                "ast_to_tov_ratio": round(ratio, 2),
-                "total_ast": int(ast),
-                "total_tov": int(tov),
-                "ast_per_game": round(ast / games, 1),
-                "tov_per_game": round(tov / games, 1),
+                "ast": ast,
+                "tov": tov,
                 "games": games,
+                "ratio": round(ratio, 3),
             },
         )
 

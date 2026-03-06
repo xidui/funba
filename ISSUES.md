@@ -27,3 +27,29 @@ also be represented as DB rows (`source_type = 'builtin'`) so the full catalog l
 - [ ] No change in computed results
 
 **Depends on:** User-defined metrics milestone
+
+---
+
+## [INFRA-1] On-demand AWS backfill cluster
+
+Run backfills on a disposable AWS cluster (N workers) that spins up on demand and destroys itself when done. Eliminates the need to run overnight locally and enables parallelism across multiple IPs (useful for NBA API rate limits).
+
+**Architecture:**
+- SQS queue of game_ids as the work unit
+- ECS Fargate Spot tasks as workers (pull from SQS, process, exit)
+- RDS MySQL as shared DB (replaces local MySQL)
+- ECR for Docker image
+- Launcher script: `python launch_backfill.py --season 2024-25 --workers 10`
+
+**Estimated cost per run:** ~$0.50 (Fargate Spot) + RDS ongoing ~$15-30/month
+
+**Work breakdown:**
+- [ ] Dockerize backfill script + push to ECR
+- [ ] SQS queue + worker pull loop
+- [ ] Migrate local MySQL → RDS (mysqldump + restore)
+- [ ] ECS task definition + IAM roles + VPC/security groups
+- [ ] Launcher CLI script (push game_ids, start tasks, tail logs, teardown)
+
+**Key decision:** Requires migrating DB to RDS — without that, AWS workers can't reach local MySQL.
+
+**Note:** For now, run backfills locally overnight with `--workers 20`. Multiple seasons can be queued sequentially.

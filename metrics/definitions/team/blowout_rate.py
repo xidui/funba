@@ -1,62 +1,50 @@
 """Blowout Rate: % of wins by 15+ point margin."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
 from db.models import TeamGameStats, Game
-from sqlalchemy import func
 
 
 class BlowoutRate(MetricDefinition):
     key = "blowout_rate"
     name = "Blowout Rate"
-    description = "Percentage of wins where the team won by 15 or more points — a measure of dominance."
+    description = "% of wins by 15+ point margin."
     scope = "team"
-    category = "scoring"
-    min_sample = 10
+    category = "record"
+    min_sample = 5
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        games = (
-            session.query(
-                TeamGameStats.win,
-                Game.home_team_id,
-                Game.road_team_id,
-                Game.home_team_score,
-                Game.road_team_score,
-            )
-            .join(Game, TeamGameStats.game_id == Game.game_id)
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        tgs = (
+            session.query(TeamGameStats)
             .filter(
                 TeamGameStats.team_id == entity_id,
-                Game.season == season,
-                TeamGameStats.win.isnot(None),
+                TeamGameStats.game_id == game_id,
             )
-            .all()
+            .first()
         )
-
-        if len(games) < self.min_sample:
+        if tgs is None or tgs.win is None:
             return None
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None or game.home_team_score is None or game.road_team_score is None:
+            return {"total_games": 1, "wins": 1 if tgs.win else 0, "blowout_wins": 0}
+        margin = abs(game.home_team_score - game.road_team_score)
+        blowout = 1 if tgs.win and margin >= 15 else 0
+        return {
+            "total_games": 1,
+            "wins": 1 if tgs.win else 0,
+            "blowout_wins": blowout,
+        }
 
-        wins = 0
-        blowout_wins = 0
-
-        for g in games:
-            if not g.win:
-                continue
-            wins += 1
-            is_home = g.home_team_id == entity_id
-            margin = (
-                (g.home_team_score or 0) - (g.road_team_score or 0)
-                if is_home
-                else (g.road_team_score or 0) - (g.home_team_score or 0)
-            )
-            if margin >= 15:
-                blowout_wins += 1
-
-        if wins == 0:
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        wins = totals.get("wins", 0)
+        if wins < self.min_sample:
             return None
-
+        blowout_wins = totals.get("blowout_wins", 0)
+        total_games = totals.get("total_games", 0)
         rate = blowout_wins / wins
-
         return MetricResult(
             metric_key=self.key,
             entity_type="team",
@@ -68,8 +56,8 @@ class BlowoutRate(MetricDefinition):
             context={
                 "blowout_rate": round(rate, 4),
                 "blowout_wins": blowout_wins,
-                "total_wins": wins,
-                "total_games": len(games),
+                "wins": wins,
+                "total_games": total_games,
             },
         )
 

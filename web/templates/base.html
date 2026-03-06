@@ -179,11 +179,12 @@
         transition: color 0.15s, background 0.15s;
       }
 
-      .nav-link:hover {
+      .nav-link:hover, .nav-link.active {
         color: var(--text);
         background: var(--surface-2);
         text-decoration: none;
       }
+      .nav-link.active { color: var(--accent); }
 
       /* ── Layout ─────────────────────────────────────────────────── */
       .container {
@@ -562,6 +563,26 @@
         color: var(--muted);
         margin-top: 2px;
       }
+      .metric-career {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+        padding-top: 4px;
+        border-top: 1px solid var(--border);
+      }
+      .metric-career-label {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      .metric-career-value {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted-2);
+      }
     </style>
   </head>
   <body>
@@ -591,8 +612,9 @@
         </div>
 
         <nav class="topbar-nav">
-          <a href="{{ url_for('home') }}" class="nav-link">Home</a>
-          <a href="{{ url_for('metrics_browse') }}" class="nav-link">Metrics</a>
+          <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if request.endpoint == 'home' }}">Home</a>
+          <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if request.endpoint == 'games_list' }}">Games</a>
+          <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}">Metrics</a>
         </nav>
       </div>
     </header>

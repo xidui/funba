@@ -17,6 +17,68 @@ from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_a
 app = Flask(__name__)
 SessionLocal = sessionmaker(bind=engine)
 
+# Real lat/lon for each NBA team (slight offsets for same-city pairs)
+_TEAM_MAP_POSITIONS: dict[str, tuple[float, float]] = {
+    "ATL": (33.757,  -84.396),
+    "BOS": (42.366,  -71.062),
+    "BKN": (40.683,  -74.004),
+    "CHA": (35.225,  -80.839),
+    "CHI": (41.881,  -87.674),
+    "CLE": (41.497,  -81.688),
+    "DAL": (32.790,  -96.810),
+    "DEN": (39.749, -105.007),
+    "DET": (42.341,  -83.055),
+    "GSW": (37.768, -122.388),
+    "HOU": (29.751,  -95.362),
+    "IND": (39.764,  -86.156),
+    "LAC": (34.130, -118.100),  # offset from LAL
+    "LAL": (33.950, -118.450),
+    "MEM": (35.138,  -90.051),
+    "MIA": (25.781,  -80.188),
+    "MIL": (43.045,  -87.918),
+    "MIN": (44.980,  -93.276),
+    "NOP": (29.949,  -90.082),
+    "NYK": (40.800,  -73.940),  # offset from BKN
+    "OKC": (35.463,  -97.515),
+    "ORL": (28.539,  -81.384),
+    "PHI": (39.901,  -75.172),
+    "PHX": (33.446, -112.071),
+    "POR": (45.532, -122.667),
+    "SAC": (38.580, -121.499),
+    "SAS": (29.427,  -98.438),
+    "TOR": (43.643,  -79.379),
+    "UTA": (40.768, -111.901),
+    "WAS": (38.898,  -77.021),
+}
+
+
+# Historical franchise name overrides.
+# Each entry: team_id -> list of (season_start_year_exclusive, abbr, name)
+# If the season's start year is < cutoff, that name applies.
+# Listed with the oldest cutoff first.
+_FRANCHISE_NAME_HISTORY: dict[str, list[tuple[int, str, str]]] = {
+    "1610612740": [(2013, "NOH", "New Orleans Hornets")],       # → Pelicans 2013-14
+    "1610612751": [(2012, "NJN", "New Jersey Nets")],           # → Nets 2012-13
+    "1610612760": [(2008, "SEA", "Seattle SuperSonics")],       # → Thunder 2008-09
+    "1610612763": [(2001, "VAN", "Vancouver Grizzlies")],       # → Grizzlies 2001-02
+    "1610612766": [(2014, "CHA", "Charlotte Bobcats")],         # → Hornets 2014-15
+}
+
+
+def _franchise_display(team_id: str, season: str | None, team: Team | None) -> tuple[str, str]:
+    """Return (abbr, full_name) for a team in a given season, applying historical overrides."""
+    default_abbr = team.abbr if team else team_id
+    default_name = team.full_name if team else team_id
+    if season and team_id in _FRANCHISE_NAME_HISTORY:
+        try:
+            season_year = int(season[1:])  # e.g. "22012" -> 2012
+        except (ValueError, IndexError):
+            return default_abbr, default_name
+        for cutoff, abbr, name in _FRANCHISE_NAME_HISTORY[team_id]:
+            if season_year < cutoff:
+                return abbr, name
+    return default_abbr, default_name
+
 
 def _team_map(session) -> dict[str, Team]:
     teams = session.query(Team).all()
@@ -65,17 +127,29 @@ def _fmt_date(d: date | None) -> str:
 
 
 def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> list:
+    """Fetch metric results for an entity, pairing season and career variants.
+
+    Returns a list of metric dicts. Each dict may have a ``career`` sub-dict
+    with the career value when a ``_career`` variant exists.
+    """
     import json
-    q = (
-        session.query(MetricResultModel)
-        .filter(MetricResultModel.entity_type == entity_type, MetricResultModel.entity_id == entity_id)
+    from metrics.framework.base import CAREER_SEASON
+
+    # Fetch all results: both the requested season and career bucket
+    q = session.query(MetricResultModel).filter(
+        MetricResultModel.entity_type == entity_type,
+        MetricResultModel.entity_id == entity_id,
+        MetricResultModel.value_num.isnot(None),
     )
     if season:
-        q = q.filter(MetricResultModel.season == season)
+        q = q.filter(
+            (MetricResultModel.season == season) | (MetricResultModel.season == CAREER_SEASON)
+        )
     rows = q.order_by(MetricResultModel.noteworthiness.desc()).all()
-    results = []
+
+    by_key: dict = {}
     for r in rows:
-        results.append({
+        entry = {
             "metric_key": r.metric_key,
             "value_num": r.value_num,
             "value_str": r.value_str,
@@ -83,7 +157,30 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "notable_reason": r.notable_reason,
             "context": json.loads(r.context_json) if r.context_json else {},
             "computed_at": r.computed_at,
-        })
+            "career": None,
+        }
+        if r.metric_key.endswith("_career"):
+            # Attach to season variant
+            base_key = r.metric_key[: -len("_career")]
+            if base_key in by_key:
+                by_key[base_key]["career"] = entry
+            else:
+                # career row arrived before season row — store temporarily
+                by_key[r.metric_key] = entry
+        else:
+            if r.metric_key in by_key:
+                # Already have a placeholder for season
+                by_key[r.metric_key].update(entry)
+            else:
+                by_key[r.metric_key] = entry
+            # Attach any already-loaded career entry
+            career_key = r.metric_key + "_career"
+            if career_key in by_key:
+                by_key[r.metric_key]["career"] = by_key.pop(career_key)
+
+    # Return only season (non-career) rows, sorted by noteworthiness desc
+    results = [v for k, v in by_key.items() if not k.endswith("_career")]
+    results.sort(key=lambda x: (x["noteworthiness"] or 0), reverse=True)
     return results
 
 
@@ -342,18 +439,123 @@ def home():
             .limit(30)
             .all()
         )
-        players = session.query(Player).filter(Player.is_active.is_(True)).order_by(Player.full_name.asc()).limit(20).all()
-        recent_games = session.query(Game).order_by(Game.game_date.desc(), Game.game_id.desc()).limit(20).all()
         team_lookup = _team_map(session)
+
+        # Available regular seasons for standings
+        standing_season_ids = [
+            r.season for r in session.query(Game.season)
+            .filter(Game.season.like("2%"))
+            .distinct().all()
+        ]
+        standing_season_ids = sorted(standing_season_ids, key=_season_sort_key, reverse=True)
+        selected_standing_season = request.args.get("season") or (standing_season_ids[0] if standing_season_ids else None)
+
+        # Conference membership (static)
+        _EAST = {
+            "1610612737", "1610612751", "1610612738", "1610612766", "1610612741",
+            "1610612739", "1610612765", "1610612754", "1610612748", "1610612749",
+            "1610612752", "1610612753", "1610612755", "1610612761", "1610612764",
+        }
+
+        # Compute standings: wins/losses per team for selected season
+        east_standings, west_standings = [], []
+        if selected_standing_season:
+            rows = (
+                session.query(
+                    TeamGameStats.team_id,
+                    func.sum(case((TeamGameStats.win.is_(True), 1), else_=0)).label("wins"),
+                    func.sum(case((TeamGameStats.win.is_(False), 1), else_=0)).label("losses"),
+                )
+                .join(Game, TeamGameStats.game_id == Game.game_id)
+                .filter(
+                    Game.season == selected_standing_season,
+                    TeamGameStats.win.isnot(None),
+                )
+                .group_by(TeamGameStats.team_id)
+                .all()
+            )
+            for r in rows:
+                team = team_lookup.get(r.team_id)
+                abbr, full_name = _franchise_display(r.team_id, selected_standing_season, team)
+                w, l = int(r.wins or 0), int(r.losses or 0)
+                total = w + l
+                entry = {
+                    "team_id": r.team_id,
+                    "abbr": abbr,
+                    "full_name": full_name,
+                    "wins": w,
+                    "losses": l,
+                    "win_pct": w / total if total > 0 else 0.0,
+                }
+                if r.team_id in _EAST:
+                    east_standings.append(entry)
+                else:
+                    west_standings.append(entry)
+            east_standings.sort(key=lambda x: x["win_pct"], reverse=True)
+            west_standings.sort(key=lambda x: x["win_pct"], reverse=True)
+
+    # Build team map data for D3 map
+    team_map_data = []
+    for team in teams:
+        pos = _TEAM_MAP_POSITIONS.get(team.abbr)
+        if pos:
+            team_map_data.append({
+                "abbr": team.abbr,
+                "full_name": team.full_name,
+                "team_id": team.team_id,
+                "lat": pos[0],
+                "lon": pos[1],
+            })
 
     return render_template(
         "home.html",
         teams=teams,
-        players=players,
-        recent_games=recent_games,
+        team_map_data=team_map_data,
+        east_standings=east_standings,
+        west_standings=west_standings,
+        standing_season_ids=standing_season_ids,
+        selected_standing_season=selected_standing_season,
+        fmt_season=_season_label,
+    )
+
+
+@app.route("/games")
+def games_list():
+    PAGE_SIZE = 30
+    with SessionLocal() as session:
+        all_season_ids = sorted(
+            {r.season for r in session.query(Game.season).filter(Game.season.isnot(None)).all()},
+            key=_season_sort_key, reverse=True,
+        )
+        selected_season = request.args.get("season") or (all_season_ids[0] if all_season_ids else None)
+        try:
+            page = max(1, int(request.args.get("page", 1)))
+        except ValueError:
+            page = 1
+
+        games_q = session.query(Game).filter(Game.game_date.isnot(None))
+        if selected_season:
+            games_q = games_q.filter(Game.season == selected_season)
+        games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
+
+        total = games_q.count()
+        total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = min(page, total_pages)
+        games = games_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+
+        team_lookup = _team_map(session)
+
+    return render_template(
+        "games_list.html",
+        games=games,
         team_lookup=team_lookup,
+        all_season_ids=all_season_ids,
+        selected_season=selected_season,
         fmt_date=_fmt_date,
-        team_name=_team_name,
+        fmt_season=_season_label,
+        page=page,
+        total_pages=total_pages,
+        total=total,
     )
 
 

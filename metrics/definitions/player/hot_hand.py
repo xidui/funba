@@ -1,9 +1,9 @@
 """Hot Hand: FG% after 3+ consecutive makes vs. baseline."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import ShotRecord, Game
+from db.models import ShotRecord
 
 
 class HotHand(MetricDefinition):
@@ -12,45 +12,51 @@ class HotHand(MetricDefinition):
     description = "FG% on a shot immediately following 3+ consecutive makes, compared to baseline FG%."
     scope = "player"
     category = "conditional"
-    min_sample = 30   # minimum total shots in season
+    min_sample = 30  # minimum total shots
+    incremental = True
+    supports_career = True
+    career_min_sample = 100
 
-    def compute(self, session, entity_id, season, game_id=None):
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
         shots = (
-            session.query(ShotRecord.game_id, ShotRecord.period, ShotRecord.min, ShotRecord.sec, ShotRecord.shot_made)
-            .join(Game, ShotRecord.game_id == Game.game_id)
+            session.query(ShotRecord)
             .filter(
                 ShotRecord.player_id == entity_id,
-                Game.season == season,
+                ShotRecord.game_id == game_id,
                 ShotRecord.shot_attempted.is_(True),
             )
-            .order_by(ShotRecord.game_id, ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())
+            .order_by(ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())
             .all()
         )
-
-        if len(shots) < self.min_sample:
+        if not shots:
             return None
-
+        total_shots = len(shots)
         total_made = sum(1 for s in shots if s.shot_made)
-        baseline = total_made / len(shots)
-
-        # Look for windows where the prior 3 shots were all makes
         hot_opps = 0
-        hot_made = 0
+        hot_made_count = 0
         for i in range(3, len(shots)):
-            # Reset at game boundary
-            if shots[i].game_id != shots[i - 1].game_id:
-                continue
             if all(shots[i - j].shot_made for j in range(1, 4)):
                 hot_opps += 1
                 if shots[i].shot_made:
-                    hot_made += 1
+                    hot_made_count += 1
+        return {
+            "total_shots": total_shots,
+            "total_made": total_made,
+            "hot_opps": hot_opps,
+            "hot_made": hot_made_count,
+        }
 
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        ts = totals.get("total_shots", 0)
+        if ts < self.min_sample:
+            return None
+        hot_opps = totals.get("hot_opps", 0)
         if hot_opps < 5:
             return None
-
+        hot_made = totals.get("hot_made", 0)
+        total_made = totals.get("total_made", 0)
         hot_pct = hot_made / hot_opps
-        lift = hot_pct - baseline
-
+        baseline = total_made / ts if ts > 0 else 0
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
@@ -61,9 +67,9 @@ class HotHand(MetricDefinition):
             context={
                 "baseline_fg_pct": round(baseline, 4),
                 "hot_hand_fg_pct": round(hot_pct, 4),
-                "lift": round(lift, 4),
+                "lift": round(hot_pct - baseline, 4),
                 "hot_opportunities": hot_opps,
-                "total_shots": len(shots),
+                "total_shots": ts,
             },
         )
 

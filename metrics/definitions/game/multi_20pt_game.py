@@ -14,6 +14,7 @@ class Multi20PtGame(MetricDefinition):
     scope = "game"
     category = "aggregate"
     min_sample = 1
+    incremental = False
 
     def compute(self, session, entity_id, season, game_id=None):
         # entity_id is the game_id for game-scope metrics

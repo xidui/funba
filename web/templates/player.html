@@ -446,12 +446,15 @@
     <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
-      <div class="metric-value">{{ m.value_str or m.value_num }}</div>
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.notable_reason %}
       <div class="metric-reason">{{ m.notable_reason }}</div>
       {% endif %}
-      {% if m.noteworthiness is not none %}
-      <div class="metric-score">Score: {{ "%.2f"|format(m.noteworthiness) }}</div>
+      {% if m.career and m.career.value_num is not none %}
+      <div class="metric-career">
+        <span class="metric-career-label">Career</span>
+        <span class="metric-career-value">{{ m.career.value_str if m.career.value_str else ("%.3g"|format(m.career.value_num)) }}</span>
+      </div>
       {% endif %}
     </a>
     {% endfor %}

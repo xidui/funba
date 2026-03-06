@@ -1,10 +1,9 @@
 """Paint Scoring Share: % of shot attempts taken in the paint (restricted area + non-RA paint)."""
 from __future__ import annotations
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from metrics.framework.base import MetricDefinition, MetricResult, CAREER_SEASON
 from metrics.framework.registry import register
-from db.models import ShotRecord, Game
-from sqlalchemy import case, func
+from db.models import ShotRecord
 
 
 _PAINT_ZONES = ("Restricted Area", "In The Paint (Non-RA)")
@@ -16,32 +15,36 @@ class PaintScoringShare(MetricDefinition):
     description = "Percentage of shot attempts taken inside the paint (restricted area + non-RA paint) this season."
     scope = "player"
     category = "scoring"
-    min_sample = 20
+    min_sample = 20  # total shots
+    incremental = True
+    supports_career = True
 
-    def compute(self, session, entity_id, season, game_id=None):
-        row = (
-            session.query(
-                func.count(ShotRecord.id).label("total_shots"),
-                func.sum(
-                    case((ShotRecord.shot_zone_basic.in_(_PAINT_ZONES), 1), else_=0)
-                ).label("paint_shots"),
-            )
-            .join(Game, ShotRecord.game_id == Game.game_id)
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        all_shots = (
+            session.query(ShotRecord)
             .filter(
                 ShotRecord.player_id == entity_id,
-                Game.season == season,
+                ShotRecord.game_id == game_id,
                 ShotRecord.shot_attempted.is_(True),
             )
-            .one()
+            .order_by(ShotRecord.period, ShotRecord.min.desc(), ShotRecord.sec.desc())
+            .all()
         )
-
-        total = int(row.total_shots or 0)
-        if total < self.min_sample:
+        if not all_shots:
             return None
+        total_shots = len(all_shots)
+        paint_shots = sum(1 for s in all_shots if s.shot_zone_basic in _PAINT_ZONES)
+        return {
+            "paint_shots": paint_shots,
+            "total_shots": total_shots,
+        }
 
-        paint = int(row.paint_shots or 0)
-        share = paint / total
-
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        ts = totals.get("total_shots", 0)
+        if ts < self.min_sample:
+            return None
+        ps = totals.get("paint_shots", 0)
+        share = ps / ts
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
@@ -52,8 +55,8 @@ class PaintScoringShare(MetricDefinition):
             value_str=f"{share:.1%}",
             context={
                 "paint_shot_share": round(share, 4),
-                "paint_shots": paint,
-                "total_shots": total,
+                "paint_shots": ps,
+                "total_shots": ts,
             },
         )
 
