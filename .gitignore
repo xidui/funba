@@ -1,2 +1,13 @@
 venv
 .idea
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# Virtual envs
+.venv/
+
+# Runtime logs / pid files
+logs/*.log
+logs/*.pid
