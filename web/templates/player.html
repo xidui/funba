@@ -438,27 +438,41 @@
   })();
 </script>
 
-{% if player_metrics %}
+{% set season_metrics = player_metrics.season %}
+{% set alltime_metrics = player_metrics.alltime %}
+{% if season_metrics or alltime_metrics %}
 <section class="section metrics-section">
   <h2 class="section-title">Analytics Insights</h2>
+
+  {% if season_metrics %}
+  <h3 class="metrics-sub-title">{{ season_label(selected_season) }}</h3>
   <div class="metrics-grid">
-    {% for m in player_metrics %}
+    {% for m in season_metrics %}
     <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-      {% if m.notable_reason %}
-      <div class="metric-reason">{{ m.notable_reason }}</div>
-      {% endif %}
-      {% if m.career and m.career.value_num is not none %}
-      <div class="metric-career">
-        <span class="metric-career-label">Career</span>
-        <span class="metric-career-value">{{ m.career.value_str if m.career.value_str else ("%.3g"|format(m.career.value_num)) }}</span>
-      </div>
-      {% endif %}
+      {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
+      {% if m.notable_reason %}<div class="metric-reason">{{ m.notable_reason }}</div>{% endif %}
     </a>
     {% endfor %}
   </div>
+  {% endif %}
+
+  {% if alltime_metrics %}
+  <h3 class="metrics-sub-title" style="margin-top:20px;">Career</h3>
+  <div class="metrics-grid">
+    {% for m in alltime_metrics %}
+    <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=m.metric_key | replace('_career','')) }}" style="text-decoration:none;">
+      <div class="metric-key">{{ m.metric_key | replace('_career','') | replace('_', ' ') | title }}</div>
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
+      {% if m.notable_reason %}<div class="metric-reason">{{ m.notable_reason }}</div>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 {% endblock %}

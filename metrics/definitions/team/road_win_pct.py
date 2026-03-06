@@ -15,6 +15,7 @@ class RoadWinPct(MetricDefinition):
     min_sample = 10
     incremental = True
     supports_career = True
+    career_name_suffix = " (All-Time)"
 
     def compute_delta(self, session, entity_id, game_id) -> dict | None:
         row = (

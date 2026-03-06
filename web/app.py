@@ -126,16 +126,36 @@ def _fmt_date(d: date | None) -> str:
     return d.isoformat()
 
 
-def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> list:
-    """Fetch metric results for an entity, pairing season and career variants.
+def _fmt_int(v) -> str:
+    return str(int(v)) if v is not None else "0"
 
-    Returns a list of metric dicts. Each dict may have a ``career`` sub-dict
-    with the career value when a ``_career`` variant exists.
+
+_METRIC_CONTEXT_LABEL: dict = {
+    "clutch_fg_pct":          lambda c: f"{_fmt_int(c.get('clutch_made'))}/{_fmt_int(c.get('clutch_attempts'))} clutch",
+    "hot_hand":               lambda c: f"{_fmt_int(c.get('hot_made'))}/{_fmt_int(c.get('hot_opps'))} after make",
+    "cold_streak_recovery":   lambda c: f"{_fmt_int(c.get('cold_made'))}/{_fmt_int(c.get('cold_opps'))} after miss",
+    "double_double_rate":     lambda c: f"{_fmt_int(c.get('dd_count'))}/{_fmt_int(c.get('games_played'))} games",
+    "scoring_consistency":    lambda c: f"{_fmt_int(c.get('games_20_plus'))}/{_fmt_int(c.get('games_played'))} games",
+    "true_shooting_pct":      lambda c: f"{_fmt_int(c.get('pts'))} pts / {_fmt_int(c.get('fga'))} FGA + {_fmt_int(c.get('fta'))} FTA",
+    "assist_to_turnover_ratio": lambda c: f"{_fmt_int(c.get('ast'))} ast / {_fmt_int(c.get('tov'))} tov",
+    "paint_scoring_share":    lambda c: f"{_fmt_int(c.get('paint_shots'))}/{_fmt_int(c.get('total_shots'))} shots",
+    "bench_scoring_share":    lambda c: f"{_fmt_int(c.get('bench_pts'))}/{_fmt_int(c.get('total_pts'))} pts",
+    "blowout_rate":           lambda c: f"{_fmt_int(c.get('blowout_wins'))}/{_fmt_int(c.get('total_games'))} games",
+    "comeback_win_pct":       lambda c: f"{_fmt_int(c.get('trailing_wins'))}/{_fmt_int(c.get('trailing_total'))} trailing",
+    "win_pct_leading_at_half": lambda c: f"{_fmt_int(c.get('leading_wins'))}/{_fmt_int(c.get('leading_total'))} at half",
+    "road_win_pct":           lambda c: f"{_fmt_int(c.get('road_wins'))}/{_fmt_int(c.get('road_games'))} road",
+    "home_court_advantage":   lambda c: f"home {_fmt_int(c.get('home_wins'))}/{_fmt_int(c.get('home_games'))} · road {_fmt_int(c.get('road_wins'))}/{_fmt_int(c.get('road_games'))}",
+}
+
+
+def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> dict:
+    """Fetch metric results for an entity, split into season and alltime lists.
+
+    Returns {"season": [...], "alltime": [...]} each sorted by noteworthiness desc.
     """
     import json
     from metrics.framework.base import CAREER_SEASON
 
-    # Fetch all results: both the requested season and career bucket
     q = session.query(MetricResultModel).filter(
         MetricResultModel.entity_type == entity_type,
         MetricResultModel.entity_id == entity_id,
@@ -147,41 +167,34 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         )
     rows = q.order_by(MetricResultModel.noteworthiness.desc()).all()
 
-    by_key: dict = {}
+    season_metrics = []
+    alltime_metrics = []
     for r in rows:
+        ctx = json.loads(r.context_json) if r.context_json else {}
+        base_key = r.metric_key.removesuffix("_career")
+        label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
+        context_label = None
+        if label_fn:
+            try:
+                context_label = label_fn(ctx)
+            except Exception:
+                pass
         entry = {
             "metric_key": r.metric_key,
             "value_num": r.value_num,
             "value_str": r.value_str,
             "noteworthiness": r.noteworthiness,
             "notable_reason": r.notable_reason,
-            "context": json.loads(r.context_json) if r.context_json else {},
+            "context": ctx,
+            "context_label": context_label,
             "computed_at": r.computed_at,
-            "career": None,
         }
-        if r.metric_key.endswith("_career"):
-            # Attach to season variant
-            base_key = r.metric_key[: -len("_career")]
-            if base_key in by_key:
-                by_key[base_key]["career"] = entry
-            else:
-                # career row arrived before season row — store temporarily
-                by_key[r.metric_key] = entry
+        if r.metric_key.endswith("_career") or r.season == CAREER_SEASON:
+            alltime_metrics.append(entry)
         else:
-            if r.metric_key in by_key:
-                # Already have a placeholder for season
-                by_key[r.metric_key].update(entry)
-            else:
-                by_key[r.metric_key] = entry
-            # Attach any already-loaded career entry
-            career_key = r.metric_key + "_career"
-            if career_key in by_key:
-                by_key[r.metric_key]["career"] = by_key.pop(career_key)
+            season_metrics.append(entry)
 
-    # Return only season (non-career) rows, sorted by noteworthiness desc
-    results = [v for k, v in by_key.items() if not k.endswith("_career")]
-    results.sort(key=lambda x: (x["noteworthiness"] or 0), reverse=True)
-    return results
+    return {"season": season_metrics, "alltime": alltime_metrics}
 
 
 def _pbp_text(play: GamePlayByPlay) -> str:
