@@ -238,6 +238,7 @@
         </td>
         <td class="right">
           <span class="value-cell">{{ r.value_str or r.value_num }}</span>
+          {% if r.context_label %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;">{{ r.context_label }}</div>{% endif %}
         </td>
         {% if metric_def.scope != 'game' %}
         <td class="right" style="color:var(--muted-2);font-size:12px;">

@@ -53,3 +53,22 @@ Run backfills on a disposable AWS cluster (N workers) that spins up on demand an
 **Key decision:** Requires migrating DB to RDS — without that, AWS workers can't reach local MySQL.
 
 **Note:** For now, run backfills locally overnight with `--workers 20`. Multiple seasons can be queued sequentially.
+
+---
+
+## [METRICS-2] Cross-season ranking
+
+Currently noteworthiness is a percentile rank within a single season (e.g. "top 5% of players in TS% this season"). A useful extension would be ranking each (entity, season) pair across all seasons — e.g. "LeBron's 2012-13 TS% was the 3rd best single-season mark in franchise history".
+
+**How it would work:**
+- After all historical seasons are backfilled, run a cross-season rank pass per metric
+- For each metric + entity, sort all (season, value) pairs by value and assign rank
+- Store as a separate field or a new `MetricRank` table: `(metric_key, entity_id, season, cross_season_rank, cross_season_total)`
+- Surface on player/team pages: "This season ranks #2 all-time for this player"
+
+**Use cases:**
+- "Is this Jokic's best double-double season ever?"
+- "Is this the Warriors' best home-court advantage season?"
+- Highlights truly historic seasons vs. just good ones
+
+**Depends on:** Multiple seasons backfilled (`22024`, `22023`, etc.)

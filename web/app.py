@@ -1350,6 +1350,14 @@ def metric_detail(metric_key: str):
                 or ctx.get("road_games")
                 or ctx.get("home_games")
             )
+            base_key = metric_key.removesuffix("_career")
+            label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
+            context_label = None
+            if label_fn:
+                try:
+                    context_label = label_fn(ctx)
+                except Exception:
+                    pass
             result_rows.append({
                 "rank": i + 1,
                 "entity_type": r.entity_type,
@@ -1361,6 +1369,7 @@ def metric_detail(metric_key: str):
                 "noteworthiness": r.noteworthiness,
                 "notable_reason": r.notable_reason,
                 "context": ctx,
+                "context_label": context_label,
                 "games_counted": int(games_counted) if games_counted is not None else None,
             })
 
