@@ -598,21 +598,18 @@
   })();
 </script>
 
-{% if game_metrics %}
+{% set game_metric_list = game_metrics.season %}
+{% if game_metric_list %}
 <section class="section metrics-section">
   <h2 class="section-title">Game Analytics</h2>
   <div class="metrics-grid">
-    {% for m in game_metrics %}
+    {% for m in game_metric_list %}
     <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
-      <div class="metric-value">{{ m.value_str or m.value_num }}</div>
-      {% if m.notable_reason %}
-      <div class="metric-reason">{{ m.notable_reason }}</div>
-      {% endif %}
-      {% if m.noteworthiness is not none %}
-      <div class="metric-score">Score: {{ "%.2f"|format(m.noteworthiness) }}</div>
-      {% endif %}
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
+      {% if m.notable_reason %}<div class="metric-reason">{{ m.notable_reason }}</div>{% endif %}
     </a>
     {% endfor %}
   </div>
