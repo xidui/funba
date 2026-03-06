@@ -603,7 +603,8 @@
   <h2 class="section-title">Game Analytics</h2>
   <div class="metrics-grid">
     {% for m in game_metrics %}
-    <div class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}">
+    <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
       <div class="metric-value">{{ m.value_str or m.value_num }}</div>
       {% if m.notable_reason %}
@@ -612,7 +613,7 @@
       {% if m.noteworthiness is not none %}
       <div class="metric-score">Score: {{ "%.2f"|format(m.noteworthiness) }}</div>
       {% endif %}
-    </div>
+    </a>
     {% endfor %}
   </div>
 </section>

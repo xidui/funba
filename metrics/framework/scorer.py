@@ -1,83 +1,149 @@
-"""AI-based noteworthiness scoring using the Anthropic API (Claude)."""
+"""Rank-based noteworthiness scoring.
+
+After metric results are persisted, compute each entity's percentile rank within
+its (metric_key, entity_type, season) group. No AI required.
+
+Score = 1 - (rank - 1) / total  → #1 scores 1.0, last scores ~0.
+"""
 from __future__ import annotations
 
-import json
 import logging
 import os
 
-from metrics.framework.base import MetricDefinition, MetricResult
+from sqlalchemy import func, text
+from sqlalchemy.orm import Session
+
+from db.models import MetricResult as MetricResultModel
+from metrics.framework.base import MetricResult
 
 logger = logging.getLogger(__name__)
 
 _SCORE_THRESHOLD = float(os.getenv("FUNBA_NOTEWORTHINESS_THRESHOLD", "0.75"))
 
+# Top-N labels for notable_reason
+_RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
 
-def score_batch(
-    items: list[tuple[MetricResult, MetricDefinition, str]],
-) -> list[tuple[float, str]]:
-    """Score a batch of metric results in a single API call.
 
-    Args:
-        items: list of (result, metric_def, entity_name)
+def rank_noteworthiness(
+    session: Session,
+    results: list[MetricResult],
+) -> None:
+    """Compute and persist rank-based noteworthiness for a batch of results.
 
-    Returns:
-        list of (score, reason) parallel to items.
-        Falls back to (0.5, fallback_msg) for any item that fails.
+    Queries the full distribution for each affected (metric_key, entity_type, season)
+    group and updates the DB rows in bulk. Modifies result objects in-place too.
     """
-    fallback = [(0.5, "AI scoring unavailable (no API key).")]
+    if not results:
+        return
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.debug("ANTHROPIC_API_KEY not set; skipping AI scoring.")
-        return [(0.5, "AI scoring unavailable (no API key).") for _ in items]
+    # Collect distinct groups we need to rank
+    groups: set[tuple[str, str, str | None]] = {
+        (r.metric_key, r.entity_type, r.season) for r in results
+    }
 
-    if not items:
-        return []
+    # Build an index of result objects for quick lookup
+    result_index: dict[tuple[str, str, str | None], MetricResult] = {
+        (r.metric_key, r.entity_type, r.entity_id): r for r in results
+    }
 
-    try:
-        import anthropic
-
-        entries = []
-        for i, (result, metric_def, entity_name) in enumerate(items):
-            value_str = (
-                f"{result.value_num:.4f}" if result.value_num is not None else str(result.value_str)
+    for metric_key, entity_type, season in groups:
+        # Query all rows for this group ordered by value descending
+        rows = (
+            session.query(
+                MetricResultModel.entity_id,
+                MetricResultModel.value_num,
             )
-            context_str = json.dumps(result.context, indent=2) if result.context else "{}"
-            entries.append(
-                f'[{i}] Metric: {metric_def.name} | '
-                f'Entity: {entity_name} (season: {result.season or "N/A"}) | '
-                f'Value: {value_str} | '
-                f'Context: {context_str}'
+            .filter(
+                MetricResultModel.metric_key == metric_key,
+                MetricResultModel.entity_type == entity_type,
+                MetricResultModel.season == season,
+                MetricResultModel.value_num.isnot(None),
             )
-
-        prompt = (
-            "You are scoring the interestingness of NBA statistics for analyst reports.\n\n"
-            "Scoring guide:\n"
-            "  0.0–0.3 → routine/average, not worth highlighting\n"
-            "  0.3–0.6 → somewhat interesting, worth a footnote\n"
-            "  0.6–0.75 → notable, worth showing in a stats panel\n"
-            "  0.75–1.0 → remarkable, worthy of a social post or highlight\n\n"
-            "Rate each of the following metrics and reply with a JSON array only, no markdown.\n"
-            "Each element: {\"index\": <i>, \"score\": <0.0–1.0>, \"reason\": \"<one punchy sentence>\"}\n\n"
-            + "\n".join(entries)
+            .order_by(MetricResultModel.value_num.desc())
+            .all()
         )
 
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=100 * len(items),
-            messages=[{"role": "user", "content": prompt}],
+        total = len(rows)
+        if total == 0:
+            continue
+
+        scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
+
+        for rank, row in enumerate(rows, start=1):
+            score = 1.0 - (rank - 1) / total
+
+            label = _RANK_LABELS.get(rank, f"#{rank}")
+            reason = f"{label} of {total} {scope_label} in this metric this season."
+
+            # Update DB row
+            session.query(MetricResultModel).filter(
+                MetricResultModel.metric_key == metric_key,
+                MetricResultModel.entity_type == entity_type,
+                MetricResultModel.entity_id == row.entity_id,
+                MetricResultModel.season == season,
+            ).update(
+                {"noteworthiness": round(score, 4), "notable_reason": reason},
+                synchronize_session=False,
+            )
+
+            # Update in-memory result if it's one we just computed
+            key = (metric_key, entity_type, row.entity_id)
+            if key in result_index:
+                result_index[key].noteworthiness = round(score, 4)
+                result_index[key].notable_reason = reason
+
+
+def rerank_all(session: Session, season: str) -> int:
+    """Recompute noteworthiness for every MetricResult row in a season in one pass.
+
+    More efficient than per-game ranking for bulk backfills — runs a single
+    ranked query per (metric_key, entity_type) group and bulk-updates all rows.
+    Returns the number of rows updated.
+    """
+    from sqlalchemy import text
+
+    # Get distinct groups
+    groups = (
+        session.query(MetricResultModel.metric_key, MetricResultModel.entity_type)
+        .filter(MetricResultModel.season == season)
+        .distinct()
+        .all()
+    )
+
+    total_updated = 0
+    for metric_key, entity_type in groups:
+        rows = (
+            session.query(MetricResultModel.id, MetricResultModel.entity_id, MetricResultModel.value_num)
+            .filter(
+                MetricResultModel.metric_key == metric_key,
+                MetricResultModel.entity_type == entity_type,
+                MetricResultModel.season == season,
+                MetricResultModel.value_num.isnot(None),
+            )
+            .order_by(MetricResultModel.value_num.desc())
+            .all()
         )
-        raw = message.content[0].text.strip()
-        data = json.loads(raw)
 
-        # Build index-keyed lookup then return in order
-        by_index = {d["index"]: (float(d["score"]), str(d["reason"])) for d in data}
-        return [by_index.get(i, (0.5, "AI scoring missing for this item.")) for i in range(len(items))]
+        total = len(rows)
+        if total == 0:
+            continue
 
-    except Exception as exc:
-        logger.warning("Batch AI scoring failed: %s", exc)
-        return [(0.5, "AI scoring failed.") for _ in items]
+        scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
+
+        for rank, row in enumerate(rows, start=1):
+            score = round(1.0 - (rank - 1) / total, 4)
+            label = _RANK_LABELS.get(rank, f"#{rank}")
+            reason = f"{label} of {total} {scope_label} in this metric this season."
+            session.query(MetricResultModel).filter(MetricResultModel.id == row.id).update(
+                {"noteworthiness": score, "notable_reason": reason},
+                synchronize_session=False,
+            )
+            total_updated += 1
+
+        session.flush()
+
+    session.commit()
+    return total_updated
 
 
 def is_notable(noteworthiness: float | None) -> bool:

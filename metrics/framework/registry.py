@@ -39,10 +39,20 @@ def _load_all() -> None:
     import metrics.definitions.player.scoring_consistency   # noqa: F401
     import metrics.definitions.player.double_double_rate    # noqa: F401
     import metrics.definitions.player.franchise_scoring_rank  # noqa: F401
+    import metrics.definitions.player.true_shooting_pct     # noqa: F401
+    import metrics.definitions.player.assist_to_turnover_ratio  # noqa: F401
+    import metrics.definitions.player.three_point_reliance  # noqa: F401
+    import metrics.definitions.player.paint_scoring_share   # noqa: F401
     import metrics.definitions.team.win_pct_leading_at_half  # noqa: F401
     import metrics.definitions.team.close_game_record       # noqa: F401
     import metrics.definitions.team.bench_scoring_share     # noqa: F401
+    import metrics.definitions.team.home_court_advantage    # noqa: F401
+    import metrics.definitions.team.blowout_rate            # noqa: F401
+    import metrics.definitions.team.road_win_pct            # noqa: F401
+    import metrics.definitions.team.comeback_win_pct        # noqa: F401
     import metrics.definitions.game.multi_20pt_game         # noqa: F401
+    import metrics.definitions.game.combined_score          # noqa: F401
+    import metrics.definitions.game.lead_changes            # noqa: F401
 
 
 # Load all metrics on first import of the registry

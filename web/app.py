@@ -1123,8 +1123,19 @@ def metric_detail(metric_key: str):
 
         labels = _resolve_entity_labels(session, rows)
 
-        result_rows = [
-            {
+        result_rows = []
+        for i, r in enumerate(rows):
+            ctx = json.loads(r.context_json) if r.context_json else {}
+            # Try common context keys for game count
+            games_counted = (
+                ctx.get("games")
+                or ctx.get("total_games")
+                or ctx.get("games_leading_at_half")
+                or ctx.get("games_trailing_at_half")
+                or ctx.get("road_games")
+                or ctx.get("home_games")
+            )
+            result_rows.append({
                 "rank": i + 1,
                 "entity_type": r.entity_type,
                 "entity_id": r.entity_id,
@@ -1134,10 +1145,9 @@ def metric_detail(metric_key: str):
                 "value_str": r.value_str,
                 "noteworthiness": r.noteworthiness,
                 "notable_reason": r.notable_reason,
-                "context": json.loads(r.context_json) if r.context_json else {},
-            }
-            for i, r in enumerate(rows)
-        ]
+                "context": ctx,
+                "games_counted": int(games_counted) if games_counted is not None else None,
+            })
 
     return render_template(
         "metric_detail.html",

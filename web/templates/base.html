@@ -522,10 +522,19 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+        transition: border-color 0.15s, background 0.15s;
+        cursor: pointer;
+      }
+      .metric-card:hover {
+        border-color: var(--accent);
+        background: var(--surface-2);
       }
       .metric-card.metric-notable {
         border-color: var(--accent);
         background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+      }
+      .metric-card.metric-notable:hover {
+        background: color-mix(in srgb, var(--accent) 14%, var(--surface));
       }
       .metric-key {
         font-size: 11px;

@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, Team
+from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats
 from metrics.framework import registry
 from metrics.framework.base import MetricResult
 from metrics.framework import scorer as scorer_module
@@ -15,28 +15,16 @@ from metrics.framework import scorer as scorer_module
 logger = logging.getLogger(__name__)
 
 
-def _entity_name(session: Session, entity_type: str, entity_id: str | None) -> str:
-    if not entity_id:
-        return "League"
-    if entity_type == "player":
-        p = session.query(Player.full_name).filter(Player.player_id == entity_id).scalar()
-        return p or entity_id
-    if entity_type in ("team", "game"):
-        t = session.query(Team.full_name).filter(Team.team_id == entity_id).scalar()
-        return t or entity_id
-    return entity_id
-
 
 def _persist(session: Session, result: MetricResult) -> None:
-    """Upsert: delete existing result for same key/entity/season, then insert."""
-    session.query(MetricResultModel).filter(
-        MetricResultModel.metric_key == result.metric_key,
-        MetricResultModel.entity_type == result.entity_type,
-        MetricResultModel.entity_id == result.entity_id,
-        MetricResultModel.season == result.season,
-    ).delete(synchronize_session=False)
+    """Atomic upsert using INSERT ... ON DUPLICATE KEY UPDATE.
 
-    row = MetricResultModel(
+    The unique index on (metric_key, entity_type, entity_id, season) ensures
+    concurrent writes for the same entity are handled without deadlocks.
+    """
+    from sqlalchemy.dialects.mysql import insert
+
+    stmt = insert(MetricResultModel).values(
         metric_key=result.metric_key,
         entity_type=result.entity_type,
         entity_id=result.entity_id,
@@ -49,7 +37,16 @@ def _persist(session: Session, result: MetricResult) -> None:
         notable_reason=result.notable_reason,
         computed_at=datetime.utcnow(),
     )
-    session.add(row)
+    stmt = stmt.on_duplicate_key_update(
+        game_id=stmt.inserted.game_id,
+        value_num=stmt.inserted.value_num,
+        value_str=stmt.inserted.value_str,
+        context_json=stmt.inserted.context_json,
+        noteworthiness=stmt.inserted.noteworthiness,
+        notable_reason=stmt.inserted.notable_reason,
+        computed_at=stmt.inserted.computed_at,
+    )
+    session.execute(stmt)
 
 
 def run_for_game(
@@ -83,8 +80,6 @@ def run_for_game(
     results: list[MetricResult] = []
 
     # Step 1: compute all metrics
-    score_inputs: list[tuple[MetricResult, object, str]] = []  # (result, metric_def, entity_name)
-
     for metric_def in all_metrics:
         targets: list[tuple[str, str | None]] = []
 
@@ -112,23 +107,13 @@ def run_for_game(
                 continue
 
             results.append(result)
-            if do_score:
-                name = _entity_name(session, entity_type, entity_id)
-                score_inputs.append((result, metric_def, name))
 
-    # Step 2: batch-score all results in a single API call
-    if do_score and score_inputs:
-        scores = scorer_module.score_batch(score_inputs)
-        for (result, _metric_def, _name), (score, reason) in zip(score_inputs, scores):
-            result.noteworthiness = score
-            result.notable_reason = reason
-
-    # Step 3: persist results
+    # Step 2: persist results
     result_keys = {r.metric_key for r in results}
     for result in results:
         _persist(session, result)
 
-    # Step 4: write one log row per metric so new metrics added later will be detected
+    # Step 3: write one log row per metric so new metrics added later will be detected
     now = datetime.utcnow()
     for metric_def in all_metrics:
         session.merge(MetricRunLog(
@@ -137,6 +122,11 @@ def run_for_game(
             computed_at=now,
             produced_result=metric_def.key in result_keys,
         ))
+
+    # Step 4: rank-based noteworthiness (needs results in DB first)
+    if do_score and results:
+        session.flush()  # write to DB without committing so ranking query sees new rows
+        scorer_module.rank_noteworthiness(session, results)
 
     if commit:
         session.commit()

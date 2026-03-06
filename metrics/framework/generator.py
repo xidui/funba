@@ -1,7 +1,8 @@
 """AI-powered metric generator: converts plain-English expressions into definition_json.
 
-Uses Claude to parse the user's description into a structured rule that the RuleEngine
-can execute. Returns a full metric spec including name, description, scope, and the rule.
+Uses OpenAI by default (falls back to Anthropic) to parse the user's description into a
+structured rule that the RuleEngine can execute. Returns a full metric spec including
+name, description, scope, and the rule.
 """
 from __future__ import annotations
 
@@ -77,18 +78,18 @@ Fields: period (int), score_margin (int, home perspective), event_type (str)
 
 
 def generate(expression: str) -> dict:
-    """Call Claude to convert a plain-English expression into a metric spec.
+    """Convert a plain-English expression into a metric spec using OpenAI or Anthropic.
 
     Returns a dict with keys: name, description, scope, category, group_key,
     min_sample, definition (the rule dict).
 
     Raises ValueError if generation fails or output is unparseable.
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY not set — cannot generate metric definition.")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
-    import anthropic
+    if not openai_key and not anthropic_key:
+        raise ValueError("No AI API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY.")
 
     prompt = (
         f"{_SCHEMA_DOCS}\n\n"
@@ -97,14 +98,24 @@ def generate(expression: str) -> dict:
         f"Reply with valid JSON only."
     )
 
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    raw = message.content[0].text.strip()
+    if openai_key:
+        import openai
+        client = openai.OpenAI(api_key=openai_key)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.choices[0].message.content.strip()
+    else:
+        import anthropic
+        client = anthropic.Anthropic(api_key=anthropic_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text.strip()
 
     # Strip markdown code fences if Claude wrapped the response
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

@@ -213,7 +213,7 @@
         <th>#</th>
         <th>{{ metric_def.scope | capitalize }}</th>
         <th class="right">Value</th>
-        {% if metric_def.scope != 'game' %}<th>Season</th>{% endif %}
+        {% if metric_def.scope != 'game' %}<th class="right">Games</th>{% endif %}
         <th>Noteworthiness</th>
         <th>Insight</th>
       </tr>
@@ -239,7 +239,11 @@
         <td class="right">
           <span class="value-cell">{{ r.value_str or r.value_num }}</span>
         </td>
-        {% if metric_def.scope != 'game' %}<td style="color:var(--muted-2);font-size:12px;">{{ r.season }}</td>{% endif %}
+        {% if metric_def.scope != 'game' %}
+        <td class="right" style="color:var(--muted-2);font-size:12px;">
+          {% if r.games_counted is not none %}{{ r.games_counted }}{% else %}—{% endif %}
+        </td>
+        {% endif %}
         <td>
           {% if r.noteworthiness is not none %}
           <div class="score-bar-wrap">

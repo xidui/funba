@@ -229,6 +229,7 @@ class MetricResult(Base):
     computed_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
+        Index('uq_MetricResult_key_entity_season', 'metric_key', 'entity_type', 'entity_id', 'season', unique=True),
         Index('ix_MetricResult_entity', 'entity_type', 'entity_id', 'season'),
         Index('ix_MetricResult_notable', 'noteworthiness', 'computed_at'),
     )
