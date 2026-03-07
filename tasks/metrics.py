@@ -231,6 +231,10 @@ def _compute_with_deadlock_retry(SessionLocal, game_id: str, metric_key: str, fo
     for attempt in range(3):
         try:
             with SessionLocal() as session:
+                # READ COMMITTED prevents gap locks on MetricResult, eliminating the
+                # supremum-lock deadlock caused by concurrent SELECT FOR UPDATE on
+                # non-existent rows followed by INSERT.
+                session.execute(__import__("sqlalchemy").text("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED"))
                 return run_for_game_single_metric(session, game_id, metric_key, commit=True, force=force)
         except OperationalError as exc:
             if "1213" in str(exc) and attempt < 2:
