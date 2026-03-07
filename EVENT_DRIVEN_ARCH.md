@@ -36,12 +36,19 @@ Dead-letter exchange:
 | Trigger | Command | Effect |
 |---|---|---|
 | Daily cron | Celery Beat schedule | All games from yesterday → Queue 1 |
-| Season backfill | `python -m tasks.dispatch backfill --season 22025` | All games in season → Queue 1 |
-| Date range | `python -m tasks.dispatch backfill --date-from 2025-01-01 --date-to 2025-03-06` | Filtered games → Queue 1 |
+| Date range (new games) | `python -m tasks.dispatch discover --date-from 2026-03-02 --date-to 2026-03-07` | Discover via NBA API → Queue 1 |
+| Season backfill (DB games) | `python -m tasks.dispatch backfill --season 22025` | Games already in DB → Queue 1 |
 | Single game | `python -m tasks.dispatch game 0022400909` | One game → Queue 1 |
 | New metric | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct` | All games → Queue 1 (artifact check) → Queue 2 |
 | All metrics, all games | `python -m tasks.dispatch metric-backfill` | All games → Queue 1 (artifact check) → Queue 2 |
 | Force recompute | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct --force` | Clears claims, undo-redo running totals |
+
+### discover vs backfill
+
+`discover` queries the NBA API (LeagueGameFinder) for games in a date range and is the right
+choice when games may not yet be in the DB — e.g. ingesting a new season or catching up after
+downtime. `backfill` queries the local DB for games that are already stored and re-runs the
+ingest + metric pipeline on them.
 
 ## Local Quickstart (Docker Compose)
 
@@ -169,4 +176,4 @@ python -m metrics.framework.daily_job --season 22025 --force
 | `.env.example` | Environment variable template |
 | `metrics/framework/runner.py` | Added `run_for_game_single_metric()` |
 | `metrics/framework/daily_job.py` | Unchanged — local fallback (no Docker) |
-| `db/backfill_nba_games_targeted.py` | Unchanged — used as library by ingest task |
+| `db/backfill_nba_games_targeted.py` | **Deprecated** — use `dispatch discover` instead |
