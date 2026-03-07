@@ -151,21 +151,58 @@ _METRIC_CONTEXT_LABEL: dict = {
 def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> dict:
     """Fetch metric results for an entity, split into season and alltime lists.
 
-    Returns {"season": [...], "alltime": [...]} each sorted by noteworthiness desc.
+    Returns {"season": [...], "alltime": [...]} each sorted by rank asc (best first).
+    Rank and total are derived at query time via SQL window functions.
     """
     import json
+    from sqlalchemy import func
     from metrics.framework.base import CAREER_SEASON
 
-    q = session.query(MetricResultModel).filter(
-        MetricResultModel.entity_type == entity_type,
-        MetricResultModel.entity_id == entity_id,
-        MetricResultModel.value_num.isnot(None),
+    _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
+    scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
+
+    # Inner subquery: compute rank and total over the full population for
+    # each (metric_key, season) group, filtered to this entity_type.
+    season_filter = (
+        (MetricResultModel.season == season) | (MetricResultModel.season == CAREER_SEASON)
+        if season
+        else None
     )
-    if season:
-        q = q.filter(
-            (MetricResultModel.season == season) | (MetricResultModel.season == CAREER_SEASON)
+    inner_filters = [
+        MetricResultModel.entity_type == entity_type,
+        MetricResultModel.value_num.isnot(None),
+    ]
+    if season_filter is not None:
+        inner_filters.append(season_filter)
+
+    inner_q = (
+        session.query(
+            MetricResultModel.id,
+            MetricResultModel.metric_key,
+            MetricResultModel.entity_id,
+            MetricResultModel.season,
+            MetricResultModel.value_num,
+            MetricResultModel.value_str,
+            MetricResultModel.context_json,
+            MetricResultModel.computed_at,
+            func.rank().over(
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season],
+                order_by=MetricResultModel.value_num.desc(),
+            ).label("rank"),
+            func.count(MetricResultModel.id).over(
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season],
+            ).label("total"),
         )
-    rows = q.order_by(MetricResultModel.noteworthiness.desc()).all()
+        .filter(*inner_filters)
+        .subquery()
+    )
+
+    rows = (
+        session.query(inner_q)
+        .filter(inner_q.c.entity_id == entity_id)
+        .order_by(inner_q.c.rank.asc())
+        .all()
+    )
 
     season_metrics = []
     alltime_metrics = []
@@ -179,20 +216,77 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 context_label = label_fn(ctx)
             except Exception:
                 pass
+        rank, total = r.rank, r.total
+        is_notable = total > 0 and rank / total <= 0.25
         entry = {
             "metric_key": r.metric_key,
             "value_num": r.value_num,
             "value_str": r.value_str,
-            "noteworthiness": r.noteworthiness,
-            "notable_reason": r.notable_reason,
+            "rank": rank,
+            "total": total,
+            "is_notable": is_notable,
             "context": ctx,
             "context_label": context_label,
             "computed_at": r.computed_at,
+            # career cross-reference filled in below
+            "career_rank": None,
+            "career_total": None,
+            "career_is_notable": False,
         }
         if r.metric_key.endswith("_career") or r.season == CAREER_SEASON:
             alltime_metrics.append(entry)
         else:
             season_metrics.append(entry)
+
+    # Attach career rank to each season entry so cards can show both at once
+    career_by_base = {
+        e["metric_key"].removesuffix("_career"): e for e in alltime_metrics
+    }
+    for entry in season_metrics:
+        entry["all_games_rank"] = None
+        entry["all_games_total"] = None
+        entry["all_games_is_notable"] = False
+        career = career_by_base.get(entry["metric_key"])
+        if career:
+            entry["career_rank"] = career["rank"]
+            entry["career_total"] = career["total"]
+            entry["career_is_notable"] = career["is_notable"]
+
+    # For game-scope metrics, compute a cross-season "All Games" rank
+    # (RANK partitioned by metric_key only, no season filter).
+    if entity_type == "game" and season_metrics:
+        metric_keys = [e["metric_key"] for e in season_metrics]
+        ag_inner = (
+            session.query(
+                MetricResultModel.metric_key,
+                MetricResultModel.entity_id,
+                func.rank().over(
+                    partition_by=[MetricResultModel.metric_key],
+                    order_by=MetricResultModel.value_num.desc(),
+                ).label("rank"),
+                func.count(MetricResultModel.id).over(
+                    partition_by=[MetricResultModel.metric_key],
+                ).label("total"),
+            )
+            .filter(
+                MetricResultModel.entity_type == "game",
+                MetricResultModel.value_num.isnot(None),
+                MetricResultModel.metric_key.in_(metric_keys),
+            )
+            .subquery()
+        )
+        ag_rows = (
+            session.query(ag_inner)
+            .filter(ag_inner.c.entity_id == entity_id)
+            .all()
+        )
+        ag_by_key = {r.metric_key: (r.rank, r.total) for r in ag_rows}
+        for entry in season_metrics:
+            ag_rank, ag_total = ag_by_key.get(entry["metric_key"], (None, None))
+            if ag_rank is not None:
+                entry["all_games_rank"] = ag_rank
+                entry["all_games_total"] = ag_total
+                entry["all_games_is_notable"] = ag_total > 0 and ag_rank / ag_total <= 0.25
 
     return {"season": season_metrics, "alltime": alltime_metrics}
 
@@ -1312,8 +1406,11 @@ def metric_detail(metric_key: str):
     if metric_def is None:
         abort(404, description=f"Metric '{metric_key}' not found.")
 
-    # Season filter
+    # Season filter — "all" is the explicit sentinel for cross-season view
     selected_season = request.args.get("season", "")
+    show_all_seasons = selected_season == "all"
+    page = max(1, int(request.args.get("page", 1) or 1))
+    page_size = 50
 
     with SessionLocal() as session:
         # Available seasons for this metric
@@ -1328,20 +1425,37 @@ def metric_detail(metric_key: str):
             key=_season_sort_key,
             reverse=True,
         )
-        if not selected_season and season_options:
+        if not show_all_seasons and not selected_season and season_options:
             selected_season = season_options[0]
 
-        q = session.query(MetricResultModel).filter(MetricResultModel.metric_key == metric_key)
-        if selected_season:
+        q = (
+            session.query(MetricResultModel)
+            .filter(
+                MetricResultModel.metric_key == metric_key,
+                MetricResultModel.value_num.isnot(None),
+            )
+        )
+        if not show_all_seasons and selected_season:
             q = q.filter(MetricResultModel.season == selected_season)
-        rows = q.order_by(MetricResultModel.value_num.desc()).all()
+
+        total = q.count()
+        import math
+        total_pages = max(1, math.ceil(total / page_size))
+        page = min(page, total_pages)
+        offset = (page - 1) * page_size
+
+        rows = q.order_by(MetricResultModel.value_num.desc()).offset(offset).limit(page_size).all()
 
         labels = _resolve_entity_labels(session, rows)
 
+        _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
+        scope_label = {"player": "players", "team": "teams", "game": "games"}.get(
+            metric_def.scope, "entities"
+        )
+        period = "across all seasons" if show_all_seasons else "this season"
         result_rows = []
         for i, r in enumerate(rows):
             ctx = json.loads(r.context_json) if r.context_json else {}
-            # Try common context keys for game count
             games_counted = (
                 ctx.get("games")
                 or ctx.get("total_games")
@@ -1358,29 +1472,40 @@ def metric_detail(metric_key: str):
                     context_label = label_fn(ctx)
                 except Exception:
                     pass
+            rank = offset + i + 1
+            is_notable = total > 0 and rank / total <= 0.25
+            label = _RANK_LABELS.get(rank, f"#{rank}")
+            notable_reason = f"{label} of {total} {scope_label} {period}."
             result_rows.append({
-                "rank": i + 1,
+                "rank": rank,
+                "total": total,
                 "entity_type": r.entity_type,
                 "entity_id": r.entity_id,
                 "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
                 "season": _season_label(r.season),
                 "value_num": r.value_num,
                 "value_str": r.value_str,
-                "noteworthiness": r.noteworthiness,
-                "notable_reason": r.notable_reason,
+                "is_notable": is_notable,
+                "notable_reason": notable_reason if is_notable else None,
                 "context": ctx,
                 "context_label": context_label,
                 "games_counted": int(games_counted) if games_counted is not None else None,
             })
 
+    display_season_label = "All Seasons" if show_all_seasons else _season_label(selected_season)
     return render_template(
         "metric_detail.html",
         metric_def=metric_def,
         result_rows=result_rows,
         season_options=season_options,
         selected_season=selected_season,
-        season_label=_season_label(selected_season),
+        show_all_seasons=show_all_seasons,
+        season_label=display_season_label,
         fmt_season=_season_label,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        page_size=page_size,
     )
 
 

@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats
 from metrics.framework import registry
 from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals
-from metrics.framework import scorer as scorer_module
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,6 @@ def _get_targets(scope: str, game: Game, player_ids: list[str], team_ids: list[s
 def run_for_game(
     session: Session,
     game_id: str,
-    do_score: bool = True,
     commit: bool = True,
 ) -> list[MetricResult]:
     """Run all active metrics for all entities touched by a game."""
@@ -202,16 +200,10 @@ def run_for_game(
             _log_run(session, game_id, metric_def.key, entity_type,
                      entity_id or "", bucket_season, delta, result is not None)
 
-    if do_score and results:
-        session.flush()
-        scorer_module.rank_noteworthiness(session, results)
-
     if commit:
         session.commit()
 
-    notable = [r for r in results if scorer_module.is_notable(r.noteworthiness)]
-    logger.info("Game %s: %d metric results, %d notable.",
-                game_id, len(results), len(notable))
+    logger.info("Game %s: %d metric results.", game_id, len(results))
     return results
 
 

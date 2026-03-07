@@ -59,29 +59,20 @@
     line-height: 1.5;
   }
 
-  .season-tabs {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .season-tab {
-    padding: 5px 13px;
-    border-radius: 999px;
-    font-size: 12px;
+  .season-select {
+    padding: 6px 30px 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
     font-weight: 600;
     border: 1px solid var(--border-2);
-    color: var(--muted-2);
-    text-decoration: none;
-    transition: border-color 0.15s, color 0.15s;
+    color: var(--text);
+    background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center;
+    appearance: none;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
   }
-  .season-tab:hover { color: var(--text); }
-  .season-tab.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-  }
+  .season-select:hover, .season-select:focus { border-color: var(--accent); }
 
   /* Rankings table */
   .rankings-table-wrap { overflow-x: auto; margin-top: 20px; }
@@ -143,26 +134,6 @@
     color: var(--text);
   }
 
-  .score-bar-wrap {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 100px;
-  }
-  .score-bar {
-    flex: 1;
-    height: 4px;
-    border-radius: 999px;
-    background: var(--border-2);
-    overflow: hidden;
-  }
-  .score-bar-fill {
-    height: 100%;
-    border-radius: 999px;
-    background: var(--muted-2);
-  }
-  .score-bar-fill.high { background: var(--accent); }
-
   .reason-text {
     font-size: 12px;
     color: var(--muted-2);
@@ -174,6 +145,47 @@
     padding: 60px 20px;
     text-align: center;
     color: var(--muted);
+  }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+  .page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid var(--border-2);
+    color: var(--muted-2);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .page-btn:hover { color: var(--text); border-color: var(--muted); }
+  .page-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .page-btn.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .page-ellipsis {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 0 4px;
+    user-select: none;
   }
 </style>
 
@@ -190,20 +202,26 @@
   </div>
 
   {% if season_options %}
-  <div class="season-tabs">
+  <select class="season-select" onchange="location.href=this.value">
+    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season='all') }}"
+            {% if show_all_seasons %}selected{% endif %}>
+      All Seasons
+    </option>
     {% for s in season_options %}
-    <a class="season-tab{% if s == selected_season %} active{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
+    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
+            {% if s == selected_season %}selected{% endif %}>
       {{ fmt_season(s) }}
-    </a>
+    </option>
     {% endfor %}
-  </div>
+  </select>
   {% endif %}
 </div>
 
 {% if result_rows %}
 <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
-  {{ result_rows|length }} result{{ 's' if result_rows|length != 1 }} — {{ season_label }}
+  {% set first = (page - 1) * page_size + 1 %}
+  {% set last  = [(page - 1) * page_size + result_rows|length, total]|min %}
+  Showing {{ first }}–{{ last }} of {{ total }} result{{ 's' if total != 1 }} — {{ season_label }}
 </div>
 
 <div class="rankings-table-wrap">
@@ -212,16 +230,16 @@
       <tr>
         <th>#</th>
         <th>{{ metric_def.scope | capitalize }}</th>
+        {% if show_all_seasons %}<th>Season</th>{% endif %}
         <th class="right">Value</th>
         {% if metric_def.scope != 'game' %}<th class="right">Games</th>{% endif %}
-        <th>Noteworthiness</th>
+        <th>Standing</th>
         <th>Insight</th>
       </tr>
     </thead>
     <tbody>
       {% for r in result_rows %}
-      {% set is_notable = r.noteworthiness and r.noteworthiness >= 0.75 %}
-      <tr{% if is_notable %} class="notable-row"{% endif %}>
+      <tr{% if r.is_notable %} class="notable-row"{% endif %}>
         <td>
           <span class="rank-num{% if r.rank <= 3 %} top3{% endif %}">#{{ r.rank }}</span>
         </td>
@@ -236,6 +254,9 @@
             {{ r.entity_label }}
           {% endif %}
         </td>
+        {% if show_all_seasons %}
+        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
+        {% endif %}
         <td class="right">
           <span class="value-cell">{{ r.value_str or r.value_num }}</span>
           {% if r.context_label %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;">{{ r.context_label }}</div>{% endif %}
@@ -246,16 +267,10 @@
         </td>
         {% endif %}
         <td>
-          {% if r.noteworthiness is not none %}
-          <div class="score-bar-wrap">
-            <div class="score-bar">
-              <div class="score-bar-fill{% if r.noteworthiness >= 0.75 %} high{% endif %}"
-                   style="width:{{ (r.noteworthiness * 100)|int }}%"></div>
-            </div>
-            <span style="font-size:11px;font-weight:600;color:{{ 'var(--accent)' if r.noteworthiness >= 0.75 else 'var(--muted)' }};min-width:28px;">
-              {{ "%.2f"|format(r.noteworthiness) }}
-            </span>
-          </div>
+          {% if r.value_num is not none %}
+          <span style="font-size:12px;font-weight:600;color:{{ 'var(--accent)' if r.is_notable else 'var(--muted)' }};">
+            #{{ r.rank }} of {{ r.total }}
+          </span>
           {% else %}
           <span style="color:var(--muted)">—</span>
           {% endif %}
@@ -266,6 +281,30 @@
     </tbody>
   </table>
 </div>
+
+{% if total_pages > 1 %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=selected_season if not show_all_seasons else 'all', page=p) }}{% endmacro %}
+<nav class="pagination" aria-label="Page navigation">
+  {# Prev #}
+  <a class="page-btn{% if page == 1 %} disabled{% endif %}" href="{{ page_url(page - 1) }}" aria-label="Previous">&#8592;</a>
+
+  {# Page numbers with ellipsis #}
+  {% set window = 2 %}
+  {% set ns = namespace(prev_shown=0) %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == 1 or p == total_pages or (p >= page - window and p <= page + window) %}
+      {% if ns.prev_shown > 0 and p > ns.prev_shown + 1 %}
+        <span class="page-ellipsis">…</span>
+      {% endif %}
+      <a class="page-btn{% if p == page %} active{% endif %}" href="{{ page_url(p) }}">{{ p }}</a>
+      {% set ns.prev_shown = p %}
+    {% endif %}
+  {% endfor %}
+
+  {# Next #}
+  <a class="page-btn{% if page == total_pages %} disabled{% endif %}" href="{{ page_url(page + 1) }}" aria-label="Next">&#8594;</a>
+</nav>
+{% endif %}
 
 {% else %}
 <div class="empty-state">

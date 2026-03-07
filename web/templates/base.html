@@ -577,6 +577,25 @@
         color: var(--muted);
         margin-top: 2px;
       }
+      .metric-ranks {
+        display: flex;
+        gap: 5px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .rank-chip {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--muted) 14%, transparent);
+        color: var(--muted);
+      }
+      .rank-chip.notable {
+        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        color: var(--accent);
+      }
     </style>
   </head>
   <body>

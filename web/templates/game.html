@@ -604,12 +604,15 @@
   <h2 class="section-title">Game Analytics</h2>
   <div class="metrics-grid">
     {% for m in game_metric_list %}
-    <a class="metric-card{% if m.noteworthiness and m.noteworthiness >= 0.75 %} metric-notable{% endif %}"
+    <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
-      {% if m.notable_reason %}<div class="metric-reason">{{ m.notable_reason }}</div>{% endif %}
+      <div class="metric-ranks">
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Season</span>
+        {% if m.all_games_rank %}<span class="rank-chip{% if m.all_games_is_notable %} notable{% endif %}">#{{ m.all_games_rank }} All Games</span>{% endif %}
+      </div>
     </a>
     {% endfor %}
   </div>
