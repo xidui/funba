@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI (guest / guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker-ingest:
+    build: .
+    command: celery -A tasks.celery_app worker -Q ingest -c 4 --loglevel=info
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  worker-metrics:
+    build: .
+    command: celery -A tasks.celery_app worker -Q metrics -c 8 --loglevel=info
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  scheduler:
+    build: .
+    command: celery -A tasks.celery_app beat --loglevel=info
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure

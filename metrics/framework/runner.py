@@ -207,6 +207,106 @@ def run_for_game(
     return results
 
 
+def run_for_game_single_metric(
+    session: Session,
+    game_id: str,
+    metric_key: str,
+    commit: bool = True,
+) -> list[MetricResult]:
+    """Run a single named metric for all entities touched by a game.
+
+    Same logic as run_for_game() but filters to only the one metric.
+    Keeps run_for_game() untouched for daily_job.py local fallback.
+    """
+    game = session.query(Game).filter(Game.game_id == game_id).first()
+    if game is None:
+        logger.warning("Game %s not found; skipping.", game_id)
+        return []
+
+    season = game.season
+
+    player_ids: list[str] = [
+        row.player_id
+        for row in session.query(PlayerGameStats.player_id)
+        .filter(PlayerGameStats.game_id == game_id)
+        .distinct()
+        .all()
+    ]
+    team_ids: list[str] = [t for t in [game.home_team_id, game.road_team_id] if t]
+
+    all_metrics = registry.get_all()
+    metric_def = next((m for m in all_metrics if m.key == metric_key), None)
+    if metric_def is None:
+        logger.warning("Metric key %r not found in registry; skipping.", metric_key)
+        return []
+
+    results: list[MetricResult] = []
+    targets = _get_targets(metric_def.scope, game, player_ids, team_ids)
+
+    if not metric_def.incremental:
+        for entity_type, entity_id in targets:
+            try:
+                result = metric_def.compute(session, entity_id, season, game_id)
+            except Exception as exc:
+                logger.error("Metric %s failed for %s %s: %s",
+                             metric_def.key, entity_type, entity_id, exc, exc_info=True)
+                continue
+            if result:
+                _upsert_result(session, result)
+                results.append(result)
+            _log_run(session, game_id, metric_def.key, entity_type,
+                     entity_id or "", season, None, result is not None)
+    else:
+        bucket_season = CAREER_SEASON if metric_def.career else season
+
+        for entity_type, entity_id in targets:
+            try:
+                delta = metric_def.compute_delta(session, entity_id, game_id)
+            except Exception as exc:
+                logger.error("compute_delta %s failed for %s %s: %s",
+                             metric_def.key, entity_type, entity_id, exc, exc_info=True)
+                continue
+
+            if delta is None:
+                continue
+
+            existing_totals = _get_existing_totals(
+                session, metric_def.key, entity_type, entity_id, bucket_season
+            )
+            new_totals = merge_totals(existing_totals, delta)
+
+            try:
+                result = metric_def.compute_value(new_totals, bucket_season, entity_id)
+            except Exception as exc:
+                logger.error("compute_value %s failed for %s %s: %s",
+                             metric_def.key, entity_type, entity_id, exc, exc_info=True)
+                continue
+
+            if result:
+                result.context = new_totals
+                _upsert_result(session, result)
+                results.append(result)
+            else:
+                _upsert_result(session, MetricResult(
+                    metric_key=metric_def.key,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    season=bucket_season,
+                    game_id=None,
+                    value_num=None,
+                    context=new_totals,
+                ))
+
+            _log_run(session, game_id, metric_def.key, entity_type,
+                     entity_id or "", bucket_season, delta, result is not None)
+
+    if commit:
+        session.commit()
+
+    logger.info("Game %s metric %s: %d results.", game_id, metric_key, len(results))
+    return results
+
+
 def already_processed(session: Session, game_id: str) -> bool:
     """Return True if every registered metric has a log entry for this game."""
     registered_keys = {m.key for m in registry.get_all()}

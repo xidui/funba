@@ -1,4 +1,5 @@
 anthropic>=0.40.0
+celery[rabbitmq]>=5.3
 openai>=1.0.0
 alembic==1.13.1
 certifi==2023.11.17
@@ -11,12 +12,12 @@ mysql-connector-python==8.3.0
 nba_api==1.11.4
 numpy==1.26.2
 orm-mysql==1.0.6
-pandas==2.1.4
+pandas>=2.1.4
 PyMySQL==1.1.0
 python-dateutil==2.8.2
 pytz==2023.3.post1
 PyYAML==6.0.1
-requests==2.31.0
+requests>=2.32.3
 six==1.16.0
 SQLAlchemy==2.0.26
 tenacity==8.3.0
