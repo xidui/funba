@@ -1601,29 +1601,25 @@ def admin_pipeline():
 
     with SessionLocal() as session:
         # --- Coverage per season ---
+        # Use a single query: COUNT(game_id) + COUNT(CASE WHEN EXISTS ...) per season.
+        # Subquery-based existence check is faster than COUNT DISTINCT + JOIN on large tables.
+        from sqlalchemy import exists, literal
+
         seasons_of_interest = ["22024", "22025"]
         coverage = []
         for season_prefix in seasons_of_interest:
-            total = session.query(func.count(Game.game_id)).filter(
-                Game.season.like(f"{season_prefix}%"),
-                Game.game_date.isnot(None),
-            ).scalar() or 0
+            sf = Game.season.like(f"{season_prefix}%")
 
-            has_detail = session.query(func.count(func.distinct(PlayerGameStats.game_id))).join(
-                Game, Game.game_id == PlayerGameStats.game_id
-            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+            total = session.query(func.count(Game.game_id)).filter(sf, Game.game_date.isnot(None)).scalar() or 0
 
-            has_pbp = session.query(func.count(func.distinct(GamePlayByPlay.game_id))).join(
-                Game, Game.game_id == GamePlayByPlay.game_id
-            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+            def _count_with(model, col):
+                sub = exists().where(col == Game.game_id)
+                return session.query(func.sum(case((sub, 1), else_=0))).filter(sf, Game.game_date.isnot(None)).scalar() or 0
 
-            has_shot = session.query(func.count(func.distinct(ShotRecord.game_id))).join(
-                Game, Game.game_id == ShotRecord.game_id
-            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
-
-            has_metrics = session.query(func.count(func.distinct(MetricRunLog.game_id))).join(
-                Game, Game.game_id == MetricRunLog.game_id
-            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+            has_detail = _count_with(PlayerGameStats, PlayerGameStats.game_id)
+            has_pbp = _count_with(GamePlayByPlay, GamePlayByPlay.game_id)
+            has_shot = _count_with(ShotRecord, ShotRecord.game_id)
+            has_metrics = _count_with(MetricRunLog, MetricRunLog.game_id)
 
             coverage.append({
                 "season": _season_label(season_prefix + "0"),
@@ -1668,30 +1664,23 @@ def admin_pipeline():
             .scalar() or 0
         )
 
-        # --- Games missing any artifact (last 2 seasons) ---
-        all_game_ids = {
-            row.game_id
-            for row in session.query(Game.game_id).filter(
-                Game.season.like("22024%") | Game.season.like("22025%"),
-                Game.game_date.isnot(None),
-            ).all()
-        }
-        detail_ids = {r[0] for r in session.query(func.distinct(PlayerGameStats.game_id)).all()}
-        shot_ids = {r[0] for r in session.query(func.distinct(ShotRecord.game_id)).all()}
-        metric_ids = {r[0] for r in session.query(func.distinct(MetricRunLog.game_id)).all()}
+        # --- Games missing any artifact (last 2 seasons) — all done in SQL ---
+        season_filter = Game.season.like("22024%") | Game.season.like("22025%")
 
-        missing_detail = sorted(all_game_ids - detail_ids)
-        missing_shot = sorted(all_game_ids - shot_ids)
-        missing_metrics = sorted(all_game_ids - metric_ids)
-
-        # Enrich missing games with dates
-        def _enrich(ids):
-            if not ids:
-                return []
-            rows = session.query(Game.game_id, Game.game_date, Game.season).filter(
-                Game.game_id.in_(ids)
-            ).order_by(Game.game_date).all()
+        def _missing(joined_model, joined_col):
+            """Games in the two target seasons with no row in joined_model."""
+            rows = (
+                session.query(Game.game_id, Game.game_date, Game.season)
+                .outerjoin(joined_model, joined_col == Game.game_id)
+                .filter(season_filter, Game.game_date.isnot(None), joined_col.is_(None))
+                .order_by(Game.game_date)
+                .all()
+            )
             return [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows]
+
+        missing_detail = _missing(PlayerGameStats, PlayerGameStats.game_id)
+        missing_shot = _missing(ShotRecord, ShotRecord.game_id)
+        missing_metrics = _missing(MetricRunLog, MetricRunLog.game_id)
 
         # --- Recent metric runs (last 20) ---
         recent_runs = (
@@ -1708,9 +1697,9 @@ def admin_pipeline():
         claim_counts=claim_counts,
         active=active,
         stuck_count=stuck_count,
-        missing_detail=_enrich(missing_detail),
-        missing_shot=_enrich(missing_shot),
-        missing_metrics=_enrich(missing_metrics),
+        missing_detail=missing_detail,
+        missing_shot=missing_shot,
+        missing_metrics=missing_metrics,
         recent=recent,
     )
 
