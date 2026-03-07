@@ -19,7 +19,8 @@ class FranchiseScoringRank(MetricDefinition):
     category = "record"
     min_sample = 1
     incremental = True
-    supports_career = False  # already career-scoped by design
+    career = True            # accumulate across all seasons into CAREER_SEASON="all"
+    supports_career = False  # already career-scoped, don't auto-register a sibling
 
     def compute_delta(self, session, entity_id, game_id) -> dict | None:
         row = (
