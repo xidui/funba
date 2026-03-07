@@ -145,47 +145,48 @@ def back_fill_game_shot_record(sess, game_id, commit=False):
         shots_by_pair[pair].append(shot)
 
     missing_pairs = list(get_un_back_filled_game_and_player(sess, game_id))
-    for _, player_id, team_id in missing_pairs:
-        player_id = str(player_id)
-        team_id = str(team_id)
-        pair_shots = shots_by_pair.get((player_id, team_id), [])
+    with sess.no_autoflush:
+        for _, player_id, team_id in missing_pairs:
+            player_id = str(player_id)
+            team_id = str(team_id)
+            pair_shots = shots_by_pair.get((player_id, team_id), [])
 
-        if not pair_shots:
-            logger.warning(
-                "No shot-chart rows found for game_id=%s player_id=%s team_id=%s",
-                game_id, player_id, team_id
-            )
-            continue
+            if not pair_shots:
+                logger.warning(
+                    "No shot-chart rows found for game_id=%s player_id=%s team_id=%s",
+                    game_id, player_id, team_id
+                )
+                continue
 
-        # Replace partial/incomplete rows for this player-game-team to avoid duplicates
-        # and guarantee count aligns with upstream shot chart data.
-        sess.query(ShotRecord).filter(
-            ShotRecord.game_id == game_id,
-            ShotRecord.player_id == player_id,
-            ShotRecord.team_id == team_id,
-        ).delete(synchronize_session=False)
+            # Replace partial/incomplete rows for this player-game-team to avoid duplicates
+            # and guarantee count aligns with upstream shot chart data.
+            sess.query(ShotRecord).filter(
+                ShotRecord.game_id == game_id,
+                ShotRecord.player_id == player_id,
+                ShotRecord.team_id == team_id,
+            ).delete(synchronize_session=False)
 
-        for shot in pair_shots:
-            sess.add(ShotRecord(
-                game_id=game_id,
-                team_id=team_id,
-                player_id=player_id,
-                season='TBD',
-                period=int(shot['PERIOD']),
-                min=int(shot['MINUTES_REMAINING']),
-                sec=int(shot['SECONDS_REMAINING']),
-                event_type=shot['EVENT_TYPE'],
-                action_type=shot['ACTION_TYPE'],
-                shot_type=shot['SHOT_TYPE'],
-                shot_zone_basic=shot['SHOT_ZONE_BASIC'],
-                shot_zone_area=shot['SHOT_ZONE_AREA'],
-                shot_zone_range=shot['SHOT_ZONE_RANGE'],
-                shot_distance=int(shot['SHOT_DISTANCE']),
-                loc_x=int(shot['LOC_X']),
-                loc_y=int(shot['LOC_Y']),
-                shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
-                shot_made=bool(shot['SHOT_MADE_FLAG']),
-            ))
+            for shot in pair_shots:
+                sess.add(ShotRecord(
+                    game_id=game_id,
+                    team_id=team_id,
+                    player_id=player_id,
+                    season='TBD',
+                    period=int(shot['PERIOD']),
+                    min=int(shot['MINUTES_REMAINING']),
+                    sec=int(shot['SECONDS_REMAINING']),
+                    event_type=shot['EVENT_TYPE'],
+                    action_type=shot['ACTION_TYPE'],
+                    shot_type=shot['SHOT_TYPE'],
+                    shot_zone_basic=shot['SHOT_ZONE_BASIC'],
+                    shot_zone_area=shot['SHOT_ZONE_AREA'],
+                    shot_zone_range=shot['SHOT_ZONE_RANGE'],
+                    shot_distance=int(shot['SHOT_DISTANCE']),
+                    loc_x=int(shot['LOC_X']),
+                    loc_y=int(shot['LOC_Y']),
+                    shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
+                    shot_made=bool(shot['SHOT_MADE_FLAG']),
+                ))
 
     if commit:
         try:
