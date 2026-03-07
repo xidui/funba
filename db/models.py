@@ -1,10 +1,16 @@
+import os
+
 from sqlalchemy import BLOB, DATE, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, create_engine
 from sqlalchemy.orm import declarative_base
 
 from db.config import get_database_url
 
-# Create an engine to connect to your database
-engine = create_engine(get_database_url())
+# Workers set DB_POOL_SIZE=1 (one connection per forked process is enough).
+# Web app uses the default of 5.
+_pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
+_max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+
+engine = create_engine(get_database_url(), pool_size=_pool_size, max_overflow=_max_overflow)
 
 # Create a base class for declarative class definitions
 Base = declarative_base()

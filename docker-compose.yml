@@ -16,6 +16,9 @@ services:
     build: .
     command: celery -A tasks.celery_app worker -Q ingest -c 4 --loglevel=info
     env_file: .env
+    environment:
+      DB_POOL_SIZE: "1"
+      DB_MAX_OVERFLOW: "0"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -23,8 +26,11 @@ services:
 
   worker-metrics:
     build: .
-    command: celery -A tasks.celery_app worker -Q metrics -c 8 --loglevel=info
+    command: celery -A tasks.celery_app worker -Q metrics -c 50 --loglevel=info
     env_file: .env
+    environment:
+      DB_POOL_SIZE: "1"
+      DB_MAX_OVERFLOW: "0"
     depends_on:
       rabbitmq:
         condition: service_healthy
