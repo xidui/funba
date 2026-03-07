@@ -32,7 +32,11 @@ def _session_factory():
 
 
 def _fetch_api_row(game_id: str) -> dict | None:
-    """Fetch one game row from LeagueGameFinder (used to refresh game detail/PBP)."""
+    """Fetch one game row from LeagueGameFinder (used to refresh game detail/PBP).
+
+    Note: game_id_nullable is ignored by the NBA Stats API (nba_api issue #446),
+    so we filter client-side after fetching.
+    """
     from nba_api.stats.endpoints import leaguegamefinder
 
     finder = leaguegamefinder.LeagueGameFinder(
@@ -42,6 +46,8 @@ def _fetch_api_row(game_id: str) -> dict | None:
     df = finder.get_data_frames()[0]
     if "WL" in df.columns:
         df = df[df["WL"].notna()]
+    # Client-side filter since game_id_nullable is ignored by the API
+    df = df[df["GAME_ID"].astype(str) == str(game_id)]
     df = df.drop_duplicates(subset=["GAME_ID"])
     if df.empty:
         return None

@@ -1,5 +1,14 @@
 """
-Targeted NBA game backfill CLI.
+DEPRECATED: Use `python -m tasks.dispatch discover` instead.
+
+  python -m tasks.dispatch discover --date-from 2026-03-02 --date-to 2026-03-07
+
+That command discovers games via the NBA API and enqueues them through the
+event-driven Celery pipeline (ingest → metrics), which replaces what this
+script did manually and also handles shot records and metric computation.
+
+---
+Targeted NBA game backfill CLI (legacy, direct/synchronous).
 
 Use this script when you want to backfill games for:
 - a specific day (`--day`)

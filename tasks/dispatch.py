@@ -1,11 +1,11 @@
 """CLI entrypoint for enqueueing Celery tasks.
 
 Usage examples:
-  # Backfill all games in a season
-  python -m tasks.dispatch backfill --season 22025
+  # Discover and ingest games from NBA API for a date range (replaces backfill_nba_games_targeted)
+  python -m tasks.dispatch discover --date-from 2026-03-02 --date-to 2026-03-07
 
-  # Backfill a date range
-  python -m tasks.dispatch backfill --date-from 2025-01-01 --date-to 2025-03-06
+  # Reprocess known games already in DB
+  python -m tasks.dispatch backfill --season 22025
 
   # Single game
   python -m tasks.dispatch game 0022400909
@@ -83,6 +83,54 @@ def _clear_claims(game_ids: list[str], metric_keys: list[str] | None = None) -> 
         sess.close()
 
 
+def cmd_discover(args: argparse.Namespace) -> None:
+    """Discover game IDs from NBA API and enqueue ingest_game for each."""
+    from nba_api.stats.endpoints import leaguegamefinder
+
+    season_types = args.season_type or ["Regular Season", "Playoffs", "PlayIn"]
+
+    # Convert YYYY-MM-DD to MM/DD/YYYY for nba_api
+    def _fmt(d: str | None) -> str:
+        if not d:
+            return ""
+        from datetime import date
+        return date.fromisoformat(d).strftime("%m/%d/%Y")
+
+    date_from = _fmt(args.date_from)
+    date_to = _fmt(args.date_to)
+
+    game_ids: set[str] = set()
+    for season_type in season_types:
+        try:
+            finder = leaguegamefinder.LeagueGameFinder(
+                season_nullable=args.season or "",
+                season_type_nullable=season_type,
+                date_from_nullable=date_from,
+                date_to_nullable=date_to,
+                league_id_nullable="00",
+            )
+            df = finder.get_data_frames()[0]
+            if "WL" in df.columns:
+                df = df[df["WL"].notna()]
+            for gid in df["GAME_ID"].astype(str).unique():
+                game_ids.add(gid)
+        except Exception as exc:
+            print(f"Warning: LeagueGameFinder failed for {season_type}: {exc}", file=sys.stderr)
+
+    if not game_ids:
+        print("No games found from NBA API for the given filters.")
+        return
+
+    if args.force:
+        deleted = _clear_claims(list(game_ids))
+        print(f"--force: cleared {deleted} claim(s).")
+
+    for gid in sorted(game_ids):
+        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, queue="ingest")
+
+    print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
+
+
 def cmd_game(args: argparse.Namespace) -> None:
     game_id = args.game_id
     if args.force:
@@ -158,6 +206,25 @@ def main() -> None:
         description="Enqueue Celery tasks for game ingestion and metric computation.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # --- discover ---
+    p_disc = sub.add_parser(
+        "discover",
+        help="Discover game IDs from NBA API and enqueue ingest for each (replaces backfill_nba_games_targeted).",
+    )
+    p_disc.add_argument("--date-from", dest="date_from", help="Start date YYYY-MM-DD")
+    p_disc.add_argument("--date-to", dest="date_to", help="End date YYYY-MM-DD")
+    p_disc.add_argument("--season", default=None, help="Season string passed to LeagueGameFinder, e.g. '2025-26'")
+    p_disc.add_argument(
+        "--season-type",
+        dest="season_type",
+        action="append",
+        metavar="TYPE",
+        help="Season type (default: Regular Season, Playoffs, PlayIn). Repeatable.",
+    )
+    p_disc.add_argument("--force", action="store_true",
+                        help="Clear existing claims so workers reprocess even completed games.")
+    p_disc.set_defaults(func=cmd_discover)
 
     # --- game <game_id> ---
     p_game = sub.add_parser("game", help="Enqueue ingest for a single game.")
