@@ -11,7 +11,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 from sqlalchemy import case, func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -1592,6 +1592,126 @@ def metric_detail(metric_key: str):
         total_pages=total_pages,
         total=total,
         page_size=page_size,
+    )
+
+
+@app.get("/admin")
+def admin_pipeline():
+    from datetime import datetime, timedelta
+
+    with SessionLocal() as session:
+        # --- Coverage per season ---
+        seasons_of_interest = ["22024", "22025"]
+        coverage = []
+        for season_prefix in seasons_of_interest:
+            total = session.query(func.count(Game.game_id)).filter(
+                Game.season.like(f"{season_prefix}%"),
+                Game.game_date.isnot(None),
+            ).scalar() or 0
+
+            has_detail = session.query(func.count(func.distinct(PlayerGameStats.game_id))).join(
+                Game, Game.game_id == PlayerGameStats.game_id
+            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+
+            has_pbp = session.query(func.count(func.distinct(GamePlayByPlay.game_id))).join(
+                Game, Game.game_id == GamePlayByPlay.game_id
+            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+
+            has_shot = session.query(func.count(func.distinct(ShotRecord.game_id))).join(
+                Game, Game.game_id == ShotRecord.game_id
+            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+
+            has_metrics = session.query(func.count(func.distinct(MetricRunLog.game_id))).join(
+                Game, Game.game_id == MetricRunLog.game_id
+            ).filter(Game.season.like(f"{season_prefix}%")).scalar() or 0
+
+            coverage.append({
+                "season": _season_label(season_prefix + "0"),
+                "total": total,
+                "detail": has_detail,
+                "pbp": has_pbp,
+                "shot": has_shot,
+                "metrics": has_metrics,
+            })
+
+        # --- Claim status summary ---
+        claim_counts = dict(
+            session.query(MetricJobClaim.status, func.count())
+            .group_by(MetricJobClaim.status)
+            .all()
+        )
+
+        # --- Currently in-progress claims (active workers) ---
+        active_claims = (
+            session.query(MetricJobClaim)
+            .filter(MetricJobClaim.status == "in_progress")
+            .order_by(MetricJobClaim.claimed_at)
+            .limit(50)
+            .all()
+        )
+        active = [
+            {
+                "game_id": c.game_id,
+                "metric_key": c.metric_key,
+                "worker_id": c.worker_id,
+                "claimed_at": c.claimed_at,
+                "age_s": int((datetime.utcnow() - c.claimed_at).total_seconds()) if c.claimed_at else None,
+            }
+            for c in active_claims
+        ]
+
+        # --- Stuck claims (in_progress older than 10 min) ---
+        stuck_cutoff = datetime.utcnow() - timedelta(seconds=600)
+        stuck_count = (
+            session.query(func.count())
+            .filter(MetricJobClaim.status == "in_progress", MetricJobClaim.claimed_at < stuck_cutoff)
+            .scalar() or 0
+        )
+
+        # --- Games missing any artifact (last 2 seasons) ---
+        all_game_ids = {
+            row.game_id
+            for row in session.query(Game.game_id).filter(
+                Game.season.like("22024%") | Game.season.like("22025%"),
+                Game.game_date.isnot(None),
+            ).all()
+        }
+        detail_ids = {r[0] for r in session.query(func.distinct(PlayerGameStats.game_id)).all()}
+        shot_ids = {r[0] for r in session.query(func.distinct(ShotRecord.game_id)).all()}
+        metric_ids = {r[0] for r in session.query(func.distinct(MetricRunLog.game_id)).all()}
+
+        missing_detail = sorted(all_game_ids - detail_ids)
+        missing_shot = sorted(all_game_ids - shot_ids)
+        missing_metrics = sorted(all_game_ids - metric_ids)
+
+        # Enrich missing games with dates
+        def _enrich(ids):
+            if not ids:
+                return []
+            rows = session.query(Game.game_id, Game.game_date, Game.season).filter(
+                Game.game_id.in_(ids)
+            ).order_by(Game.game_date).all()
+            return [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows]
+
+        # --- Recent metric runs (last 20) ---
+        recent_runs = (
+            session.query(MetricRunLog.game_id, MetricRunLog.metric_key, MetricRunLog.computed_at)
+            .order_by(MetricRunLog.computed_at.desc())
+            .limit(20)
+            .all()
+        )
+        recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
+
+    return render_template(
+        "admin.html",
+        coverage=coverage,
+        claim_counts=claim_counts,
+        active=active,
+        stuck_count=stuck_count,
+        missing_detail=_enrich(missing_detail),
+        missing_shot=_enrich(missing_shot),
+        missing_metrics=_enrich(missing_metrics),
+        recent=recent,
     )
 
 

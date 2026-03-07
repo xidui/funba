@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Admin — Pipeline Status{% endblock %}
+
+{% block content %}
+<style>
+  .admin-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+  .admin-grid .full-width { grid-column: 1 / -1; }
+
+  .coverage-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .coverage-bar {
+    flex: 1; height: 6px; border-radius: 3px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+  .coverage-bar-fill {
+    height: 100%; border-radius: 3px;
+    background: var(--win);
+    transition: width 0.4s ease;
+  }
+  .coverage-bar-fill.warn { background: #facc15; }
+  .coverage-bar-fill.danger { background: var(--loss); }
+  .coverage-pct {
+    font-size: 11px; font-family: Outfit, sans-serif;
+    font-weight: 700; color: var(--muted-2); width: 36px; text-align: right;
+  }
+
+  .claim-pills { display: flex; gap: 12px; flex-wrap: wrap; }
+  .claim-pill {
+    display: flex; flex-direction: column; align-items: center;
+    background: var(--surface-3); border-radius: 10px;
+    padding: 12px 20px; min-width: 90px;
+  }
+  .claim-pill .pill-val {
+    font-size: 1.6rem; font-family: Outfit, sans-serif;
+    font-weight: 800; line-height: 1;
+  }
+  .claim-pill .pill-label { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  .claim-pill.done .pill-val { color: var(--win); }
+  .claim-pill.in-progress .pill-val { color: #facc15; }
+  .claim-pill.stuck .pill-val { color: var(--loss); }
+
+  .age-chip {
+    font-size: 10px; font-family: Outfit, sans-serif; font-weight: 700;
+    padding: 1px 6px; border-radius: 4px;
+    background: var(--surface-3); color: var(--muted-2);
+  }
+  .age-chip.warn { background: rgba(250,204,21,.15); color: #facc15; }
+
+  .section-label {
+    font-size: 10px; font-family: Outfit, sans-serif; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin-bottom: 10px;
+  }
+
+  .empty-state {
+    color: var(--muted); font-size: 13px; padding: 16px 0;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .empty-state::before {
+    content: '✓'; display: inline-block;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(74,222,128,.15); color: var(--win);
+    font-size: 11px; text-align: center; line-height: 18px; flex-shrink: 0;
+  }
+
+  .recent-row td:last-child { color: var(--muted); font-size: 12px; }
+  .mono { font-family: monospace; font-size: 12px; }
+</style>
+
+<h1 style="margin-bottom:1.25rem">Pipeline Status</h1>
+
+<div class="admin-grid">
+
+  <!-- Coverage -->
+  <div class="card full-width">
+    <h2>Data Coverage</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Season</th>
+          <th>Games</th>
+          <th>Detail / Stats</th>
+          <th>Play-by-Play</th>
+          <th>Shot Records</th>
+          <th>Metrics</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coverage %}
+        {% set cols = [
+          ('detail', row.detail),
+          ('pbp',    row.pbp),
+          ('shot',   row.shot),
+          ('metrics', row.metrics),
+        ] %}
+        <tr>
+          <td><strong>{{ row.season }}</strong></td>
+          <td>{{ row.total }}</td>
+          {% for label, val in cols %}
+          {% set pct = (val / row.total * 100) | round(1) if row.total else 0 %}
+          {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
+          <td>
+            <div class="coverage-bar-wrap">
+              <div class="coverage-bar">
+                <div class="coverage-bar-fill {{ css }}" style="width:{{ pct }}%"></div>
+              </div>
+              <span class="coverage-pct">{{ val }}/{{ row.total }}</span>
+            </div>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Claim status -->
+  <div class="card">
+    <h2>Job Claims</h2>
+    <div class="claim-pills">
+      <div class="claim-pill done">
+        <span class="pill-val">{{ "{:,}".format(claim_counts.get('done', 0)) }}</span>
+        <span class="pill-label">Done</span>
+      </div>
+      <div class="claim-pill in-progress">
+        <span class="pill-val">{{ claim_counts.get('in_progress', 0) }}</span>
+        <span class="pill-label">In Progress</span>
+      </div>
+      <div class="claim-pill stuck">
+        <span class="pill-val">{{ stuck_count }}</span>
+        <span class="pill-label">Stuck (&gt;10m)</span>
+      </div>
+    </div>
+    {% if active %}
+    <div style="margin-top:16px">
+      <div class="section-label">Active workers</div>
+      <table>
+        <thead><tr><th>Game</th><th>Metric</th><th>Age</th></tr></thead>
+        <tbody>
+          {% for a in active %}
+          <tr>
+            <td class="mono">{{ a.game_id }}</td>
+            <td class="mono">{{ a.metric_key }}</td>
+            <td>
+              <span class="age-chip {{ 'warn' if a.age_s and a.age_s > 300 else '' }}">
+                {{ a.age_s }}s
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="margin-top:16px" class="empty-state">No active jobs right now</div>
+    {% endif %}
+  </div>
+
+  <!-- Recent runs -->
+  <div class="card">
+    <h2>Recent Metric Runs</h2>
+    {% if recent %}
+    <table>
+      <thead><tr><th>Game</th><th>Metric</th><th>Computed at</th></tr></thead>
+      <tbody>
+        {% for r in recent %}
+        <tr class="recent-row">
+          <td><a href="{{ url_for('game_page', game_id=r.game_id) }}" class="mono">{{ r.game_id }}</a></td>
+          <td class="mono">{{ r.metric_key }}</td>
+          <td>{{ r.computed_at.strftime('%m/%d %H:%M:%S') if r.computed_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No metric runs recorded yet</div>
+    {% endif %}
+  </div>
+
+  <!-- Missing artifacts -->
+  {% if missing_detail %}
+  <div class="card full-width">
+    <h2 style="color:var(--loss)">Missing: Player Stats / Detail ({{ missing_detail | length }})</h2>
+    <table>
+      <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
+      <tbody>
+        {% for g in missing_detail %}
+        <tr>
+          <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
+          <td>{{ g.game_date }}</td>
+          <td>{{ g.season }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if missing_shot %}
+  <div class="card full-width">
+    <h2 style="color:var(--loss)">Missing: Shot Records ({{ missing_shot | length }})</h2>
+    <table>
+      <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
+      <tbody>
+        {% for g in missing_shot %}
+        <tr>
+          <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
+          <td>{{ g.game_date }}</td>
+          <td>{{ g.season }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if missing_metrics %}
+  <div class="card full-width">
+    <h2 style="color:var(--loss)">Missing: Metrics ({{ missing_metrics | length }})</h2>
+    <table>
+      <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
+      <tbody>
+        {% for g in missing_metrics %}
+        <tr>
+          <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
+          <td>{{ g.game_date }}</td>
+          <td>{{ g.season }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if not missing_detail and not missing_shot and not missing_metrics %}
+  <div class="card full-width">
+    <div class="empty-state">All games fully covered — no missing artifacts</div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
