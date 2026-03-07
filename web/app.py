@@ -1157,6 +1157,26 @@ def game_page(game_id: str):
             })
             _prev_road, _prev_home = _road_s, _home_s
 
+        # Derive per-period point totals from PBP (last score seen each period)
+        _period_end: dict[int, tuple[int, int]] = {}  # period -> (home_cumulative, road_cumulative)
+        for _row in pbp_rows_raw:
+            if not _row.score or _row.period is None:
+                continue
+            try:
+                _parts = _row.score.split("-")
+                if len(_parts) != 2:
+                    continue
+                _h, _r = int(_parts[0].strip()), int(_parts[1].strip())
+                _period_end[int(_row.period)] = (_h, _r)
+            except (ValueError, AttributeError):
+                continue
+        quarter_scores: list[dict] = []
+        _ph = _pr = 0
+        for _p in sorted(_period_end.keys()):
+            _eh, _er = _period_end[_p]
+            quarter_scores.append({"period": _p, "home": _eh - _ph, "road": _er - _pr})
+            _ph, _pr = _eh, _er
+
         shot_rows_raw = (
             session.query(ShotRecord)
             .filter(ShotRecord.game_id == game_id, ShotRecord.shot_attempted.is_(True))
@@ -1223,6 +1243,7 @@ def game_page(game_id: str):
         score_progression_json = _json.dumps(score_progression)
         road_abbr = _team_abbr(teams, game.road_team_id)
         home_abbr = _team_abbr(teams, game.home_team_id)
+        home_team_id = game.home_team_id
 
     return render_template(
         "game.html",
@@ -1247,6 +1268,8 @@ def game_page(game_id: str):
         score_progression_json=score_progression_json,
         road_abbr=road_abbr,
         home_abbr=home_abbr,
+        quarter_scores=quarter_scores,
+        home_team_id=home_team_id,
     )
 
 
