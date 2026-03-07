@@ -16,8 +16,9 @@ Claim lifecycle
    Celery retries the task; the retry can INSERT and claim afresh.
 
 4. Worker crash (process killed mid-task) → claim row stays 'in_progress'.
-   task_acks_late=True causes RabbitMQ to redeliver; the redelivered task
-   sees 'in_progress' and skips. Use dispatch --force to clear and requeue.
+   After _LEASE_SECONDS the next delivery auto-recovers:
+     - If MetricRunLog rows exist, work already committed → promote to done, skip.
+     - If no MetricRunLog rows, work was lost → reclaim and recompute.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from celery import shared_task
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from db.models import MetricJobClaim, engine
+from db.models import MetricJobClaim, MetricRunLog, engine
 from metrics.framework.runner import run_for_game_single_metric
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,9 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
       (False, 'done')        — already computed, skip
       (False, 'in_progress') — another worker owns it and lease is still fresh, skip
 
-    Lease timeout: if an in_progress claim is older than _LEASE_SECONDS, it is
-    treated as abandoned (worker crashed before deleting it). We reclaim it via
+    Lease timeout: if an in_progress claim is older than _LEASE_SECONDS, first
+    check whether the metric already committed its MetricRunLog rows. If so,
+    promote the stale claim to 'done' and skip safely. Otherwise reclaim it via
     a conditional UPDATE so only one concurrent recovery worker wins.
     """
     from sqlalchemy.dialects.mysql import insert as mysql_insert
@@ -92,7 +94,42 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
     if age < _LEASE_SECONDS:
         return False, _STATUS_IN_PROGRESS
 
-    # Lease expired — attempt to reclaim via conditional UPDATE (only one worker wins)
+    # Lease expired. If MetricRunLog rows already exist for this (game, metric),
+    # the prior worker committed successfully but crashed before marking the
+    # claim done. Convert the stale claim to done and skip recomputation.
+    existing_run = (
+        session.query(MetricRunLog.game_id)
+        .filter(
+            MetricRunLog.game_id == game_id,
+            MetricRunLog.metric_key == metric_key,
+        )
+        .first()
+    )
+    if existing_run is not None:
+        updated_done = (
+            session.query(MetricJobClaim)
+            .filter(
+                MetricJobClaim.game_id == game_id,
+                MetricJobClaim.metric_key == metric_key,
+                MetricJobClaim.status == _STATUS_IN_PROGRESS,
+                MetricJobClaim.claimed_at == row.claimed_at,
+            )
+            .update(
+                {"status": _STATUS_DONE},
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+        if updated_done == 1:
+            logger.warning(
+                "_try_claim: promoted stale in_progress claim to done for game=%s metric=%s after finding MetricRunLog rows",
+                game_id, metric_key,
+            )
+            return False, _STATUS_DONE
+        return False, _STATUS_IN_PROGRESS
+
+    # Lease expired and no MetricRunLog rows exist — reclaim via conditional
+    # UPDATE so only one concurrent recovery worker wins.
     updated = (
         session.query(MetricJobClaim)
         .filter(
