@@ -1,75 +1,58 @@
-"""Franchise Scoring Rank: player's all-time career points rank for their team."""
+"""Franchise Scoring Rank: player's all-time career points rank for their team.
+
+Stored value: career points scored for the team (incremental running total).
+Rank is derived at query time via SQL window function — not stored — so it
+stays correct without reprocessing other players when one player scores.
+"""
 from __future__ import annotations
 
 from metrics.framework.base import MetricDefinition, MetricResult
 from metrics.framework.registry import register
-from db.models import PlayerGameStats, Game, Player
-from sqlalchemy import func
+from db.models import PlayerGameStats
 
 
 class FranchiseScoringRank(MetricDefinition):
     key = "franchise_scoring_rank"
     name = "Franchise Scoring Rank"
-    description = "Player's all-time rank in career points scored for their current team (franchise history)."
+    description = "Player's all-time career points scored for their current franchise."
     scope = "player"
     category = "record"
     min_sample = 1
-    incremental = False
+    incremental = True
+    supports_career = False  # already career-scoped by design
 
-    def compute(self, session, entity_id, season, game_id=None):
-        # Find the team this player is associated with in this season
-        team_row = (
-            session.query(PlayerGameStats.team_id)
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(PlayerGameStats.player_id == entity_id, Game.season == season)
-            .group_by(PlayerGameStats.team_id)
-            .order_by(func.count().desc())
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        row = (
+            session.query(PlayerGameStats.pts, PlayerGameStats.team_id)
+            .filter(
+                PlayerGameStats.player_id == entity_id,
+                PlayerGameStats.game_id == game_id,
+            )
             .first()
         )
-        if team_row is None:
+        if row is None:
             return None
-        team_id = team_row.team_id
+        return {
+            "pts": int(row.pts or 0),
+            "team_id": row.team_id,  # non-numeric: overwrites each game (keeps latest)
+        }
 
-        # Get career points for all players on this franchise (all time)
-        career_pts = (
-            session.query(
-                PlayerGameStats.player_id,
-                func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("total_pts"),
-            )
-            .filter(PlayerGameStats.team_id == team_id)
-            .group_by(PlayerGameStats.player_id)
-            .order_by(func.sum(func.coalesce(PlayerGameStats.pts, 0)).desc())
-            .all()
-        )
-
-        if not career_pts:
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        pts = totals.get("pts", 0)
+        team_id = totals.get("team_id")
+        if pts < 100:  # filter out garbage-time / brief stints
             return None
-
-        player_pts = {row.player_id: int(row.total_pts) for row in career_pts}
-        sorted_ids = [row.player_id for row in career_pts]
-
-        if entity_id not in player_pts:
-            return None
-
-        rank = sorted_ids.index(entity_id) + 1
-        pts = player_pts[entity_id]
-
-        if pts < 100:   # not meaningful for very low scorers
-            return None
-
         return MetricResult(
             metric_key=self.key,
             entity_type="player",
             entity_id=entity_id,
             season=season,
             game_id=None,
-            value_num=float(rank),
-            value_str=f"#{rank}",
+            value_num=float(pts),
+            value_str=f"{pts:,} pts",
             context={
-                "rank": rank,
                 "career_pts_for_team": pts,
                 "team_id": team_id,
-                "players_ranked": len(sorted_ids),
             },
         )
 
