@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats
 from metrics.framework import registry
-from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals
+from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals, subtract_delta
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,34 @@ def _log_run(
         delta_json=stmt.inserted.delta_json,
     )
     session.execute(stmt)
+
+
+def _get_old_delta(
+    session: Session,
+    game_id: str,
+    metric_key: str,
+    entity_type: str,
+    entity_id: str,
+    season: str,
+) -> dict:
+    """Return the delta previously recorded for this (game, metric, entity) in MetricRunLog."""
+    row = (
+        session.query(MetricRunLog)
+        .filter(
+            MetricRunLog.game_id == game_id,
+            MetricRunLog.metric_key == metric_key,
+            MetricRunLog.entity_type == entity_type,
+            MetricRunLog.entity_id == entity_id,
+            MetricRunLog.season == season,
+        )
+        .first()
+    )
+    if row is None or not row.delta_json:
+        return {}
+    try:
+        return json.loads(row.delta_json)
+    except (ValueError, TypeError):
+        return {}
 
 
 def _get_targets(scope: str, game: Game, player_ids: list[str], team_ids: list[str]):
@@ -212,11 +240,18 @@ def run_for_game_single_metric(
     game_id: str,
     metric_key: str,
     commit: bool = True,
+    force: bool = False,
 ) -> list[MetricResult]:
     """Run a single named metric for all entities touched by a game.
 
     Same logic as run_for_game() but filters to only the one metric.
     Keeps run_for_game() untouched for daily_job.py local fallback.
+
+    force=True (undo-redo):
+        For incremental metrics, subtracts the previously recorded delta
+        (from MetricRunLog.delta_json) before applying the new one. This
+        corrects running totals without reprocessing all historical games.
+        Non-incremental metrics always do a full recompute so force is a no-op.
     """
     game = session.query(Game).filter(Game.game_id == game_id).first()
     if game is None:
@@ -273,6 +308,21 @@ def run_for_game_single_metric(
             existing_totals = _get_existing_totals(
                 session, metric_def.key, entity_type, entity_id, bucket_season
             )
+
+            if force:
+                # Undo-redo: subtract old delta before adding new one so running
+                # totals are not double-counted on reprocessing.
+                old_delta = _get_old_delta(
+                    session, game_id, metric_def.key,
+                    entity_type, entity_id or "", bucket_season,
+                )
+                if old_delta:
+                    existing_totals = subtract_delta(existing_totals, old_delta)
+                    logger.debug(
+                        "force: subtracted old delta for %s/%s entity=%s",
+                        game_id, metric_def.key, entity_id,
+                    )
+
             new_totals = merge_totals(existing_totals, delta)
 
             try:

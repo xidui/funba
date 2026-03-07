@@ -39,8 +39,9 @@ Dead-letter exchange:
 | Season backfill | `python -m tasks.dispatch backfill --season 22025` | All games in season → Queue 1 |
 | Date range | `python -m tasks.dispatch backfill --date-from 2025-01-01 --date-to 2025-03-06` | Filtered games → Queue 1 |
 | Single game | `python -m tasks.dispatch game 0022400909` | One game → Queue 1 |
-| New metric | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct` | All games → Queue 2 directly |
-| All metrics, all games | `python -m tasks.dispatch metric-backfill` | All games × all metrics → Queue 2 |
+| New metric | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct` | All games → Queue 1 (artifact check) → Queue 2 |
+| All metrics, all games | `python -m tasks.dispatch metric-backfill` | All games → Queue 1 (artifact check) → Queue 2 |
+| Force recompute | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct --force` | Clears claims, undo-redo running totals |
 
 ## Local Quickstart (Docker Compose)
 
@@ -106,7 +107,9 @@ ECS task definition commands:
 python -m tasks.dispatch metric-backfill --metric your_new_metric_key
 ```
 
-This enqueues one task per game directly to Queue 2 — no re-ingestion.
+This routes through Queue 1 (ingest) first, which verifies artifact presence
+(game detail, PBP, shot records) and fetches anything missing before fanning
+out metric compute tasks to Queue 2.
 
 ## Operational Runbook
 

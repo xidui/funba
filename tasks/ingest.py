@@ -54,7 +54,7 @@ def _fetch_api_row(game_id: str) -> dict | None:
     max_retries=3,
     queue="ingest",
 )
-def ingest_game(self, game_id: str, metric_keys: list[str] | None = None) -> dict:
+def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force: bool = False) -> dict:
     """Ingest all data for one game, then fan out metric compute tasks.
 
     Args:
@@ -111,7 +111,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None) -> dic
 
     keys_to_run = metric_keys if metric_keys is not None else [m.key for m in registry.get_all()]
     for key in keys_to_run:
-        compute_game_metrics.apply_async(args=[game_id, key], queue="metrics")
+        compute_game_metrics.apply_async(args=[game_id, key], kwargs={"force": force}, queue="metrics")
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s) → %d metric tasks enqueued.",

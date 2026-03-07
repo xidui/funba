@@ -88,7 +88,7 @@ def cmd_game(args: argparse.Namespace) -> None:
     if args.force:
         deleted = _clear_claims([game_id])
         print(f"--force: cleared {deleted} claim(s) for game {game_id}.")
-    ingest_game.apply_async(args=[game_id], queue="ingest")
+    ingest_game.apply_async(args=[game_id], kwargs={"force": args.force}, queue="ingest")
     print(f"Enqueued 1 ingest task for game {game_id}.")
 
 
@@ -105,7 +105,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids)
         print(f"--force: cleared {deleted} claim(s) for {len(game_ids)} games.")
     for gid in game_ids:
-        ingest_game.apply_async(args=[gid], queue="ingest")
+        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, queue="ingest")
     print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
 
 
@@ -140,7 +140,11 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
     # Route through the ingest queue so artifact presence (PBP, shot detail)
     # is verified (and fetched if missing) before metric computation runs.
     for gid in game_ids:
-        ingest_game.apply_async(args=[gid], kwargs={"metric_keys": metric_keys}, queue="ingest")
+        ingest_game.apply_async(
+            args=[gid],
+            kwargs={"metric_keys": metric_keys, "force": args.force},
+            queue="ingest",
+        )
 
     print(
         f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest "
