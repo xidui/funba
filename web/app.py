@@ -1102,6 +1102,61 @@ def game_page(game_id: str):
             for row in pbp_rows_raw
         ]
 
+        # Player name map from already-fetched player_rows (no extra query)
+        _player_name_map = {
+            str(stat.player_id): (player.full_name if player and player.full_name else str(stat.player_id))
+            for stat, player in player_rows
+        }
+
+        # Build score progression for the line chart.
+        # NBA PBP score format: "HOME - VISITOR" (home team is first number)
+        score_progression = [{"t": 0.0, "road": 0, "home": 0, "scorer": None, "desc": None}]
+        _prev_road = _prev_home = 0
+        for _row in pbp_rows_raw:
+            if not _row.score or _row.period is None:
+                continue
+            try:
+                _parts = _row.score.split("-")
+                if len(_parts) != 2:
+                    continue
+                _home_s, _road_s = int(_parts[0].strip()), int(_parts[1].strip())
+            except (ValueError, AttributeError):
+                continue
+            if _road_s == _prev_road and _home_s == _prev_home:
+                continue
+            _period = int(_row.period)
+            _clock = _row.pc_time or "0:00"
+            try:
+                _m, _s = _clock.split(":")
+                _remaining = int(_m) * 60 + int(_s)
+            except Exception:
+                _remaining = 0
+            if _period <= 4:
+                _offset = (_period - 1) * 12 * 60
+                _dur = 12 * 60
+            else:
+                _offset = 48 * 60 + (_period - 5) * 5 * 60
+                _dur = 5 * 60
+            _elapsed = round((_offset + _dur - _remaining) / 60, 3)
+            # Pick description from the side that scored
+            _raw_desc = (
+                _row.home_description if _home_s > _prev_home
+                else _row.visitor_description if _road_s > _prev_road
+                else None
+            ) or ""
+            # Try player1_id lookup first, fall back to first word of description
+            if _row.player1_id and str(_row.player1_id) in _player_name_map:
+                _scorer = _player_name_map[str(_row.player1_id)]
+            else:
+                _scorer = _raw_desc.split()[0] if _raw_desc.strip() else None
+            # Strip parenthetical clauses "(N PTS) (Assist)" to keep desc compact
+            _desc = _raw_desc.split("(")[0].strip() or None
+            score_progression.append({
+                "t": _elapsed, "road": _road_s, "home": _home_s,
+                "scorer": _scorer, "desc": _desc,
+            })
+            _prev_road, _prev_home = _road_s, _home_s
+
         shot_rows_raw = (
             session.query(ShotRecord)
             .filter(ShotRecord.game_id == game_id, ShotRecord.shot_attempted.is_(True))
@@ -1164,6 +1219,11 @@ def game_page(game_id: str):
 
         game_metrics = _get_metric_results(session, "game", game_id, game.season)
 
+        import json as _json
+        score_progression_json = _json.dumps(score_progression)
+        road_abbr = _team_abbr(teams, game.road_team_id)
+        home_abbr = _team_abbr(teams, game.home_team_id)
+
     return render_template(
         "game.html",
         game=game,
@@ -1184,6 +1244,9 @@ def game_page(game_id: str):
         shot_backfill_status=request.args.get("shot_backfill"),
         shot_backfill_count=request.args.get("shot_count"),
         game_metrics=game_metrics,
+        score_progression_json=score_progression_json,
+        road_abbr=road_abbr,
+        home_abbr=home_abbr,
     )
 
 

@@ -324,6 +324,16 @@
 </div>
 {% endif %}
 
+<!-- ── Score Progression ──────────────────────────────────────────── -->
+{% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
+<div class="card">
+  <h2>Score Progression</h2>
+  <div style="position:relative;height:260px;">
+    <canvas id="score-chart"></canvas>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Player Stats ───────────────────────────────────────────────── -->
 <div class="card">
   <h2>Player Stats</h2>
@@ -597,6 +607,189 @@
     }
   })();
 </script>
+
+{% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const pts      = {{ score_progression_json | safe }};
+  const roadAbbr = {{ road_abbr | tojson }};
+  const homeAbbr = {{ home_abbr | tojson }};
+
+  const maxT = pts.length ? pts[pts.length - 1].t : 48;
+  const axisMax = maxT <= 48 ? 48 : Math.ceil((maxT - 48) / 5) * 5 + 48;
+
+  // Period boundary lines drawn after each render
+  const periodLinesPlugin = {
+    id: 'periodLines',
+    afterDraw(chart) {
+      const ctx   = chart.ctx;
+      const xAxis = chart.scales.x;
+      const yAxis = chart.scales.y;
+      const boundaries = [];
+      for (let q = 1; q <= 4; q++) boundaries.push({ t: q * 12, label: q === 4 ? 'OT' : `Q${q + 1}` });
+      for (let ot = 1; ot <= 10; ot++) {
+        const t = 48 + ot * 5;
+        if (t < axisMax) boundaries.push({ t, label: `OT${ot + 1}` });
+      }
+      ctx.save();
+      ctx.setLineDash([3, 5]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.lineWidth = 1;
+      ctx.fillStyle  = 'rgba(255,255,255,0.22)';
+      ctx.font       = '10px Inter, sans-serif';
+      ctx.textAlign  = 'center';
+      boundaries.forEach(({ t, label }) => {
+        if (t > axisMax) return;
+        const x = xAxis.getPixelForValue(t);
+        ctx.beginPath();
+        ctx.moveTo(x, yAxis.top);
+        ctx.lineTo(x, yAxis.bottom);
+        ctx.stroke();
+        ctx.fillText(label, x, yAxis.top - 5);
+      });
+      ctx.restore();
+    }
+  };
+
+  new Chart(document.getElementById('score-chart'), {
+    type: 'line',
+    plugins: [periodLinesPlugin],
+    data: {
+      datasets: [
+        {
+          label: roadAbbr + ' (Road)',
+          data: pts.map(d => ({ x: d.t, y: d.road })),
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.06)',
+          borderWidth: 2,
+          stepped: 'before',
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#60a5fa',
+          fill: true,
+          tension: 0,
+        },
+        {
+          label: homeAbbr + ' (Home)',
+          data: pts.map(d => ({ x: d.t, y: d.home })),
+          borderColor: '#f97316',
+          backgroundColor: 'rgba(249,115,22,0.06)',
+          borderWidth: 2,
+          stepped: 'before',
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#f97316',
+          fill: true,
+          tension: 0,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 18 } },
+      scales: {
+        x: {
+          type: 'linear',
+          min: 0,
+          max: axisMax,
+          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          border: { color: 'rgba(255,255,255,0.08)' },
+          ticks: {
+            color: 'rgba(255,255,255,0.3)',
+            font: { size: 11 },
+            callback(v) {
+              if (v === 0)  return 'Tip-off';
+              if (v === 12) return 'Q2';
+              if (v === 24) return 'Q3';
+              if (v === 36) return 'Q4';
+              if (v === 48) return 'End';
+              if (v > 48 && (v - 48) % 5 === 0) return `OT${(v - 48) / 5}`;
+              return '';
+            },
+            maxTicksLimit: 14,
+          },
+        },
+        y: {
+          min: 0,
+          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          border: { color: 'rgba(255,255,255,0.08)' },
+          ticks: {
+            color: 'rgba(255,255,255,0.3)',
+            font: { size: 11 },
+            maxTicksLimit: 8,
+          },
+        },
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: {
+            color: 'rgba(255,255,255,0.65)',
+            font: { size: 12, weight: '600' },
+            padding: 16,
+            usePointStyle: true,
+            pointStyleWidth: 16,
+          },
+        },
+        tooltip: {
+          backgroundColor: '#0d1c2e',
+          titleColor: 'rgba(255,255,255,0.55)',
+          bodyColor: '#fff',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title(items) {
+              const t = items[0].parsed.x;
+              if (t <= 48) {
+                const q   = Math.min(4, Math.floor(t / 12) + 1);
+                const rem = Math.max(0, q * 12 - t);
+                const rm  = Math.floor(rem);
+                const rs  = Math.round((rem - rm) * 60).toString().padStart(2, '0');
+                return `Q${q}  —  ${rm}:${rs} remaining`;
+              }
+              const ot  = Math.floor((t - 48) / 5) + 1;
+              const rem = Math.max(0, (48 + ot * 5) - t);
+              const rm  = Math.floor(rem);
+              const rs  = Math.round((rem - rm) * 60).toString().padStart(2, '0');
+              return `OT${ot}  —  ${rm}:${rs} remaining`;
+            },
+            label(item) {
+              return `  ${item.dataset.label.split(' ')[0]}: ${item.parsed.y}`;
+            },
+            afterBody(items) {
+              if (!items.length) return [];
+              const pt   = pts[items[0].dataIndex];
+              const lines = [];
+              // Scorer line
+              if (pt && pt.scorer) {
+                const play = pt.desc ? `${pt.scorer} — ${pt.desc}` : pt.scorer;
+                lines.push('', `  ▸ ${play}`);
+              }
+              // Lead/tied summary
+              if (items.length >= 2) {
+                const diff = items[0].parsed.y - items[1].parsed.y;
+                if (diff === 0) lines.push('  Tied');
+                else {
+                  const leader = diff > 0 ? items[0].dataset.label.split(' ')[0] : items[1].dataset.label.split(' ')[0];
+                  lines.push(`  ${leader} +${Math.abs(diff)}`);
+                }
+              }
+              return lines;
+            }
+          }
+        }
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
 
 {% set game_metric_list = game_metrics.season %}
 {% if game_metric_list %}
