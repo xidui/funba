@@ -193,30 +193,6 @@ Index('ix_ShotRecord_player_id_season', ShotRecord.player_id, ShotRecord.season)
 Index('ix_ShotRecord_season_zone', ShotRecord.season, ShotRecord.shot_zone_area)
 
 
-class PlayerSeasonMetrics(Base):
-    __tablename__ = 'PlayerSeasonMetrics'
-
-    id = Column(Integer, primary_key=True)
-    player_id = Column(String(50), ForeignKey('Player.player_id'))
-    team_id = Column(String(50), ForeignKey('Team.team_id'))
-    season = Column(String(50))
-
-    three_pointer_made = Column(Float)
-    three_pointer_attempt = Column(Float)
-    three_pointer_made_after_one_miss = Column(Float)
-    three_pointer_attempt_after_one_miss = Column(Float)
-    three_pointer_made_after_two_miss = Column(Float)
-    three_pointer_attempt_after_two_miss = Column(Float)
-
-    shot_made = Column(Float)
-    shot_attempt = Column(Float)
-    shot_made_after_made = Column(Float)
-    shot_attempt_after_made = Column(Float)
-
-    __table_args__ = (
-        Index('idx_PlayerSeasonMetrics_player_team_season', 'player_id', 'team_id', 'season', unique=True),
-    )
-
 
 class MetricResult(Base):
     __tablename__ = 'MetricResult'
