@@ -55,6 +55,7 @@ ingest + metric pipeline on them.
 ### Prerequisites
 - Docker + Docker Compose
 - MySQL running on the host (or update `NBA_DB_URL` in `.env`)
+- Celery task results are intentionally disabled; RabbitMQ is used only as the broker
 
 ### Steps
 
@@ -177,3 +178,8 @@ python -m metrics.framework.daily_job --season 22025 --force
 | `metrics/framework/runner.py` | Added `run_for_game_single_metric()` |
 | `metrics/framework/daily_job.py` | Unchanged — local fallback (no Docker) |
 | `db/backfill_nba_games_targeted.py` | **Deprecated** — use `dispatch discover` instead |
+
+## Notes
+
+- Celery is configured with `task_ignore_result=True`, so workers do not publish task results to an `rpc://` reply queue.
+- This pipeline is fire-and-forget: correctness is tracked in MySQL via `MetricJobClaim` / `MetricRunLog`, not via Celery task results.

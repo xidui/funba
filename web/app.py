@@ -4,11 +4,12 @@ from collections import defaultdict
 from datetime import date
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
-from sqlalchemy import case, func
+from sqlalchemy import case, func, text
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
@@ -1595,30 +1596,47 @@ def metric_detail(metric_key: str):
     )
 
 
+_admin_cache: dict = {}
+_ADMIN_CACHE_TTL = 30  # seconds
+
+
 @app.get("/admin")
 def admin_pipeline():
     from datetime import datetime, timedelta
 
     with SessionLocal() as session:
-        # --- Coverage per season (all seasons, single query) ---
-        from sqlalchemy import text as sa_text
-        coverage_rows = session.execute(sa_text("""
-            SELECT
-                g.season,
-                COUNT(DISTINCT g.game_id)   AS total,
-                COUNT(DISTINCT pgs.game_id) AS has_detail,
-                COUNT(DISTINCT pbp.game_id) AS has_pbp,
-                COUNT(DISTINCT sr.game_id)  AS has_shot,
-                COUNT(DISTINCT mrl.game_id) AS has_metrics
-            FROM Game g
-            LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
-            LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
-            LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
-            LEFT JOIN (SELECT DISTINCT game_id FROM MetricRunLog)     mrl ON mrl.game_id = g.game_id
-            WHERE g.game_date IS NOT NULL
-            GROUP BY g.season
-            ORDER BY g.season DESC
-        """)).fetchall()
+        # --- Coverage per season — cached to avoid 6s query on every load ---
+        now = time.time()
+        if "coverage" not in _admin_cache or now - _admin_cache.get("ts", 0) > _ADMIN_CACHE_TTL:
+            from sqlalchemy import text as sa_text
+            coverage_rows = session.execute(sa_text("""
+                SELECT
+                    g.season,
+                    COUNT(DISTINCT g.game_id)   AS total,
+                    COUNT(DISTINCT pgs.game_id) AS has_detail,
+                    COUNT(DISTINCT pbp.game_id) AS has_pbp,
+                    COUNT(DISTINCT sr.game_id)  AS has_shot,
+                    COALESCE(SUM(mjc_agg.done_cnt > 0), 0)   AS has_metrics,
+                    COALESCE(SUM(mjc_agg.active_cnt), 0)     AS active_claims
+                FROM Game g
+                LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+                LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
+                LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
+                LEFT JOIN (
+                    SELECT game_id,
+                           SUM(status = 'done')        AS done_cnt,
+                           SUM(status = 'in_progress') AS active_cnt
+                    FROM MetricJobClaim
+                    GROUP BY game_id
+                ) mjc_agg ON mjc_agg.game_id = g.game_id
+                WHERE g.game_date IS NOT NULL
+                GROUP BY g.season
+                ORDER BY g.season DESC
+            """)).fetchall()
+            _admin_cache["coverage"] = coverage_rows
+            _admin_cache["ts"] = now
+        else:
+            coverage_rows = _admin_cache["coverage"]
 
         coverage = [
             {
@@ -1629,6 +1647,7 @@ def admin_pipeline():
                 "pbp": row.has_pbp,
                 "shot": row.has_shot,
                 "metrics": row.has_metrics,
+                "active_claims": row.active_claims,
                 "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
             }
             for row in coverage_rows
@@ -1671,24 +1690,37 @@ def admin_pipeline():
         # --- Games missing any artifact (last 2 seasons) — all done in SQL ---
         season_filter = Game.season.like("22024%") | Game.season.like("22025%")
 
-        def _missing(joined_model, joined_col):
-            """Games in the two target seasons with no row in joined_model."""
+        def _missing(joined_model, joined_col, limit=20):
+            """Games in the two target seasons with no row in joined_model.
+
+            Uses limit+1 trick to detect overflow without a separate COUNT query.
+            """
             rows = (
                 session.query(Game.game_id, Game.game_date, Game.season)
                 .outerjoin(joined_model, joined_col == Game.game_id)
                 .filter(season_filter, Game.game_date.isnot(None), joined_col.is_(None))
                 .order_by(Game.game_date)
+                .limit(limit + 1)
                 .all()
             )
-            return [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows]
+            overflow = len(rows) > limit
+            rows = rows[:limit]
+            # total is exact when small, otherwise ">limit" signal
+            total = len(rows) + (1 if overflow else 0)  # caller checks overflow via total > len(rows)
+            return {
+                "total": total,
+                "overflow": overflow,
+                "rows": [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows],
+            }
 
         missing_detail = _missing(PlayerGameStats, PlayerGameStats.game_id)
         missing_shot = _missing(ShotRecord, ShotRecord.game_id)
         missing_metrics = _missing(MetricRunLog, MetricRunLog.game_id)
 
-        # --- Recent metric runs (last 20) ---
+        # --- Recent metric runs (last 20) — filter to recent days to avoid full table scan ---
         recent_runs = (
             session.query(MetricRunLog.game_id, MetricRunLog.metric_key, MetricRunLog.computed_at)
+            .filter(MetricRunLog.computed_at >= func.date_sub(func.now(), text("INTERVAL 3 DAY")))
             .order_by(MetricRunLog.computed_at.desc())
             .limit(20)
             .all()
@@ -1706,6 +1738,39 @@ def admin_pipeline():
         missing_metrics=missing_metrics,
         recent=recent,
     )
+
+
+@app.post("/admin/backfill/<season>")
+def admin_backfill(season: str):
+    """Discover + insert any missing games from NBA API, then enqueue ingest for the season."""
+    from tasks.ingest import ingest_game
+    from tasks.celery_app import app as celery_app
+    from tasks.dispatch import discover_and_insert_games
+    from metrics.framework import registry as _registry
+
+    # Convert DB season code (e.g. "22025") → NBA API season string + type
+    _type_map = {"2": "Regular Season", "4": "Playoffs", "5": "PlayIn", "1": "Pre Season"}
+    prefix = season[0] if season else "2"
+    year = int(season[1:]) if len(season) > 1 else 0
+    nba_season = f"{year}-{(year + 1) % 100:02d}"
+    season_type = _type_map.get(prefix, "Regular Season")
+
+    game_ids = discover_and_insert_games(
+        season=nba_season,
+        season_types=[season_type],
+    )
+
+    if not game_ids:
+        return jsonify({"error": f"No games found for season {season}"}), 404
+
+    # Use the pre-configured Queue object (with DLX args) so RabbitMQ doesn't
+    # reject the declaration as inequivalent to the existing queue.
+    ingest_q = next(q for q in celery_app.conf.task_queues if q.name == "ingest")
+    metric_keys = [m.key for m in _registry.get_all()]
+    for gid in game_ids:
+        ingest_game.apply_async(args=[gid], kwargs={"metric_keys": metric_keys}, declare=[ingest_q])
+
+    return jsonify({"season": season, "enqueued": len(game_ids)})
 
 
 @app.post("/games/<game_id>/shotchart/backfill")

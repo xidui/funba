@@ -83,39 +83,118 @@ def _clear_claims(game_ids: list[str], metric_keys: list[str] | None = None) -> 
         sess.close()
 
 
-def cmd_discover(args: argparse.Namespace) -> None:
-    """Discover game IDs from NBA API and enqueue ingest_game for each."""
+def discover_and_insert_games(
+    season: str | None = None,
+    season_types: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> set[str]:
+    """Fetch games from NBA API, bulk-insert missing Game rows, return all game_ids.
+
+    date_from / date_to should already be in MM/DD/YYYY format (nba_api convention).
+    Returns the full set of game_ids discovered (existing + newly inserted).
+    """
+    import pandas as pd
     from nba_api.stats.endpoints import leaguegamefinder
+    from sqlalchemy.dialects.mysql import insert as mysql_insert
+    from datetime import date as _date
 
-    season_types = args.season_type or ["Regular Season", "Playoffs", "PlayIn"]
+    if season_types is None:
+        season_types = ["Regular Season", "Playoffs", "PlayIn"]
 
-    # Convert YYYY-MM-DD to MM/DD/YYYY for nba_api
-    def _fmt(d: str | None) -> str:
-        if not d:
-            return ""
-        from datetime import date
-        return date.fromisoformat(d).strftime("%m/%d/%Y")
-
-    date_from = _fmt(args.date_from)
-    date_to = _fmt(args.date_to)
-
-    game_ids: set[str] = set()
+    frames = []
     for season_type in season_types:
         try:
             finder = leaguegamefinder.LeagueGameFinder(
-                season_nullable=args.season or "",
+                season_nullable=season or "",
                 season_type_nullable=season_type,
-                date_from_nullable=date_from,
-                date_to_nullable=date_to,
+                date_from_nullable=date_from or "",
+                date_to_nullable=date_to or "",
                 league_id_nullable="00",
             )
             df = finder.get_data_frames()[0]
             if "WL" in df.columns:
                 df = df[df["WL"].notna()]
-            for gid in df["GAME_ID"].astype(str).unique():
-                game_ids.add(gid)
+            frames.append(df)
         except Exception as exc:
             print(f"Warning: LeagueGameFinder failed for {season_type}: {exc}", file=sys.stderr)
+
+    if not frames or all(f.empty for f in frames):
+        return set()
+
+    full_df = pd.concat(frames, ignore_index=True)
+
+    game_rows: dict[str, dict] = {}
+    for _, row in full_df.iterrows():
+        gid = str(row["GAME_ID"])
+        matchup = str(row.get("MATCHUP", ""))
+        team_id = str(int(row["TEAM_ID"]))
+        pts = int(row["PTS"]) if pd.notna(row.get("PTS")) else None
+        wl = str(row.get("WL", ""))
+        season_id = str(row.get("SEASON_ID", ""))
+        try:
+            game_date = _date.fromisoformat(str(row.get("GAME_DATE", ""))[:10])
+        except (ValueError, TypeError):
+            game_date = None
+
+        if gid not in game_rows:
+            game_rows[gid] = {
+                "game_id": gid,
+                "season": season_id,
+                "game_date": game_date,
+                "home_team_id": None,
+                "road_team_id": None,
+                "home_team_score": None,
+                "road_team_score": None,
+                "wining_team_id": None,
+                "backfill_mismatch": False,
+            }
+        g = game_rows[gid]
+        if "vs." in matchup:
+            g["home_team_id"] = team_id
+            g["home_team_score"] = pts
+        elif "@" in matchup:
+            g["road_team_id"] = team_id
+            g["road_team_score"] = pts
+        if wl == "W":
+            g["wining_team_id"] = team_id
+
+    game_ids = set(game_rows.keys())
+    if not game_ids:
+        return set()
+
+    sess = _session()
+    try:
+        existing_ids = {
+            r.game_id
+            for r in sess.query(Game.game_id).filter(Game.game_id.in_(game_ids)).all()
+        }
+        new_rows = [g for g in game_rows.values() if g["game_id"] not in existing_ids]
+        if new_rows:
+            sess.execute(mysql_insert(Game).prefix_with("IGNORE").values(new_rows))
+            sess.commit()
+            print(f"Inserted {len(new_rows)} new Game record(s).")
+    finally:
+        sess.close()
+
+    return game_ids
+
+
+def cmd_discover(args: argparse.Namespace) -> None:
+    """Discover games from NBA API, pre-populate Game table, then enqueue ingest for each."""
+    from datetime import date as _date
+
+    def _fmt(d: str | None) -> str:
+        if not d:
+            return ""
+        return _date.fromisoformat(d).strftime("%m/%d/%Y")
+
+    game_ids = discover_and_insert_games(
+        season=args.season,
+        season_types=args.season_type or None,
+        date_from=_fmt(args.date_from),
+        date_to=_fmt(args.date_to),
+    )
 
     if not game_ids:
         print("No games found from NBA API for the given filters.")

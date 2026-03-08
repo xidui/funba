@@ -88,6 +88,16 @@
   .stype-playoffs { background: rgba(249,115,22,.12);  color: var(--accent); }
   .stype-playin   { background: rgba(74,222,128,.12);  color: var(--win); }
   .stype-other    { background: var(--surface-3); color: var(--muted); }
+
+  .backfill-btn {
+    font-size: 11px; font-family: Outfit, sans-serif; font-weight: 700;
+    padding: 3px 10px; border-radius: 20px;
+    border: 1px solid var(--accent); background: rgba(249,115,22,.12);
+    color: var(--accent); cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .backfill-btn:hover { background: rgba(249,115,22,.25); }
+  .backfill-btn:disabled { cursor: default; opacity: 0.4; border-color: var(--border-2); color: var(--muted); background: var(--surface-3); }
 </style>
 
 <h1 style="margin-bottom:1.25rem">Pipeline Status</h1>
@@ -104,9 +114,9 @@
       <div style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <div class="cov-toggles">
           <button class="cov-toggle active" data-type="regular" onclick="covToggle(this)">Regular Season</button>
-          <button class="cov-toggle active" data-type="playoffs" onclick="covToggle(this)">Playoffs</button>
-          <button class="cov-toggle active" data-type="playin"   onclick="covToggle(this)">Play-In</button>
-          <button class="cov-toggle active" data-type="other"    onclick="covToggle(this)">Other</button>
+          <button class="cov-toggle"        data-type="playoffs" onclick="covToggle(this)">Playoffs</button>
+          <button class="cov-toggle"        data-type="playin"   onclick="covToggle(this)">Play-In</button>
+          <button class="cov-toggle"        data-type="other"    onclick="covToggle(this)">Other</button>
         </div>
         <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">
           <input type="checkbox" id="hide-complete" onchange="applyFilters()"> Hide complete
@@ -124,6 +134,8 @@
           <th>PBP</th>
           <th>Shots</th>
           <th>Metrics</th>
+          <th style="text-align:center">Status</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -156,6 +168,25 @@
             {% endif %}
           </td>
           {% endfor %}
+          <td style="text-align:center;">
+            {% if row.complete %}
+              <span class="age-chip" style="background:rgba(74,222,128,.12); color:var(--win);">Done</span>
+            {% elif row.active_claims %}
+              <span class="age-chip warn">⟳ {{ row.active_claims }} active</span>
+            {% elif row.metrics > 0 %}
+              <span class="age-chip">Partial</span>
+            {% else %}
+              <span class="age-chip" style="color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not row.complete %}
+            <button class="backfill-btn"
+                    data-season="{{ row.season_raw }}"
+                    onclick="triggerBackfill(this)"
+                    {% if row.active_claims %}disabled title="Backfill already in progress"{% endif %}>Backfill</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -163,7 +194,7 @@
     </div>
 
     <script>
-      var _activeTypes = {regular: true, playoffs: true, playin: true, other: true};
+      var _activeTypes = {regular: true, playoffs: false, playin: false, other: false};
 
       function covToggle(btn) {
         var t = btn.dataset.type;
@@ -179,6 +210,33 @@
           var completeOk = !(hideComplete && tr.classList.contains('row-complete'));
           tr.style.display = (typeOk && completeOk) ? '' : 'none';
         });
+      }
+
+      applyFilters();
+
+      function triggerBackfill(btn) {
+        var season = btn.dataset.season;
+        btn.disabled = true;
+        btn.title = 'Backfill already in progress';
+        btn.textContent = 'Enqueueing…';
+        fetch('/admin/backfill/' + season, {method: 'POST'})
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.enqueued !== undefined) {
+              btn.textContent = 'Enqueued ' + d.enqueued;
+              btn.style.color = 'var(--win)';
+              btn.style.borderColor = 'var(--win)';
+            } else {
+              btn.textContent = d.error || 'Error';
+              btn.style.color = 'var(--loss)';
+              btn.disabled = false;
+            }
+          })
+          .catch(function() {
+            btn.textContent = 'Error';
+            btn.style.color = 'var(--loss)';
+            btn.disabled = false;
+          });
       }
     </script>
   </div>
@@ -247,13 +305,25 @@
   </div>
 
   <!-- Missing artifacts -->
-  {% if missing_detail %}
+  {% set any_missing = missing_detail.total or missing_shot.total or missing_metrics.total %}
+  {% if any_missing %}
+
+  {% for panel in [
+    ('Player Stats / Detail', missing_detail),
+    ('Shot Records',          missing_shot),
+    ('Metrics',               missing_metrics),
+  ] %}
+  {% set label, m = panel %}
+  {% if m.total %}
   <div class="card full-width">
-    <h2 style="color:var(--loss)">Missing: Player Stats / Detail ({{ missing_detail | length }})</h2>
+    <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:12px;">
+      <h2 style="margin:0; color:var(--loss)">Missing: {{ label }}</h2>
+      <span style="font-size:13px; color:var(--muted)">{{ m.total }} game{{ 's' if m.total != 1 else '' }}</span>
+    </div>
     <table>
       <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
       <tbody>
-        {% for g in missing_detail %}
+        {% for g in m.rows %}
         <tr>
           <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
           <td>{{ g.game_date }}</td>
@@ -262,46 +332,16 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if m.overflow %}
+    <div style="margin-top:10px; font-size:12px; color:var(--muted)">
+      Showing first {{ m.rows | length }} — see coverage table above for full breakdown.
+    </div>
+    {% endif %}
   </div>
   {% endif %}
+  {% endfor %}
 
-  {% if missing_shot %}
-  <div class="card full-width">
-    <h2 style="color:var(--loss)">Missing: Shot Records ({{ missing_shot | length }})</h2>
-    <table>
-      <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
-      <tbody>
-        {% for g in missing_shot %}
-        <tr>
-          <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
-          <td>{{ g.game_date }}</td>
-          <td>{{ g.season }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if missing_metrics %}
-  <div class="card full-width">
-    <h2 style="color:var(--loss)">Missing: Metrics ({{ missing_metrics | length }})</h2>
-    <table>
-      <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
-      <tbody>
-        {% for g in missing_metrics %}
-        <tr>
-          <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
-          <td>{{ g.game_date }}</td>
-          <td>{{ g.season }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {% if not missing_detail and not missing_shot and not missing_metrics %}
+  {% else %}
   <div class="card full-width">
     <div class="empty-state">All games fully covered — no missing artifacts</div>
   </div>

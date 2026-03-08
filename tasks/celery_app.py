@@ -5,7 +5,7 @@ from celery import Celery
 from kombu import Exchange, Queue
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//")
-RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
+RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or None
 
 app = Celery("funba", broker=BROKER_URL, backend=RESULT_BACKEND)
 
@@ -45,6 +45,7 @@ app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+    task_ignore_result=True,      # fire-and-forget pipeline; do not create/store task results
 
     # --- Retry policies (per task in task definitions) ---
     # ingest: max 3 retries, exponential backoff 30s/90s/270s
