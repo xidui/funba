@@ -54,6 +54,24 @@ def _fetch_api_row(game_id: str) -> dict | None:
     return df.iloc[0].to_dict()
 
 
+def _season_start_year(season: str | None) -> int | None:
+    """Convert DB season code like '21996' to start year 1996."""
+    if not season:
+        return None
+    try:
+        return int(str(season)[1:])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _artifacts_available_from_nba_api(season: str | None) -> bool:
+    """PBP and shot detail are only available from 1996-97 onward."""
+    start_year = _season_start_year(season)
+    if start_year is None:
+        return True
+    return start_year >= 1996
+
+
 @shared_task(
     bind=True,
     name="tasks.ingest.ingest_game",
@@ -78,16 +96,30 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     try:
         # Step 1: check what's present
         with SessionLocal() as sess:
-            game_exists = sess.query(Game.game_id).filter(Game.game_id == game_id).first() is not None
+            game = sess.query(Game).filter(Game.game_id == game_id).first()
+            game_exists = game is not None
             if game_exists:
+                artifacts_supported = _artifacts_available_from_nba_api(game.season)
                 has_detail = is_game_detail_back_filled(game_id, sess)
-                has_pbp = is_game_pbp_back_filled(game_id, sess)
-                has_shot = is_game_shot_back_filled(sess, game_id)
+                has_pbp = is_game_pbp_back_filled(game_id, sess) if artifacts_supported else True
+                has_shot = is_game_shot_back_filled(sess, game_id) if artifacts_supported else True
             else:
+                artifacts_supported = True
                 has_detail = has_pbp = has_shot = False
 
         needs_detail_pbp = not (has_detail and has_pbp)
         needs_shot = not has_shot
+
+        if game_exists and not artifacts_supported:
+            # NBA API does not provide PBP / shot detail before 1996-97.
+            # For those seasons, treat missing PBP/shot as permanently unavailable
+            # so ingest can move on and still fan out computable metrics.
+            needs_detail_pbp = not has_detail
+            needs_shot = False
+            logger.info(
+                "ingest_game %s: skipping PBP/shot fetch for pre-1996 season %s.",
+                game_id, game.season,
+            )
 
         # Step 2: fetch from API if anything is missing (covers new games too)
         if needs_detail_pbp or not game_exists:

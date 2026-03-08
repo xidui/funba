@@ -1524,7 +1524,10 @@ def api_metric_publish(metric_key: str):
         m.status = "published"
         m.updated_at = datetime.utcnow()
         session.commit()
-    enqueue_metric_backfill.apply_async(args=[metric_key], queue="ingest")
+    # Route the control-plane fanout task to the metrics queue so it doesn't get
+    # buried behind long ingest backlogs. The task itself only enqueues ingest
+    # jobs; it does not fetch NBA API data.
+    enqueue_metric_backfill.apply_async(args=[metric_key], queue="metrics")
     return jsonify({"ok": True, "key": metric_key, "status": "published"})
 
 

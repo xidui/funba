@@ -7,6 +7,7 @@ Supported sources:
 
 Supported aggregations:
   avg          — AVG(stat)
+  max          — MAX(stat)
   sum          — SUM(stat)
   count        — COUNT(*) of rows matching filters
   pct_rows     — COUNT(matching) / COUNT(total)  e.g. % of games scoring 20+
@@ -43,7 +44,8 @@ _PGS_FIELDS: dict[str, Any] = {
     "fg3a": PlayerGameStats.fg3a,
     "ftm": PlayerGameStats.ftm,
     "fta": PlayerGameStats.fta,
-    "plus_minus": PlayerGameStats.plus_minus,
+    "plus_minus": PlayerGameStats.plus,
+    "plus": PlayerGameStats.plus,
     "starter": PlayerGameStats.starter,
     "min": PlayerGameStats.min,
     "team_id": PlayerGameStats.team_id,
@@ -64,7 +66,9 @@ _SHOT_FIELDS: dict[str, Any] = {
 _PBP_FIELDS: dict[str, Any] = {
     "period": GamePlayByPlay.period,
     "score_margin": GamePlayByPlay.score_margin,
-    "event_type": GamePlayByPlay.event_type,
+    "event_type": GamePlayByPlay.event_msg_type,
+    "event_msg_type": GamePlayByPlay.event_msg_type,
+    "event_msg_action_type": GamePlayByPlay.event_msg_action_type,
 }
 
 _TGS_FIELDS: dict[str, Any] = {
@@ -199,11 +203,15 @@ def compute(
         matched = _apply_filters(base_q, field_map, filters).count()
         return matched / total
 
-    if aggregation in ("avg", "sum"):
+    if aggregation in ("avg", "sum", "max"):
         stat_col = field_map.get(definition["stat"])
         if stat_col is None:
             raise ValueError(f"Unknown stat: {definition['stat']!r}")
-        agg_fn = func.avg if aggregation == "avg" else func.sum
+        agg_fn = {
+            "avg": func.avg,
+            "sum": func.sum,
+            "max": func.max,
+        }[aggregation]
         q = _apply_filters(base_q, field_map, filters)
         val = q.with_entities(agg_fn(func.coalesce(stat_col, 0))).scalar()
         return float(val) if val is not None else None

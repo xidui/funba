@@ -37,6 +37,7 @@ Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, min, win (
 ## Aggregations
 
 - avg        — average of a stat field  {"aggregation":"avg","stat":"pts"}
+- max        — max of a stat field      {"aggregation":"max","stat":"pts"}
 - sum        — total of a stat field    {"aggregation":"sum","stat":"pts"}
 - count      — count of matching rows   {"aggregation":"count"}
 - pct_rows   — % of rows matching filters vs total  {"aggregation":"pct_rows"}
