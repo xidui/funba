@@ -59,6 +59,65 @@
     line-height: 1.5;
   }
 
+  .status-pill {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 8px;
+    border-radius: 999px;
+  }
+  .status-pill.complete { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
+  .status-pill.running  { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .status-pill.queued   { background: color-mix(in srgb, #facc15 15%, transparent); color: #facc15; }
+  .status-pill.draft    { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
+  .status-pill.not_started { background: color-mix(in srgb, #94a3b8 15%, transparent); color: #94a3b8; }
+
+  .backfill-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+
+  .backfill-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .backfill-stat-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .backfill-stat-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .progress-track {
+    margin-top: 12px;
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #60a5fa), var(--accent));
+  }
+
   .season-select {
     padding: 6px 30px 6px 12px;
     border-radius: 8px;
@@ -197,6 +256,10 @@
     <div class="detail-meta">
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
+      <span class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
+      {% if metric_def.source_type != 'builtin' %}
+      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">rule metric</span>
+      {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
   </div>
@@ -215,6 +278,49 @@
     {% endfor %}
   </select>
   {% endif %}
+</div>
+
+<div class="backfill-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Backfill status</div>
+      <div style="font-size:13px;color:var(--muted-2);margin-top:4px;">
+        {% if backfill.latest_run_at %}
+          Last compute activity: {{ backfill.latest_run_at }}
+        {% elif backfill.status == 'draft' %}
+          Publish this metric to start backfilling it across games.
+        {% elif backfill.status == 'queued' %}
+          Publish succeeded. Workers have not claimed jobs yet.
+        {% elif backfill.status == 'not_started' %}
+          No backfill has run for this metric yet.
+        {% else %}
+          Progress is derived from per-game metric claims.
+        {% endif %}
+      </div>
+    </div>
+    <div class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</div>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill" style="width: {{ backfill.progress_pct }}%;"></div>
+  </div>
+  <div class="backfill-grid">
+    <div>
+      <div class="backfill-stat-label">Done</div>
+      <div class="backfill-stat-value">{{ backfill.done_games }}</div>
+    </div>
+    <div>
+      <div class="backfill-stat-label">In Progress</div>
+      <div class="backfill-stat-value">{{ backfill.active_games }}</div>
+    </div>
+    <div>
+      <div class="backfill-stat-label">Pending</div>
+      <div class="backfill-stat-value">{{ backfill.pending_games }}</div>
+    </div>
+    <div>
+      <div class="backfill-stat-label">Total Games</div>
+      <div class="backfill-stat-value">{{ backfill.total_games }}</div>
+    </div>
+  </div>
 </div>
 
 {% if result_rows %}

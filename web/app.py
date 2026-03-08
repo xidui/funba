@@ -5,6 +5,7 @@ from datetime import date
 import logging
 import os
 import time
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,72 @@ def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
     if team is None:
         return team_id
     return team.abbr or team.full_name or team_id
+
+
+def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
+    """Normalize built-in and DB metric objects for template rendering."""
+    return SimpleNamespace(
+        key=metric_def.key,
+        name=metric_def.name,
+        description=getattr(metric_def, "description", "") or "",
+        scope=metric_def.scope,
+        category=getattr(metric_def, "category", "") or "",
+        status=status or getattr(metric_def, "status", "published"),
+        source_type=source_type or getattr(metric_def, "source_type", "builtin"),
+        min_sample=int(getattr(metric_def, "min_sample", 1) or 1),
+    )
+
+
+def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -> list[dict]:
+    from metrics.framework.registry import get_all as _get_all_metrics
+
+    counts = {
+        row.metric_key: row.count
+        for row in session.query(
+            MetricResultModel.metric_key,
+            func.count(MetricResultModel.id).label("count"),
+        ).group_by(MetricResultModel.metric_key).all()
+    }
+
+    db_q = session.query(MetricDefinitionModel).filter(
+        MetricDefinitionModel.status != "archived"
+    )
+    if scope_filter:
+        db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
+    if status_filter:
+        db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
+    db_metrics = [
+        {
+            "key": m.key,
+            "name": m.name,
+            "description": m.description,
+            "scope": m.scope,
+            "category": m.category or "",
+            "status": m.status,
+            "source_type": m.source_type,
+            "result_count": counts.get(m.key, 0),
+        }
+        for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
+    ]
+
+    db_keys = {m["key"] for m in db_metrics}
+    include_builtins = not status_filter or status_filter == "published"
+    builtin_metrics = [
+        {
+            "key": m.key,
+            "name": m.name,
+            "description": m.description,
+            "scope": m.scope,
+            "category": m.category,
+            "status": "published",
+            "source_type": "builtin",
+            "result_count": counts.get(m.key, 0),
+        }
+        for m in _get_all_metrics()
+        if include_builtins and m.key not in db_keys and (not scope_filter or m.scope == scope_filter)
+    ]
+
+    return builtin_metrics + db_metrics
 
 
 def _fmt_minutes(minute: int | None, sec: int | None) -> str:
@@ -1276,68 +1343,19 @@ def game_page(game_id: str):
 
 @app.route("/metrics")
 def metrics_browse():
-    from metrics.framework.registry import get_all as _get_all_metrics
-    from sqlalchemy import func as sqlfunc
-
     scope_filter = request.args.get("scope", "")
     status_filter = request.args.get("status", "")  # draft | published | ""
+    search_query = request.args.get("q", "").strip()
 
     with SessionLocal() as session:
-        # Counts of computed results per metric_key
-        counts = {
-            row.metric_key: row.count
-            for row in session.query(
-                MetricResultModel.metric_key,
-                sqlfunc.count(MetricResultModel.id).label("count"),
-            ).group_by(MetricResultModel.metric_key).all()
-        }
-
-        # User-defined metrics from DB
-        db_q = session.query(MetricDefinitionModel).filter(
-            MetricDefinitionModel.status != "archived"
-        )
-        if scope_filter:
-            db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
-        if status_filter:
-            db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
-        db_metrics = [
-            {
-                "key": m.key,
-                "name": m.name,
-                "description": m.description,
-                "scope": m.scope,
-                "category": m.category or "",
-                "status": m.status,
-                "source_type": m.source_type,
-                "result_count": counts.get(m.key, 0),
-            }
-            for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
-        ]
-
-    # Builtin metrics from registry (not yet in DB)
-    db_keys = {m["key"] for m in db_metrics}
-    builtin_metrics = [
-        {
-            "key": m.key,
-            "name": m.name,
-            "description": m.description,
-            "scope": m.scope,
-            "category": m.category,
-            "status": "published",
-            "source_type": "builtin",
-            "result_count": counts.get(m.key, 0),
-        }
-        for m in _get_all_metrics()
-        if m.key not in db_keys and (not scope_filter or m.scope == scope_filter)
-    ]
-
-    metrics_list = builtin_metrics + db_metrics
+        metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
 
     return render_template(
         "metrics.html",
         metrics_list=metrics_list,
         scope_filter=scope_filter,
         status_filter=status_filter,
+        search_query=search_query,
     )
 
 
@@ -1346,7 +1364,58 @@ def metric_new():
     current_season = _pick_current_season(
         [r[0] for r in SessionLocal().query(Game.season).distinct().all()]
     )
-    return render_template("metric_new.html", current_season=current_season)
+    initial_expression = request.args.get("expression", "").strip()
+    return render_template(
+        "metric_new.html",
+        current_season=current_season,
+        initial_expression=initial_expression,
+    )
+
+
+@app.post("/api/metrics/search")
+def api_metric_search():
+    from metrics.framework.search import rank_metrics
+
+    body = request.get_json(force=True) or {}
+    query = (body.get("query") or "").strip()
+    scope_filter = (body.get("scope") or "").strip()
+    status_filter = (body.get("status") or "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "query is required"}), 400
+
+    with SessionLocal() as session:
+        catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
+
+    try:
+        ranked = rank_metrics(
+            query,
+            [
+                {
+                    "key": metric["key"],
+                    "name": metric["name"],
+                    "description": metric["description"],
+                    "scope": metric["scope"],
+                    "category": metric["category"],
+                    "status": metric["status"],
+                    "source_type": metric["source_type"],
+                }
+                for metric in catalog
+            ],
+            limit=8,
+        )
+    except Exception as exc:
+        logger.exception("metric search failed")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    by_key = {metric["key"]: metric for metric in catalog}
+    matches = []
+    for ranked_item in ranked:
+        metric = by_key.get(ranked_item["key"])
+        if metric is None:
+            continue
+        matches.append({**metric, "reason": ranked_item["reason"]})
+
+    return jsonify({"ok": True, "matches": matches})
 
 
 @app.post("/api/metrics/generate")
@@ -1406,6 +1475,7 @@ def api_metric_preview():
 def api_metric_create():
     import json as _json
     from datetime import datetime
+    from metrics.framework.registry import get as _get_builtin_metric
     body = request.get_json(force=True) or {}
 
     required = ("key", "name", "scope", "definition")
@@ -1416,6 +1486,8 @@ def api_metric_create():
     key = body["key"].strip().lower().replace(" ", "_")
 
     with SessionLocal() as session:
+        if _get_builtin_metric(key) is not None:
+            return jsonify({"ok": False, "error": f"Key '{key}' conflicts with a built-in metric"}), 409
         if session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == key).first():
             return jsonify({"ok": False, "error": f"Key '{key}' already exists"}), 409
 
@@ -1443,6 +1515,8 @@ def api_metric_create():
 @app.post("/api/metrics/<metric_key>/publish")
 def api_metric_publish(metric_key: str):
     from datetime import datetime
+    from tasks.ingest import enqueue_metric_backfill
+
     with SessionLocal() as session:
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
         if m is None:
@@ -1450,6 +1524,7 @@ def api_metric_publish(metric_key: str):
         m.status = "published"
         m.updated_at = datetime.utcnow()
         session.commit()
+    enqueue_metric_backfill.apply_async(args=[metric_key], queue="ingest")
     return jsonify({"ok": True, "key": metric_key, "status": "published"})
 
 
@@ -1487,11 +1562,6 @@ def _resolve_entity_labels(session, rows):
 @app.route("/metrics/<metric_key>")
 def metric_detail(metric_key: str):
     import json
-    from metrics.framework.registry import get as _get_metric
-
-    metric_def = _get_metric(metric_key)
-    if metric_def is None:
-        abort(404, description=f"Metric '{metric_key}' not found.")
 
     # Season filter — "all" is the explicit sentinel for cross-season view
     selected_season = request.args.get("season", "")
@@ -1500,6 +1570,22 @@ def metric_detail(metric_key: str):
     page_size = 50
 
     with SessionLocal() as session:
+        from metrics.framework.runtime import get_metric as _get_metric
+
+        db_metric = (
+            session.query(MetricDefinitionModel)
+            .filter(
+                MetricDefinitionModel.key == metric_key,
+                MetricDefinitionModel.status != "archived",
+            )
+            .first()
+        )
+        runtime_metric = _get_metric(metric_key, session=session)
+        if db_metric is None and runtime_metric is None:
+            abort(404, description=f"Metric '{metric_key}' not found.")
+
+        metric_def = _metric_def_view(db_metric or runtime_metric)
+
         # Available seasons for this metric
         season_rows = (
             session.query(MetricResultModel.season)
@@ -1579,6 +1665,52 @@ def metric_detail(metric_key: str):
                 "games_counted": int(games_counted) if games_counted is not None else None,
             })
 
+        total_games = (
+            session.query(func.count(Game.game_id))
+            .filter(Game.game_date.isnot(None))
+            .scalar() or 0
+        )
+        done_games = (
+            session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+            .filter(
+                MetricJobClaim.metric_key == metric_key,
+                MetricJobClaim.status == "done",
+            )
+            .scalar() or 0
+        )
+        active_games = (
+            session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+            .filter(
+                MetricJobClaim.metric_key == metric_key,
+                MetricJobClaim.status == "in_progress",
+            )
+            .scalar() or 0
+        )
+        latest_run_at = (
+            session.query(func.max(MetricRunLog.computed_at))
+            .filter(MetricRunLog.metric_key == metric_key)
+            .scalar()
+        )
+        backfill_status = "not_started"
+        if metric_def.status == "draft":
+            backfill_status = "draft"
+        elif total_games and done_games >= total_games:
+            backfill_status = "complete"
+        elif active_games > 0 or done_games > 0:
+            backfill_status = "running"
+        elif metric_def.source_type == "rule" and metric_def.status == "published":
+            backfill_status = "queued"
+
+        backfill = {
+            "status": backfill_status,
+            "total_games": int(total_games),
+            "done_games": int(done_games),
+            "active_games": int(active_games),
+            "pending_games": max(int(total_games) - int(done_games) - int(active_games), 0),
+            "progress_pct": round((int(done_games) / int(total_games) * 100.0), 1) if total_games else 0.0,
+            "latest_run_at": latest_run_at,
+        }
+
     display_season_label = "All Seasons" if show_all_seasons else _season_label(selected_season)
     return render_template(
         "metric_detail.html",
@@ -1593,6 +1725,7 @@ def metric_detail(metric_key: str):
         total_pages=total_pages,
         total=total,
         page_size=page_size,
+        backfill=backfill,
     )
 
 
@@ -1746,7 +1879,7 @@ def admin_backfill(season: str):
     from tasks.ingest import ingest_game
     from tasks.celery_app import app as celery_app
     from tasks.dispatch import discover_and_insert_games
-    from metrics.framework import registry as _registry
+    from metrics.framework.runtime import get_all_metrics as _get_runtime_metrics
 
     # Convert DB season code (e.g. "22025") → NBA API season string + type
     _type_map = {"2": "Regular Season", "4": "Playoffs", "5": "PlayIn", "1": "Pre Season"}
@@ -1766,7 +1899,7 @@ def admin_backfill(season: str):
     # Use the pre-configured Queue object (with DLX args) so RabbitMQ doesn't
     # reject the declaration as inequivalent to the existing queue.
     ingest_q = next(q for q in celery_app.conf.task_queues if q.name == "ingest")
-    metric_keys = [m.key for m in _registry.get_all()]
+    metric_keys = [m.key for m in _get_runtime_metrics()]
     for gid in game_ids:
         ingest_game.apply_async(args=[gid], kwargs={"metric_keys": metric_keys}, declare=[ingest_q])
 

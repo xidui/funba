@@ -237,10 +237,10 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_metric_backfill(args: argparse.Namespace) -> None:
-    from metrics.framework import registry
+    from metrics.framework.runtime import get_all_metrics
 
     if args.metric:
-        all_keys = [m.key for m in registry.get_all()]
+        all_keys = [m.key for m in get_all_metrics()]
         if args.metric not in all_keys:
             print(f"Unknown metric key: {args.metric!r}. Known keys:", file=sys.stderr)
             for k in sorted(all_keys):
@@ -248,7 +248,7 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
             sys.exit(1)
         metric_keys = [args.metric]
     else:
-        metric_keys = [m.key for m in registry.get_all()]
+        metric_keys = [m.key for m in get_all_metrics()]
 
     game_ids = _query_games(
         season=args.season,

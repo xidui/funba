@@ -46,6 +46,7 @@ _PGS_FIELDS: dict[str, Any] = {
     "plus_minus": PlayerGameStats.plus_minus,
     "starter": PlayerGameStats.starter,
     "min": PlayerGameStats.min,
+    "team_id": PlayerGameStats.team_id,
 }
 
 _SHOT_FIELDS: dict[str, Any] = {
@@ -57,6 +58,7 @@ _SHOT_FIELDS: dict[str, Any] = {
     "period": ShotRecord.period,
     "min": ShotRecord.min,
     "sec": ShotRecord.sec,
+    "team_id": ShotRecord.team_id,
 }
 
 _PBP_FIELDS: dict[str, Any] = {
@@ -65,10 +67,58 @@ _PBP_FIELDS: dict[str, Any] = {
     "event_type": GamePlayByPlay.event_type,
 }
 
+_TGS_FIELDS: dict[str, Any] = {
+    "pts": TeamGameStats.pts,
+    "reb": TeamGameStats.reb,
+    "ast": TeamGameStats.ast,
+    "stl": TeamGameStats.stl,
+    "blk": TeamGameStats.blk,
+    "tov": TeamGameStats.tov,
+    "fgm": TeamGameStats.fgm,
+    "fga": TeamGameStats.fga,
+    "fg3m": TeamGameStats.fg3m,
+    "fg3a": TeamGameStats.fg3a,
+    "ftm": TeamGameStats.ftm,
+    "fta": TeamGameStats.fta,
+    "min": TeamGameStats.min,
+    "win": TeamGameStats.win,
+    "on_road": TeamGameStats.on_road,
+}
+
 _SOURCE_MAP = {
-    "player_game_stats": ("player", PlayerGameStats, _PGS_FIELDS, PlayerGameStats.player_id),
-    "shot_records":      ("player", ShotRecord,       _SHOT_FIELDS, ShotRecord.player_id),
-    "game_pbp":          ("game",   GamePlayByPlay,   _PBP_FIELDS,  GamePlayByPlay.game_id),
+    "player_game_stats": {
+        "model": PlayerGameStats,
+        "field_map": _PGS_FIELDS,
+        "id_cols": {
+            "player": PlayerGameStats.player_id,
+            "team": PlayerGameStats.team_id,
+            "game": PlayerGameStats.game_id,
+        },
+    },
+    "shot_records": {
+        "model": ShotRecord,
+        "field_map": _SHOT_FIELDS,
+        "id_cols": {
+            "player": ShotRecord.player_id,
+            "team": ShotRecord.team_id,
+            "game": ShotRecord.game_id,
+        },
+    },
+    "game_pbp": {
+        "model": GamePlayByPlay,
+        "field_map": _PBP_FIELDS,
+        "id_cols": {
+            "game": GamePlayByPlay.game_id,
+        },
+    },
+    "team_game_stats": {
+        "model": TeamGameStats,
+        "field_map": _TGS_FIELDS,
+        "id_cols": {
+            "team": TeamGameStats.team_id,
+            "game": TeamGameStats.game_id,
+        },
+    },
 }
 
 
@@ -121,7 +171,12 @@ def compute(
     if source not in _SOURCE_MAP:
         raise ValueError(f"Unknown source: {source!r}")
 
-    _, model, field_map, id_col = _SOURCE_MAP[source]
+    source_spec = _SOURCE_MAP[source]
+    model = source_spec["model"]
+    field_map = source_spec["field_map"]
+    id_col = source_spec["id_cols"].get(scope)
+    if id_col is None:
+        raise ValueError(f"Source {source!r} does not support scope {scope!r}")
 
     # Base query scoped to this entity + season
     base_q = (
@@ -221,7 +276,12 @@ def preview(
     if source not in _SOURCE_MAP:
         raise ValueError(f"Unknown source: {source!r}")
 
-    _, model, field_map, id_col = _SOURCE_MAP[source]
+    source_spec = _SOURCE_MAP[source]
+    model = source_spec["model"]
+    field_map = source_spec["field_map"]
+    id_col = source_spec["id_cols"].get(scope)
+    if id_col is None:
+        raise ValueError(f"Source {source!r} does not support scope {scope!r}")
 
     # Get distinct entity_ids for this season
     entity_ids = [

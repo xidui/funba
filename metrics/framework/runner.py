@@ -8,8 +8,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats
-from metrics.framework import registry
 from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals, subtract_delta
+from metrics.framework.runtime import get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ def run_for_game(
     ]
     team_ids: list[str] = [t for t in [game.home_team_id, game.road_team_id] if t]
 
-    all_metrics = registry.get_all()
+    all_metrics = get_all_metrics(session=session)
     results: list[MetricResult] = []
 
     for metric_def in all_metrics:
@@ -269,8 +269,7 @@ def run_for_game_single_metric(
     ]
     team_ids: list[str] = [t for t in [game.home_team_id, game.road_team_id] if t]
 
-    all_metrics = registry.get_all()
-    metric_def = next((m for m in all_metrics if m.key == metric_key), None)
+    metric_def = get_metric(metric_key, session=session)
     if metric_def is None:
         logger.warning("Metric key %r not found in registry; skipping.", metric_key)
         return []
@@ -359,7 +358,7 @@ def run_for_game_single_metric(
 
 def already_processed(session: Session, game_id: str) -> bool:
     """Return True if every registered metric has a log entry for this game."""
-    registered_keys = {m.key for m in registry.get_all()}
+    registered_keys = {m.key for m in get_all_metrics(session=session)}
     logged_keys = {
         r.metric_key
         for r in session.query(MetricRunLog.metric_key)

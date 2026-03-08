@@ -192,6 +192,7 @@
         <div class="expression-wrap">
           <input id="expression" class="expression-input" type="text"
             placeholder="e.g. FG% in the final 2 minutes of Q4 vs overall FG%"
+            value="{{ initial_expression or '' }}"
             autocomplete="off" />
           <button id="generate-btn" class="generate-btn">Generate</button>
         </div>

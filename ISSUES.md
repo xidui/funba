@@ -72,3 +72,27 @@ Currently noteworthiness is a percentile rank within a single season (e.g. "top 
 - Highlights truly historic seasons vs. just good ones
 
 **Depends on:** Multiple seasons backfilled (`22024`, `22023`, etc.)
+
+---
+
+## [METRICS-3] User-defined metric MVP follow-ups
+
+The current UI-to-backfill MVP is working, but a few implementation choices are intentionally conservative and can be tightened later.
+
+**Follow-ups:**
+- [ ] Avoid per-ingest metric catalog DB reads. `ingest_game()` currently calls the runtime metric loader without reusing an existing session, which adds one small extra query per ingest task.
+- [ ] Unify metric catalog assembly on one runtime path. `/metrics` currently combines builtins from the in-memory registry with DB-defined metrics from `MetricDefinition`; behavior is correct, but the implementation is asymmetric.
+- [ ] Evaluate whether some DB-backed rule metrics can support an incremental execution mode. They currently run as full recomputes (`incremental = False`) for correctness and simplicity.
+- [ ] Revisit new-metric backfill dispatch speed. Publish-triggered backfill currently routes through the ingest queue for every game to preserve artifact checks and pipeline consistency, but it is slower than a direct metrics-queue dispatch for fully hydrated games.
+
+**Non-goal for now:** Do not change behavior until there is a measured need; these are optimization/cleanup items, not correctness blockers.
+
+---
+
+## [UI-1] Replace `color-mix()` if older browser support becomes necessary
+
+The metric search/detail UI uses `color-mix()` in CSS for badges and status surfaces. This is fine for modern Chrome/Safari/Firefox, but older browsers may not render those styles correctly.
+
+**Acceptance criteria:**
+- [ ] Decide whether older-browser support matters for this project
+- [ ] If yes, replace `color-mix()` usage with static color values or a compatible fallback pattern

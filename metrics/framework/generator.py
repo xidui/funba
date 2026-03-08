@@ -31,6 +31,9 @@ Fields: shot_made (bool), shot_attempted (bool), shot_distance (int, feet),
 ### game_pbp  (one row per play-by-play event)
 Fields: period (int), score_margin (int, home perspective), event_type (str)
 
+### team_game_stats  (one row per team per game)
+Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, min, win (bool), on_road (bool)
+
 ## Aggregations
 
 - avg        — average of a stat field  {"aggregation":"avg","stat":"pts"}
