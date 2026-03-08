@@ -116,6 +116,8 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         status=status or getattr(metric_def, "status", "published"),
         source_type=source_type or getattr(metric_def, "source_type", "builtin"),
         min_sample=int(getattr(metric_def, "min_sample", 1) or 1),
+        career=bool(getattr(metric_def, "career", False)),
+        supports_career=bool(getattr(metric_def, "supports_career", False)),
     )
 
 
@@ -357,6 +359,87 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 entry["all_games_is_notable"] = ag_total > 0 and ag_rank / ag_total <= 0.25
 
     return {"season": season_metrics, "alltime": alltime_metrics}
+
+
+def _metric_backfill_component(session, metric_key: str, total_games: int) -> dict:
+    from sqlalchemy import func
+
+    done_games = (
+        session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+        .filter(
+            MetricJobClaim.metric_key == metric_key,
+            MetricJobClaim.status == "done",
+        )
+        .scalar() or 0
+    )
+    active_games = (
+        session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+        .filter(
+            MetricJobClaim.metric_key == metric_key,
+            MetricJobClaim.status == "in_progress",
+        )
+        .scalar() or 0
+    )
+    latest_run_at = (
+        session.query(func.max(MetricRunLog.computed_at))
+        .filter(MetricRunLog.metric_key == metric_key)
+        .scalar()
+    )
+
+    if total_games and done_games >= total_games:
+        status = "complete"
+    elif active_games > 0 or done_games > 0:
+        status = "running"
+    else:
+        status = "not_started"
+
+    return {
+        "metric_key": metric_key,
+        "status": status,
+        "done_games": int(done_games),
+        "active_games": int(active_games),
+        "pending_games": max(int(total_games) - int(done_games) - int(active_games), 0),
+        "total_games": int(total_games),
+        "progress_pct": round((int(done_games) / int(total_games) * 100.0), 1) if total_games else 0.0,
+        "latest_run_at": latest_run_at,
+    }
+
+
+def _combine_backfill_components(
+    metric_def,
+    components: list[dict],
+) -> dict:
+    latest_run_at = max((c["latest_run_at"] for c in components if c["latest_run_at"] is not None), default=None)
+
+    if getattr(metric_def, "status", None) == "draft":
+        status = "draft"
+    elif components and all(c["status"] == "complete" for c in components):
+        status = "complete"
+    elif any(c["status"] == "running" for c in components):
+        status = "running"
+    elif getattr(metric_def, "source_type", None) == "rule" and getattr(metric_def, "status", None) == "published":
+        if any(c["status"] in {"not_started"} for c in components):
+            status = "queued"
+        else:
+            status = "queued"
+    else:
+        status = "not_started"
+
+    total_jobs = sum(c["total_games"] for c in components)
+    done_jobs = sum(c["done_games"] for c in components)
+    active_jobs = sum(c["active_games"] for c in components)
+
+    return {
+        "status": status,
+        "total_games": total_jobs,
+        "done_games": done_jobs,
+        "active_games": active_jobs,
+        "pending_games": max(total_jobs - done_jobs - active_jobs, 0),
+        "progress_pct": round((done_jobs / total_jobs * 100.0), 1) if total_jobs else 0.0,
+        "latest_run_at": latest_run_at,
+        "components": components,
+        "is_multi_component": len(components) > 1,
+    }
 
 
 def _pbp_text(play: GamePlayByPlay) -> str:
@@ -1565,6 +1648,7 @@ def _resolve_entity_labels(session, rows):
 @app.route("/metrics/<metric_key>")
 def metric_detail(metric_key: str):
     import json
+    from metrics.framework.base import CAREER_SEASON
 
     # Season filter — "all" is the explicit sentinel for cross-season view
     selected_season = request.args.get("season", "")
@@ -1587,7 +1671,8 @@ def metric_detail(metric_key: str):
         if db_metric is None and runtime_metric is None:
             abort(404, description=f"Metric '{metric_key}' not found.")
 
-        metric_def = _metric_def_view(db_metric or runtime_metric)
+        metric_def = _metric_def_view(runtime_metric or db_metric)
+        is_career_metric = bool(getattr(runtime_metric, "career", False))
 
         # Available seasons for this metric
         season_rows = (
@@ -1596,13 +1681,19 @@ def metric_detail(metric_key: str):
             .distinct()
             .all()
         )
-        season_options = sorted(
-            [r.season for r in season_rows],
-            key=_season_sort_key,
-            reverse=True,
-        )
-        if not show_all_seasons and not selected_season and season_options:
-            selected_season = season_options[0]
+        season_values = [r.season for r in season_rows]
+        if is_career_metric:
+            show_all_seasons = False
+            selected_season = CAREER_SEASON
+            season_options = []
+        else:
+            season_options = sorted(
+                [s for s in season_values if s != CAREER_SEASON],
+                key=_season_sort_key,
+                reverse=True,
+            )
+            if not show_all_seasons and not selected_season and season_options:
+                selected_season = season_options[0]
 
         q = (
             session.query(MetricResultModel)
@@ -1628,7 +1719,10 @@ def metric_detail(metric_key: str):
         scope_label = {"player": "players", "team": "teams", "game": "games"}.get(
             metric_def.scope, "entities"
         )
-        period = "across all seasons" if show_all_seasons else "this season"
+        if is_career_metric:
+            period = "across all seasons"
+        else:
+            period = "across all seasons" if show_all_seasons else "this season"
         result_rows = []
         for i, r in enumerate(rows):
             ctx = json.loads(r.context_json) if r.context_json else {}
@@ -1673,48 +1767,22 @@ def metric_detail(metric_key: str):
             .filter(Game.game_date.isnot(None))
             .scalar() or 0
         )
-        done_games = (
-            session.query(func.count(func.distinct(MetricJobClaim.game_id)))
-            .filter(
-                MetricJobClaim.metric_key == metric_key,
-                MetricJobClaim.status == "done",
-            )
-            .scalar() or 0
-        )
-        active_games = (
-            session.query(func.count(func.distinct(MetricJobClaim.game_id)))
-            .filter(
-                MetricJobClaim.metric_key == metric_key,
-                MetricJobClaim.status == "in_progress",
-            )
-            .scalar() or 0
-        )
-        latest_run_at = (
-            session.query(func.max(MetricRunLog.computed_at))
-            .filter(MetricRunLog.metric_key == metric_key)
-            .scalar()
-        )
-        backfill_status = "not_started"
-        if metric_def.status == "draft":
-            backfill_status = "draft"
-        elif total_games and done_games >= total_games:
-            backfill_status = "complete"
-        elif active_games > 0 or done_games > 0:
-            backfill_status = "running"
-        elif metric_def.source_type == "rule" and metric_def.status == "published":
-            backfill_status = "queued"
+        backfill_keys = [metric_key]
+        if runtime_metric is not None and not is_career_metric and getattr(runtime_metric, "supports_career", False):
+            career_key = metric_key + "_career"
+            if _get_metric(career_key, session=session) is not None:
+                backfill_keys.append(career_key)
+        components = []
+        for key in backfill_keys:
+            component = _metric_backfill_component(session, key, int(total_games))
+            component["label"] = "Career" if key.endswith("_career") else "Season"
+            components.append(component)
+        backfill = _combine_backfill_components(metric_def, components)
 
-        backfill = {
-            "status": backfill_status,
-            "total_games": int(total_games),
-            "done_games": int(done_games),
-            "active_games": int(active_games),
-            "pending_games": max(int(total_games) - int(done_games) - int(active_games), 0),
-            "progress_pct": round((int(done_games) / int(total_games) * 100.0), 1) if total_games else 0.0,
-            "latest_run_at": latest_run_at,
-        }
-
-    display_season_label = "All Seasons" if show_all_seasons else _season_label(selected_season)
+    if is_career_metric:
+        display_season_label = "Career"
+    else:
+        display_season_label = "All Seasons" if show_all_seasons else _season_label(selected_season)
     return render_template(
         "metric_detail.html",
         metric_def=metric_def,
@@ -1722,6 +1790,7 @@ def metric_detail(metric_key: str):
         season_options=season_options,
         selected_season=selected_season,
         show_all_seasons=show_all_seasons,
+        is_career_metric=is_career_metric,
         season_label=display_season_label,
         fmt_season=_season_label,
         page=page,

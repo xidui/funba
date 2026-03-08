@@ -237,7 +237,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_metric_backfill(args: argparse.Namespace) -> None:
-    from metrics.framework.runtime import get_all_metrics
+    from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
     if args.metric:
         all_keys = [m.key for m in get_all_metrics()]
@@ -246,7 +246,7 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
             for k in sorted(all_keys):
                 print(f"  {k}", file=sys.stderr)
             sys.exit(1)
-        metric_keys = [args.metric]
+        metric_keys = expand_metric_keys([args.metric])
     else:
         metric_keys = [m.key for m in get_all_metrics()]
 

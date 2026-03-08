@@ -64,6 +64,9 @@ Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, min, win (
     "source": "<source>",
     "filters": [{"field":"<f>","op":"<op>","value":<v>}, ...],
     "aggregation": "<agg>",
+    "supports_career": <bool>,  // optional
+    "career_name_suffix": "<suffix>",  // optional
+    "career_min_sample": <int>,  // optional
     // ratio only:
     "numerator": "<field>",
     "denominator": "<field>",

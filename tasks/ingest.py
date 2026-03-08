@@ -22,7 +22,7 @@ from db.backfill_nba_player_shot_detail import (
     is_game_shot_back_filled,
 )
 from db.models import Game, engine
-from metrics.framework.runtime import get_all_metrics
+from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,11 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     # Step 4: fan out — only reached after all ingestion steps succeed
     from tasks.metrics import compute_game_metrics  # local import avoids circular at module load
 
-    keys_to_run = metric_keys if metric_keys is not None else [m.key for m in get_all_metrics()]
+    keys_to_run = (
+        expand_metric_keys(metric_keys)
+        if metric_keys is not None
+        else [m.key for m in get_all_metrics()]
+    )
     for key in keys_to_run:
         compute_game_metrics.apply_async(args=[game_id, key], kwargs={"force": force}, queue="metrics")
 
@@ -226,6 +230,7 @@ def ingest_yesterday(self) -> dict:
 )
 def enqueue_metric_backfill(self, metric_key: str, force: bool = False) -> dict:
     """Enqueue ingest tasks for every stored game for a single metric key."""
+    metric_keys = expand_metric_keys([metric_key])
     SessionLocal = _session_factory()
 
     with SessionLocal() as sess:
@@ -240,12 +245,12 @@ def enqueue_metric_backfill(self, metric_key: str, force: bool = False) -> dict:
     for gid in game_ids:
         ingest_game.apply_async(
             args=[gid],
-            kwargs={"metric_keys": [metric_key], "force": force},
+            kwargs={"metric_keys": metric_keys, "force": force},
             queue="ingest",
         )
 
     logger.info(
-        "enqueue_metric_backfill: metric=%s enqueued %d ingest task(s).",
-        metric_key, len(game_ids),
+        "enqueue_metric_backfill: metric=%s expanded_to=%s enqueued %d ingest task(s).",
+        metric_key, metric_keys, len(game_ids),
     )
-    return {"metric_key": metric_key, "enqueued_games": len(game_ids)}
+    return {"metric_key": metric_key, "expanded_metric_keys": metric_keys, "enqueued_games": len(game_ids)}

@@ -88,6 +88,32 @@
     margin-top: 14px;
   }
 
+  .backfill-components {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .backfill-component {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+
+  .backfill-component-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
   .backfill-stat-label {
     font-size: 11px;
     font-weight: 700;
@@ -264,7 +290,7 @@
     <div class="detail-desc">{{ metric_def.description }}</div>
   </div>
 
-  {% if season_options %}
+  {% if season_options and not is_career_metric %}
   <select class="season-select" onchange="location.href=this.value">
     <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season='all') }}"
             {% if show_all_seasons %}selected{% endif %}>
@@ -287,6 +313,9 @@
       <div style="font-size:13px;color:var(--muted-2);margin-top:4px;">
         {% if backfill.latest_run_at %}
           Last compute activity: {{ backfill.latest_run_at }}
+          {% if backfill.is_multi_component %}
+            across season and career jobs.
+          {% endif %}
         {% elif backfill.status == 'draft' %}
           Publish this metric to start backfilling it across games.
         {% elif backfill.status == 'queued' %}
@@ -300,24 +329,35 @@
     </div>
     <div class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</div>
   </div>
+  {% if backfill.is_multi_component %}
+  <div class="backfill-components">
+    {% for component in backfill.components %}
+    <div class="backfill-component">
+      <span class="backfill-component-label">{{ component.label }}</span>
+      <span>{{ component.done_games }}/{{ component.total_games }}</span>
+      <span class="status-pill {{ component.status }}">{{ component.status|replace('_', ' ') }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div class="progress-track">
     <div class="progress-fill" style="width: {{ backfill.progress_pct }}%;"></div>
   </div>
   <div class="backfill-grid">
     <div>
-      <div class="backfill-stat-label">Done</div>
+      <div class="backfill-stat-label">{{ 'Done Jobs' if backfill.is_multi_component else 'Done' }}</div>
       <div class="backfill-stat-value">{{ backfill.done_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">In Progress</div>
+      <div class="backfill-stat-label">{{ 'In Progress Jobs' if backfill.is_multi_component else 'In Progress' }}</div>
       <div class="backfill-stat-value">{{ backfill.active_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">Pending</div>
+      <div class="backfill-stat-label">{{ 'Pending Jobs' if backfill.is_multi_component else 'Pending' }}</div>
       <div class="backfill-stat-value">{{ backfill.pending_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">Total Games</div>
+      <div class="backfill-stat-label">{{ 'Total Jobs' if backfill.is_multi_component else 'Total Games' }}</div>
       <div class="backfill-stat-value">{{ backfill.total_games }}</div>
     </div>
   </div>

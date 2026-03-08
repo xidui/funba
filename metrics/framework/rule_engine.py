@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
 from db.models import Game, GamePlayByPlay, PlayerGameStats, ShotRecord, TeamGameStats
+from metrics.framework.base import CAREER_SEASON
 
 logger = logging.getLogger(__name__)
 
@@ -182,12 +183,15 @@ def compute(
     if id_col is None:
         raise ValueError(f"Source {source!r} does not support scope {scope!r}")
 
-    # Base query scoped to this entity + season
+    # Base query scoped to this entity + season. season="all" is the cross-season
+    # bucket used by career metrics.
     base_q = (
         session.query(model)
         .join(Game, model.game_id == Game.game_id)
-        .filter(id_col == entity_id, Game.season == season)
+        .filter(id_col == entity_id)
     )
+    if season != CAREER_SEASON:
+        base_q = base_q.filter(Game.season == season)
 
     if aggregation == "count":
         q = _apply_filters(base_q, field_map, filters)
@@ -243,8 +247,9 @@ def compute(
             session.query(func.sum(func.coalesce(stat_col, 0)))
             .select_from(model)
             .join(Game, model.game_id == Game.game_id)
-            .filter(Game.season == season)
         )
+        if season != CAREER_SEASON:
+            total_q = total_q.filter(Game.season == season)
         total_q = _apply_filters(total_q, field_map, filters)
         total_sum = total_q.scalar() or 0
         if not total_sum:
@@ -292,16 +297,14 @@ def preview(
         raise ValueError(f"Source {source!r} does not support scope {scope!r}")
 
     # Get distinct entity_ids for this season
-    entity_ids = [
-        row[0]
-        for row in (
-            session.query(id_col)
-            .join(Game, model.game_id == Game.game_id)
-            .filter(Game.season == season, id_col.isnot(None))
-            .distinct()
-            .all()
-        )
-    ]
+    entity_q = (
+        session.query(id_col)
+        .join(Game, model.game_id == Game.game_id)
+        .filter(id_col.isnot(None))
+    )
+    if season != CAREER_SEASON:
+        entity_q = entity_q.filter(Game.season == season)
+    entity_ids = [row[0] for row in entity_q.distinct().all()]
 
     rows = []
     for eid in entity_ids:
