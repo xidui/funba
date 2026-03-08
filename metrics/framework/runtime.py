@@ -38,18 +38,26 @@ class RuleMetricDefinition(MetricDefinition):
         self.source_type = row.source_type
         self.status = row.status
         self.definition = json.loads(row.definition_json or "{}")
+        self.time_scope = str(self.definition.get("time_scope") or "season").strip().lower()
         self.supports_career = bool(self.definition.get("supports_career", False))
         self.career_name_suffix = str(self.definition.get("career_name_suffix") or " (Career)")
         career_min_sample = self.definition.get("career_min_sample")
         self.career_min_sample = int(career_min_sample) if career_min_sample is not None else None
         self.career = career
 
-        if self.career:
-            self.key = self._base_key + "_career"
-            self.name = self._base_name + self.career_name_suffix
-            suffix = " Computed across all seasons."
-            self.description = (self.description + suffix).strip() if self.description else suffix.strip()
+        if self.time_scope == "career":
+            self.career = True
             self.supports_career = False
+        elif self.time_scope == "season_and_career":
+            self.supports_career = True
+
+        if self.career:
+            if self.time_scope != "career":
+                self.key = self._base_key + "_career"
+                self.name = self._base_name + self.career_name_suffix
+                suffix = " Computed across all seasons."
+                self.description = (self.description + suffix).strip() if self.description else suffix.strip()
+                self.supports_career = False
             if self.career_min_sample is not None:
                 self.min_sample = self.career_min_sample
             else:
@@ -67,18 +75,18 @@ class RuleMetricDefinition(MetricDefinition):
         season: str | None,
         game_id: str | None = None,
     ) -> MetricResult | None:
-        from metrics.framework.rule_engine import compute as rule_compute, compute_baseline
+        from metrics.framework.rule_engine import compute_baseline, compute_result
 
         if entity_id is None or season is None:
             return None
 
         target_season = CAREER_SEASON if self.career else season
-        value = rule_compute(session, self.definition, entity_id, target_season, self.scope)
-        if value is None:
+        rule_result = compute_result(session, self.definition, entity_id, target_season, self.scope)
+        if rule_result is None:
             return None
 
         baseline = compute_baseline(session, self.definition, entity_id, target_season, self.scope)
-        context = {}
+        context = dict(rule_result.get("context") or {})
         if baseline is not None:
             context["baseline"] = baseline
 
@@ -88,7 +96,9 @@ class RuleMetricDefinition(MetricDefinition):
             entity_id=entity_id,
             season=target_season,
             game_id=game_id if self.scope == "game" else None,
-            value_num=float(value),
+            rank_group=rule_result.get("rank_group"),
+            value_num=float(rule_result["value_num"]),
+            value_str=rule_result.get("value_str"),
             context=context,
         )
 

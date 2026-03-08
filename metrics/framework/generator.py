@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _SCHEMA_DOCS = """
 You convert plain-English NBA metric descriptions into structured JSON rule definitions.
 
-## Available data sources
+## Available data sources / datasets
 
 ### player_game_stats  (one row per player per game)
 Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, plus_minus, min, starter (bool)
@@ -61,12 +61,24 @@ Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, min, win (
   "group_key": null,
   "min_sample": <int — minimum rows before result is meaningful>,
   "definition": {
-    "source": "<source>",
+    "source": "<source>",          // alias: dataset
+    "dataset": "<source>",         // optional alias for source
+    "time_scope": "season | career | season_and_career",   // optional, default season
+    "season_types": ["regular"] | ["playoffs"] | ["regular","playoffs"],  // optional
     "filters": [{"field":"<f>","op":"<op>","value":<v>}, ...],
+    // filters may also resolve values dynamically from the target entity:
+    // {"field":"team_id","op":"=","value_from":"entity.current_team_id"}
     "aggregation": "<agg>",
     "supports_career": <bool>,  // optional
     "career_name_suffix": "<suffix>",  // optional
     "career_min_sample": <int>,  // optional
+    "ranking": {
+      "partition_by": ["entity.current_team_id"]  // optional
+    },
+    "display": {
+      "value_format": "number | integer",         // optional
+      "unit": "pts"                               // optional
+    },
     // ratio only:
     "numerator": "<field>",
     "denominator": "<field>",

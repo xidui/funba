@@ -50,6 +50,7 @@ def _upsert_result(session: Session, result: MetricResult) -> None:
         entity_type=result.entity_type,
         entity_id=result.entity_id,
         season=result.season,
+        rank_group=result.rank_group,
         game_id=result.game_id,
         value_num=result.value_num,
         value_str=result.value_str,
@@ -59,6 +60,7 @@ def _upsert_result(session: Session, result: MetricResult) -> None:
         computed_at=datetime.utcnow(),
     )
     stmt = stmt.on_duplicate_key_update(
+        rank_group=stmt.inserted.rank_group,
         game_id=stmt.inserted.game_id,
         value_num=stmt.inserted.value_num,
         value_str=stmt.inserted.value_str,

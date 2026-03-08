@@ -462,6 +462,7 @@
       <tr>
         <th>#</th>
         <th>{{ metric_def.scope | capitalize }}</th>
+        {% if show_rank_group %}<th>Group</th>{% endif %}
         {% if show_all_seasons %}<th>Season</th>{% endif %}
         <th class="right">Value</th>
         {% if metric_def.scope != 'game' %}<th class="right">Games</th>{% endif %}
@@ -486,6 +487,9 @@
             {{ r.entity_label }}
           {% endif %}
         </td>
+        {% if show_rank_group %}
+        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.rank_group_label or 'All' }}</td>
+        {% endif %}
         {% if show_all_seasons %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}

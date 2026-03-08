@@ -25,7 +25,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
-from db.models import Game, GamePlayByPlay, PlayerGameStats, ShotRecord, TeamGameStats
+from db.models import Game, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
 from metrics.framework.base import CAREER_SEASON
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ _PGS_FIELDS: dict[str, Any] = {
     "starter": PlayerGameStats.starter,
     "min": PlayerGameStats.min,
     "team_id": PlayerGameStats.team_id,
+    "franchise_id": func.coalesce(Team.canonical_team_id, Team.team_id),
 }
 
 _SHOT_FIELDS: dict[str, Any] = {
@@ -62,6 +63,7 @@ _SHOT_FIELDS: dict[str, Any] = {
     "min": ShotRecord.min,
     "sec": ShotRecord.sec,
     "team_id": ShotRecord.team_id,
+    "franchise_id": func.coalesce(Team.canonical_team_id, Team.team_id),
 }
 
 _PBP_FIELDS: dict[str, Any] = {
@@ -88,6 +90,8 @@ _TGS_FIELDS: dict[str, Any] = {
     "min": TeamGameStats.min,
     "win": TeamGameStats.win,
     "on_road": TeamGameStats.on_road,
+    "team_id": TeamGameStats.team_id,
+    "franchise_id": func.coalesce(Team.canonical_team_id, Team.team_id),
 }
 
 _SOURCE_MAP = {
@@ -99,6 +103,7 @@ _SOURCE_MAP = {
             "team": PlayerGameStats.team_id,
             "game": PlayerGameStats.game_id,
         },
+        "team_join_col": PlayerGameStats.team_id,
     },
     "shot_records": {
         "model": ShotRecord,
@@ -108,6 +113,7 @@ _SOURCE_MAP = {
             "team": ShotRecord.team_id,
             "game": ShotRecord.game_id,
         },
+        "team_join_col": ShotRecord.team_id,
     },
     "game_pbp": {
         "model": GamePlayByPlay,
@@ -123,6 +129,7 @@ _SOURCE_MAP = {
             "team": TeamGameStats.team_id,
             "game": TeamGameStats.game_id,
         },
+        "team_join_col": TeamGameStats.team_id,
     },
 }
 
@@ -149,27 +156,162 @@ def _build_filter(col: Any, op: str, value: Any):
     raise ValueError(f"Unsupported filter operator: {op!r}")
 
 
-def _apply_filters(q, field_map: dict, filters: list[dict]):
+def _definition_source(definition: dict) -> str:
+    return str(definition.get("dataset") or definition.get("source") or "player_game_stats")
+
+
+def _normalize_definition(definition: dict) -> dict:
+    normalized = dict(definition)
+    if "source" not in normalized and "dataset" in normalized:
+        normalized["source"] = normalized["dataset"]
+    if "dataset" not in normalized and "source" in normalized:
+        normalized["dataset"] = normalized["source"]
+    return normalized
+
+
+def _team_franchise_id(session: Session, team_id: str | None) -> str | None:
+    if not team_id:
+        return None
+    row = (
+        session.query(Team.team_id, Team.canonical_team_id)
+        .filter(Team.team_id == team_id)
+        .first()
+    )
+    if row is None:
+        return team_id
+    return row.canonical_team_id or row.team_id
+
+
+def _resolve_entity_context(
+    session: Session,
+    scope: str,
+    entity_id: str,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "id": entity_id,
+        "entity_id": entity_id,
+    }
+    if scope == "player":
+        latest = (
+            session.query(PlayerGameStats.team_id)
+            .join(Game, PlayerGameStats.game_id == Game.game_id)
+            .filter(PlayerGameStats.player_id == entity_id, PlayerGameStats.team_id.isnot(None))
+            .order_by(Game.game_date.desc(), Game.game_id.desc())
+            .first()
+        )
+        current_team_id = latest.team_id if latest is not None else None
+        context["current_team_id"] = current_team_id
+        context["current_franchise_id"] = _team_franchise_id(session, current_team_id)
+    elif scope == "team":
+        context["current_team_id"] = entity_id
+        context["current_franchise_id"] = _team_franchise_id(session, entity_id)
+    else:
+        context["current_team_id"] = None
+        context["current_franchise_id"] = None
+    return context
+
+
+def _resolve_dynamic_value(value: Any, entity_context: dict[str, Any]) -> Any:
+    if isinstance(value, str) and value.startswith("entity."):
+        return entity_context.get(value.split(".", 1)[1])
+    return value
+
+
+def _season_type_codes(season_types: list[str] | None) -> set[str] | None:
+    if not season_types:
+        return None
+    codes: set[str] = set()
+    for raw in season_types:
+        kind = str(raw).strip().lower()
+        if kind in {"combined", "all"}:
+            return None
+        if kind in {"regular", "regular_season"}:
+            codes.add("002")
+        elif kind in {"playoffs", "playoff"}:
+            codes.add("004")
+        elif kind in {"play_in", "playin"}:
+            codes.add("005")
+        else:
+            raise ValueError(f"Unsupported season type: {raw!r}")
+    return codes or None
+
+
+def _apply_season_scope(q, season: str, definition: dict):
+    if season != CAREER_SEASON:
+        q = q.filter(Game.season == season)
+    season_codes = _season_type_codes(definition.get("season_types"))
+    if season_codes:
+        q = q.filter(func.substr(Game.game_id, 1, 3).in_(sorted(season_codes)))
+    return q
+
+
+def _resolve_partition_group(partition_by: list[Any], entity_context: dict[str, Any]) -> str | None:
+    if not partition_by:
+        return None
+    parts: list[str] = []
+    for item in partition_by:
+        value = _resolve_dynamic_value(item, entity_context)
+        if value in (None, ""):
+            continue
+        parts.append(str(value))
+    return "|".join(parts) if parts else None
+
+
+def _context_with_counts(
+    source: str,
+    scope: str,
+    count_value: int | None,
+    rank_group: str | None,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    if count_value is not None:
+        context["rows_counted"] = int(count_value)
+        if source in {"player_game_stats", "team_game_stats"} and scope in {"player", "team"}:
+            context["games"] = int(count_value)
+    if rank_group is not None:
+        context["rank_group"] = rank_group
+    return context
+
+
+def _format_value(definition: dict, value: float | None) -> str | None:
+    if value is None:
+        return None
+    display = definition.get("display") or {}
+    fmt = str(display.get("value_format") or "").strip().lower()
+    unit = str(display.get("unit") or "").strip()
+    if fmt in {"integer", "number"} or float(value).is_integer():
+        rendered = f"{int(round(value)):,}"
+    else:
+        rendered = f"{value:.4f}".rstrip("0").rstrip(".")
+    if unit:
+        rendered = f"{rendered} {unit}"
+    return rendered
+
+
+def _apply_filters(q, field_map: dict, filters: list[dict], entity_context: dict[str, Any]):
     for f in filters:
         field = f["field"]
         col = field_map.get(field)
         if col is None:
             raise ValueError(f"Unknown field {field!r} for this source")
-        q = q.filter(_build_filter(col, f["op"], f["value"]))
+        raw_value = f.get("value_from", f.get("value"))
+        value = _resolve_dynamic_value(raw_value, entity_context)
+        q = q.filter(_build_filter(col, f["op"], value))
     return q
 
 
 # ── Core compute ──────────────────────────────────────────────────────────────
 
-def compute(
+def compute_result(
     session: Session,
     definition: dict,
     entity_id: str,
     season: str,
     scope: str,
-) -> float | None:
-    """Run a rule definition for one entity/season. Returns value_num or None."""
-    source = definition.get("source", "player_game_stats")
+) -> dict[str, Any] | None:
+    """Run a rule definition for one entity/season. Returns value + metadata."""
+    definition = _normalize_definition(definition)
+    source = _definition_source(definition)
     filters = definition.get("filters", [])
     aggregation = definition["aggregation"]
 
@@ -182,6 +324,9 @@ def compute(
     id_col = source_spec["id_cols"].get(scope)
     if id_col is None:
         raise ValueError(f"Source {source!r} does not support scope {scope!r}")
+    entity_context = _resolve_entity_context(session, scope, entity_id)
+    ranking = definition.get("ranking") or {}
+    rank_group = _resolve_partition_group(ranking.get("partition_by") or [], entity_context)
 
     # Base query scoped to this entity + season. season="all" is the cross-season
     # bucket used by career metrics.
@@ -190,22 +335,37 @@ def compute(
         .join(Game, model.game_id == Game.game_id)
         .filter(id_col == entity_id)
     )
-    if season != CAREER_SEASON:
-        base_q = base_q.filter(Game.season == season)
+    team_join_col = source_spec.get("team_join_col")
+    if team_join_col is not None:
+        base_q = base_q.outerjoin(Team, team_join_col == Team.team_id)
+    base_q = _apply_season_scope(base_q, season, definition)
 
     if aggregation == "count":
-        q = _apply_filters(base_q, field_map, filters)
+        q = _apply_filters(base_q, field_map, filters, entity_context)
         result = q.count()
-        return float(result)
+        value = float(result)
+        return {
+            "value_num": value,
+            "value_str": _format_value(definition, value),
+            "context": _context_with_counts(source, scope, int(result), rank_group),
+            "rank_group": rank_group,
+        }
 
     if aggregation == "pct_rows":
         # % of rows matching the filter vs total
-        stat_col = field_map.get(definition.get("stat", "pts"))
         total = base_q.count()
         if not total:
             return None
-        matched = _apply_filters(base_q, field_map, filters).count()
-        return matched / total
+        matched = _apply_filters(base_q, field_map, filters, entity_context).count()
+        value = matched / total
+        context = _context_with_counts(source, scope, int(total), rank_group)
+        context["matched_rows"] = int(matched)
+        return {
+            "value_num": value,
+            "value_str": _format_value(definition, value),
+            "context": context,
+            "rank_group": rank_group,
+        }
 
     if aggregation in ("avg", "sum", "max"):
         stat_col = field_map.get(definition["stat"])
@@ -216,16 +376,25 @@ def compute(
             "sum": func.sum,
             "max": func.max,
         }[aggregation]
-        q = _apply_filters(base_q, field_map, filters)
+        q = _apply_filters(base_q, field_map, filters, entity_context)
         val = q.with_entities(agg_fn(func.coalesce(stat_col, 0))).scalar()
-        return float(val) if val is not None else None
+        if val is None:
+            return None
+        value = float(val)
+        row_count = q.count()
+        return {
+            "value_num": value,
+            "value_str": _format_value(definition, value),
+            "context": _context_with_counts(source, scope, row_count, rank_group),
+            "rank_group": rank_group,
+        }
 
     if aggregation == "ratio":
         num_col = field_map.get(definition["numerator"])
         den_col = field_map.get(definition["denominator"])
         if num_col is None or den_col is None:
             raise ValueError("ratio requires numerator and denominator fields")
-        q = _apply_filters(base_q, field_map, filters)
+        q = _apply_filters(base_q, field_map, filters, entity_context)
         row = q.with_entities(
             func.sum(func.coalesce(num_col, 0)),
             func.sum(func.coalesce(den_col, 0)),
@@ -233,14 +402,23 @@ def compute(
         num, den = row
         if not den:
             return None
-        return float(num) / float(den)
+        value = float(num) / float(den)
+        context = _context_with_counts(source, scope, q.count(), rank_group)
+        context["numerator_sum"] = float(num or 0)
+        context["denominator_sum"] = float(den or 0)
+        return {
+            "value_num": value,
+            "value_str": _format_value(definition, value),
+            "context": context,
+            "rank_group": rank_group,
+        }
 
     if aggregation == "pct_of_total":
         # entity's sum as % of all entities' sum for this season
         stat_col = field_map.get(definition["stat"])
         if stat_col is None:
             raise ValueError(f"Unknown stat: {definition['stat']!r}")
-        entity_q = _apply_filters(base_q, field_map, filters)
+        entity_q = _apply_filters(base_q, field_map, filters, entity_context)
         entity_sum = entity_q.with_entities(func.sum(func.coalesce(stat_col, 0))).scalar() or 0
 
         total_q = (
@@ -248,15 +426,38 @@ def compute(
             .select_from(model)
             .join(Game, model.game_id == Game.game_id)
         )
-        if season != CAREER_SEASON:
-            total_q = total_q.filter(Game.season == season)
-        total_q = _apply_filters(total_q, field_map, filters)
+        if team_join_col is not None:
+            total_q = total_q.outerjoin(Team, team_join_col == Team.team_id)
+        total_q = _apply_season_scope(total_q, season, definition)
+        total_q = _apply_filters(total_q, field_map, filters, entity_context)
         total_sum = total_q.scalar() or 0
         if not total_sum:
             return None
-        return float(entity_sum) / float(total_sum)
+        value = float(entity_sum) / float(total_sum)
+        context = _context_with_counts(source, scope, entity_q.count(), rank_group)
+        context["entity_sum"] = float(entity_sum)
+        context["group_sum"] = float(total_sum)
+        return {
+            "value_num": value,
+            "value_str": _format_value(definition, value),
+            "context": context,
+            "rank_group": rank_group,
+        }
 
     raise ValueError(f"Unsupported aggregation: {aggregation!r}")
+
+
+def compute(
+    session: Session,
+    definition: dict,
+    entity_id: str,
+    season: str,
+    scope: str,
+) -> float | None:
+    result = compute_result(session, definition, entity_id, season, scope)
+    if result is None:
+        return None
+    return result["value_num"]
 
 
 def compute_baseline(
@@ -285,7 +486,8 @@ def preview(
     limit: int = 25,
 ) -> list[dict]:
     """Run a rule definition against all entities for a season, return ranked rows."""
-    source = definition.get("source", "player_game_stats")
+    definition = _normalize_definition(definition)
+    source = _definition_source(definition)
     if source not in _SOURCE_MAP:
         raise ValueError(f"Unknown source: {source!r}")
 
@@ -302,24 +504,28 @@ def preview(
         .join(Game, model.game_id == Game.game_id)
         .filter(id_col.isnot(None))
     )
-    if season != CAREER_SEASON:
-        entity_q = entity_q.filter(Game.season == season)
+    team_join_col = source_spec.get("team_join_col")
+    if team_join_col is not None:
+        entity_q = entity_q.outerjoin(Team, team_join_col == Team.team_id)
+    preview_season = CAREER_SEASON if str(definition.get("time_scope") or "").lower() == "career" else season
+    entity_q = _apply_season_scope(entity_q, preview_season, definition)
     entity_ids = [row[0] for row in entity_q.distinct().all()]
 
     rows = []
     for eid in entity_ids:
         try:
-            val = compute(session, definition, eid, season, scope)
+            result = compute_result(session, definition, eid, preview_season, scope)
         except Exception as exc:
             logger.debug("preview compute failed for %s: %s", eid, exc)
             continue
-        if val is None:
+        if result is None:
             continue
-        baseline = compute_baseline(session, definition, eid, season, scope)
+        baseline = compute_baseline(session, definition, eid, preview_season, scope)
         rows.append({
             "entity_id": eid,
-            "value_num": round(val, 4),
+            "value_num": round(result["value_num"], 4),
             "baseline": round(baseline, 4) if baseline is not None else None,
+            "rank_group": result.get("rank_group"),
         })
 
     rows.sort(key=lambda r: r["value_num"], reverse=True)

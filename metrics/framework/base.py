@@ -17,6 +17,7 @@ class MetricResult:
     entity_id: str | None     # player_id or team_id; None for league-scope
     season: str | None
     game_id: str | None       # game that triggered the run; None for season-agg
+    rank_group: str | None = None
     value_num: float | None = None
     value_str: str | None = None
     context: dict[str, Any] = field(default_factory=dict)

@@ -11,6 +11,7 @@ Add indexes that match the metric detail page backfill-status queries:
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision: str = 'f1c2d3e4f5a6'
@@ -20,18 +21,26 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_index(
-        'ix_MetricJobClaim_metric_status_game',
-        'MetricJobClaim',
-        ['metric_key', 'status', 'game_id'],
-        unique=False,
-    )
-    op.create_index(
-        'ix_MetricRunLog_metric_key_computed_at',
-        'MetricRunLog',
-        ['metric_key', 'computed_at'],
-        unique=False,
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    existing_claim_indexes = {idx["name"] for idx in inspector.get_indexes("MetricJobClaim")}
+    if "ix_MetricJobClaim_metric_status_game" not in existing_claim_indexes:
+        op.create_index(
+            'ix_MetricJobClaim_metric_status_game',
+            'MetricJobClaim',
+            ['metric_key', 'status', 'game_id'],
+            unique=False,
+        )
+
+    existing_runlog_indexes = {idx["name"] for idx in inspector.get_indexes("MetricRunLog")}
+    if "ix_MetricRunLog_metric_key_computed_at" not in existing_runlog_indexes:
+        op.create_index(
+            'ix_MetricRunLog_metric_key_computed_at',
+            'MetricRunLog',
+            ['metric_key', 'computed_at'],
+            unique=False,
+        )
 
 
 def downgrade() -> None:

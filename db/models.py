@@ -202,6 +202,7 @@ class MetricResult(Base):
     entity_type = Column(String(16), nullable=False)   # player | team | game | league
     entity_id = Column(String(50), nullable=True)      # player_id or team_id
     season = Column(String(10), nullable=True)
+    rank_group = Column(String(64), nullable=True)
     game_id = Column(String(20), nullable=True)
     value_num = Column(Float, nullable=True)
     value_str = Column(String(255), nullable=True)
@@ -213,7 +214,7 @@ class MetricResult(Base):
     __table_args__ = (
         Index('uq_MetricResult_key_entity_season', 'metric_key', 'entity_type', 'entity_id', 'season', unique=True),
         Index('ix_MetricResult_entity', 'entity_type', 'entity_id', 'season'),
-        Index('ix_MetricResult_ranking', 'metric_key', 'season', 'value_num'),
+        Index('ix_MetricResult_ranking', 'metric_key', 'season', 'rank_group', 'value_num'),
     )
 
 

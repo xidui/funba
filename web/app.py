@@ -245,22 +245,25 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     if season_filter is not None:
         inner_filters.append(season_filter)
 
+    rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
+
     inner_q = (
         session.query(
             MetricResultModel.id,
             MetricResultModel.metric_key,
             MetricResultModel.entity_id,
             MetricResultModel.season,
+            MetricResultModel.rank_group,
             MetricResultModel.value_num,
             MetricResultModel.value_str,
             MetricResultModel.context_json,
             MetricResultModel.computed_at,
             func.rank().over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season],
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
                 order_by=MetricResultModel.value_num.desc(),
             ).label("rank"),
             func.count(MetricResultModel.id).over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season],
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
             ).label("total"),
         )
         .filter(*inner_filters)
@@ -274,10 +277,13 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         .all()
     )
 
+    team_map = _team_map(session)
+
     season_metrics = []
     alltime_metrics = []
     for r in rows:
         ctx = json.loads(r.context_json) if r.context_json else {}
+        rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
         base_key = r.metric_key.removesuffix("_career")
         label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
         context_label = None
@@ -297,6 +303,8 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "is_notable": is_notable,
             "context": ctx,
             "context_label": context_label,
+            "rank_group": r.rank_group,
+            "rank_group_label": rank_group_label,
             "computed_at": r.computed_at,
             # career cross-reference filled in below
             "career_rank": None,
@@ -331,11 +339,11 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 MetricResultModel.metric_key,
                 MetricResultModel.entity_id,
                 func.rank().over(
-                    partition_by=[MetricResultModel.metric_key],
+                    partition_by=[MetricResultModel.metric_key, func.coalesce(MetricResultModel.rank_group, "__all__")],
                     order_by=MetricResultModel.value_num.desc(),
                 ).label("rank"),
                 func.count(MetricResultModel.id).over(
-                    partition_by=[MetricResultModel.metric_key],
+                    partition_by=[MetricResultModel.metric_key, func.coalesce(MetricResultModel.rank_group, "__all__")],
                 ).label("total"),
             )
             .filter(
@@ -1716,7 +1724,7 @@ def metric_detail(metric_key: str):
             if not show_all_seasons and not selected_season and season_options:
                 selected_season = season_options[0]
 
-        q = (
+        filtered_q = (
             session.query(MetricResultModel)
             .filter(
                 MetricResultModel.metric_key == metric_key,
@@ -1724,17 +1732,47 @@ def metric_detail(metric_key: str):
             )
         )
         if not show_all_seasons and selected_season:
-            q = q.filter(MetricResultModel.season == selected_season)
+            filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
-        total = q.count()
+        rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
+        ranked_q = (
+            filtered_q.with_entities(
+                MetricResultModel.id.label("id"),
+                MetricResultModel.entity_type.label("entity_type"),
+                MetricResultModel.entity_id.label("entity_id"),
+                MetricResultModel.season.label("season"),
+                MetricResultModel.rank_group.label("rank_group"),
+                MetricResultModel.value_num.label("value_num"),
+                MetricResultModel.value_str.label("value_str"),
+                MetricResultModel.context_json.label("context_json"),
+                MetricResultModel.computed_at.label("computed_at"),
+                func.rank().over(
+                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+                    order_by=MetricResultModel.value_num.desc(),
+                ).label("rank"),
+                func.count(MetricResultModel.id).over(
+                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+                ).label("standing_total"),
+            )
+            .subquery()
+        )
+
+        total = session.query(func.count()).select_from(ranked_q).scalar() or 0
         import math
         total_pages = max(1, math.ceil(total / page_size))
         page = min(page, total_pages)
         offset = (page - 1) * page_size
 
-        rows = q.order_by(MetricResultModel.value_num.desc()).offset(offset).limit(page_size).all()
+        rows = (
+            session.query(ranked_q)
+            .order_by(ranked_q.c.value_num.desc(), ranked_q.c.entity_id.asc())
+            .offset(offset)
+            .limit(page_size)
+            .all()
+        )
 
         labels = _resolve_entity_labels(session, rows)
+        team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
         scope_label = {"player": "players", "team": "teams", "game": "games"}.get(
@@ -1745,7 +1783,7 @@ def metric_detail(metric_key: str):
         else:
             period = "across all seasons" if show_all_seasons else "this season"
         result_rows = []
-        for i, r in enumerate(rows):
+        for r in rows:
             ctx = json.loads(r.context_json) if r.context_json else {}
             games_counted = (
                 ctx.get("games")
@@ -1755,6 +1793,7 @@ def metric_detail(metric_key: str):
                 or ctx.get("road_games")
                 or ctx.get("home_games")
             )
+            rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
             base_key = metric_key.removesuffix("_career")
             label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
             context_label = None
@@ -1763,13 +1802,15 @@ def metric_detail(metric_key: str):
                     context_label = label_fn(ctx)
                 except Exception:
                     pass
-            rank = offset + i + 1
-            is_notable = total > 0 and rank / total <= 0.25
+            rank = int(r.rank or 0)
+            standing_total = int(r.standing_total or 0)
+            is_notable = standing_total > 0 and rank / standing_total <= 0.25
             label = _RANK_LABELS.get(rank, f"#{rank}")
-            notable_reason = f"{label} of {total} {scope_label} {period}."
+            group_phrase = f" in {rank_group_label}" if rank_group_label else ""
+            notable_reason = f"{label} of {standing_total} {scope_label}{group_phrase} {period}."
             result_rows.append({
                 "rank": rank,
-                "total": total,
+                "total": standing_total,
                 "entity_type": r.entity_type,
                 "entity_id": r.entity_id,
                 "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
@@ -1780,8 +1821,11 @@ def metric_detail(metric_key: str):
                 "notable_reason": notable_reason if is_notable else None,
                 "context": ctx,
                 "context_label": context_label,
+                "rank_group": r.rank_group,
+                "rank_group_label": rank_group_label,
                 "games_counted": int(games_counted) if games_counted is not None else None,
             })
+        show_rank_group = any(r["rank_group_label"] for r in result_rows)
 
         total_games = (
             session.query(func.count(Game.game_id))
@@ -1807,7 +1851,8 @@ def metric_detail(metric_key: str):
     return render_template(
         "metric_detail.html",
         metric_def=metric_def,
-        result_rows=result_rows,
+            result_rows=result_rows,
+            show_rank_group=show_rank_group,
         season_options=season_options,
         selected_season=selected_season,
         show_all_seasons=show_all_seasons,
