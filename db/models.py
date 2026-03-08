@@ -248,6 +248,10 @@ class MetricRunLog(Base):
     produced_result = Column(Boolean, nullable=False, default=True)
     delta_json    = Column(Text, nullable=True)             # per-game delta for reprocessing
 
+    __table_args__ = (
+        Index('ix_MetricRunLog_metric_key_computed_at', 'metric_key', 'computed_at'),
+    )
+
 
 class MetricJobClaim(Base):
     """Atomic task-claim table — prevents concurrent duplicate metric computation.
@@ -271,6 +275,10 @@ class MetricJobClaim(Base):
     claimed_at = Column(DateTime, nullable=False)
     worker_id  = Column(String(255), nullable=True)   # celery task id for tracing
     status     = Column(String(16), nullable=False, default="in_progress")  # in_progress | done
+
+    __table_args__ = (
+        Index('ix_MetricJobClaim_metric_status_game', 'metric_key', 'status', 'game_id'),
+    )
 
 
 def init_db() -> None:

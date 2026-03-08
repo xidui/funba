@@ -89,6 +89,41 @@ The current UI-to-backfill MVP is working, but a few implementation choices are 
 
 ---
 
+## [METRICS-4] Plan for MetricResult / MetricRunLog growth under user-defined metrics
+
+If end users can create and publish arbitrary metrics with full historical backfills, table growth will become a real concern.
+
+**Why this matters:**
+- `MetricResult` grows roughly with `metrics × entities × seasons`
+- `MetricRunLog` grows much faster with `metrics × games × touched entities`
+- A single player-scoped metric can write ~1M `MetricRunLog` rows across full history
+- Today `MetricRunLog` is not just observability; it also supports incremental `force=True` undo-redo via `delta_json`
+
+**Current system constraint:**
+- `MetricJobClaim` is the primary per-`(game_id, metric_key)` idempotency gate
+- `MetricRunLog` is still part of correctness for incremental recompute
+- That means `MetricRunLog` cannot be treated as disposable operational noise without replacing its correctness role
+
+**Questions to settle:**
+- [ ] What retention target is acceptable for `MetricRunLog`?
+- [ ] Should published user metrics always backfill full history, or should some default to recent seasons only?
+- [ ] Do we need per-metric quotas / approval for global historical backfills?
+- [ ] At what table size or query latency do we treat this as urgent?
+
+**Options:**
+- [ ] Keep the current model, but add retention / archiving for old `MetricRunLog` rows once a safer recompute strategy exists.
+- [ ] Partition `MetricRunLog` / `MetricResult` by metric key, season, or time to keep indexes and deletes manageable.
+- [ ] Add scoped backfill policies for user metrics (for example: draft = no backfill, published = limited backfill, admin-approved = full history).
+- [ ] Move correctness away from `MetricRunLog.delta_json` into a per-game fact table, so run logs can become optional operational history instead of correctness state.
+- [ ] Add lightweight monitoring on row counts and growth rate so the issue is driven by actual data, not guesswork.
+
+**Recommended long-term direction:**
+- Keep `MetricResult` as the product-facing aggregate table
+- Reduce reliance on `MetricRunLog` for correctness
+- Introduce per-game canonical metric facts if user-created metric volume starts to grow meaningfully
+
+---
+
 ## [UI-1] Replace `color-mix()` if older browser support becomes necessary
 
 The metric search/detail UI uses `color-mix()` in CSS for badges and status surfaces. This is fine for modern Chrome/Safari/Firefox, but older browsers may not render those styles correctly.

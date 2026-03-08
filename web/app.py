@@ -362,10 +362,11 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
 
 def _metric_backfill_component(session, metric_key: str, total_games: int) -> dict:
-    from sqlalchemy import func
+    from sqlalchemy import desc, func
 
     done_games = (
-        session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+        session.query(func.count())
+        .select_from(MetricJobClaim)
         .filter(
             MetricJobClaim.metric_key == metric_key,
             MetricJobClaim.status == "done",
@@ -373,7 +374,8 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .scalar() or 0
     )
     active_games = (
-        session.query(func.count(func.distinct(MetricJobClaim.game_id)))
+        session.query(func.count())
+        .select_from(MetricJobClaim)
         .filter(
             MetricJobClaim.metric_key == metric_key,
             MetricJobClaim.status == "in_progress",
@@ -381,8 +383,10 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .scalar() or 0
     )
     latest_run_at = (
-        session.query(func.max(MetricRunLog.computed_at))
+        session.query(MetricRunLog.computed_at)
         .filter(MetricRunLog.metric_key == metric_key)
+        .order_by(desc(MetricRunLog.computed_at))
+        .limit(1)
         .scalar()
     )
 
@@ -1659,10 +1663,11 @@ def metric_detail(metric_key: str):
     with SessionLocal() as session:
         from metrics.framework.runtime import get_metric as _get_metric
 
+        base_metric_key = metric_key.removesuffix("_career")
         db_metric = (
             session.query(MetricDefinitionModel)
             .filter(
-                MetricDefinitionModel.key == metric_key,
+                MetricDefinitionModel.key == base_metric_key,
                 MetricDefinitionModel.status != "archived",
             )
             .first()
@@ -1673,6 +1678,22 @@ def metric_detail(metric_key: str):
 
         metric_def = _metric_def_view(runtime_metric or db_metric)
         is_career_metric = bool(getattr(runtime_metric, "career", False))
+        season_metric = _get_metric(base_metric_key, session=session)
+        career_metric = _get_metric(base_metric_key + "_career", session=session)
+        metric_switch = None
+        if season_metric is not None and career_metric is not None:
+            metric_switch = {
+                "season": {
+                    "label": "Season View",
+                    "metric_key": base_metric_key,
+                    "active": not is_career_metric,
+                },
+                "career": {
+                    "label": "Career View",
+                    "metric_key": base_metric_key + "_career",
+                    "active": is_career_metric,
+                },
+            }
 
         # Available seasons for this metric
         season_rows = (
@@ -1791,6 +1812,7 @@ def metric_detail(metric_key: str):
         selected_season=selected_season,
         show_all_seasons=show_all_seasons,
         is_career_metric=is_career_metric,
+        metric_switch=metric_switch,
         season_label=display_season_label,
         fmt_season=_season_label,
         page=page,
