@@ -69,6 +69,25 @@
 
   .recent-row td:last-child { color: var(--muted); font-size: 12px; }
   .mono { font-family: monospace; font-size: 12px; }
+
+  .cov-toggles { display: flex; gap: 4px; }
+  .cov-toggle {
+    font-size: 11px; font-family: Outfit, sans-serif; font-weight: 700;
+    padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border-2);
+    background: var(--surface-3); color: var(--muted); cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .cov-toggle.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  .stype-badge {
+    display: inline-block; font-size: 9px; font-family: Outfit, sans-serif;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle;
+  }
+  .stype-regular  { background: rgba(100,170,240,.12); color: #64aaee; }
+  .stype-playoffs { background: rgba(249,115,22,.12);  color: var(--accent); }
+  .stype-playin   { background: rgba(74,222,128,.12);  color: var(--win); }
+  .stype-other    { background: var(--surface-3); color: var(--muted); }
 </style>
 
 <h1 style="margin-bottom:1.25rem">Pipeline Status</h1>
@@ -77,14 +96,22 @@
 
   <!-- Coverage -->
   <div class="card full-width">
-    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:14px;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
       <h2 style="margin:0">Data Coverage</h2>
       <span style="font-size:12px; color:var(--muted)">
         {{ coverage | selectattr('complete') | list | length }} / {{ coverage | length }} seasons fully covered
       </span>
-      <label style="margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
-        <input type="checkbox" id="hide-complete" onchange="toggleComplete(this)"> Hide complete seasons
-      </label>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <div class="cov-toggles">
+          <button class="cov-toggle active" data-type="regular" onclick="covToggle(this)">Regular Season</button>
+          <button class="cov-toggle active" data-type="playoffs" onclick="covToggle(this)">Playoffs</button>
+          <button class="cov-toggle active" data-type="playin"   onclick="covToggle(this)">Play-In</button>
+          <button class="cov-toggle active" data-type="other"    onclick="covToggle(this)">Other</button>
+        </div>
+        <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">
+          <input type="checkbox" id="hide-complete" onchange="applyFilters()"> Hide complete
+        </label>
+      </div>
     </div>
 
     <div style="overflow-x:auto;">
@@ -101,8 +128,13 @@
       </thead>
       <tbody>
         {% for row in coverage %}
-        <tr class="{{ 'row-complete' if row.complete else 'row-gap' }}">
-          <td><strong>{{ row.season }}</strong></td>
+        {% set first = row.season_raw[0] %}
+        {% set stype = 'playoffs' if first == '4' else ('playin' if first == '5' else ('regular' if first == '2' else 'other')) %}
+        <tr class="{{ 'row-complete' if row.complete else 'row-gap' }}" data-stype="{{ stype }}">
+          <td>
+            <strong>{{ row.season }}</strong>
+            <span class="stype-badge stype-{{ stype }}">{{ 'Playoffs' if stype == 'playoffs' else ('Play-In' if stype == 'playin' else ('Regular' if stype == 'regular' else 'Other')) }}</span>
+          </td>
           <td style="text-align:center; color:var(--muted-2); font-size:12px;">{{ row.total }}</td>
           {% for val in [row.detail, row.pbp, row.shot, row.metrics] %}
           {% if row.total %}
@@ -131,9 +163,21 @@
     </div>
 
     <script>
-      function toggleComplete(cb) {
-        document.querySelectorAll('#coverage-table .row-complete').forEach(function(tr) {
-          tr.style.display = cb.checked ? 'none' : '';
+      var _activeTypes = {regular: true, playoffs: true, playin: true, other: true};
+
+      function covToggle(btn) {
+        var t = btn.dataset.type;
+        _activeTypes[t] = !_activeTypes[t];
+        btn.classList.toggle('active', _activeTypes[t]);
+        applyFilters();
+      }
+
+      function applyFilters() {
+        var hideComplete = document.getElementById('hide-complete').checked;
+        document.querySelectorAll('#coverage-table tbody tr').forEach(function(tr) {
+          var typeOk = _activeTypes[tr.dataset.stype];
+          var completeOk = !(hideComplete && tr.classList.contains('row-complete'));
+          tr.style.display = (typeOk && completeOk) ? '' : 'none';
         });
       }
     </script>
