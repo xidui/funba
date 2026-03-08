@@ -77,45 +77,66 @@
 
   <!-- Coverage -->
   <div class="card full-width">
-    <h2>Data Coverage</h2>
-    <table>
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:14px;">
+      <h2 style="margin:0">Data Coverage</h2>
+      <span style="font-size:12px; color:var(--muted)">
+        {{ coverage | selectattr('complete') | list | length }} / {{ coverage | length }} seasons fully covered
+      </span>
+      <label style="margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" id="hide-complete" onchange="toggleComplete(this)"> Hide complete seasons
+      </label>
+    </div>
+
+    <div style="overflow-x:auto;">
+    <table id="coverage-table">
       <thead>
         <tr>
           <th>Season</th>
-          <th>Games</th>
-          <th>Detail / Stats</th>
-          <th>Play-by-Play</th>
-          <th>Shot Records</th>
+          <th style="text-align:center">Games</th>
+          <th>Stats</th>
+          <th>PBP</th>
+          <th>Shots</th>
           <th>Metrics</th>
         </tr>
       </thead>
       <tbody>
         {% for row in coverage %}
-        {% set cols = [
-          ('detail', row.detail),
-          ('pbp',    row.pbp),
-          ('shot',   row.shot),
-          ('metrics', row.metrics),
-        ] %}
-        <tr>
+        <tr class="{{ 'row-complete' if row.complete else 'row-gap' }}">
           <td><strong>{{ row.season }}</strong></td>
-          <td>{{ row.total }}</td>
-          {% for label, val in cols %}
-          {% set pct = (val / row.total * 100) | round(1) if row.total else 0 %}
-          {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
+          <td style="text-align:center; color:var(--muted-2); font-size:12px;">{{ row.total }}</td>
+          {% for val in [row.detail, row.pbp, row.shot, row.metrics] %}
+          {% if row.total %}
+            {% set pct = (val / row.total * 100) %}
+            {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
+          {% else %}
+            {% set pct = 0 %}{% set css = '' %}
+          {% endif %}
           <td>
-            <div class="coverage-bar-wrap">
-              <div class="coverage-bar">
-                <div class="coverage-bar-fill {{ css }}" style="width:{{ pct }}%"></div>
+            {% if val == row.total %}
+              <span style="color:var(--win); font-size:13px; font-weight:700;">✓ {{ val }}</span>
+            {% else %}
+              <div class="coverage-bar-wrap">
+                <div class="coverage-bar">
+                  <div class="coverage-bar-fill {{ css }}" style="width:{{ pct }}%"></div>
+                </div>
+                <span class="coverage-pct" style="width:60px;">{{ val }}/{{ row.total }}</span>
               </div>
-              <span class="coverage-pct">{{ val }}/{{ row.total }}</span>
-            </div>
+            {% endif %}
           </td>
           {% endfor %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
+
+    <script>
+      function toggleComplete(cb) {
+        document.querySelectorAll('#coverage-table .row-complete').forEach(function(tr) {
+          tr.style.display = cb.checked ? 'none' : '';
+        });
+      }
+    </script>
   </div>
 
   <!-- Claim status -->

@@ -1600,35 +1600,39 @@ def admin_pipeline():
     from datetime import datetime, timedelta
 
     with SessionLocal() as session:
-        # --- Coverage per season ---
-        # Use a single query: COUNT(game_id) + COUNT(CASE WHEN EXISTS ...) per season.
-        # Subquery-based existence check is faster than COUNT DISTINCT + JOIN on large tables.
-        from sqlalchemy import exists, literal
+        # --- Coverage per season (all seasons, single query) ---
+        from sqlalchemy import text as sa_text
+        coverage_rows = session.execute(sa_text("""
+            SELECT
+                g.season,
+                COUNT(DISTINCT g.game_id)   AS total,
+                COUNT(DISTINCT pgs.game_id) AS has_detail,
+                COUNT(DISTINCT pbp.game_id) AS has_pbp,
+                COUNT(DISTINCT sr.game_id)  AS has_shot,
+                COUNT(DISTINCT mrl.game_id) AS has_metrics
+            FROM Game g
+            LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+            LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
+            LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
+            LEFT JOIN (SELECT DISTINCT game_id FROM MetricRunLog)     mrl ON mrl.game_id = g.game_id
+            WHERE g.game_date IS NOT NULL
+            GROUP BY g.season
+            ORDER BY g.season DESC
+        """)).fetchall()
 
-        seasons_of_interest = ["22024", "22025"]
-        coverage = []
-        for season_prefix in seasons_of_interest:
-            sf = Game.season.like(f"{season_prefix}%")
-
-            total = session.query(func.count(Game.game_id)).filter(sf, Game.game_date.isnot(None)).scalar() or 0
-
-            def _count_with(model, col):
-                sub = exists().where(col == Game.game_id)
-                return session.query(func.sum(case((sub, 1), else_=0))).filter(sf, Game.game_date.isnot(None)).scalar() or 0
-
-            has_detail = _count_with(PlayerGameStats, PlayerGameStats.game_id)
-            has_pbp = _count_with(GamePlayByPlay, GamePlayByPlay.game_id)
-            has_shot = _count_with(ShotRecord, ShotRecord.game_id)
-            has_metrics = _count_with(MetricRunLog, MetricRunLog.game_id)
-
-            coverage.append({
-                "season": _season_label(season_prefix + "0"),
-                "total": total,
-                "detail": has_detail,
-                "pbp": has_pbp,
-                "shot": has_shot,
-                "metrics": has_metrics,
-            })
+        coverage = [
+            {
+                "season": _season_label(row.season),
+                "season_raw": row.season,
+                "total": row.total,
+                "detail": row.has_detail,
+                "pbp": row.has_pbp,
+                "shot": row.has_shot,
+                "metrics": row.has_metrics,
+                "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
+            }
+            for row in coverage_rows
+        ]
 
         # --- Claim status summary ---
         claim_counts = dict(
