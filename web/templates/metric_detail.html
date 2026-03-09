@@ -449,11 +449,35 @@
   </div>
 </details>
 
+{% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=selected_season if not show_all_seasons else 'all') %}
+<form method="get" action="{{ search_base_url }}" style="margin-bottom:16px;">
+  <input type="hidden" name="season" value="{{ 'all' if show_all_seasons else selected_season }}">
+  <div style="display:flex;align-items:center;gap:8px;max-width:420px;">
+    <input
+      type="search"
+      name="q"
+      value="{{ search_q }}"
+      placeholder="Search by name…"
+      autocomplete="off"
+      style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font-size:13px;outline:none;transition:border-color 0.15s;"
+      onfocus="this.style.borderColor='var(--accent)'"
+      onblur="this.style.borderColor='var(--border-2)'"
+    >
+    {% if search_q %}
+    <a href="{{ search_base_url }}" style="font-size:12px;font-weight:600;color:var(--muted);text-decoration:none;white-space:nowrap;" title="Clear search">✕ Clear</a>
+    {% endif %}
+  </div>
+</form>
+
 {% if result_rows %}
 <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
-  {% set first = (page - 1) * page_size + 1 %}
-  {% set last  = [(page - 1) * page_size + result_rows|length, total]|min %}
-  Showing {{ first }}–{{ last }} of {{ total }} result{{ 's' if total != 1 }} — {{ season_label }}
+  {% if search_q %}
+    {{ total }} result{{ 's' if total != 1 }} for "{{ search_q }}" — {{ season_label }}
+  {% else %}
+    {% set first = (page - 1) * page_size + 1 %}
+    {% set last  = [(page - 1) * page_size + result_rows|length, total]|min %}
+    Showing {{ first }}–{{ last }} of {{ total }} result{{ 's' if total != 1 }} — {{ season_label }}
+  {% endif %}
 </div>
 
 <div class="rankings-table-wrap">
@@ -518,7 +542,7 @@
   </table>
 </div>
 
-{% if total_pages > 1 %}
+{% if total_pages > 1 and not search_q %}
 {% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=selected_season if not show_all_seasons else 'all', page=p) }}{% endmacro %}
 <nav class="pagination" aria-label="Page navigation">
   {# Prev #}
@@ -544,9 +568,15 @@
 
 {% else %}
 <div class="empty-state">
+  {% if search_q %}
+  <div style="font-size:32px">🔍</div>
+  <div style="font-size:16px;font-weight:600;margin-top:12px;">No results for "{{ search_q }}"</div>
+  <p style="font-size:13px;margin-top:6px;"><a href="{{ search_base_url }}" style="color:var(--accent)">Clear search</a> to see all results.</p>
+  {% else %}
   <div style="font-size:32px">📊</div>
   <div style="font-size:16px;font-weight:600;margin-top:12px;">No results yet</div>
   <p style="font-size:13px;margin-top:6px;">Run the daily job to compute metrics for recent games.</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

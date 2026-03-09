@@ -10,7 +10,7 @@ from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
-from sqlalchemy import case, func, text
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
@@ -1666,6 +1666,7 @@ def metric_detail(metric_key: str):
     selected_season = request.args.get("season", "")
     show_all_seasons = selected_season == "all"
     page = max(1, int(request.args.get("page", 1) or 1))
+    search_q = request.args.get("q", "").strip()
     page_size = 50
 
     with SessionLocal() as session:
@@ -1757,19 +1758,40 @@ def metric_detail(metric_key: str):
             .subquery()
         )
 
-        total = session.query(func.count()).select_from(ranked_q).scalar() or 0
-        import math
-        total_pages = max(1, math.ceil(total / page_size))
-        page = min(page, total_pages)
-        offset = (page - 1) * page_size
-
-        rows = (
+        base_rows_q = (
             session.query(ranked_q)
             .order_by(ranked_q.c.value_num.desc(), ranked_q.c.entity_id.asc())
-            .offset(offset)
-            .limit(page_size)
-            .all()
         )
+
+        if search_q:
+            matching_player_ids = [
+                r[0] for r in session.query(Player.player_id)
+                .filter(Player.full_name.ilike(f"%{search_q}%")).all()
+            ]
+            matching_team_ids = [
+                r[0] for r in session.query(Team.team_id)
+                .filter(Team.full_name.ilike(f"%{search_q}%")).all()
+            ]
+            name_filters = []
+            if matching_player_ids:
+                name_filters.append(and_(ranked_q.c.entity_type == "player", ranked_q.c.entity_id.in_(matching_player_ids)))
+            if matching_team_ids:
+                name_filters.append(and_(ranked_q.c.entity_type == "team", ranked_q.c.entity_id.in_(matching_team_ids)))
+            if name_filters:
+                base_rows_q = base_rows_q.filter(or_(*name_filters))
+            else:
+                base_rows_q = base_rows_q.filter(False)
+            rows = base_rows_q.limit(200).all()
+            total = len(rows)
+            total_pages = 1
+            page = 1
+        else:
+            import math
+            total = session.query(func.count()).select_from(ranked_q).scalar() or 0
+            total_pages = max(1, math.ceil(total / page_size))
+            page = min(page, total_pages)
+            offset = (page - 1) * page_size
+            rows = base_rows_q.offset(offset).limit(page_size).all()
 
         labels = _resolve_entity_labels(session, rows)
         team_map = _team_map(session)
@@ -1865,6 +1887,7 @@ def metric_detail(metric_key: str):
         total=total,
         page_size=page_size,
         backfill=backfill,
+        search_q=search_q,
     )
 
 
