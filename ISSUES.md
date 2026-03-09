@@ -167,6 +167,25 @@ This is simple and keeps each task small, but it can make later metrics appear "
 
 ---
 
+## [INFRA-2] Historical season backfill (pre-1983-84)
+
+We have data from 1983-84 (`21983`) onward. The NBA API (`LeagueGameLog` + `BoxScoreTraditionalV3`) has player stats all the way back to **1946-47** (first BAA season) — confirmed working for 1982-83, 1979-80, 1970-71, 1960-61, and 1946-47. That's ~37 missing seasons.
+
+The pipeline already handles pre-1996 seasons correctly (PBP/shot skipped via `_artifacts_available_from_nba_api`). The only blocker is game discovery.
+
+**Root cause:** `_fetch_api_row` in `tasks/ingest.py` and `tasks.dispatch discover` use `LeagueGameFinder`, which returns 0 rows for pre-modern seasons regardless of filters. `LeagueGameLog` works for all eras (confirmed 1946-47 through 2024-25). These are not era-specific endpoints — `LeagueGameLog` is simply more reliable and should replace `LeagueGameFinder` in the discovery path entirely.
+
+**What works today:**
+- `BoxScoreTraditionalV3` — full player stats confirmed for all tested eras back to 1946-47 ✅
+- `PLUS_MINUS` is null for pre-modern seasons (expected) ✅
+- PBP and shot detail correctly skipped for pre-1996 seasons ✅
+
+**What needs fixing:**
+- [ ] Replace `LeagueGameFinder` with `LeagueGameLog` in the discovery path (`_fetch_api_row`, `tasks.dispatch discover`)
+- [ ] Verify season format mapping: `LeagueGameLog` uses `1982-83`, DB season ID is `21982`
+
+---
+
 ## [UI-1] Replace `color-mix()` if older browser support becomes necessary
 
 The metric search/detail UI uses `color-mix()` in CSS for badges and status surfaces. This is fine for modern Chrome/Safari/Firefox, but older browsers may not render those styles correctly.
