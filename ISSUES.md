@@ -124,6 +124,49 @@ If end users can create and publish arbitrary metrics with full historical backf
 
 ---
 
+## [METRICS-5] Decide backfill dispatch fairness vs throughput
+
+Current `metric-backfill --metric ...` dispatch enqueues one full-game pass per metric. When multiple metric backfills are launched back-to-back, the queue tends to process them in metric order:
+
+- all games for metric A
+- then all games for metric B
+- then all games for metric C
+
+This is simple and keeps each task small, but it can make later metrics appear "stuck" even though they are only waiting behind earlier batches.
+
+**Observed behavior:**
+- dispatching four scoring metrics enqueued ~52k ingest jobs for each metric separately
+- the first metric started progressing immediately
+- the later three stayed at `0 done` until their own ingest tasks reached the front of the queue
+
+**Competing options:**
+- [ ] Keep metric-major ordering:
+  - simpler dispatch model
+  - easy to reason about per-metric backfill progress
+  - worse fairness when multiple metrics are launched together
+- [ ] Switch to game-major interleaving:
+  - enqueue `ingest_game(game_id, metric_keys=[...])` with multiple metrics per game
+  - better fairness and more visible progress across all selected metrics
+  - larger per-task fanout and different queue shape
+- [ ] Add a hybrid mode:
+  - use metric-major for one-off backfills
+  - use game-major when multiple metrics are launched together
+
+**Questions to settle:**
+- [ ] Is it more important for all selected metrics to make visible progress together, or for one metric to complete as fast as possible?
+- [ ] Does game-major batching improve total wall-clock time in practice, or only improve perceived fairness?
+- [ ] Should artifact-light DB rule metrics bypass ingest entirely when artifacts are already known to exist?
+
+**Suggested evaluation:**
+- Run the same 4-metric backfill both ways on a representative subset of games
+- Compare:
+  - first-result latency per metric
+  - total completion time
+  - queue depth behavior
+  - DB load / worker stability
+
+---
+
 ## [UI-1] Replace `color-mix()` if older browser support becomes necessary
 
 The metric search/detail UI uses `color-mix()` in CSS for badges and status surfaces. This is fine for modern Chrome/Safari/Firefox, but older browsers may not render those styles correctly.
