@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 Session = sessionmaker(bind=engine)
 
 
+def _int_or_none(value):
+    """Return int(value) when present; preserve upstream nulls as None."""
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 @retry(
     wait=wait_exponential(multiplier=1, max=60),  # Wait 1, 2, 4, ..., up to 60 seconds
     stop=stop_after_attempt(10),  # Retry up to 5 times
@@ -172,18 +179,18 @@ def back_fill_game_shot_record(sess, game_id, commit=False):
                     team_id=team_id,
                     player_id=player_id,
                     season='TBD',
-                    period=int(shot['PERIOD']),
-                    min=int(shot['MINUTES_REMAINING']),
-                    sec=int(shot['SECONDS_REMAINING']),
+                    period=_int_or_none(shot['PERIOD']),
+                    min=_int_or_none(shot['MINUTES_REMAINING']),
+                    sec=_int_or_none(shot['SECONDS_REMAINING']),
                     event_type=shot['EVENT_TYPE'],
                     action_type=shot['ACTION_TYPE'],
                     shot_type=shot['SHOT_TYPE'],
                     shot_zone_basic=shot['SHOT_ZONE_BASIC'],
                     shot_zone_area=shot['SHOT_ZONE_AREA'],
                     shot_zone_range=shot['SHOT_ZONE_RANGE'],
-                    shot_distance=int(shot['SHOT_DISTANCE']),
-                    loc_x=int(shot['LOC_X']),
-                    loc_y=int(shot['LOC_Y']),
+                    shot_distance=_int_or_none(shot['SHOT_DISTANCE']),
+                    loc_x=_int_or_none(shot['LOC_X']),
+                    loc_y=_int_or_none(shot['LOC_Y']),
                     shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
                     shot_made=bool(shot['SHOT_MADE_FLAG']),
                 ))
@@ -216,18 +223,18 @@ def back_fill_game_shot_record_from_api(sess, game_id, commit=False, replace_exi
             team_id=str(shot['TEAM_ID']),
             player_id=str(shot['PLAYER_ID']),
             season='TBD',
-            period=int(shot['PERIOD']),
-            min=int(shot['MINUTES_REMAINING']),
-            sec=int(shot['SECONDS_REMAINING']),
+            period=_int_or_none(shot['PERIOD']),
+            min=_int_or_none(shot['MINUTES_REMAINING']),
+            sec=_int_or_none(shot['SECONDS_REMAINING']),
             event_type=shot['EVENT_TYPE'],
             action_type=shot['ACTION_TYPE'],
             shot_type=shot['SHOT_TYPE'],
             shot_zone_basic=shot['SHOT_ZONE_BASIC'],
             shot_zone_area=shot['SHOT_ZONE_AREA'],
             shot_zone_range=shot['SHOT_ZONE_RANGE'],
-            shot_distance=int(shot['SHOT_DISTANCE']),
-            loc_x=int(shot['LOC_X']),
-            loc_y=int(shot['LOC_Y']),
+            shot_distance=_int_or_none(shot['SHOT_DISTANCE']),
+            loc_x=_int_or_none(shot['LOC_X']),
+            loc_y=_int_or_none(shot['LOC_Y']),
             shot_attempted=bool(shot['SHOT_ATTEMPTED_FLAG']),
             shot_made=bool(shot['SHOT_MADE_FLAG']),
         ))
