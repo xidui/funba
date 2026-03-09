@@ -58,7 +58,7 @@ snapshots. This runs as an automated daily job after the nightly backfill.
 | 3 | `clutch_fg_pct` | Clutch FG% | FG% in final 2 min of Q4 when score margin ≤ 5 | ShotRecord + GamePlayByPlay |
 | 4 | `scoring_consistency` | Scoring Consistency | % of games with 20+ points this season | PlayerGameStats |
 | 5 | `double_double_rate` | Double-Double Rate | % of games with a double-double this season | PlayerGameStats |
-| 6 | `franchise_scoring_rank` | Franchise Scoring Rank | Player's all-time rank in career points for their current team | PlayerGameStats |
+| 6 | `franchise_scoring_rank_regular` | Franchise Scoring Rank (Regular) | Player's all-time rank in regular-season points for their current team | PlayerGameStats |
 
 ### Team Metrics
 
@@ -120,7 +120,6 @@ metrics/
       clutch_fg_pct.py
       scoring_consistency.py
       double_double_rate.py
-      franchise_scoring_rank.py
     team/
       win_pct_leading_at_half.py
       close_game_record.py

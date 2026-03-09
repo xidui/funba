@@ -116,9 +116,76 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         status=status or getattr(metric_def, "status", "published"),
         source_type=source_type or getattr(metric_def, "source_type", "builtin"),
         min_sample=int(getattr(metric_def, "min_sample", 1) or 1),
+        group_key=getattr(metric_def, "group_key", None),
         career=bool(getattr(metric_def, "career", False)),
         supports_career=bool(getattr(metric_def, "supports_career", False)),
     )
+
+
+def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -> list[dict]:
+    """Return related metric links for the current metric family.
+
+    Families are resolved from either:
+    - `group_key` for DB-defined metric variants (regular/combined/etc.)
+    - season/career siblings for metrics that support a `_career` variant
+    """
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    current_key = metric_key
+    base_key = metric_key.removesuffix("_career")
+    family_key = (
+        getattr(runtime_metric, "group_key", None)
+        or getattr(db_metric, "group_key", None)
+    )
+
+    candidate_keys: list[str] = []
+    seen: set[str] = set()
+
+    def _add(key: str) -> None:
+        if key and key not in seen:
+            seen.add(key)
+            candidate_keys.append(key)
+
+    if family_key:
+        rows = (
+            session.query(MetricDefinitionModel.key)
+            .filter(
+                MetricDefinitionModel.group_key == family_key,
+                MetricDefinitionModel.status != "archived",
+            )
+            .order_by(MetricDefinitionModel.created_at.asc(), MetricDefinitionModel.key.asc())
+            .all()
+        )
+        for row in rows:
+            _add(row.key)
+            related = _get_metric(row.key, session=session)
+            if related is not None and getattr(related, "supports_career", False):
+                career_key = row.key + "_career"
+                if _get_metric(career_key, session=session) is not None:
+                    _add(career_key)
+
+    season_metric = _get_metric(base_key, session=session)
+    if season_metric is not None:
+        _add(base_key)
+        if getattr(season_metric, "supports_career", False):
+            career_key = base_key + "_career"
+            if _get_metric(career_key, session=session) is not None:
+                _add(career_key)
+
+    links = []
+    for key in candidate_keys:
+        related = _get_metric(key, session=session)
+        if related is None:
+            continue
+        links.append(
+            {
+                "metric_key": key,
+                "label": related.name,
+                "active": key == current_key,
+            }
+        )
+
+    return links if len(links) > 1 else []
 
 
 def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -> list[dict]:
@@ -136,7 +203,10 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
         MetricDefinitionModel.status != "archived"
     )
     if scope_filter:
-        db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
+        if scope_filter == "player":
+            db_q = db_q.filter(MetricDefinitionModel.scope.in_(["player", "player_franchise"]))
+        else:
+            db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
     if status_filter:
         db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
     db_metrics = [
@@ -167,7 +237,13 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
             "result_count": counts.get(m.key, 0),
         }
         for m in _get_all_metrics()
-        if include_builtins and m.key not in db_keys and (not scope_filter or m.scope == scope_filter)
+        if include_builtins
+        and m.key not in db_keys
+        and (
+            not scope_filter
+            or m.scope == scope_filter
+            or (scope_filter == "player" and m.scope == "player_franchise")
+        )
     ]
 
     return builtin_metrics + db_metrics
@@ -1629,7 +1705,14 @@ def api_metric_publish(metric_key: str):
 def _resolve_entity_labels(session, rows):
     """Bulk-resolve entity IDs to human-readable labels. Returns dict keyed by (entity_type, entity_id)."""
     player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
+    player_franchise_pairs = {
+        tuple(r.entity_id.split(":", 1))
+        for r in rows
+        if r.entity_type == "player_franchise" and r.entity_id and ":" in r.entity_id
+    }
+    player_ids.update({player_id for player_id, _ in player_franchise_pairs})
     team_ids   = {r.entity_id for r in rows if r.entity_type == "team"   and r.entity_id}
+    team_ids.update({franchise_id for _, franchise_id in player_franchise_pairs})
     game_ids   = {r.entity_id for r in rows if r.entity_type == "game"   and r.entity_id}
 
     player_names = {
@@ -1646,6 +1729,11 @@ def _resolve_entity_labels(session, rows):
     def _label(entity_type, entity_id):
         if entity_type == "player":
             return player_names.get(entity_id) or entity_id
+        if entity_type == "player_franchise" and entity_id and ":" in entity_id:
+            player_id, franchise_id = entity_id.split(":", 1)
+            player_name = player_names.get(player_id) or player_id
+            franchise_name = _team_name(team_map, franchise_id)
+            return f"{player_name} — {franchise_name}"
         if entity_type == "team":
             t = team_map.get(entity_id)
             return (t.full_name or t.abbr) if t else entity_id
@@ -1687,22 +1775,7 @@ def metric_detail(metric_key: str):
 
         metric_def = _metric_def_view(runtime_metric or db_metric)
         is_career_metric = bool(getattr(runtime_metric, "career", False))
-        season_metric = _get_metric(base_metric_key, session=session)
-        career_metric = _get_metric(base_metric_key + "_career", session=session)
-        metric_switch = None
-        if season_metric is not None and career_metric is not None:
-            metric_switch = {
-                "season": {
-                    "label": "Season View",
-                    "metric_key": base_metric_key,
-                    "active": not is_career_metric,
-                },
-                "career": {
-                    "label": "Career View",
-                    "metric_key": base_metric_key + "_career",
-                    "active": is_career_metric,
-                },
-            }
+        related_metrics = _related_metric_links(session, metric_key, runtime_metric, db_metric)
 
         # Available seasons for this metric
         season_rows = (
@@ -1797,7 +1870,7 @@ def metric_detail(metric_key: str):
         team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
-        scope_label = {"player": "players", "team": "teams", "game": "games"}.get(
+        scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "games"}.get(
             metric_def.scope, "entities"
         )
         if is_career_metric:
@@ -1879,7 +1952,7 @@ def metric_detail(metric_key: str):
         selected_season=selected_season,
         show_all_seasons=show_all_seasons,
         is_career_metric=is_career_metric,
-        metric_switch=metric_switch,
+        related_metrics=related_metrics,
         season_label=display_season_label,
         fmt_season=_season_label,
         page=page,

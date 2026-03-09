@@ -13,7 +13,6 @@ also be represented as DB rows (`source_type = 'builtin'`) so the full catalog l
 | double_double_rate | ✅ |
 | bench_scoring_share | ✅ |
 | close_game_record | ✅ |
-| franchise_scoring_rank | ✅ |
 | clutch_fg_pct | ✅ |
 | win_pct_leading_at_half | ⚠️ needs PBP join |
 | hot_hand | ❌ streak detection, keep in Python |
@@ -21,7 +20,7 @@ also be represented as DB rows (`source_type = 'builtin'`) so the full catalog l
 
 **Acceptance criteria:**
 - [ ] `MetricDefinition` table with `source_type` field
-- [ ] All 10 metrics have a corresponding DB row
+- [ ] All remaining builtin metrics have a corresponding DB row
 - [ ] `/metrics` catalog reads from DB, not in-memory registry
 - [ ] Runner handles both `rule` and `builtin` source types
 - [ ] No change in computed results

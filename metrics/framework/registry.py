@@ -59,7 +59,6 @@ def _load_all() -> None:
     import metrics.definitions.player.clutch_fg_pct         # noqa: F401
     import metrics.definitions.player.scoring_consistency   # noqa: F401
     import metrics.definitions.player.double_double_rate    # noqa: F401
-    import metrics.definitions.player.franchise_scoring_rank  # noqa: F401
     import metrics.definitions.player.true_shooting_pct     # noqa: F401
     import metrics.definitions.player.assist_to_turnover_ratio  # noqa: F401
     import metrics.definitions.player.three_point_reliance  # noqa: F401

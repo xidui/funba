@@ -134,6 +134,19 @@ _SOURCE_MAP = {
 }
 
 
+def _player_franchise_entity_id(player_id: str | None, franchise_id: str | None) -> str | None:
+    if not player_id or not franchise_id:
+        return None
+    return f"{player_id}:{franchise_id}"
+
+
+def _parse_player_franchise_entity_id(entity_id: str) -> tuple[str | None, str | None]:
+    if not entity_id or ":" not in entity_id:
+        return None, None
+    player_id, franchise_id = entity_id.split(":", 1)
+    return player_id or None, franchise_id or None
+
+
 # ── Filter building ───────────────────────────────────────────────────────────
 
 def _build_filter(col: Any, op: str, value: Any):
@@ -200,14 +213,24 @@ def _resolve_entity_context(
             .first()
         )
         current_team_id = latest.team_id if latest is not None else None
+        context["player_id"] = entity_id
         context["current_team_id"] = current_team_id
         context["current_franchise_id"] = _team_franchise_id(session, current_team_id)
+        context["franchise_id"] = context["current_franchise_id"]
+    elif scope == "player_franchise":
+        player_id, franchise_id = _parse_player_franchise_entity_id(entity_id)
+        context["player_id"] = player_id
+        context["franchise_id"] = franchise_id
+        context["current_team_id"] = None
+        context["current_franchise_id"] = franchise_id
     elif scope == "team":
         context["current_team_id"] = entity_id
         context["current_franchise_id"] = _team_franchise_id(session, entity_id)
+        context["franchise_id"] = context["current_franchise_id"]
     else:
         context["current_team_id"] = None
         context["current_franchise_id"] = None
+        context["franchise_id"] = None
     return context
 
 
@@ -321,9 +344,6 @@ def compute_result(
     source_spec = _SOURCE_MAP[source]
     model = source_spec["model"]
     field_map = source_spec["field_map"]
-    id_col = source_spec["id_cols"].get(scope)
-    if id_col is None:
-        raise ValueError(f"Source {source!r} does not support scope {scope!r}")
     entity_context = _resolve_entity_context(session, scope, entity_id)
     ranking = definition.get("ranking") or {}
     rank_group = _resolve_partition_group(ranking.get("partition_by") or [], entity_context)
@@ -333,11 +353,25 @@ def compute_result(
     base_q = (
         session.query(model)
         .join(Game, model.game_id == Game.game_id)
-        .filter(id_col == entity_id)
     )
     team_join_col = source_spec.get("team_join_col")
     if team_join_col is not None:
         base_q = base_q.outerjoin(Team, team_join_col == Team.team_id)
+    if scope == "player_franchise":
+        player_col = source_spec["id_cols"].get("player")
+        franchise_col = field_map.get("franchise_id")
+        player_id = entity_context.get("player_id")
+        franchise_id = entity_context.get("franchise_id")
+        if player_col is None or franchise_col is None:
+            raise ValueError(f"Source {source!r} does not support scope {scope!r}")
+        if not player_id or not franchise_id:
+            return None
+        base_q = base_q.filter(player_col == player_id, franchise_col == franchise_id)
+    else:
+        id_col = source_spec["id_cols"].get(scope)
+        if id_col is None:
+            raise ValueError(f"Source {source!r} does not support scope {scope!r}")
+        base_q = base_q.filter(id_col == entity_id)
     base_q = _apply_season_scope(base_q, season, definition)
 
     if aggregation == "count":
@@ -494,22 +528,39 @@ def preview(
     source_spec = _SOURCE_MAP[source]
     model = source_spec["model"]
     field_map = source_spec["field_map"]
-    id_col = source_spec["id_cols"].get(scope)
-    if id_col is None:
-        raise ValueError(f"Source {source!r} does not support scope {scope!r}")
-
     # Get distinct entity_ids for this season
-    entity_q = (
-        session.query(id_col)
-        .join(Game, model.game_id == Game.game_id)
-        .filter(id_col.isnot(None))
-    )
+    if scope == "player_franchise":
+        player_col = source_spec["id_cols"].get("player")
+        franchise_col = field_map.get("franchise_id")
+        if player_col is None or franchise_col is None:
+            raise ValueError(f"Source {source!r} does not support scope {scope!r}")
+        entity_q = (
+            session.query(player_col, franchise_col)
+            .join(Game, model.game_id == Game.game_id)
+            .filter(player_col.isnot(None), franchise_col.isnot(None))
+        )
+    else:
+        id_col = source_spec["id_cols"].get(scope)
+        if id_col is None:
+            raise ValueError(f"Source {source!r} does not support scope {scope!r}")
+        entity_q = (
+            session.query(id_col)
+            .join(Game, model.game_id == Game.game_id)
+            .filter(id_col.isnot(None))
+        )
     team_join_col = source_spec.get("team_join_col")
     if team_join_col is not None:
         entity_q = entity_q.outerjoin(Team, team_join_col == Team.team_id)
     preview_season = CAREER_SEASON if str(definition.get("time_scope") or "").lower() == "career" else season
     entity_q = _apply_season_scope(entity_q, preview_season, definition)
-    entity_ids = [row[0] for row in entity_q.distinct().all()]
+    if scope == "player_franchise":
+        entity_ids = [
+            _player_franchise_entity_id(row[0], row[1])
+            for row in entity_q.distinct().all()
+            if _player_franchise_entity_id(row[0], row[1]) is not None
+        ]
+    else:
+        entity_ids = [row[0] for row in entity_q.distinct().all()]
 
     rows = []
     for eid in entity_ids:

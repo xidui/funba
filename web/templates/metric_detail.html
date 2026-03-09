@@ -48,6 +48,7 @@
     border-radius: 999px;
   }
   .scope-badge.player { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .scope-badge.player_franchise { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
   .scope-badge.team   { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
   .scope-badge.game   { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
 
@@ -363,12 +364,12 @@
       {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
-    {% if metric_switch %}
+    {% if related_metrics %}
     <div class="metric-switch">
-      <a class="metric-switch-link{% if metric_switch.season.active %} active{% endif %}"
-         href="{{ url_for('metric_detail', metric_key=metric_switch.season.metric_key) }}">{{ metric_switch.season.label }}</a>
-      <a class="metric-switch-link{% if metric_switch.career.active %} active{% endif %}"
-         href="{{ url_for('metric_detail', metric_key=metric_switch.career.metric_key) }}">{{ metric_switch.career.label }}</a>
+      {% for related_metric in related_metrics %}
+      <a class="metric-switch-link{% if related_metric.active %} active{% endif %}"
+         href="{{ url_for('metric_detail', metric_key=related_metric.metric_key) }}">{{ related_metric.label }}</a>
+      {% endfor %}
     </div>
     {% endif %}
   </div>

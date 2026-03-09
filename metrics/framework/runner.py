@@ -5,9 +5,10 @@ import json
 import logging
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats
+from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
 from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals, subtract_delta
 from metrics.framework.runtime import get_all_metrics, get_metric
 
@@ -128,9 +129,28 @@ def _get_old_delta(
         return {}
 
 
-def _get_targets(scope: str, game: Game, player_ids: list[str], team_ids: list[str]):
+def _get_targets(session: Session, scope: str, game: Game, player_ids: list[str], team_ids: list[str]):
     if scope == "player":
         return [("player", pid) for pid in player_ids]
+    if scope == "player_franchise":
+        rows = (
+            session.query(
+                PlayerGameStats.player_id,
+                func.coalesce(Team.canonical_team_id, Team.team_id).label("franchise_id"),
+            )
+            .outerjoin(Team, PlayerGameStats.team_id == Team.team_id)
+            .filter(
+                PlayerGameStats.game_id == game.game_id,
+                PlayerGameStats.player_id.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        return [
+            ("player_franchise", f"{row.player_id}:{row.franchise_id}")
+            for row in rows
+            if row.player_id and row.franchise_id
+        ]
     if scope == "team":
         return [("team", tid) for tid in team_ids]
     if scope == "game":
@@ -166,7 +186,7 @@ def run_for_game(
     results: list[MetricResult] = []
 
     for metric_def in all_metrics:
-        targets = _get_targets(metric_def.scope, game, player_ids, team_ids)
+        targets = _get_targets(session, metric_def.scope, game, player_ids, team_ids)
 
         if not metric_def.incremental:
             # Full-recompute path (game-scope and rank-based metrics)
@@ -277,7 +297,7 @@ def run_for_game_single_metric(
         return []
 
     results: list[MetricResult] = []
-    targets = _get_targets(metric_def.scope, game, player_ids, team_ids)
+    targets = _get_targets(session, metric_def.scope, game, player_ids, team_ids)
 
     if not metric_def.incremental:
         for entity_type, entity_id in targets:
