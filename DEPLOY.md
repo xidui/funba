@@ -1,160 +1,183 @@
 # Funba Deployment Runbook
 
-## Architecture Overview
+## Architecture Overview (Option B — Cloudflare Tunnel)
 
 ```
-User → funba.app (Porkbun DNS → 209.38.71.231)
-     → Caddy (DigitalOcean droplet, auto TLS)
-     → localhost:19001 on droplet
-     → reverse SSH tunnel (autossh, persistent)
+User → funba.app (Cloudflare DNS, proxied)
+     → Cloudflare Edge (global PoPs, auto-TLS)
+     → cloudflared tunnel (runs on Mac Studio, launchd)
      → localhost:5001 on Mac Studio
-     → Flask/gunicorn web app
+     → gunicorn web app (4 workers, launchd)
 ```
 
-The Mac Studio hosts all data (MySQL) and compute. The DigitalOcean droplet acts
-as a public entry point with TLS termination via Caddy.
+No reverse SSH tunnel or public droplet required for the app traffic. The DigitalOcean
+droplet continues to serve `*.babyrasier.com` but is removed from the `funba.app` path.
 
 ---
 
 ## Machines
 
-| Machine     | Role                        | Access                    |
-|-------------|-----------------------------|--------------------------  |
-| Mac Studio  | App server, DB, compute     | Local / SSH tunnel        |
-| Droplet     | Public proxy, TLS endpoint  | `ssh root@209.38.71.231`  |
+| Machine     | Role                                     | Access                    |
+|-------------|------------------------------------------|---------------------------|
+| Mac Studio  | App server, DB, compute, cloudflared     | Local / SSH if needed     |
+| Droplet     | Other domains (babyrasier.com), optional | `ssh root@209.38.71.231`  |
 
 ---
 
-## DNS
+## Initial Setup (one-time, interactive — requires your terminal)
 
-Domain `funba.app` is registered at **Porkbun**.
+These steps require a browser and your Cloudflare account. Run them once on Mac Studio:
 
-Required DNS record (set at Porkbun):
+### Step 1 — Login to Cloudflare
+
+```bash
+cloudflared tunnel login
 ```
-funba.app   A   209.38.71.231   TTL 300
+
+This opens a browser. Authorize the domain `funba.app` on your Cloudflare account.
+On success, `~/.cloudflared/cert.pem` is created.
+
+### Step 2 — Create the named tunnel
+
+```bash
+cloudflared tunnel create funba
 ```
 
-To update: log into [porkbun.com](https://porkbun.com) → Domain Management → DNS → edit the A record.
+Note the Tunnel ID printed (UUID format, e.g. `a1b2c3d4-...`). Then:
+
+```bash
+# Edit config to add tunnel ID and credentials file
+nano ~/.cloudflared/config.yml
+```
+
+Uncomment and fill in these two lines:
+```yaml
+tunnel: <TUNNEL_ID>
+credentials-file: /Users/yuewang/.cloudflared/<TUNNEL_ID>.json
+```
+
+### Step 3 — Configure DNS (via Cloudflare)
+
+```bash
+cloudflared tunnel route dns funba funba.app
+```
+
+This creates a CNAME at Cloudflare: `funba.app → <TUNNEL_ID>.cfargotunnel.com`.
+Make sure `funba.app` is managed by Cloudflare (nameservers pointing to Cloudflare).
+
+If Porkbun still manages DNS, either:
+- Transfer nameservers to Cloudflare (recommended), or
+- Manually add CNAME `funba.app → <TUNNEL_ID>.cfargotunnel.com` in Porkbun (disable proxy in Porkbun, Cloudflare handles TLS on its edge)
+
+### Step 4 — Start cloudflared as a service
+
+```bash
+launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
+```
+
+### Step 5 — Verify
+
+```bash
+# Check tunnel is connected
+cloudflared tunnel info funba
+
+# Check app is reachable via tunnel
+curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
+```
 
 ---
 
-## Droplet: Caddy Configuration
+## Droplet: Remove funba.app from Caddy (after tunnel is live)
 
-File: `/etc/caddy/Caddyfile`
+Once Cloudflare Tunnel is active, remove the funba.app block from the droplet:
 
-```
-funba.app {
-    reverse_proxy 127.0.0.1:19001
-}
-```
-
-Caddy handles HTTPS automatically via Let's Encrypt (no manual cert management needed).
-
-### Reload Caddy after config changes:
 ```bash
 ssh root@209.38.71.231
-caddy validate --config /etc/caddy/Caddyfile
+# Edit /etc/caddy/Caddyfile — remove the funba.app { ... } block
 caddy reload --config /etc/caddy/Caddyfile
 ```
 
+Also stop and disable the autossh tunnel on Mac Studio:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/app.funba.tunnel.plist
+```
+
 ---
 
-## Mac Studio: Reverse SSH Tunnel
+## Mac Studio: Web App (gunicorn, launchd)
 
-An `autossh` service maintains a persistent reverse tunnel so the droplet can reach
-the Flask app on Mac Studio.
-
-### Tunnel details:
-- Tunnel command: `autossh -M 0 -N -R 127.0.0.1:19001:localhost:5001 root@209.38.71.231`
-- Forwarding: `droplet:localhost:19001` → `mac:localhost:5001`
-- Managed by: launchd service `app.funba.tunnel`
-- Plist location: `~/Library/LaunchAgents/app.funba.tunnel.plist`
-- Log: `logs/tunnel.log`
+The app runs under launchd as service `app.funba.web`, supervised by gunicorn (4 workers).
 
 ### Service management:
+
 ```bash
 # Check status
-launchctl list app.funba.tunnel
+launchctl list app.funba.web
 
-# Start / restart
-launchctl kickstart -k gui/$(id -u)/app.funba.tunnel
+# Start
+launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 
 # Stop
-launchctl stop app.funba.tunnel
+launchctl unload ~/Library/LaunchAgents/app.funba.web.plist
 
-# Re-enable after editing plist
-launchctl unload ~/Library/LaunchAgents/app.funba.tunnel.plist
-launchctl load ~/Library/LaunchAgents/app.funba.tunnel.plist
+# Restart
+launchctl unload ~/Library/LaunchAgents/app.funba.web.plist
+launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 ```
 
-The service starts automatically at user login (`RunAtLoad = true`, `KeepAlive = true`).
+### Logs:
+- Access log: `logs/web-app-5001.log`
+- Error log: `logs/web-app-5001-error.log`
+- Stdout: `logs/web-app-5001-stdout.log`
+- Stderr: `logs/web-app-5001-stderr.log`
 
-### If the tunnel drops:
-autossh will reconnect automatically. To force reconnect:
-```bash
-launchctl kickstart -k gui/$(id -u)/app.funba.tunnel
-```
+### Environment variables (set in plist):
+| Variable     | Value                                            |
+|--------------|--------------------------------------------------|
+| `NBA_DB_URL` | `mysql+pymysql://root@localhost/nba_data`        |
 
----
-
-## Mac Studio: Web App (Flask)
-
-### Running the app
-
-The app runs via a `screen` session managed manually.
-
-**Start (production mode):**
-```bash
-cd /Users/yuewang/Documents/github/funba
-screen -dmS funba_web zsh -lc "env FUNBA_WEB_PORT=5001 FUNBA_WEB_HOST=127.0.0.1 FUNBA_WEB_DEBUG=0 \
-  ./.venv/bin/python -m web.dev_server >> logs/web-app-5001.log 2>&1"
-```
-
-**Check if running:**
-```bash
-screen -ls | grep funba_web
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/
-```
-
-**Attach to session:**
-```bash
-screen -r funba_web
-```
-Detach: `Ctrl-A D`
-
-**Stop:**
-```bash
-screen -S funba_web -X quit
-```
-
-### Environment variables
-| Variable           | Default       | Description                  |
-|--------------------|---------------|------------------------------|
-| `FUNBA_WEB_PORT`   | `5000`        | Flask listen port (use 5001) |
-| `FUNBA_WEB_HOST`   | `127.0.0.1`   | Flask listen host            |
-| `FUNBA_WEB_DEBUG`  | (not set)     | Set `0` for production       |
-| `NBA_DB_URL`       | mysql+pymysql://root@localhost/nba_data | MySQL connection |
+To override, edit `~/Library/LaunchAgents/app.funba.web.plist` → `EnvironmentVariables`.
 
 Secrets (API keys, etc.) must NOT be committed to git. See `SECRETS.md` if it exists.
 
 ---
 
-## End-to-End Verification
+## Mac Studio: Cloudflare Tunnel
 
-### From Mac Studio:
+### Service management:
+
 ```bash
-# 1. Check Flask is up
-curl -s -o /dev/null -w "Flask: %{http_code}\n" http://localhost:5001/
+# Check status
+launchctl list app.funba.cloudflared
 
-# 2. Check tunnel is up
-launchctl list app.funba.tunnel | grep PID
+# Start
+launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
 
-# 3. Check droplet can reach Flask via tunnel
-ssh root@209.38.71.231 "curl -s -o /dev/null -w 'Tunnel: %{http_code}\n' http://127.0.0.1:19001/"
+# Stop
+launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist
+
+# Restart
+launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist
+launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
 ```
 
-### After DNS propagation:
+### Logs:
+- `logs/cloudflared-stdout.log`
+- `logs/cloudflared-stderr.log`
+
+---
+
+## End-to-End Verification
+
 ```bash
+# 1. Web app is up
+curl -s -o /dev/null -w "Flask: %{http_code}\n" http://localhost:5001/
+
+# 2. Tunnel is connected
+cloudflared tunnel info funba
+
+# 3. Public HTTPS
 curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 ```
 
@@ -162,44 +185,73 @@ curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 
 ## Startup Checklist (after Mac Studio reboot)
 
-1. MySQL service running: `brew services list | grep mysql`
-2. Flask app started: `screen -r funba_web` or start it (see above)
-3. SSH tunnel: `launchctl list app.funba.tunnel` — should show PID
-4. Test via droplet: `ssh root@209.38.71.231 "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19001/"`
+1. MySQL: `brew services list | grep mysql` — should show `started`
+2. Web app: `launchctl list app.funba.web` — should show PID
+3. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
+
+Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
+start automatically at login and restart on crash.
 
 ---
 
 ## Troubleshooting
 
-### Site returns 502 Bad Gateway
-Caddy is up but can't reach `localhost:19001` on the droplet. Tunnel is down.
-→ Reconnect: `launchctl kickstart -k gui/$(id -u)/app.funba.tunnel`
-→ Check Flask is running: `curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/`
+### Site returns 502 / 503
+```bash
+curl http://localhost:5001/                  # Is gunicorn up?
+launchctl list app.funba.web               # PID?
+launchctl list app.funba.cloudflared       # PID?
+```
+Restart whichever is down.
 
-### Site returns 503 / connection refused
-Flask app is down on Mac Studio.
-→ Restart Flask screen session (see above).
+### Tunnel disconnected
+```bash
+cloudflared tunnel info funba              # Check connections
+launchctl kickstart -k gui/$(id -u)/app.funba.cloudflared
+```
 
-### HTTPS cert errors
-Caddy handles Let's Encrypt automatically. If `funba.app` DNS doesn't point to droplet,
-cert issuance will fail. Verify A record at Porkbun.
-
-### Tunnel won't connect (key issues)
-SSH key used: `~/.ssh/id_ed25519`
-→ Verify: `ssh root@209.38.71.231 echo ok`
-→ If key changes, update `~/.ssh/known_hosts`: `ssh-keyscan -H 209.38.71.231 >> ~/.ssh/known_hosts`
+### cert.pem missing / tunnel login expired
+```bash
+cloudflared tunnel login                   # Re-auth in browser
+```
 
 ---
 
-## Future: Production Hardening
+## Rollback
 
-- Replace Flask dev server with **gunicorn**: `gunicorn -w 4 -b 127.0.0.1:5001 web.app:app`
-- Replace screen session with a launchd service for the web app
-- Consider Cloudflare Tunnel (Option B) as zero-ops alternative to autossh:
-  1. `brew install cloudflared`
-  2. `cloudflared tunnel login` (browser auth to Cloudflare account)
-  3. `cloudflared tunnel create funba`
-  4. Configure `~/.cloudflared/config.yml` with `url: http://localhost:5001`
-  5. Update `funba.app` DNS at Porkbun: ALIAS → `<tunnel-id>.cfargotunnel.com`
-  6. `cloudflared service install` (launchd auto-start)
-  7. Remove autossh plist + Caddy funba.app block from droplet
+If Cloudflare Tunnel needs to be disabled:
+1. `launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist`
+2. Re-add `funba.app` block to droplet Caddyfile (see Option A below)
+3. Re-load autossh: `launchctl load ~/Library/LaunchAgents/app.funba.tunnel.plist`
+4. Update DNS at Porkbun: `funba.app A 209.38.71.231`
+
+---
+
+## Option A: Reverse SSH Tunnel + Caddy (Fallback / Current interim)
+
+If Cloudflare Tunnel is not yet set up, the reverse SSH tunnel is in place as fallback:
+
+```
+User → funba.app (A record → 209.38.71.231)
+     → Caddy on droplet (TLS via Let's Encrypt)
+     → localhost:19001 on droplet
+     → autossh tunnel → localhost:5001 on Mac Studio
+```
+
+### Tunnel service:
+```bash
+launchctl list app.funba.tunnel
+launchctl kickstart -k gui/$(id -u)/app.funba.tunnel   # restart
+```
+
+### Caddy config on droplet:
+```
+funba.app {
+    reverse_proxy 127.0.0.1:19001
+}
+```
+
+### DNS for Option A:
+```
+funba.app   A   209.38.71.231   TTL 300
+```
