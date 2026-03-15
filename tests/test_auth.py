@@ -362,6 +362,32 @@ class TestRedirectSafety(unittest.TestCase):
         location = resp.headers.get("Location", "")
         self.assertFalse(location.startswith("https://evil"), f"Redirected to external URL: {location!r}")
 
+    def test_same_origin_absolute_url_normalized_to_path(self):
+        """Same-origin absolute URL (e.g. request.url) must round-trip to its local path."""
+        from web.app import _safe_redirect_url
+        with self.app.test_request_context("/", headers={"Host": "localhost"}):
+            result = _safe_redirect_url("http://localhost/players/123")
+        self.assertEqual(result, "/players/123")
+
+    def test_same_origin_absolute_url_with_query_normalized(self):
+        """Same-origin absolute URL with query string normalizes to path?query."""
+        from web.app import _safe_redirect_url
+        with self.app.test_request_context("/", headers={"Host": "localhost"}):
+            result = _safe_redirect_url("http://localhost/metrics?season=22025")
+        self.assertEqual(result, "/metrics?season=22025")
+
+    def test_auth_login_absolute_same_origin_next_stored_as_path(self):
+        """GET /auth/login?next=<absolute same-origin URL> must store the local path in session."""
+        with patch("web.app.oauth") as mock_oauth:
+            mock_oauth.google.authorize_redirect.return_value = MagicMock(
+                status_code=302, headers={"Location": "https://accounts.google.com/"}
+            )
+            self.client.get("/auth/login?next=http://localhost/players/456")
+
+        with self.client.session_transaction() as sess:
+            stored = sess.get("oauth_next", "")
+        self.assertEqual(stored, "/players/456", f"oauth_next should be path-only, got: {stored!r}")
+
 
 if __name__ == "__main__":
     unittest.main()

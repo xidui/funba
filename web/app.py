@@ -890,9 +890,31 @@ def inject_template_helpers():
 # ── Auth routes ──────────────────────────────────────────────────────────────
 
 def _safe_redirect_url(url: str | None) -> str:
-    """Return url only if it is a same-origin path; fall back to home."""
-    if url and url.startswith("/") and not url.startswith("//"):
-        return url
+    """Return a safe local redirect target; fall back to home.
+
+    Accepts:
+    - Local paths: /foo, /foo?q=1
+    - Same-origin absolute URLs: http://localhost:5001/foo — normalized to /foo
+
+    Rejects protocol-relative (//evil.com) and cross-origin URLs.
+    """
+    if not url:
+        return url_for("home")
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    # Path-only (no scheme, no netloc): must start with / and not be //
+    if not parsed.scheme and not parsed.netloc:
+        if parsed.path.startswith("/") and not url.startswith("//"):
+            return url
+        return url_for("home")
+    # Absolute URL: accept only same-origin (current request host)
+    if parsed.scheme in ("http", "https") and parsed.netloc == request.host:
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        if parsed.fragment:
+            path += "#" + parsed.fragment
+        return path
     return url_for("home")
 
 
