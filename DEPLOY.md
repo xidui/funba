@@ -1,5 +1,19 @@
 # Funba Deployment Runbook
 
+## Git Workflow (Required)
+
+After every commit, push to the private GitHub remote:
+
+```bash
+git push origin main
+```
+
+The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed — do not leave commits local-only.
+
+**History note:** Commit `9920d56` introduced a 2.98 GB SQL dump (`funba_nba_data_20260225_174416.sql`) that was subsequently removed in `d5e3dc0`. When the push backlog was first cleared (2026-03-15), `git filter-repo` was used to excise the blob from history before force-pushing. Future large data files (> 50 MB) must be gitignored and never committed.
+
+---
+
 ## Architecture Overview (Option B — Cloudflare Tunnel)
 
 ```
