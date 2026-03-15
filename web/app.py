@@ -11,15 +11,27 @@ logger = logging.getLogger(__name__)
 
 import uuid as _uuid_mod
 
-from flask import Flask, abort, after_this_request, jsonify, make_response, redirect, render_template, request, url_for
+from flask import Flask, abort, after_this_request, flash, get_flashed_messages, jsonify, make_response, redirect, render_template, request, session, url_for
+from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
+
+# ── Google OAuth ─────────────────────────────────────────────────────────────
+oauth = OAuth(app)
+oauth.register(
+    name="google",
+    client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+    client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
 
 # Real lat/lon for each NBA team (slight offsets for same-city pairs)
 _TEAM_MAP_POSITIONS: dict[str, tuple[float, float]] = {
@@ -854,13 +866,102 @@ def _track_page_view():
             return response
 
 
+def _current_user() -> User | None:
+    """Return the logged-in User object, or None if not authenticated."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    try:
+        with SessionLocal() as db:
+            return db.get(User, user_id)
+    except Exception:
+        return None
+
+
 @app.context_processor
 def inject_template_helpers():
     return {
         "season_label": _season_label,
         "is_admin": is_admin(),
+        "current_user": _current_user(),
     }
 
+
+# ── Auth routes ──────────────────────────────────────────────────────────────
+
+@app.route("/auth/login")
+def auth_login():
+    """Redirect to Google OAuth consent screen."""
+    next_url = request.args.get("next") or request.referrer or url_for("home")
+    session["oauth_next"] = next_url
+    callback = url_for("auth_callback", _external=True)
+    return oauth.google.authorize_redirect(callback)
+
+
+@app.route("/auth/callback")
+def auth_callback():
+    """Handle OAuth callback: create/update User, set session."""
+    from datetime import datetime
+    try:
+        token = oauth.google.authorize_access_token()
+        userinfo = token.get("userinfo") or oauth.google.userinfo()
+    except Exception:
+        flash("Sign-in failed. Please try again.", "error")
+        return redirect(url_for("home"))
+
+    google_id = userinfo.get("sub")
+    email = userinfo.get("email", "")
+    display_name = userinfo.get("name", email)
+    avatar_url = userinfo.get("picture")
+
+    if not google_id:
+        flash("Sign-in failed. Please try again.", "error")
+        return redirect(url_for("home"))
+
+    now = datetime.utcnow()
+    try:
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.google_id == google_id).first()
+            if user is None:
+                # Check for email conflict (different google_id, same email) — update
+                user = db.query(User).filter(User.email == email).first()
+            if user is None:
+                user = User(
+                    id=str(_uuid_mod.uuid4()),
+                    google_id=google_id,
+                    email=email,
+                    display_name=display_name,
+                    avatar_url=avatar_url,
+                    created_at=now,
+                    last_login_at=now,
+                )
+                db.add(user)
+            else:
+                user.google_id = google_id
+                user.email = email
+                user.display_name = display_name
+                user.avatar_url = avatar_url
+                user.last_login_at = now
+            db.commit()
+            db.refresh(user)
+            session["user_id"] = user.id
+    except Exception:
+        logger.exception("auth_callback: DB error")
+        flash("Sign-in failed. Please try again.", "error")
+        return redirect(url_for("home"))
+
+    next_url = session.pop("oauth_next", None) or url_for("home")
+    return redirect(next_url)
+
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    """Clear session and redirect to home."""
+    session.pop("user_id", None)
+    return redirect(url_for("home"))
+
+
+# ── Page routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def home():

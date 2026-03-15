@@ -494,6 +494,59 @@
         to   { opacity: 1; transform: translateY(0); }
       }
 
+      /* ── Flash banner ──────────────────────────────────────────── */
+      .flash-banner {
+        background: var(--surface-2);
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        padding: 10px 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--text);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .flash-banner button {
+        background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px;
+        line-height: 1; padding: 0 0 0 12px; flex-shrink: 0;
+      }
+
+      /* ── User menu ──────────────────────────────────────────────── */
+      .user-menu-wrap { position: relative; display: flex; align-items: center; }
+      .user-avatar {
+        width: 28px; height: 28px; border-radius: 50%;
+        border: 1.5px solid var(--border-2); cursor: pointer;
+        object-fit: cover; display: block;
+      }
+      .user-avatar-fallback {
+        width: 28px; height: 28px; border-radius: 50%;
+        background: var(--surface-3); border: 1.5px solid var(--border-2);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 700; color: var(--text); cursor: pointer;
+        user-select: none;
+      }
+      .user-menu-chevron {
+        color: var(--muted); margin-left: 3px; cursor: pointer;
+        display: flex; align-items: center;
+      }
+      .user-dropdown {
+        display: none; position: absolute; right: 0; top: calc(100% + 8px);
+        background: var(--surface-2); border: 1px solid var(--border-2);
+        border-radius: 10px; min-width: 200px; z-index: 200;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); overflow: hidden;
+      }
+      .user-dropdown.open { display: block; }
+      .user-dropdown-info { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+      .user-dropdown-name { font-weight: 600; font-size: 13px; color: var(--text); }
+      .user-dropdown-email { font-size: 11px; color: var(--muted); margin-top: 2px; }
+      .user-dropdown-action {
+        display: block; padding: 10px 14px; font-size: 13px; color: var(--text);
+        text-decoration: none; cursor: pointer; background: none; border: none;
+        width: 100%; text-align: left; font-family: inherit;
+      }
+      .user-dropdown-action:hover { background: var(--surface-3); text-decoration: none; }
+
       /* ── Responsive ─────────────────────────────────────────────── */
       @media (max-width: 860px) {
         .container { padding: 16px 14px; }
@@ -641,11 +694,55 @@
           <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>
           <span class="admin-badge" title="Admin mode (localhost)">&#9737;</span>
           {% endif %}
+          {% if current_user %}
+          <div class="user-menu-wrap" id="user-menu-wrap">
+            {% if current_user.avatar_url %}
+            <img
+              class="user-avatar"
+              id="user-avatar-btn"
+              src="{{ current_user.avatar_url }}"
+              alt="{{ current_user.display_name }}"
+              onerror="this.style.display='none';document.getElementById('user-avatar-fallback').style.display='flex';"
+            />
+            <div class="user-avatar-fallback" id="user-avatar-fallback" style="display:none;">
+              {{ current_user.display_name[0]|upper }}
+            </div>
+            {% else %}
+            <div class="user-avatar-fallback" id="user-avatar-btn">
+              {{ current_user.display_name[0]|upper }}
+            </div>
+            {% endif %}
+            <span class="user-menu-chevron">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3.5l3 3 3-3"/>
+              </svg>
+            </span>
+            <div class="user-dropdown" id="user-dropdown">
+              <div class="user-dropdown-info">
+                <div class="user-dropdown-name">{{ current_user.display_name }}</div>
+                <div class="user-dropdown-email">{{ current_user.email }}</div>
+              </div>
+              <form method="post" action="{{ url_for('auth_logout') }}" style="margin:0;">
+                <button type="submit" class="user-dropdown-action">Sign out</button>
+              </form>
+            </div>
+          </div>
+          {% else %}
+          <a href="{{ url_for('auth_login', next=request.url) }}" class="nav-link">Sign in</a>
+          {% endif %}
         </nav>
       </div>
     </header>
 
     <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash-banner" role="alert">
+          <span>{{ message }}</span>
+          <button type="button" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+        </div>
+        {% endfor %}
+      {% endwith %}
       {% block content %}{% endblock %}
     </main>
 
@@ -730,6 +827,20 @@
         document.addEventListener('click', e => {
           if (!input.contains(e.target) && !dropdown.contains(e.target))
             dropdown.classList.remove('open');
+        });
+      })();
+
+      // ── User menu dropdown ──────────────────────────────────────
+      (function () {
+        const wrap = document.getElementById('user-menu-wrap');
+        const menu = document.getElementById('user-dropdown');
+        if (!wrap || !menu) return;
+        wrap.addEventListener('click', function (e) {
+          e.stopPropagation();
+          menu.classList.toggle('open');
+        });
+        document.addEventListener('click', function (e) {
+          if (!wrap.contains(e.target)) menu.classList.remove('open');
         });
       })();
     </script>

@@ -282,6 +282,19 @@ class MetricJobClaim(Base):
     )
 
 
+class User(Base):
+    """Google OAuth user account."""
+    __tablename__ = 'User'
+
+    id = Column(String(36), primary_key=True)          # UUID, server-generated
+    google_id = Column(String(128), nullable=False, unique=True, index=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    display_name = Column(String(255), nullable=False)
+    avatar_url = Column(String(1024), nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    last_login_at = Column(DateTime, nullable=False)
+
+
 class PageView(Base):
     __tablename__ = 'PageView'
 

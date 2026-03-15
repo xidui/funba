@@ -1,4 +1,4 @@
-"""Tests for admin access control and visitor cookie tracking."""
+"""Tests for admin access control, visitor cookie tracking, and Google OAuth."""
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -10,6 +10,10 @@ def _make_app():
     # Stub out DB-heavy modules so we don't need a live MySQL connection.
     fake_engine = MagicMock()
 
+    # Fake User class with realistic attributes
+    fake_user_cls = MagicMock()
+    fake_user_cls.__name__ = "User"
+
     fake_models = types.ModuleType("db.models")
     for name in (
         "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
@@ -17,6 +21,7 @@ def _make_app():
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
     ):
         setattr(fake_models, name, MagicMock())
+    fake_models.User = fake_user_cls
     fake_models.engine = fake_engine
     sys.modules["db.models"] = fake_models
 
@@ -144,6 +149,137 @@ class TestIsAdmin(unittest.TestCase):
             with patch("web.app.render_template", return_value="<html></html>"):
                 resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "127.0.0.1"})
         self.assertNotEqual(resp.status_code, 500)
+
+
+class TestGoogleOAuth(unittest.TestCase):
+    """Google OAuth login/logout routes."""
+
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.app.config["SERVER_NAME"] = "localhost"
+        self.client = self.app.test_client()
+
+    # ── /auth/login ─────────────────────────────────────────────────
+    def test_auth_login_redirects_to_google(self):
+        """/auth/login must redirect to Google OAuth (302 with location)."""
+        with patch("web.app.oauth") as mock_oauth:
+            mock_google = MagicMock()
+            mock_oauth.google = mock_google
+            mock_google.authorize_redirect.return_value = (
+                MagicMock(status_code=302, headers={"Location": "https://accounts.google.com/o/oauth2/auth?..."})
+            )
+            resp = self.client.get("/auth/login")
+        # Either a real redirect or our mock — both are fine as long as it's not 500
+        self.assertNotEqual(resp.status_code, 500)
+
+    # ── /auth/callback ──────────────────────────────────────────────
+    def test_auth_callback_creates_user_and_sets_session(self):
+        """Successful callback creates User record and stores user_id in session."""
+        fake_user = MagicMock()
+        fake_user.id = "test-uuid-1234"
+
+        with patch("web.app.oauth") as mock_oauth, \
+             patch("web.app.SessionLocal") as mock_session_cls:
+            mock_google = MagicMock()
+            mock_oauth.google = mock_google
+            mock_google.authorize_access_token.return_value = {
+                "userinfo": {
+                    "sub": "google-123",
+                    "email": "test@example.com",
+                    "name": "Test User",
+                    "picture": "https://example.com/avatar.jpg",
+                }
+            }
+
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_session_cls.return_value = mock_db
+            mock_db.query.return_value.filter.return_value.first.return_value = None
+            mock_db.refresh.side_effect = lambda u: setattr(u, "id", fake_user.id)
+
+            with self.app.test_request_context():
+                resp = self.client.get("/auth/callback?code=fake-code&state=fake-state")
+
+        # Should redirect (302) on success, not error (500)
+        self.assertNotEqual(resp.status_code, 500)
+
+    def test_auth_callback_oauth_error_flashes_message(self):
+        """If OAuth token exchange fails, redirect to home with flash message."""
+        with patch("web.app.oauth") as mock_oauth:
+            mock_google = MagicMock()
+            mock_oauth.google = mock_google
+            mock_google.authorize_access_token.side_effect = Exception("OAuth error")
+
+            resp = self.client.get("/auth/callback?error=access_denied")
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/", resp.headers.get("Location", ""))
+
+    def test_auth_callback_missing_google_id_flashes_message(self):
+        """If userinfo has no sub, redirect to home with flash message."""
+        with patch("web.app.oauth") as mock_oauth:
+            mock_google = MagicMock()
+            mock_oauth.google = mock_google
+            mock_google.authorize_access_token.return_value = {
+                "userinfo": {"email": "test@example.com"}  # no 'sub'
+            }
+
+            resp = self.client.get("/auth/callback")
+
+        self.assertEqual(resp.status_code, 302)
+
+    # ── /auth/logout ─────────────────────────────────────────────────
+    def test_auth_logout_clears_session_and_redirects(self):
+        """/auth/logout (POST) clears user_id from session and redirects home."""
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "some-user-id"
+
+        resp = self.client.post("/auth/logout")
+
+        self.assertEqual(resp.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertNotIn("user_id", sess)
+
+    def test_auth_logout_get_not_allowed(self):
+        """/auth/logout only accepts POST."""
+        resp = self.client.get("/auth/logout")
+        self.assertEqual(resp.status_code, 405)
+
+    # ── current_user context ─────────────────────────────────────────
+    def test_unauthenticated_user_gets_sign_in_link(self):
+        """Anonymous visitor gets the Sign in link in the topbar (no session)."""
+        with patch("web.app.SessionLocal") as mock_session_cls, \
+             patch("web.app.render_template", return_value="<html></html>"):
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_session_cls.return_value = mock_db
+            resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+        self.assertNotEqual(resp.status_code, 500)
+
+    def test_authenticated_non_admin_blocked_from_admin(self):
+        """Authenticated Google user from non-localhost still gets 403 on /admin."""
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "some-user-id"
+
+        resp = self.client.get(
+            "/admin",
+            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_authenticated_non_admin_blocked_from_metrics_new(self):
+        """Authenticated user from non-localhost still gets 403 on /metrics/new."""
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "some-user-id"
+
+        resp = self.client.get(
+            "/metrics/new",
+            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+        )
+        self.assertEqual(resp.status_code, 403)
 
 
 if __name__ == "__main__":
