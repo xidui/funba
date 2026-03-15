@@ -282,5 +282,86 @@ class TestGoogleOAuth(unittest.TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class TestRedirectSafety(unittest.TestCase):
+    """_safe_redirect_url must reject off-site URLs and allow local paths."""
+
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def _safe(self, url):
+        from web.app import _safe_redirect_url
+        with self.app.test_request_context("/"):
+            return _safe_redirect_url(url)
+
+    def test_relative_path_allowed(self):
+        self.assertEqual(self._safe("/players/123"), "/players/123")
+
+    def test_root_path_allowed(self):
+        self.assertEqual(self._safe("/"), "/")
+
+    def test_external_http_blocked(self):
+        result = self._safe("http://evil.example.com/steal")
+        self.assertFalse(result.startswith("http://evil"))
+
+    def test_external_https_blocked(self):
+        result = self._safe("https://evil.example.com")
+        self.assertFalse(result.startswith("https://evil"))
+
+    def test_protocol_relative_blocked(self):
+        """//evil.example.com must be blocked (protocol-relative open redirect)."""
+        result = self._safe("//evil.example.com")
+        self.assertFalse(result.startswith("//"))
+
+    def test_none_falls_back_to_home(self):
+        result = self._safe(None)
+        self.assertEqual(result, "/")
+
+    def test_auth_login_external_next_does_not_redirect_offsite(self):
+        """GET /auth/login?next=https://evil.example must not redirect to evil after OAuth."""
+        with patch("web.app.oauth") as mock_oauth:
+            mock_oauth.google.authorize_redirect.return_value = MagicMock(
+                status_code=302, headers={"Location": "https://accounts.google.com/"}
+            )
+            self.client.get("/auth/login?next=https://evil.example.com/steal")
+
+        # The stored oauth_next must be the safe fallback, not the external URL
+        with self.client.session_transaction() as sess:
+            stored = sess.get("oauth_next", "")
+        self.assertFalse(stored.startswith("https://evil"), f"oauth_next was unsafe: {stored!r}")
+
+    def test_auth_callback_external_next_does_not_redirect_offsite(self):
+        """After OAuth, an external oauth_next in session must redirect home, not offsite."""
+        fake_user = MagicMock()
+        fake_user.id = "uid-999"
+
+        with patch("web.app.oauth") as mock_oauth, \
+             patch("web.app.SessionLocal") as mock_session_cls:
+            mock_oauth.google.authorize_access_token.return_value = {
+                "userinfo": {
+                    "sub": "gid-999",
+                    "email": "x@x.com",
+                    "name": "X",
+                    "picture": None,
+                }
+            }
+            mock_db = MagicMock()
+            mock_db.__enter__ = MagicMock(return_value=mock_db)
+            mock_db.__exit__ = MagicMock(return_value=False)
+            mock_session_cls.return_value = mock_db
+            mock_db.query.return_value.filter.return_value.first.return_value = None
+            mock_db.refresh.side_effect = lambda u: setattr(u, "id", fake_user.id)
+
+            # Inject a malicious oauth_next into the session before callback fires
+            with self.client.session_transaction() as sess:
+                sess["oauth_next"] = "https://evil.example.com/steal"
+
+            resp = self.client.get("/auth/callback?code=c&state=s")
+
+        location = resp.headers.get("Location", "")
+        self.assertFalse(location.startswith("https://evil"), f"Redirected to external URL: {location!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

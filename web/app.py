@@ -889,10 +889,17 @@ def inject_template_helpers():
 
 # ── Auth routes ──────────────────────────────────────────────────────────────
 
+def _safe_redirect_url(url: str | None) -> str:
+    """Return url only if it is a same-origin path; fall back to home."""
+    if url and url.startswith("/") and not url.startswith("//"):
+        return url
+    return url_for("home")
+
+
 @app.route("/auth/login")
 def auth_login():
     """Redirect to Google OAuth consent screen."""
-    next_url = request.args.get("next") or request.referrer or url_for("home")
+    next_url = _safe_redirect_url(request.args.get("next") or request.referrer)
     session["oauth_next"] = next_url
     callback = url_for("auth_callback", _external=True)
     return oauth.google.authorize_redirect(callback)
@@ -950,7 +957,7 @@ def auth_callback():
         flash("Sign-in failed. Please try again.", "error")
         return redirect(url_for("home"))
 
-    next_url = session.pop("oauth_next", None) or url_for("home")
+    next_url = _safe_redirect_url(session.pop("oauth_next", None))
     return redirect(next_url)
 
 

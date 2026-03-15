@@ -1,6 +1,6 @@
 """add_user_table
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c7d8e9f0a1b2
 Revises: f4a5b6c7d8e9
 Create Date: 2026-03-15
 
@@ -10,7 +10,7 @@ from typing import Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = 'a1b2c3d4e5f6'
+revision: str = 'c7d8e9f0a1b2'
 down_revision: Union[str, None] = 'f4a5b6c7d8e9'
 branch_labels = None
 depends_on = None
