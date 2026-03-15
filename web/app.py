@@ -921,6 +921,9 @@ def _safe_redirect_url(url: str | None) -> str:
 @app.route("/auth/login")
 def auth_login():
     """Redirect to Google OAuth consent screen."""
+    if not os.environ.get("GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID", "").startswith("REPLACE_"):
+        flash("Sign-in is not configured on this server.", "error")
+        return redirect(url_for("home"))
     next_url = _safe_redirect_url(request.args.get("next") or request.referrer)
     session["oauth_next"] = next_url
     callback = url_for("auth_callback", _external=True)

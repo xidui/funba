@@ -378,7 +378,7 @@ class TestRedirectSafety(unittest.TestCase):
 
     def test_auth_login_absolute_same_origin_next_stored_as_path(self):
         """GET /auth/login?next=<absolute same-origin URL> must store the local path in session."""
-        with patch("web.app.oauth") as mock_oauth:
+        with patch("web.app.oauth") as mock_oauth, patch.dict("os.environ", {"GOOGLE_CLIENT_ID": "test-client-id"}):
             mock_oauth.google.authorize_redirect.return_value = MagicMock(
                 status_code=302, headers={"Location": "https://accounts.google.com/"}
             )
