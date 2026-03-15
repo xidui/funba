@@ -11,3 +11,6 @@ __pycache__/
 # Runtime logs / pid files
 logs/*.log
 logs/*.pid
+
+# MySQL backups (daily dumps, 7-day retention)
+backups/

@@ -142,11 +142,52 @@ curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 
 ---
 
+## Mac Studio: MySQL Backup (daily, launchd)
+
+The backup job runs daily at 02:00 via launchd service `app.funba.backup`.
+- Script: `db/backup_mysql.sh`
+- Output: `backups/nba_data_YYYYMMDD_HHMMSS.sql.gz` (gitignored)
+- Retention: 7 days (older files auto-pruned by the script)
+- Logs: `logs/backup_mysql.log`, `logs/backup-stdout.log`, `logs/backup-stderr.log`
+
+### Install (first time):
+
+```bash
+cp ~/Documents/github/funba/app.funba.backup.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/app.funba.backup.plist
+```
+
+### Service management:
+
+```bash
+# Check status
+launchctl list app.funba.backup
+
+# Run immediately (manual backup)
+launchctl kickstart gui/$(id -u)/app.funba.backup
+
+# Stop / disable
+launchctl unload ~/Library/LaunchAgents/app.funba.backup.plist
+
+# Re-enable
+launchctl load ~/Library/LaunchAgents/app.funba.backup.plist
+```
+
+### Manual backup:
+
+```bash
+bash ~/Documents/github/funba/db/backup_mysql.sh
+ls -lh ~/Documents/github/funba/backups/
+```
+
+---
+
 ## Startup Checklist (after Mac Studio reboot)
 
 1. MySQL: `brew services list | grep mysql` — should show `started`
 2. Web app: `launchctl list app.funba.web` — should show PID
 3. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
+4. Backup job: `launchctl list app.funba.backup` — should show a PID or exit code 0
 
 Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
 start automatically at login and restart on crash.
