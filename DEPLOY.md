@@ -125,13 +125,18 @@ launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
 ## End-to-End Verification
 
 ```bash
-# 1. Web app is up
+# 1. Confirm gunicorn (not dev_server) owns port 5001
+lsof -nP -iTCP:5001 -sTCP:LISTEN
+# Expected: COMMAND=Python, PID=<gunicorn master>, LISTEN on 127.0.0.1:5001
+# Verify process: ps -p <PID> -o args= | grep gunicorn
+
+# 2. Web app is up
 curl -s -o /dev/null -w "Flask: %{http_code}\n" http://localhost:5001/
 
-# 2. Tunnel is connected
+# 3. Tunnel is connected
 cloudflared tunnel info funba
 
-# 3. Public HTTPS
+# 4. Public HTTPS
 curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 ```
 
@@ -152,11 +157,16 @@ start automatically at login and restart on crash.
 
 ### Site returns 502 / 503
 ```bash
+lsof -nP -iTCP:5001 -sTCP:LISTEN          # What's on port 5001?
 curl http://localhost:5001/                  # Is gunicorn up?
 launchctl list app.funba.web               # PID?
 launchctl list app.funba.cloudflared       # PID?
 ```
-Restart whichever is down.
+If a stale process (dev_server, web.app) is holding port 5001, kill it and kickstart gunicorn:
+```bash
+kill <stale-pid>
+launchctl kickstart -k gui/$(id -u)/app.funba.web
+```
 
 ### Tunnel disconnected
 ```bash
