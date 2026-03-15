@@ -700,7 +700,11 @@
   <div id="shot-tooltip"></div>
 
   {% else %}
+  {% if is_admin %}
   <p id="shot-fetch-status" class="meta" style="font-weight:600;">Fetching shot chart from NBA API…</p>
+  {% else %}
+  <p class="meta" style="color:var(--muted);">No shot data available for this game.</p>
+  {% endif %}
   {% endif %}
 </div>
 

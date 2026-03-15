@@ -9,11 +9,13 @@ from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+import uuid as _uuid_mod
+
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, url_for
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
+from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -768,10 +770,78 @@ def _build_shot_zone_heatmap(
     return zones, attempts_total, made_total
 
 
+def is_admin() -> bool:
+    """True if the request originates from localhost (127.0.0.1 or ::1)."""
+    return request.remote_addr in ("127.0.0.1", "::1")
+
+
+def _require_admin_json():
+    """Return a 403 JSON response if the caller is not admin, else None."""
+    if not is_admin():
+        return jsonify({"error": "admin_only"}), 403
+    return None
+
+
+def _require_admin_page():
+    """Render a 403 page if the caller is not admin, else None."""
+    if not is_admin():
+        return render_template("403.html"), 403
+    return None
+
+
+_VISITOR_COOKIE = "funba_visitor"
+_VISITOR_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year in seconds
+
+
+@app.before_request
+def _track_page_view():
+    """Log each page load and ensure the visitor cookie is set."""
+    # Only track GET requests for HTML pages (skip API, static, etc.)
+    if request.method != "GET":
+        return
+    if request.path.startswith("/api/") or request.path.startswith("/static/"):
+        return
+
+    visitor_id = request.cookies.get(_VISITOR_COOKIE)
+    new_visitor = visitor_id is None
+    if new_visitor:
+        visitor_id = str(_uuid_mod.uuid4())
+
+    from datetime import datetime
+    pv = PageView(
+        visitor_id=visitor_id,
+        path=request.path,
+        referrer=(request.referrer or "")[:1000],
+        user_agent=(request.user_agent.string or "")[:500],
+        ip_address=request.remote_addr,
+        created_at=datetime.utcnow(),
+    )
+    try:
+        with SessionLocal() as session:
+            session.add(pv)
+            session.commit()
+    except Exception:
+        logger.exception("page view tracking failed")
+
+    if new_visitor:
+        # Attach cookie to the response after this request completes
+        @app.after_this_request
+        def _set_cookie(response):
+            response.set_cookie(
+                _VISITOR_COOKIE,
+                visitor_id,
+                max_age=_VISITOR_COOKIE_MAX_AGE,
+                httponly=True,
+                samesite="Lax",
+            )
+            return response
+
+
 @app.context_processor
 def inject_template_helpers():
     return {
         "season_label": _season_label,
+        "is_admin": is_admin(),
     }
 
 
@@ -1532,6 +1602,9 @@ def metrics_browse():
 
 @app.route("/metrics/new")
 def metric_new():
+    denied = _require_admin_page()
+    if denied:
+        return denied
     current_season = _pick_current_season(
         [r[0] for r in SessionLocal().query(Game.season).distinct().all()]
     )
@@ -1591,6 +1664,9 @@ def api_metric_search():
 
 @app.post("/api/metrics/generate")
 def api_metric_generate():
+    denied = _require_admin_json()
+    if denied:
+        return denied
     from metrics.framework.generator import generate
     body = request.get_json(force=True)
     expression = (body or {}).get("expression", "").strip()
@@ -1644,6 +1720,9 @@ def api_metric_preview():
 
 @app.post("/api/metrics")
 def api_metric_create():
+    denied = _require_admin_json()
+    if denied:
+        return denied
     import json as _json
     from datetime import datetime
     from metrics.framework.registry import get as _get_builtin_metric
@@ -1685,6 +1764,9 @@ def api_metric_create():
 
 @app.post("/api/metrics/<metric_key>/publish")
 def api_metric_publish(metric_key: str):
+    denied = _require_admin_json()
+    if denied:
+        return denied
     from datetime import datetime
     from tasks.ingest import enqueue_metric_backfill
 
@@ -1970,6 +2052,9 @@ _ADMIN_CACHE_TTL = 30  # seconds
 
 @app.get("/admin")
 def admin_pipeline():
+    denied = _require_admin_page()
+    if denied:
+        return denied
     from datetime import datetime, timedelta
 
     with SessionLocal() as session:
@@ -2095,6 +2180,21 @@ def admin_pipeline():
         )
         recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
 
+        # --- Visitor stats ---
+        now_dt = datetime.utcnow()
+        cutoff_24h = now_dt - timedelta(hours=24)
+        cutoff_7d  = now_dt - timedelta(days=7)
+        cutoff_30d = now_dt - timedelta(days=30)
+
+        visitor_stats = {
+            "views_24h":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
+            "views_7d":     session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
+            "views_30d":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
+            "unique_24h":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
+            "unique_7d":    session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
+            "unique_30d":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
+        }
+
     return render_template(
         "admin.html",
         coverage=coverage,
@@ -2105,12 +2205,16 @@ def admin_pipeline():
         missing_shot=missing_shot,
         missing_metrics=missing_metrics,
         recent=recent,
+        visitor_stats=visitor_stats,
     )
 
 
 @app.post("/admin/backfill/<season>")
 def admin_backfill(season: str):
     """Discover + insert any missing games from NBA API, then enqueue ingest for the season."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
     from tasks.ingest import ingest_game
     from tasks.celery_app import app as celery_app
     from tasks.dispatch import discover_and_insert_games
@@ -2143,6 +2247,9 @@ def admin_backfill(season: str):
 
 @app.post("/games/<game_id>/shotchart/backfill")
 def game_shotchart_backfill(game_id: str):
+    denied = _require_admin_page()
+    if denied:
+        return denied
     with SessionLocal() as session:
         game = session.query(Game).filter(Game.game_id == game_id).first()
         if game is None:
@@ -2159,6 +2266,9 @@ def game_shotchart_backfill(game_id: str):
 
 @app.post("/api/games/<game_id>/shotchart/backfill")
 def game_shotchart_backfill_api(game_id: str):
+    denied = _require_admin_json()
+    if denied:
+        return denied
     with SessionLocal() as session:
         game = session.query(Game).filter(Game.game_id == game_id).first()
         if game is None:

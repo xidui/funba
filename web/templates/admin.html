@@ -102,6 +102,37 @@
 
 <h1 style="margin-bottom:1.25rem">Pipeline Status</h1>
 
+<!-- ── Visitor Stats ──────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:18px;">
+  <h2 style="margin-bottom:14px;">Visitor Stats</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.views_24h }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Views 24h</div>
+    </div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.unique_24h }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Unique 24h</div>
+    </div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.views_7d }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Views 7d</div>
+    </div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.unique_7d }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Unique 7d</div>
+    </div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.views_30d }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Views 30d</div>
+    </div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;">
+      <div style="font-family:'Outfit',sans-serif;font-size:1.6rem;font-weight:700;color:#fff;">{{ visitor_stats.unique_30d }}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-top:4px;">Unique 30d</div>
+    </div>
+  </div>
+</div>
+
 <div class="admin-grid">
 
   <!-- Coverage -->

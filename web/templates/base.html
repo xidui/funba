@@ -186,6 +186,15 @@
       }
       .nav-link.active { color: var(--accent); }
 
+      .admin-badge {
+        font-size: 12px;
+        color: var(--accent);
+        opacity: 0.7;
+        margin-left: 2px;
+        cursor: default;
+        user-select: none;
+      }
+
       /* ── Layout ─────────────────────────────────────────────────── */
       .container {
         max-width: 1300px;
@@ -628,7 +637,10 @@
           <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if request.endpoint == 'home' }}">Home</a>
           <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if request.endpoint == 'games_list' }}">Games</a>
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}">Metrics</a>
+          {% if is_admin %}
           <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>
+          <span class="admin-badge" title="Admin mode (localhost)">&#9737;</span>
+          {% endif %}
         </nav>
       </div>
     </header>

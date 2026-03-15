@@ -282,6 +282,23 @@ class MetricJobClaim(Base):
     )
 
 
+class PageView(Base):
+    __tablename__ = 'PageView'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    visitor_id = Column(String(36), nullable=False, index=True)  # UUID from cookie
+    path = Column(String(500), nullable=False)
+    referrer = Column(String(1000), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)   # supports IPv6
+    created_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_PageView_created_at', 'created_at'),
+        Index('ix_PageView_visitor_id_created_at', 'visitor_id', 'created_at'),
+    )
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

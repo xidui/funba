@@ -211,7 +211,9 @@
       <a href="{{ url_for('metrics_browse', scope='team') }}" class="filter-chip{% if scope_filter == 'team' %} active{% endif %}">Team</a>
       <a href="{{ url_for('metrics_browse', scope='game') }}" class="filter-chip{% if scope_filter == 'game' %} active{% endif %}">Game</a>
     </div>
+    {% if is_admin %}
     <a href="{{ url_for('metric_new') }}" style="padding:7px 16px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700;text-decoration:none;">+ New Metric</a>
+    {% endif %}
   </div>
 </div>
 
@@ -220,7 +222,7 @@
   <div class="search-row">
     <input id="metric-search-input" class="search-input" type="text" value="{{ search_query or '' }}" placeholder="e.g. highest scoring games by a player, clutch shooting, bench scoring" />
     <button id="metric-search-btn" class="search-btn">Find Metrics</button>
-    <a id="metric-create-cta-inline" class="create-cta" href="{{ url_for('metric_new') }}">Create Metric</a>
+    {% if is_admin %}<a id="metric-create-cta-inline" class="create-cta" href="{{ url_for('metric_new') }}">Create Metric</a>{% endif %}
   </div>
   <div id="metric-search-status" class="search-status">Use plain English. If nothing fits, create a new metric from the same query.</div>
 </div>
@@ -231,7 +233,7 @@
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Best matches</div>
       <div id="metric-search-subtitle" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
     </div>
-    <a id="metric-create-cta" class="create-cta" href="{{ url_for('metric_new') }}">Create this metric</a>
+    {% if is_admin %}<a id="metric-create-cta" class="create-cta" href="{{ url_for('metric_new') }}">Create this metric</a>{% endif %}
   </div>
   <div id="metric-search-cards" class="metrics-catalog"></div>
 </div>
