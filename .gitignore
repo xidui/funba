@@ -13,4 +13,6 @@ logs/*.log
 logs/*.pid
 
 # MySQL backups (daily dumps, 7-day retention)
+# backups is a symlink -> ~/Library/Application Support/funba/backups/ (see db/install_backup_agent.sh)
+backups
 backups/

@@ -2,15 +2,40 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+  IMPORTANT: Do not load this file directly with launchctl.
+  Run db/install_backup_agent.sh instead — it installs the script to
+  ~/Library/Scripts/funba/ (required to bypass macOS TCC restrictions
+  that prevent launchd from reading files in ~/Documents) and creates
+  the correct plist at ~/Library/LaunchAgents/.
+-->
 <dict>
     <key>Label</key>
     <string>app.funba.backup</string>
 
+    <!--
+      Script is installed to ~/Library/Scripts/funba/ by install_backup_agent.sh.
+      launchd cannot read shell scripts from ~/Documents due to macOS TCC; the
+      Library location is not subject to that restriction.
+    -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/yuewang/Documents/github/funba/db/backup_mysql.sh</string>
+        <string>/Users/yuewang/Library/Scripts/funba/backup_mysql.sh</string>
     </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Include Homebrew bin so mysqldump is found -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- Backups go under the funba project (gitignored) -->
+        <key>BACKUP_DIR</key>
+        <string>/Users/yuewang/Documents/github/funba/backups</string>
+        <!-- Logs go to ~/Library/Logs to avoid TCC issues with tee -a -->
+        <key>LOG_DIR</key>
+        <string>/Users/yuewang/Library/Logs/funba</string>
+    </dict>
 
     <!-- Run daily at 02:00 local time -->
     <key>StartCalendarInterval</key>
@@ -22,10 +47,10 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/yuewang/Documents/github/funba/logs/backup-stdout.log</string>
+    <string>/Users/yuewang/Library/Logs/funba/backup-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/yuewang/Documents/github/funba/logs/backup-stderr.log</string>
+    <string>/Users/yuewang/Library/Logs/funba/backup-stderr.log</string>
 
     <!-- Run missed jobs when machine wakes if schedule was skipped -->
     <key>RunAtLoad</key>

@@ -145,17 +145,36 @@ curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 ## Mac Studio: MySQL Backup (daily, launchd)
 
 The backup job runs daily at 02:00 via launchd service `app.funba.backup`.
-- Script: `db/backup_mysql.sh`
-- Output: `backups/nba_data_YYYYMMDD_HHMMSS.sql.gz` (gitignored)
-- Retention: 7 days (older files auto-pruned by the script)
-- Logs: `logs/backup_mysql.log`, `logs/backup-stdout.log`, `logs/backup-stderr.log`
+- Script: `db/backup_mysql.sh` (installed to `~/Library/Scripts/funba/` — see below)
+- Output: `backups/nba_data_YYYYMMDD_HHMMSS.sql.gz` (gitignored symlink → `~/Library/Application Support/funba/backups/`)
+- Retention: 7 days (auto-pruned by the script)
+- Logs: `~/Library/Logs/funba/` (backup-stdout.log, backup-stderr.log, backup_mysql.log)
 
-### Install (first time):
+### macOS TCC note
+
+On macOS Ventura+, launchd agents cannot read shell script files or list directories
+in `~/Documents` without Full Disk Access (TCC restriction). Two paths are used to
+work around this:
+
+| Asset | Path | Why |
+|---|---|---|
+| Backup script | `~/Library/Scripts/funba/backup_mysql.sh` | Library paths are TCC-free; launchd can read and exec here |
+| Backup files | `~/Library/Application Support/funba/backups/` | TCC-free; launchd can list for retention pruning |
+| Project symlink | `funba/backups -> ~/Library/Application Support/funba/backups/` | Makes backups visible under the project dir |
+| Logs | `~/Library/Logs/funba/` | TCC-free |
+
+### Install / update (first time and after any change to backup_mysql.sh):
 
 ```bash
-cp ~/Documents/github/funba/app.funba.backup.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/app.funba.backup.plist
+bash ~/Documents/github/funba/db/install_backup_agent.sh
 ```
+
+This script:
+1. Copies `db/backup_mysql.sh` → `~/Library/Scripts/funba/backup_mysql.sh`
+2. Creates/migrates `~/Library/Application Support/funba/backups/`
+3. Creates the `funba/backups` symlink
+4. Writes the plist to `~/Library/LaunchAgents/app.funba.backup.plist`
+5. Reloads the launchd job
 
 ### Service management:
 
@@ -173,6 +192,24 @@ launchctl unload ~/Library/LaunchAgents/app.funba.backup.plist
 launchctl load ~/Library/LaunchAgents/app.funba.backup.plist
 ```
 
+### Verify a successful backup run:
+
+```bash
+# Wait a few minutes after kickstart, then:
+tail -20 ~/Library/Logs/funba/backup-stdout.log
+# Expected last lines:
+#   Backup complete: .../nba_data_YYYYMMDD_HHMMSS.sql.gz (NNNm)
+#   Pruning backups older than 7 days...
+#   Pruned N old backup(s)
+#   === Backup finished ===
+
+launchctl list app.funba.backup
+# Expected: "LastExitStatus" = 0
+
+ls -lh ~/Documents/github/funba/backups/
+# Expected: symlink shows backup files
+```
+
 ### Manual backup:
 
 ```bash
@@ -187,7 +224,7 @@ ls -lh ~/Documents/github/funba/backups/
 1. MySQL: `brew services list | grep mysql` — should show `started`
 2. Web app: `launchctl list app.funba.web` — should show PID
 3. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
-4. Backup job: `launchctl list app.funba.backup` — should show a PID or exit code 0
+4. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
 
 Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
 start automatically at login and restart on crash.
