@@ -24,84 +24,38 @@ droplet continues to serve `*.babyrasier.com` but is removed from the `funba.app
 
 ---
 
-## Initial Setup (one-time, interactive — requires your terminal)
+## Initial Setup (completed — for reference / disaster recovery)
 
-These steps require a browser and your Cloudflare account. Run them once on Mac Studio:
+Setup was completed on 2026-03-15. Credentials live in `~/.cloudflared/`:
+- `cert.pem` — Cloudflare origin cert (re-run `cloudflared tunnel login` if expired)
+- `d9c59fa5-f7e1-43a3-ae8e-7e66618275a3.json` — tunnel credentials
+- `config.yml` — tunnel config (hostname + ingress rules)
 
-### Step 1 — Login to Cloudflare
+**To redo from scratch** (e.g. after re-imaging Mac Studio):
 
 ```bash
+# 1 — Login (browser opens, authorize funba.app on Cloudflare)
 cloudflared tunnel login
-```
 
-This opens a browser. Authorize the domain `funba.app` on your Cloudflare account.
-On success, `~/.cloudflared/cert.pem` is created.
-
-### Step 2 — Create the named tunnel
-
-```bash
+# 2 — Recreate tunnel
 cloudflared tunnel create funba
-```
 
-Note the Tunnel ID printed (UUID format, e.g. `a1b2c3d4-...`). Then:
+# 3 — Update ~/.cloudflared/config.yml with new tunnel ID + credentials path
 
-```bash
-# Edit config to add tunnel ID and credentials file
-nano ~/.cloudflared/config.yml
-```
-
-Uncomment and fill in these two lines:
-```yaml
-tunnel: <TUNNEL_ID>
-credentials-file: /Users/yuewang/.cloudflared/<TUNNEL_ID>.json
-```
-
-### Step 3 — Configure DNS (via Cloudflare)
-
-```bash
+# 4 — Route DNS
 cloudflared tunnel route dns funba funba.app
-```
 
-This creates a CNAME at Cloudflare: `funba.app → <TUNNEL_ID>.cfargotunnel.com`.
-Make sure `funba.app` is managed by Cloudflare (nameservers pointing to Cloudflare).
-
-If Porkbun still manages DNS, either:
-- Transfer nameservers to Cloudflare (recommended), or
-- Manually add CNAME `funba.app → <TUNNEL_ID>.cfargotunnel.com` in Porkbun (disable proxy in Porkbun, Cloudflare handles TLS on its edge)
-
-### Step 4 — Start cloudflared as a service
-
-```bash
+# 5 — Start service
 launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
-```
-
-### Step 5 — Verify
-
-```bash
-# Check tunnel is connected
-cloudflared tunnel info funba
-
-# Check app is reachable via tunnel
-curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 ```
 
 ---
 
-## Droplet: Remove funba.app from Caddy (after tunnel is live)
+## Droplet: funba.app removed from Caddy (done 2026-03-15)
 
-Once Cloudflare Tunnel is active, remove the funba.app block from the droplet:
-
-```bash
-ssh root@209.38.71.231
-# Edit /etc/caddy/Caddyfile — remove the funba.app { ... } block
-caddy reload --config /etc/caddy/Caddyfile
-```
-
-Also stop and disable the autossh tunnel on Mac Studio:
-
-```bash
-launchctl unload ~/Library/LaunchAgents/app.funba.tunnel.plist
-```
+The `funba.app` block was removed from `/etc/caddy/Caddyfile` on the droplet and Caddy
+was reloaded. The autossh tunnel was disabled: `launchctl unload app.funba.tunnel.plist`.
+The droplet now only serves `*.babyrasier.com`.
 
 ---
 
@@ -227,9 +181,10 @@ If Cloudflare Tunnel needs to be disabled:
 
 ---
 
-## Option A: Reverse SSH Tunnel + Caddy (Fallback / Current interim)
+## Option A: Reverse SSH Tunnel + Caddy (Retired — kept for rollback reference)
 
-If Cloudflare Tunnel is not yet set up, the reverse SSH tunnel is in place as fallback:
+The autossh tunnel and Caddy `funba.app` block were disabled on 2026-03-15 after
+Cloudflare Tunnel went live. To re-enable:
 
 ```
 User → funba.app (A record → 209.38.71.231)
