@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 import uuid as _uuid_mod
 
-from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, url_for
+from flask import Flask, abort, after_this_request, jsonify, make_response, redirect, render_template, request, url_for
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
@@ -771,8 +771,25 @@ def _build_shot_zone_heatmap(
 
 
 def is_admin() -> bool:
-    """True if the request originates from localhost (127.0.0.1 or ::1)."""
-    return request.remote_addr in ("127.0.0.1", "::1")
+    """True if the request originates directly from localhost (not via Cloudflare tunnel).
+
+    In the Cloudflare Tunnel deployment, cloudflared connects to gunicorn from
+    127.0.0.1, so remote_addr is always 127.0.0.1 — even for external users.
+    Cloudflare injects CF-Connecting-IP (and X-Forwarded-For) with the real
+    client IP.  A direct browser request from the Mac Studio itself will NOT
+    carry those headers.  So admin = localhost socket peer AND no Cloudflare
+    forwarding header present.
+    """
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return False
+    # If Cloudflare (or any upstream proxy) added a forwarding header the
+    # request came through the tunnel, not directly from the local browser.
+    if request.headers.get("CF-Connecting-IP"):
+        return False
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for and forwarded_for.strip() not in ("127.0.0.1", "::1", ""):
+        return False
+    return True
 
 
 def _require_admin_json():
@@ -825,7 +842,7 @@ def _track_page_view():
 
     if new_visitor:
         # Attach cookie to the response after this request completes
-        @app.after_this_request
+        @after_this_request
         def _set_cookie(response):
             response.set_cookie(
                 _VISITOR_COOKIE,
