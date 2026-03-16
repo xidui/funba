@@ -391,6 +391,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "rank": rank,
             "total": total,
             "is_notable": is_notable,
+            "is_hero": False,
             "context": ctx,
             "context_label": context_label,
             "rank_group": r.rank_group,
@@ -455,6 +456,29 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 entry["all_games_rank"] = ag_rank
                 entry["all_games_total"] = ag_total
                 entry["all_games_is_notable"] = ag_total > 0 and ag_rank / ag_total <= 0.25
+
+        # Mark hero metrics (top 1% of all games) and sort by exceptionality
+        for entry in season_metrics:
+            ag_rank = entry["all_games_rank"]
+            ag_total = entry["all_games_total"]
+            if ag_rank is not None and ag_total:
+                entry["is_hero"] = ag_rank / ag_total <= 0.01
+            else:
+                entry["is_hero"] = entry["total"] > 0 and entry["rank"] / entry["total"] <= 0.01
+
+        def _game_sort_key(e):
+            ag_rank = e["all_games_rank"]
+            ag_total = e["all_games_total"]
+            if ag_rank is not None and ag_total:
+                ratio = ag_rank / ag_total
+            elif e["total"]:
+                ratio = e["rank"] / e["total"]
+            else:
+                ratio = 1.0
+            tier = 0 if ratio <= 0.01 else (1 if ratio <= 0.25 else 2)
+            return (tier, ratio)
+
+        season_metrics.sort(key=_game_sort_key)
 
     return {"season": season_metrics, "alltime": alltime_metrics}
 
@@ -547,110 +571,6 @@ def _combine_backfill_components(
 def _pbp_text(play: GamePlayByPlay) -> str:
     return (play.home_description or play.visitor_description or play.neutral_description or "").strip()
 
-
-def _compute_standout_performances(
-    session, player_rows: list, season: str | None
-) -> list[dict]:
-    """Return up to 5 standout player-stat performances from a game vs. season context.
-
-    A performance is standout if its stat value ranks in the top 1% of all
-    PlayerGameStats rows for that season.  Falls back to top 5% (max 3) when
-    fewer than 2 top-1% standouts exist.  Returns [] if season is unknown or no
-    data qualifies.
-
-    Args:
-        session:     active SQLAlchemy session (season query issued inside).
-        player_rows: list of (PlayerGameStats, Player | None) tuples for the game.
-        season:      NBA season ID (e.g. "22025").
-    """
-    import bisect
-
-    if not season or not player_rows:
-        return []
-
-    STAT_LABELS = {
-        "pts": "points",
-        "reb": "rebounds",
-        "ast": "assists",
-        "stl": "steals",
-        "blk": "blocks",
-        "fgm": "field goals made",
-        "fg3m": "3-pointers made",
-        "ftm": "free throws made",
-        "plus": "+/-",
-    }
-    STAT_COLS = list(STAT_LABELS)
-
-    # ── Season-wide values for each stat ──────────────────────────────────
-    season_rows = (
-        session.query(*(getattr(PlayerGameStats, c) for c in STAT_COLS))
-        .join(Game, PlayerGameStats.game_id == Game.game_id)
-        .filter(
-            Game.season == season,
-            or_(PlayerGameStats.min.isnot(None), PlayerGameStats.sec.isnot(None)),
-        )
-        .all()
-    )
-    if not season_rows:
-        return []
-
-    stat_vals: dict[str, list] = {c: [] for c in STAT_COLS}
-    for row in season_rows:
-        for i, col in enumerate(STAT_COLS):
-            v = row[i]
-            if v is not None:
-                stat_vals[col].append(v)
-    for col in STAT_COLS:
-        stat_vals[col].sort()
-
-    # ── Score each player-stat in this game ───────────────────────────────
-    def _pct_label(raw_pct: float) -> str:
-        if raw_pct < 0.1:
-            return "Top 0.1% Season"
-        if raw_pct < 1.0:
-            return f"Top {raw_pct:.1f}% Season"
-        return f"Top {raw_pct:.0f}% Season"
-
-    def _score_game_rows(threshold_pct: float) -> list[dict]:
-        results = []
-        for stat, player in player_rows:
-            player_name = (player.full_name if player and player.full_name
-                           else str(stat.player_id))
-            for col in STAT_COLS:
-                val = getattr(stat, col, None)
-                if val is None:
-                    continue
-                sv = stat_vals.get(col, [])
-                n = len(sv)
-                if n == 0:
-                    continue
-                # PERCENT_RANK semantics: fraction of values strictly less
-                # than val, divided by (n - 1).  This avoids the CDF
-                # over-promotion where every tied-max value becomes "100th
-                # percentile" — instead ties share the same rank.
-                pct_rank = bisect.bisect_left(sv, val) / max(n - 1, 1)
-                if pct_rank < threshold_pct:
-                    continue
-                raw_pct = (1.0 - pct_rank) * 100
-                results.append({
-                    "player_id": stat.player_id,
-                    "player_name": player_name,
-                    "stat": col,
-                    "stat_label": STAT_LABELS[col],
-                    "value": val,
-                    "pct_rank": pct_rank,
-                    "pct_label": _pct_label(raw_pct),
-                    "level": "top_1" if threshold_pct >= 0.99 else "top_5",
-                })
-        results.sort(key=lambda x: x["pct_rank"], reverse=True)
-        return results
-
-    top_1 = _score_game_rows(0.99)
-    if len(top_1) >= 2:
-        return top_1[:5]
-
-    top_5 = _score_game_rows(0.95)
-    return top_5[:3]
 
 
 def _season_label(season_id: str | None) -> str:
@@ -1802,9 +1722,6 @@ def game_page(game_id: str):
                 shot_chart_team_ids.append(team_id)
 
         game_metrics = _get_metric_results(session, "game", game_id, game.season)
-        standout_performances = _compute_standout_performances(
-            session, player_rows, game.season
-        )
 
         import json as _json
         score_progression_json = _json.dumps(score_progression)
@@ -1832,7 +1749,6 @@ def game_page(game_id: str):
         shot_backfill_status=request.args.get("shot_backfill"),
         shot_backfill_count=request.args.get("shot_count"),
         game_metrics=game_metrics,
-        standout_performances=standout_performances,
         score_progression_json=score_progression_json,
         road_abbr=road_abbr,
         home_abbr=home_abbr,
