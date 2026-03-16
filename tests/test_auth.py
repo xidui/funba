@@ -281,6 +281,31 @@ class TestGoogleOAuth(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_admin_route_success_for_logged_in_admin(self):
+        """Logged-in admin user can access /admin from any IP (200)."""
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "admin-user-id"
+
+        from web.app import _require_admin_page
+
+        def fake_admin():
+            denied = _require_admin_page()
+            if denied:
+                return denied
+            return "<html></html>"
+
+        original = self.app.view_functions["admin_pipeline"]
+        self.app.view_functions["admin_pipeline"] = fake_admin
+        try:
+            with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=True)):
+                resp = self.client.get(
+                    "/admin",
+                    environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+                )
+            self.assertEqual(resp.status_code, 200)
+        finally:
+            self.app.view_functions["admin_pipeline"] = original
+
     def test_authenticated_non_admin_blocked_from_metrics_new(self):
         """Authenticated user from non-localhost still gets 403 on /metrics/new."""
         with self.client.session_transaction() as sess:

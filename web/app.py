@@ -825,7 +825,7 @@ def is_admin() -> bool:
     Cloudflare tunnel) for emergency/operator access.
     """
     user = _current_user()
-    if user is not None and getattr(user, "is_admin", False) is True:
+    if user is not None and getattr(user, "is_admin", False):
         return True
 
     if request.remote_addr not in ("127.0.0.1", "::1"):
