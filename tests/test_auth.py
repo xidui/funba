@@ -1,5 +1,6 @@
 """Tests for admin access control, visitor cookie tracking, and Google OAuth."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 
@@ -66,6 +67,16 @@ class TestIsAdmin(unittest.TestCase):
     def test_external_ip_is_not_admin(self):
         with self._ctx({"REMOTE_ADDR": "1.2.3.4"}):
             self.assertFalse(self.is_admin_fn())
+
+    def test_logged_in_admin_user_is_admin_even_on_external_ip(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=True)):
+            with self._ctx({"REMOTE_ADDR": "8.8.8.8"}):
+                self.assertTrue(self.is_admin_fn())
+
+    def test_logged_in_non_admin_user_stays_blocked_on_external_ip(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False)):
+            with self._ctx({"REMOTE_ADDR": "8.8.8.8"}):
+                self.assertFalse(self.is_admin_fn())
 
     def test_cloudflare_tunnel_with_cf_header_is_not_admin(self):
         """cloudflared sends from 127.0.0.1 but adds CF-Connecting-IP."""

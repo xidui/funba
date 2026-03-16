@@ -818,15 +818,16 @@ def _build_shot_zone_heatmap(
 
 
 def is_admin() -> bool:
-    """True if the request originates directly from localhost (not via Cloudflare tunnel).
+    """True for logged-in admin users, or localhost fallback requests.
 
-    In the Cloudflare Tunnel deployment, cloudflared connects to gunicorn from
-    127.0.0.1, so remote_addr is always 127.0.0.1 — even for external users.
-    Cloudflare injects CF-Connecting-IP (and X-Forwarded-For) with the real
-    client IP.  A direct browser request from the Mac Studio itself will NOT
-    carry those headers.  So admin = localhost socket peer AND no Cloudflare
-    forwarding header present.
+    Primary path: authenticated user record has `is_admin == True`.
+    Fallback path: request originates directly from localhost (not via
+    Cloudflare tunnel) for emergency/operator access.
     """
+    user = _current_user()
+    if user is not None and getattr(user, "is_admin", False) is True:
+        return True
+
     if request.remote_addr not in ("127.0.0.1", "::1"):
         return False
     # If Cloudflare (or any upstream proxy) added a forwarding header the
@@ -2372,6 +2373,7 @@ def admin_pipeline():
         cutoff_30d = now_dt - timedelta(days=30)
 
         visitor_stats = {
+            "user_count":   session.query(func.count(User.id)).scalar() or 0,
             "views_24h":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
             "views_7d":     session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
             "views_30d":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
