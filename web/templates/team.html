@@ -41,6 +41,27 @@
     object-fit: contain;
     flex-shrink: 0;
   }
+
+  /* Score link — fills full cell for tap target; hover/focus handled here */
+  td.score-cell { padding: 0; }
+  a.score-link {
+    display: block;
+    padding: 9px 12px;
+    font-weight: 700;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  a.score-link:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    filter: brightness(1.2);
+  }
+  a.score-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 3px;
+  }
 </style>
 
 <!-- ── Team header ─────────────────────────────────────────────────── -->
@@ -176,7 +197,7 @@
             <span class="meta">—</span>
             {% endif %}
           </td>
-          <td class="nowrap"><a href="{{ url_for('game_page', game_id=row.game_id) }}" style="font-weight:700; color:inherit; text-decoration:none;">{{ row.score }}</a></td>
+          <td class="nowrap score-cell"><a href="{{ url_for('game_page', game_id=row.game_id) }}" class="score-link">{{ row.score }}</a></td>
         </tr>
         {% endfor %}
       </tbody>
