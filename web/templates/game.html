@@ -434,6 +434,30 @@
   {% endif %}
 </div>
 
+<!-- ── Standout Performances ──────────────────────────────────────── -->
+{% if standout_performances %}
+<div class="card">
+  <div class="analytics-header">
+    <div class="analytics-icon">🔥</div>
+    <h2 class="analytics-title">Standout Performances</h2>
+  </div>
+  <div class="game-metrics-grid">
+    {% for s in standout_performances %}
+    <a class="gmc{% if s.level == 'top_1' %} gmc-notable{% endif %}"
+       href="{{ url_for('player_page', player_id=s.player_id) }}">
+      <div class="gmc-top">
+        <div class="gmc-key">{{ s.player_name }}</div>
+        <div class="gmc-ranks">
+          <span class="rank-chip{% if s.level == 'top_1' %} notable{% endif %}">{{ s.pct_label }}</span>
+        </div>
+      </div>
+      <div class="gmc-value">{{ s.value }} {{ s.stat_label }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Game Analytics ─────────────────────────────────────────────── -->
 {% set game_metric_list = game_metrics.season %}
 {% if game_metric_list %}

@@ -30,7 +30,7 @@ class TopScorer(MetricDefinition):
                 PlayerGameStats.pts.isnot(None),
                 PlayerGameStats.pts > 0,
             )
-            .order_by(PlayerGameStats.pts.desc())
+            .order_by(PlayerGameStats.pts.desc(), PlayerGameStats.player_id.asc())
             .first()
         )
 
