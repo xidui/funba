@@ -291,6 +291,7 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True, index=True)
     display_name = Column(String(255), nullable=False)
     avatar_url = Column(String(1024), nullable=True)
+    is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, nullable=False)
     last_login_at = Column(DateTime, nullable=False)
 
