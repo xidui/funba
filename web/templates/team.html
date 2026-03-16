@@ -157,7 +157,6 @@
           <th>H/A</th>
           <th>Result</th>
           <th>Score</th>
-          <th>Game</th>
         </tr>
       </thead>
       <tbody>
@@ -177,8 +176,7 @@
             <span class="meta">—</span>
             {% endif %}
           </td>
-          <td class="nowrap"><strong>{{ row.score }}</strong></td>
-          <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">↗</a></td>
+          <td class="nowrap"><a href="{{ url_for('game_page', game_id=row.game_id) }}" style="font-weight:700; color:inherit; text-decoration:none;">{{ row.score }}</a></td>
         </tr>
         {% endfor %}
       </tbody>
