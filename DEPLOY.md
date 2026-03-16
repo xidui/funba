@@ -2,13 +2,15 @@
 
 ## Git Workflow (Required)
 
-After every commit, push to the private GitHub remote:
+Use the company delivery workflow:
 
-```bash
-git push origin main
-```
+- Implement on a ticket feature branch, not on `origin/main`.
+- Keep exactly one GitHub PR per ticket.
+- If the work does not fit cleanly in one PR, split it into child tickets before continuing.
+- After review approval, merge or cherry-pick into `origin/main`.
+- DevOps deploys only the latest `origin/main`, never a feature branch.
 
-The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed — do not leave commits local-only.
+The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed, but feature branches stay on the PR until mainline integration.
 
 **History note:** Commit `9920d56` introduced a 2.98 GB SQL dump (`funba_nba_data_20260225_174416.sql`) that was subsequently removed in `d5e3dc0`. When the push backlog was first cleared (2026-03-15), `git filter-repo` was used to excise the blob from history before force-pushing. Future large data files (> 50 MB) must be gitignored and never committed.
 
@@ -19,9 +21,9 @@ The remote is `https://github.com/xidui/funba.git` (private repo). Every complet
 ```
 User → funba.app (Cloudflare DNS, proxied)
      → Cloudflare Edge (global PoPs, auto-TLS)
-     → cloudflared tunnel (runs on Mac Studio, launchd)
+     → cloudflared tunnel (runs on Mac Studio, launchd LaunchAgent)
      → localhost:5001 on Mac Studio
-     → gunicorn web app (4 workers, launchd)
+     → gunicorn web app (4 workers, launchd LaunchAgent)
 ```
 
 No reverse SSH tunnel or public droplet required for the app traffic. The DigitalOcean
@@ -35,6 +37,22 @@ droplet continues to serve `*.babyrasier.com` but is removed from the `funba.app
 |-------------|------------------------------------------|---------------------------|
 | Mac Studio  | App server, DB, compute, cloudflared     | Local / SSH if needed     |
 | Droplet     | Other domains (babyrasier.com), optional | `ssh root@209.38.71.231`  |
+
+---
+
+## Session Behavior
+
+The current Mac Studio app services are user `LaunchAgent`s under `~/Library/LaunchAgents/`.
+
+- `app.funba.web`
+- `app.funba.cloudflared`
+- `app.funba.backup`
+
+This means:
+
+- They keep running while the screen is locked.
+- They stop on logout because the `gui/$(id -u)` launchd domain is torn down.
+- Promoting them to true system `LaunchDaemon`s requires `sudo` access to `/Library/LaunchDaemons` and is safer only after runtime assets are moved out of TCC-protected paths such as `~/Documents`.
 
 ---
 
@@ -107,7 +125,7 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 
 To override, edit `~/Library/LaunchAgents/app.funba.web.plist` → `EnvironmentVariables`.
 
-Secrets (API keys, etc.) must NOT be committed to git. See `SECRETS.md` if it exists.
+Secrets (API keys, etc.) must NOT be committed to git. See local `SECRETS.md` (gitignored).
 
 ---
 
@@ -241,7 +259,9 @@ ls -lh ~/Documents/github/funba/backups/
 4. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
 
 Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
-start automatically at login and restart on crash.
+start automatically after login, restart on crash, and stay up while the screen is
+locked. They do not survive a full logout because they are `LaunchAgent`s, not system
+`LaunchDaemon`s.
 
 ---
 
