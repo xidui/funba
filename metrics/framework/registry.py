@@ -73,6 +73,7 @@ def _load_all() -> None:
     import metrics.definitions.game.multi_20pt_game         # noqa: F401
     import metrics.definitions.game.combined_score          # noqa: F401
     import metrics.definitions.game.lead_changes            # noqa: F401
+    import metrics.definitions.game.top_scorer              # noqa: F401
 
 
 _load_all()
