@@ -308,6 +308,36 @@ _METRIC_CONTEXT_LABEL: dict = {
 }
 
 
+def _apply_game_metric_tiers(season_metrics: list) -> None:
+    """Mark is_hero flag and sort game metric entries by exceptionality in-place.
+
+    Entries must already have all_games_rank/all_games_total (or None).
+    Tiers: hero (top 1%) → notable (top 25%) → normal.  Within each tier,
+    rarest (lowest ratio) comes first.
+    """
+    for entry in season_metrics:
+        ag_rank = entry["all_games_rank"]
+        ag_total = entry["all_games_total"]
+        if ag_rank is not None and ag_total:
+            entry["is_hero"] = ag_rank / ag_total <= 0.01
+        else:
+            entry["is_hero"] = entry["total"] > 0 and entry["rank"] / entry["total"] <= 0.01
+
+    def _sort_key(e):
+        ag_rank = e["all_games_rank"]
+        ag_total = e["all_games_total"]
+        if ag_rank is not None and ag_total:
+            ratio = ag_rank / ag_total
+        elif e["total"]:
+            ratio = e["rank"] / e["total"]
+        else:
+            ratio = 1.0
+        tier = 0 if ratio <= 0.01 else (1 if ratio <= 0.25 else 2)
+        return (tier, ratio)
+
+    season_metrics.sort(key=_sort_key)
+
+
 def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> dict:
     """Fetch metric results for an entity, split into season and alltime lists.
 
@@ -458,27 +488,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 entry["all_games_is_notable"] = ag_total > 0 and ag_rank / ag_total <= 0.25
 
         # Mark hero metrics (top 1% of all games) and sort by exceptionality
-        for entry in season_metrics:
-            ag_rank = entry["all_games_rank"]
-            ag_total = entry["all_games_total"]
-            if ag_rank is not None and ag_total:
-                entry["is_hero"] = ag_rank / ag_total <= 0.01
-            else:
-                entry["is_hero"] = entry["total"] > 0 and entry["rank"] / entry["total"] <= 0.01
-
-        def _game_sort_key(e):
-            ag_rank = e["all_games_rank"]
-            ag_total = e["all_games_total"]
-            if ag_rank is not None and ag_total:
-                ratio = ag_rank / ag_total
-            elif e["total"]:
-                ratio = e["rank"] / e["total"]
-            else:
-                ratio = 1.0
-            tier = 0 if ratio <= 0.01 else (1 if ratio <= 0.25 else 2)
-            return (tier, ratio)
-
-        season_metrics.sort(key=_game_sort_key)
+        _apply_game_metric_tiers(season_metrics)
 
     return {"season": season_metrics, "alltime": alltime_metrics}
 
