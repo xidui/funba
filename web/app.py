@@ -624,7 +624,11 @@ def _compute_standout_performances(
                 n = len(sv)
                 if n == 0:
                     continue
-                pct_rank = bisect.bisect_right(sv, val) / n
+                # PERCENT_RANK semantics: fraction of values strictly less
+                # than val, divided by (n - 1).  This avoids the CDF
+                # over-promotion where every tied-max value becomes "100th
+                # percentile" — instead ties share the same rank.
+                pct_rank = bisect.bisect_left(sv, val) / max(n - 1, 1)
                 if pct_rank < threshold_pct:
                     continue
                 raw_pct = (1.0 - pct_rank) * 100
