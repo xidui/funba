@@ -1,0 +1,26 @@
+<!-- ── Game Metrics ────────────────────────────────────────────────── -->
+{% set game_metric_list = game_metrics.season %}
+{% if game_metric_list %}
+<div class="card">
+  <div class="analytics-header">
+    <div class="analytics-icon">⚡</div>
+    <h2 class="analytics-title">Game Metrics</h2>
+  </div>
+  <div class="game-metrics-grid">
+    {% for m in game_metric_list %}
+    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_notable %} gmc-notable{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
+      <div class="gmc-top">
+        <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_key | replace('_', ' ') | title }}</div>
+        <div class="gmc-ranks">
+          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Season</span>
+          {% if m.all_games_rank %}<span class="rank-chip{% if m.all_games_is_notable %} notable{% endif %}">#{{ m.all_games_rank }} All</span>{% endif %}
+        </div>
+      </div>
+      <div class="gmc-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      {% if m.context_label %}<div class="gmc-context">{{ m.context_label }}</div>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

@@ -5,53 +5,50 @@ Covers:
   (b) is_hero fallback: uses season rank/total when all_games_rank is None
   (c) Sort order: hero (tier 0) before notable (tier 1) before normal (tier 2),
       within each tier sorted by ascending ratio (rarest first)
-  (d) Template hero rendering: gmc-hero CSS class and ★ prefix on hero entries,
-      plain card on non-hero entries, section hidden when no metrics
+  (d) Template hero rendering via _game_metrics.html partial: gmc-hero CSS class
+      and ★ prefix on hero entries, plain card on non-hero entries, section
+      hidden when no metrics
 """
 import sys
 import types
 import unittest
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
-# Stub minimal Flask/SQLAlchemy deps so web.app can't be imported;
-# we only need the pure helper function, import it directly.
+# Import the real _apply_game_metric_tiers from web.app using module stubs.
+# Mirrors the pattern used in test_auth.py to avoid a live DB connection.
 # ---------------------------------------------------------------------------
 
-def _load_helper():
-    """Import _apply_game_metric_tiers without pulling in the full Flask app."""
-    # We have to stub the modules that web/app.py imports at the top level
-    # before we can do a targeted import of just the helper.
-    # Instead, we replicate the function directly to keep tests hermetic.
-    # (The function is pure Python — no DB calls — so a copy is trustworthy.)
+def _import_helper():
+    """Return the real _apply_game_metric_tiers from web.app."""
+    fake_engine = MagicMock()
 
-    def _apply_game_metric_tiers(season_metrics):
-        for entry in season_metrics:
-            ag_rank = entry["all_games_rank"]
-            ag_total = entry["all_games_total"]
-            if ag_rank is not None and ag_total:
-                entry["is_hero"] = ag_rank / ag_total <= 0.01
-            else:
-                entry["is_hero"] = entry["total"] > 0 and entry["rank"] / entry["total"] <= 0.01
+    fake_models = types.ModuleType("db.models")
+    for name in (
+        "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
+        "MetricResult", "MetricRunLog", "PageView", "Player",
+        "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "User",
+    ):
+        setattr(fake_models, name, MagicMock())
+    fake_models.engine = fake_engine
+    sys.modules["db.models"] = fake_models
+    sys.modules.setdefault("db", types.ModuleType("db"))
 
-        def _sort_key(e):
-            ag_rank = e["all_games_rank"]
-            ag_total = e["all_games_total"]
-            if ag_rank is not None and ag_total:
-                ratio = ag_rank / ag_total
-            elif e["total"]:
-                ratio = e["rank"] / e["total"]
-            else:
-                ratio = 1.0
-            tier = 0 if ratio <= 0.01 else (1 if ratio <= 0.25 else 2)
-            return (tier, ratio)
+    fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
+    fake_backfill.back_fill_game_shot_record_from_api = MagicMock()
+    sys.modules["db.backfill_nba_player_shot_detail"] = fake_backfill
 
-        season_metrics.sort(key=_sort_key)
+    # Clear any cached web.app so the stubs are picked up.
+    for key in list(sys.modules):
+        if key.startswith("web.app") or key == "web.app":
+            del sys.modules[key]
 
+    from web.app import _apply_game_metric_tiers
     return _apply_game_metric_tiers
 
 
-_apply_game_metric_tiers = _load_helper()
+_apply_game_metric_tiers = _import_helper()
 
 
 def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
@@ -67,7 +64,10 @@ def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
         "value_str": f"{metric_key} value",
         "value_num": float(rank),
         "context_label": None,
-        "all_games_is_notable": ag_total > 0 and ag_rank / ag_total <= 0.25 if ag_rank and ag_total else False,
+        "all_games_is_notable": (
+            ag_total > 0 and ag_rank / ag_total <= 0.25
+            if ag_rank and ag_total else False
+        ),
     }
 
 
@@ -129,7 +129,7 @@ class TestSortOrder(unittest.TestCase):
     """(c) hero → notable → normal ordering, with rarest first within each tier."""
 
     def test_hero_before_notable_before_normal(self):
-        hero   = _make_entry("top_scorer",    rank=1,  total=50, ag_rank=1,  ag_total=100)  # 0.01
+        hero    = _make_entry("top_scorer",    rank=1,  total=50, ag_rank=1,  ag_total=100)  # 0.01
         notable = _make_entry("combined_score", rank=5,  total=50, ag_rank=20, ag_total=100)  # 0.20
         normal  = _make_entry("lead_changes",   rank=10, total=50, ag_rank=60, ag_total=100)  # 0.60
         # Pass in reverse order
@@ -141,8 +141,8 @@ class TestSortOrder(unittest.TestCase):
 
     def test_within_hero_tier_rarest_first(self):
         # Two hero-tier entries: ratio 0.005 vs 0.01
-        hero_rarer  = _make_entry("metric_a", rank=1, total=50, ag_rank=1,  ag_total=200)  # 0.005
-        hero_common = _make_entry("metric_b", rank=1, total=50, ag_rank=1,  ag_total=100)  # 0.010
+        hero_rarer  = _make_entry("metric_a", rank=1, total=50, ag_rank=1, ag_total=200)  # 0.005
+        hero_common = _make_entry("metric_b", rank=1, total=50, ag_rank=1, ag_total=100)  # 0.010
         entries = [hero_common, hero_rarer]
         _apply_game_metric_tiers(entries)
         self.assertEqual(entries[0]["metric_key"], "metric_a", "rarer hero first")
@@ -167,7 +167,7 @@ class TestSortOrder(unittest.TestCase):
 
 
 class TestTemplateHeroRendering(unittest.TestCase):
-    """(d) Jinja2 template renders hero CSS class and ★ prefix correctly."""
+    """(d) _game_metrics.html partial renders hero CSS class and ★ prefix correctly."""
 
     @classmethod
     def setUpClass(cls):
@@ -176,7 +176,6 @@ class TestTemplateHeroRendering(unittest.TestCase):
             import os
             template_dir = os.path.join(os.path.dirname(__file__), "..", "web", "templates")
             env = Environment(loader=FileSystemLoader(template_dir))
-            # game.html uses url_for; create a minimal stub filter
             env.globals["url_for"] = lambda endpoint, **kw: f"/metrics/{kw.get('metric_key', '')}"
             cls.env = env
             cls.available = True
@@ -184,24 +183,10 @@ class TestTemplateHeroRendering(unittest.TestCase):
             cls.available = False
 
     def _render_section(self, metrics):
-        """Render just the game metrics section from game.html."""
+        """Render _game_metrics.html with the given metric list."""
         if not self.available:
             self.skipTest("Jinja2 not available in test environment")
-        template_src = """
-{% set game_metric_list = game_metrics.season %}
-{% if game_metric_list %}
-<div class="card">
-  {% for m in game_metric_list %}
-  <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_notable %} gmc-notable{% endif %}"
-     href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
-    <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_key }}</div>
-    <div class="gmc-value">{{ m.value_str }}</div>
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
-"""
-        tmpl = self.env.from_string(template_src)
+        tmpl = self.env.get_template("_game_metrics.html")
         return tmpl.render(game_metrics={"season": metrics})
 
     def test_hero_entry_gets_gmc_hero_class(self):
