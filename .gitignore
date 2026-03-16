@@ -12,8 +12,7 @@ __pycache__/
 SECRETS.md
 
 # Runtime logs / pid files
-logs/*.log
-logs/*.pid
+logs/
 
 # MySQL backups (daily dumps, 7-day retention)
 # backups is a symlink -> ~/Library/Application Support/funba/backups/ (see db/install_backup_agent.sh)
