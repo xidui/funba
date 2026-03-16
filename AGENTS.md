@@ -37,6 +37,7 @@ Keep actual values only in local machine config and local `SECRETS.md`. Never co
 ## Delivery Rules
 
 - Follow the company ticket branch/worktree workflow. Do not implement directly on `origin/main`.
+- Keep the repo's primary checkout on `main`. If the root checkout is ever left on a ticket branch, run `scripts/ensure-main-workspace.sh` before continuing.
 - Keep exactly one GitHub PR per code-change ticket.
 - If the task does not fit in one PR, split it into child tickets before implementation.
 - Deploy only the latest `origin/main`, never a feature branch.
