@@ -100,7 +100,10 @@
   .backfill-btn:disabled { cursor: default; opacity: 0.4; border-color: var(--border-2); color: var(--muted); background: var(--surface-3); }
 </style>
 
-<h1 style="margin-bottom:1.25rem">Pipeline Status</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+  <h1 style="margin:0;">Pipeline Status</h1>
+  <a href="{{ url_for('admin_feedback') }}" class="tab-btn" style="background:var(--surface-2);color:var(--muted-2);border:1px solid var(--border);">User Feedback</a>
+</div>
 
 <!-- ── Visitor Stats ──────────────────────────────────────────────── -->
 <div class="card" style="margin-bottom:18px;">

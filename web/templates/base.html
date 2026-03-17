@@ -868,6 +868,13 @@
           <h4 class="footer-heading">Get in Touch</h4>
           <p class="footer-desc">Open to collaboration, feedback, or just talking basketball.</p>
           <a href="mailto:yuewang.sj@gmail.com" class="footer-email-link">yuewang.sj@gmail.com</a>
+          <button
+            id="feedback-btn"
+            class="footer-email-link"
+            style="margin-top:10px;cursor:pointer;border:none;display:block;width:fit-content;"
+            data-login-url="{{ url_for('auth_login', next=request.url) }}"
+            data-logged-in="{{ '1' if current_user else '' }}"
+          >Leave Feedback</button>
         </div>
       </div>
 
@@ -972,6 +979,94 @@
         });
         document.addEventListener('click', function (e) {
           if (!wrap.contains(e.target)) menu.classList.remove('open');
+        });
+      })();
+    </script>
+    <!-- ── Feedback modal ──────────────────────────────────────────── -->
+    <div id="feedback-modal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);">
+      <div style="background:var(--surface);border:1px solid var(--border-2);border-radius:16px;padding:28px 28px 24px;width:min(480px,90vw);box-shadow:0 20px 60px rgba(0,0,0,0.7);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+          <h2 style="margin:0;font-size:16px;color:#fff;">Leave Feedback</h2>
+          <button id="feedback-close" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1;padding:0;">&times;</button>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Thoughts, suggestions, or bugs — all welcome.</p>
+        <textarea
+          id="feedback-text"
+          rows="5"
+          maxlength="2000"
+          placeholder="Write something…"
+          style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;color:var(--text);resize:vertical;outline:none;line-height:1.6;box-sizing:border-box;"
+        ></textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;">
+          <span id="feedback-char" style="font-size:11px;color:var(--muted);">0 / 2000</span>
+          <button
+            id="feedback-submit"
+            style="background:var(--accent);border:none;border-radius:8px;padding:8px 20px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:inherit;transition:opacity 0.15s;"
+          >Submit</button>
+        </div>
+        <p id="feedback-msg" style="display:none;margin-top:12px;font-size:13px;text-align:center;"></p>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const btn    = document.getElementById('feedback-btn');
+        const modal  = document.getElementById('feedback-modal');
+        const close  = document.getElementById('feedback-close');
+        const text   = document.getElementById('feedback-text');
+        const submit = document.getElementById('feedback-submit');
+        const char   = document.getElementById('feedback-char');
+        const msg    = document.getElementById('feedback-msg');
+        if (!btn || !modal) return;
+
+        const loggedIn  = btn.dataset.loggedIn === '1';
+        const loginUrl  = btn.dataset.loginUrl;
+
+        btn.addEventListener('click', () => {
+          if (!loggedIn) { window.location.href = loginUrl; return; }
+          modal.style.display = 'flex';
+          text.focus();
+        });
+
+        close.addEventListener('click', () => { modal.style.display = 'none'; });
+        modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') modal.style.display = 'none'; });
+
+        text.addEventListener('input', () => {
+          char.textContent = text.value.length + ' / 2000';
+        });
+
+        submit.addEventListener('click', async () => {
+          const content = text.value.trim();
+          if (!content) return;
+          submit.disabled = true;
+          submit.style.opacity = '0.6';
+          try {
+            const res = await fetch('/feedback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content, page_url: location.href }),
+            });
+            if (res.ok) {
+              text.value = '';
+              char.textContent = '0 / 2000';
+              msg.style.display = 'block';
+              msg.style.color = 'var(--win)';
+              msg.textContent = 'Thanks for your feedback!';
+              setTimeout(() => { modal.style.display = 'none'; msg.style.display = 'none'; }, 1800);
+            } else {
+              msg.style.display = 'block';
+              msg.style.color = 'var(--loss)';
+              msg.textContent = 'Something went wrong. Please try again.';
+            }
+          } catch (_) {
+            msg.style.display = 'block';
+            msg.style.color = 'var(--loss)';
+            msg.textContent = 'Network error. Please try again.';
+          } finally {
+            submit.disabled = false;
+            submit.style.opacity = '1';
+          }
         });
       })();
     </script>

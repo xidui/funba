@@ -296,6 +296,17 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=False)
 
 
+class Feedback(Base):
+    """User-submitted feedback."""
+    __tablename__ = 'Feedback'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey('User.id'), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    page_url = Column(String(500), nullable=True)   # page the user was on
+    created_at = Column(DateTime, nullable=False)
+
+
 class PageView(Base):
     __tablename__ = 'PageView'
 

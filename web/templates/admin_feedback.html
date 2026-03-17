@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Admin — User Feedback{% endblock %}
+
+{% block content %}
+<style>
+  .feedback-list { display: flex; flex-direction: column; gap: 14px; }
+
+  .feedback-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+
+  .feedback-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .feedback-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    object-fit: cover; border: 1.5px solid var(--border-2);
+    flex-shrink: 0;
+  }
+
+  .feedback-avatar-fallback {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--surface-3); border: 1.5px solid var(--border-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: var(--text);
+    flex-shrink: 0;
+  }
+
+  .feedback-user { font-weight: 600; font-size: 13px; color: var(--text); }
+  .feedback-email { font-size: 11px; color: var(--muted); }
+
+  .feedback-time {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .feedback-content {
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .feedback-page {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .feedback-page a { color: var(--muted-2); font-size: 11px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+</style>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+  <div>
+    <h1>User Feedback</h1>
+    <p class="meta">{{ items|length }} submission{{ 's' if items|length != 1 }} (latest 200)</p>
+  </div>
+  <a href="{{ url_for('admin_pipeline') }}" class="tab-btn" style="background:var(--surface-2);color:var(--muted-2);">← Pipeline</a>
+</div>
+
+{% if items %}
+<div class="feedback-list">
+  {% for item in items %}
+  <div class="feedback-item">
+    <div class="feedback-meta">
+      {% if item.user_avatar %}
+      <img class="feedback-avatar" src="{{ item.user_avatar }}" alt="{{ item.user_display_name }}">
+      {% else %}
+      <div class="feedback-avatar-fallback">{{ item.user_display_name[0]|upper }}</div>
+      {% endif %}
+      <div>
+        <div class="feedback-user">{{ item.user_display_name }}</div>
+        <div class="feedback-email">{{ item.user_email }}</div>
+      </div>
+      <span class="feedback-time">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+    </div>
+    <div class="feedback-content">{{ item.content }}</div>
+    {% if item.page_url %}
+    <div class="feedback-page">From: <a href="{{ item.page_url }}" target="_blank" rel="noopener">{{ item.page_url }}</a></div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">No feedback yet.</div>
+{% endif %}
+
+{% endblock %}

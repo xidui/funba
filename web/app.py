@@ -16,7 +16,7 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Feedback, Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -1029,6 +1029,60 @@ def auth_logout():
     """Clear session and redirect to home."""
     session.pop("user_id", None)
     return redirect(url_for("home"))
+
+
+# ── Feedback routes ───────────────────────────────────────────────────────────
+
+@app.post("/feedback")
+def submit_feedback():
+    user = _current_user()
+    if not user:
+        return {"error": "login_required"}, 401
+    content = (request.json or {}).get("content", "").strip()
+    if not content:
+        return {"error": "empty"}, 400
+    if len(content) > 2000:
+        return {"error": "too_long"}, 400
+    page_url = (request.json or {}).get("page_url", "")[:500] or None
+    from datetime import datetime
+    with SessionLocal() as db:
+        fb = Feedback(
+            user_id=user.id,
+            content=content,
+            page_url=page_url,
+            created_at=datetime.utcnow(),
+        )
+        db.add(fb)
+        db.commit()
+    return {"ok": True}, 201
+
+
+@app.get("/admin/feedback")
+def admin_feedback():
+    denied = _require_admin_page()
+    if denied:
+        return denied
+    with SessionLocal() as db:
+        rows = (
+            db.query(Feedback, User)
+            .join(User, Feedback.user_id == User.id)
+            .order_by(Feedback.created_at.desc())
+            .limit(200)
+            .all()
+        )
+    items = [
+        {
+            "id": fb.id,
+            "content": fb.content,
+            "page_url": fb.page_url,
+            "created_at": fb.created_at,
+            "user_display_name": u.display_name,
+            "user_email": u.email,
+            "user_avatar": u.avatar_url,
+        }
+        for fb, u in rows
+    ]
+    return render_template("admin_feedback.html", items=items)
 
 
 # ── Page routes ───────────────────────────────────────────────────────────────
