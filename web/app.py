@@ -916,10 +916,12 @@ def _current_user() -> User | None:
 
 @app.context_processor
 def inject_template_helpers():
+    from datetime import date
     return {
         "season_label": _season_label,
         "is_admin": is_admin(),
         "current_user": _current_user(),
+        "current_year": date.today().year,
     }
 
 
