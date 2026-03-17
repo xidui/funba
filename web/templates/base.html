@@ -548,6 +548,102 @@
       .user-dropdown-action:hover { background: var(--surface-3); text-decoration: none; }
 
       /* ── Responsive ─────────────────────────────────────────────── */
+      /* ── Footer ─────────────────────────────────────────────────── */
+      .site-footer {
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        margin-top: 60px;
+      }
+
+      .footer-inner {
+        max-width: 1300px;
+        margin: 0 auto;
+        padding: 48px 22px 40px;
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        gap: 48px;
+      }
+
+      .footer-brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        text-decoration: none;
+        margin-bottom: 14px;
+      }
+
+      .footer-brand-link:hover { text-decoration: none; }
+
+      .footer-desc {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.65;
+        max-width: 320px;
+        margin-top: 4px;
+      }
+
+      .footer-heading {
+        font-family: 'Outfit', sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+
+      .footer-links {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .footer-links a {
+        color: var(--muted-2);
+        font-size: 13px;
+        font-weight: 400;
+        text-decoration: none;
+        transition: color 0.15s;
+      }
+
+      .footer-links a:hover { color: var(--text); text-decoration: none; }
+
+      .footer-email-link {
+        display: inline-block;
+        margin-top: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--accent);
+        text-decoration: none;
+        border: 1px solid rgba(249, 115, 22, 0.3);
+        border-radius: 6px;
+        padding: 6px 12px;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .footer-email-link:hover {
+        background: var(--accent-dim);
+        border-color: var(--accent);
+        text-decoration: none;
+      }
+
+      .footer-bottom {
+        max-width: 1300px;
+        margin: 0 auto;
+        padding: 18px 22px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--muted);
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .footer-disclaimer { opacity: 0.7; }
+
       @media (max-width: 860px) {
         .container { padding: 16px 14px; }
         .topbar-inner { padding: 0 14px; }
@@ -555,6 +651,9 @@
         .brand-name { display: none; }
         .shot-court  { height: 420px; }
         .player-heat-court { height: 480px; }
+        .footer-inner { grid-template-columns: 1fr 1fr; gap: 32px; padding: 36px 14px 28px; }
+        .footer-brand-col { grid-column: 1 / -1; }
+        .footer-bottom { padding: 14px; flex-direction: column; align-items: flex-start; gap: 4px; }
       }
 
       @media (max-width: 540px) {
@@ -746,11 +845,35 @@
       {% block content %}{% endblock %}
     </main>
 
-    <footer style="border-top:1px solid var(--border);padding:24px 22px 28px;text-align:center;color:var(--muted);font-size:12px;margin-top:40px;">
-      <div style="max-width:1300px;margin:0 auto;">
-        <span>&copy; {{ current_year }} FUNBA</span>
-        <span style="margin:0 8px;opacity:.4;">·</span>
-        <a href="mailto:yuewang.sj@gmail.com" style="color:var(--muted-2);font-weight:500;">yuewang.sj@gmail.com</a>
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand-col">
+          <a href="{{ url_for('home') }}" class="brand footer-brand-link">
+            <div class="brand-ball">F</div>
+            <span class="brand-name">FUNBA</span>
+          </a>
+          <p class="footer-desc">Independent NBA analytics — shot quality, behavioral metrics, and play-by-play breakdowns for every game.</p>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-heading">Explore</h4>
+          <ul class="footer-links">
+            <li><a href="{{ url_for('home') }}">Home</a></li>
+            <li><a href="{{ url_for('games_list') }}">Games</a></li>
+            <li><a href="{{ url_for('metrics_browse') }}">Metrics</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4 class="footer-heading">Get in Touch</h4>
+          <p class="footer-desc">Open to collaboration, feedback, or just talking basketball.</p>
+          <a href="mailto:yuewang.sj@gmail.com" class="footer-email-link">yuewang.sj@gmail.com</a>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; {{ current_year }} FUNBA. All rights reserved.</span>
+        <span class="footer-disclaimer">Data sourced from NBA Stats API. Not affiliated with the NBA.</span>
       </div>
     </footer>
 
