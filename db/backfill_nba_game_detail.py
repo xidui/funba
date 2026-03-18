@@ -180,33 +180,33 @@ def fetch_game_details(game_id):
 def create_team_game_stats(session, game_id, team_stats, on_road, win):
     team_id = str(team_stats['TEAM_ID'])
     team_game_status_record = session.query(TeamGameStats).filter_by(game_id=game_id, team_id=team_id).first()
+    min_value, _ = _parse_minutes(team_stats.get('MIN'))
     if team_game_status_record is None:
-        min_value, _ = _parse_minutes(team_stats.get('MIN'))
         team_game_status_record = TeamGameStats(
             game_id=game_id,
             team_id=team_id,
-            on_road=on_road,
-            win=win,
-            min=min_value,
-            pts=team_stats['PTS'],
-            fgm=team_stats['FGM'],
-            fga=team_stats['FGA'],
-            fg_pct=team_stats['FG_PCT'],
-            fg3m=team_stats['FG3M'],
-            fg3a=team_stats['FG3A'],
-            fg3_pct=team_stats['FG3_PCT'],
-            ftm=team_stats['FTM'],
-            fta=team_stats['FTA'],
-            ft_pct=team_stats['FT_PCT'],
-            oreb=team_stats['OREB'],
-            dreb=team_stats['DREB'],
-            reb=team_stats['REB'],
-            ast=team_stats['AST'],
-            stl=team_stats['STL'],
-            blk=team_stats['BLK'],
-            tov=team_stats['TO'],
-            pf=team_stats['PF']
         )
+    team_game_status_record.on_road = on_road
+    team_game_status_record.win = win
+    team_game_status_record.min = min_value
+    team_game_status_record.pts = team_stats['PTS']
+    team_game_status_record.fgm = team_stats['FGM']
+    team_game_status_record.fga = team_stats['FGA']
+    team_game_status_record.fg_pct = team_stats['FG_PCT']
+    team_game_status_record.fg3m = team_stats['FG3M']
+    team_game_status_record.fg3a = team_stats['FG3A']
+    team_game_status_record.fg3_pct = team_stats['FG3_PCT']
+    team_game_status_record.ftm = team_stats['FTM']
+    team_game_status_record.fta = team_stats['FTA']
+    team_game_status_record.ft_pct = team_stats['FT_PCT']
+    team_game_status_record.oreb = team_stats['OREB']
+    team_game_status_record.dreb = team_stats['DREB']
+    team_game_status_record.reb = team_stats['REB']
+    team_game_status_record.ast = team_stats['AST']
+    team_game_status_record.stl = team_stats['STL']
+    team_game_status_record.blk = team_stats['BLK']
+    team_game_status_record.tov = team_stats['TO']
+    team_game_status_record.pf = team_stats['PF']
     session.add(team_game_status_record)
 
 
@@ -233,47 +233,51 @@ def create_player_game_stats(session, player_stats):
         player_id=str(player_stats['PLAYER_ID']),
         team_id=str(player_stats['TEAM_ID'])
     ).first()
+    min_value, sec_value = _parse_minutes(player_stats.get('MIN'))
     if player_game_status_record is None:
-        min_value, sec_value = _parse_minutes(player_stats.get('MIN'))
         player_game_status_record = PlayerGameStats(
             game_id=player_stats['GAME_ID'],
             team_id=str(player_stats['TEAM_ID']),
             player_id=str(player_stats['PLAYER_ID']),
-            comment=player_stats['COMMENT'],
-            min=min_value,
-            sec=sec_value,
-            starter=bool(player_stats['START_POSITION']),
-            position=player_stats['START_POSITION'],
-            pts=player_stats['PTS'],
-            fgm=player_stats['FGM'],
-            fga=player_stats['FGA'],
-            fg_pct=player_stats['FG_PCT'],
-            fg3m=player_stats['FG3M'],
-            fg3a=player_stats['FG3A'],
-            fg3_pct=player_stats['FG3_PCT'],
-            ftm=player_stats['FTM'],
-            fta=player_stats['FTA'],
-            ft_pct=player_stats['FT_PCT'],
-            oreb=player_stats['OREB'],
-            dreb=player_stats['DREB'],
-            reb=player_stats['REB'],
-            ast=player_stats['AST'],
-            stl=player_stats['STL'],
-            blk=player_stats['BLK'],
-            tov=player_stats['TO'],
-            pf=player_stats['PF'],
-            plus=player_stats['PLUS_MINUS'],
         )
-        session.add(player_game_status_record)
+    player_game_status_record.comment = player_stats['COMMENT']
+    player_game_status_record.min = min_value
+    player_game_status_record.sec = sec_value
+    player_game_status_record.starter = bool(player_stats['START_POSITION'])
+    player_game_status_record.position = player_stats['START_POSITION']
+    player_game_status_record.pts = player_stats['PTS']
+    player_game_status_record.fgm = player_stats['FGM']
+    player_game_status_record.fga = player_stats['FGA']
+    player_game_status_record.fg_pct = player_stats['FG_PCT']
+    player_game_status_record.fg3m = player_stats['FG3M']
+    player_game_status_record.fg3a = player_stats['FG3A']
+    player_game_status_record.fg3_pct = player_stats['FG3_PCT']
+    player_game_status_record.ftm = player_stats['FTM']
+    player_game_status_record.fta = player_stats['FTA']
+    player_game_status_record.ft_pct = player_stats['FT_PCT']
+    player_game_status_record.oreb = player_stats['OREB']
+    player_game_status_record.dreb = player_stats['DREB']
+    player_game_status_record.reb = player_stats['REB']
+    player_game_status_record.ast = player_stats['AST']
+    player_game_status_record.stl = player_stats['STL']
+    player_game_status_record.blk = player_stats['BLK']
+    player_game_status_record.tov = player_stats['TO']
+    player_game_status_record.pf = player_stats['PF']
+    player_game_status_record.plus = player_stats['PLUS_MINUS']
+    session.add(player_game_status_record)
     return bool(player_stats['START_POSITION'])
 
 
 def is_game_detail_back_filled(game_id, sess):
+    from sqlalchemy import func
+
     player_game_record = sess.query(PlayerGameStats).filter_by(game_id=game_id).count()
     team_game_record = sess.query(TeamGameStats).filter_by(game_id=game_id).count()
+    if player_game_record == 0 or team_game_record == 0:
+        return False
 
-    # if both game record for player and team are back filled, we consider it back filled
-    return player_game_record != 0 and team_game_record != 0
+    total_pts = sess.query(func.sum(TeamGameStats.pts)).filter(TeamGameStats.game_id == game_id).scalar() or 0
+    return total_pts > 0
 
 
 def back_fill_game_detail(game, game_record, sess, commit):
