@@ -184,17 +184,16 @@ Threshold for "highlight-worthy": **≥ 0.75** (configurable env var).
 
 ## Daily Report
 
-Run by `metrics/framework/daily_job.py`, triggered daily after backfill.
+Run via the Celery event-driven pipeline (see `EVENT_DRIVEN_ARCH.md`).
+Celery Beat triggers `ingest_yesterday` hourly, which ingests new games and
+fans out metric computation tasks automatically.
 
-1. Find all games with `game_date = yesterday`
-2. For each game, run all active metrics for involved players + teams
-3. Store MetricResults
-4. Collect all results with noteworthiness ≥ 0.75
-5. Log a summary report to `logs/metrics_YYYY-MM-DD.log`
-
+Manual trigger for a specific date:
 ```bash
-python -m metrics.framework.daily_job --date 2026-03-04
+python -m tasks.dispatch discover --date-from 2026-03-04 --date-to 2026-03-04
 ```
+
+> **Note:** `metrics/framework/daily_job.py` is **deprecated**. Use `tasks.dispatch` instead.
 
 ---
 
@@ -216,7 +215,7 @@ python -m metrics.framework.daily_job --date 2026-03-04
 - DB migration for `MetricResult`
 - `base.py`, `registry.py`, `runner.py`
 - 10 metric definitions
-- `daily_job.py`
+- `daily_job.py` (**deprecated** — replaced by `tasks.dispatch`)
 - AI scorer (Claude API, with graceful fallback if unavailable)
 
 ### Phase 2 — UI integration

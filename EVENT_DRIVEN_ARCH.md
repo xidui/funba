@@ -160,8 +160,7 @@ celery -A tasks.celery_app flower
 After a bulk backfill, recompute noteworthiness percentile ranks:
 
 ```bash
-python -m metrics.framework.daily_job --season 22025 --force
-# or use the existing rerank CLI if implemented
+python -m tasks.dispatch metric-backfill --season 22025 --force
 ```
 
 ## Files Reference
@@ -176,7 +175,7 @@ python -m metrics.framework.daily_job --season 22025 --force
 | `docker-compose.yml` | Local dev: RabbitMQ + ingest/metrics workers + scheduler |
 | `.env.example` | Environment variable template |
 | `metrics/framework/runner.py` | Added `run_for_game_single_metric()` |
-| `metrics/framework/daily_job.py` | Unchanged — local fallback (no Docker) |
+| `metrics/framework/daily_job.py` | **Deprecated** — use `tasks.dispatch` instead |
 | `db/backfill_nba_games_targeted.py` | **Deprecated** — use `dispatch discover` instead |
 
 ## Notes

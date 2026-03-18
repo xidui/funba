@@ -21,7 +21,7 @@ from db.backfill_nba_player_shot_detail import (
     back_fill_game_shot_record,
     is_game_shot_back_filled,
 )
-from db.models import Game, engine
+from db.models import Game, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,28 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             with SessionLocal() as sess:
                 back_fill_game_shot_record(sess, game_id, False)
                 sess.commit()
+
+        # Step 3b: fix zero-score Game rows left by discover when API had no data
+        with SessionLocal() as sess:
+            game = sess.query(Game).filter(Game.game_id == game_id).first()
+            if game and (not game.home_team_score or not game.road_team_score):
+                tgs = (
+                    sess.query(TeamGameStats)
+                    .filter(TeamGameStats.game_id == game_id)
+                    .all()
+                )
+                for t in tgs:
+                    if str(t.team_id) == str(game.home_team_id):
+                        game.home_team_score = t.pts
+                    elif str(t.team_id) == str(game.road_team_id):
+                        game.road_team_score = t.pts
+                if game.home_team_score and game.road_team_score:
+                    game.wining_team_id = (
+                        game.home_team_id if game.home_team_score > game.road_team_score
+                        else game.road_team_id
+                    )
+                    sess.commit()
+                    logger.info("ingest_game %s: backfilled zero-score Game row from TeamGameStats.", game_id)
 
     except Exception as exc:
         # Explicit retry with exponential backoff — fan-out has NOT happened yet

@@ -102,6 +102,10 @@ def get_un_back_filled_game_and_player(sess, game_id=None, player_id=None):
 
 
 def is_game_shot_back_filled(sess, game_id):
+    # A real NBA game always has shot attempts. If zero ShotRecords exist,
+    # the game has never been backfilled regardless of PlayerGameStats.fga.
+    if sess.query(ShotRecord).filter(ShotRecord.game_id == game_id).limit(1).count() == 0:
+        return False
     return len(list(get_un_back_filled_game_and_player(sess, game_id, None))) == 0
 
 

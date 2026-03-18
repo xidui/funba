@@ -267,7 +267,7 @@ def run_for_game_single_metric(
     """Run a single named metric for all entities touched by a game.
 
     Same logic as run_for_game() but filters to only the one metric.
-    Keeps run_for_game() untouched for daily_job.py local fallback.
+    Keeps run_for_game() for backwards compatibility (daily_job.py is deprecated).
 
     force=True (undo-redo):
         For incremental metrics, subtracts the previously recorded delta

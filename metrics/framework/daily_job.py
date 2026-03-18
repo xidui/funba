@@ -1,13 +1,16 @@
-"""Daily metric job: find yesterday's (or a given date's) games and run metrics.
+"""**DEPRECATED** — Use ``python -m tasks.dispatch`` instead.
 
-Already-processed games are skipped by default. Use --force to reprocess.
+This script runs metrics locally via ThreadPoolExecutor without the Celery
+pipeline. It is kept only for reference. All metric computation should go
+through the event-driven architecture (RabbitMQ + Celery workers).
 
-Usage:
-    python -m metrics.framework.daily_job                        # yesterday's games
-    python -m metrics.framework.daily_job --date 2026-03-04
-    python -m metrics.framework.daily_job --season 22025         # all games in a season
-    python -m metrics.framework.daily_job --since 2026-01-01     # all games from a date onward
-    python -m metrics.framework.daily_job --season 22025 --force # reprocess (caution: career double-count)
+Replacement commands:
+    python -m tasks.dispatch game 0022500958              # single game
+    python -m tasks.dispatch backfill --season 22025      # season
+    python -m tasks.dispatch discover --date-from ...     # new games from NBA API
+    python -m tasks.dispatch metric-backfill              # all metrics, all games
+
+See EVENT_DRIVEN_ARCH.md for details.
 """
 from __future__ import annotations
 
@@ -154,7 +157,14 @@ def run_since(since_date: date, skip_existing: bool = False, workers: int = _DEF
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run metrics for games.")
+    import warnings
+    warnings.warn(
+        "daily_job is deprecated. Use 'python -m tasks.dispatch' instead. "
+        "See EVENT_DRIVEN_ARCH.md for details.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    parser = argparse.ArgumentParser(description="DEPRECATED — Run metrics for games. Use tasks.dispatch instead.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--date", default=None, help="Single date (YYYY-MM-DD). Defaults to yesterday.")
     group.add_argument("--season", default=None, help="Season year prefix, e.g. 2025 for 2025-26 season.")
