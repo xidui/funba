@@ -34,10 +34,20 @@ Common env vars used in this repo:
 
 Keep actual values only in local machine config and local `SECRETS.md`. Never commit secrets.
 
-## Delivery Rules
+## Delivery
 
-- Follow the company ticket branch/worktree workflow. Do not implement directly on `origin/main`.
-- Keep the repo's primary checkout on `main`. If the root checkout is ever left on a ticket branch, run `scripts/ensure-main-workspace.sh` before continuing.
-- Keep exactly one GitHub PR per code-change ticket.
-- If the task does not fit in one PR, split it into child tickets before implementation.
-- Deploy only the latest `origin/main`, never a feature branch.
+Follow the company delivery workflow. See [DEPLOY.md](./DEPLOY.md) for deployment targets and instructions.
+
+## Verification Strategy
+
+- **Verification type**: web app (Flask)
+- **Verification timing**: post-deploy
+- **How to verify**: After DevOps deploys to production, verify the live app responds correctly:
+  ```bash
+  curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
+  # expect 200
+  curl -s -o /dev/null -w "Health: %{http_code}\n" https://funba.app/api/health
+  # expect 200 if /api/health endpoint exists, otherwise verify a known page loads
+  ```
+  Also spot-check: player pages load, team pages load, metrics catalog renders without 500 errors.
+- **Environment requirements**: Network access to `https://funba.app`. No device or simulator required.
