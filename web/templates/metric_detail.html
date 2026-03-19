@@ -507,7 +507,7 @@
           {% elif r.entity_type == 'team' %}
             <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
           {% elif r.entity_type == 'game' %}
-            <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id) }}">{{ r.entity_label }}</a>
+            <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}">{{ r.entity_label }}</a>
           {% else %}
             {{ r.entity_label }}
           {% endif %}
