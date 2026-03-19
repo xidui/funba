@@ -1880,6 +1880,46 @@ def metric_new():
         current_season=current_season,
         all_seasons=all_seasons,
         initial_expression=initial_expression,
+        edit_metric=None,
+    )
+
+
+@app.route("/metrics/<metric_key>/edit")
+def metric_edit(metric_key: str):
+    denied = _require_admin_page()
+    if denied:
+        return denied
+    import json as _json
+
+    with SessionLocal() as session:
+        m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
+        if m is None:
+            abort(404)
+
+        all_seasons = sorted(
+            [r[0] for r in session.query(Game.season).distinct().all()],
+            reverse=True,
+        )
+        current_season = _pick_current_season(all_seasons)
+
+        edit_data = {
+            "key": m.key,
+            "name": m.name,
+            "description": m.description or "",
+            "scope": m.scope,
+            "category": m.category or "",
+            "code": m.code_python or "",
+            "expression": m.expression or "",
+            "min_sample": m.min_sample,
+            "status": m.status,
+        }
+
+    return render_template(
+        "metric_new.html",
+        current_season=current_season,
+        all_seasons=all_seasons,
+        initial_expression="",
+        edit_metric=edit_data,
     )
 
 
@@ -2240,6 +2280,58 @@ def api_metric_publish(metric_key: str):
     # jobs; it does not fetch NBA API data.
     enqueue_metric_backfill.apply_async(args=[metric_key], queue="metrics")
     return jsonify({"ok": True, "key": metric_key, "status": "published"})
+
+
+@app.put("/api/metrics/<metric_key>")
+def api_metric_update(metric_key: str):
+    """Update an existing metric's code/settings and optionally re-backfill."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    import json as _json
+    from datetime import datetime
+
+    body = request.get_json(force=True) or {}
+    code_python = (body.get("code") or "").strip()
+
+    if code_python:
+        try:
+            from metrics.framework.runtime import load_code_metric
+            load_code_metric(code_python)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
+
+    with SessionLocal() as session:
+        m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
+        if m is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+
+        if body.get("name"):
+            m.name = body["name"]
+        if body.get("description") is not None:
+            m.description = body["description"]
+        if body.get("scope"):
+            m.scope = body["scope"]
+        if body.get("category"):
+            m.category = body["category"]
+        if code_python:
+            m.code_python = code_python
+            m.source_type = "code"
+        if body.get("definition"):
+            m.definition_json = _json.dumps(body["definition"])
+        m.updated_at = datetime.utcnow()
+        session.commit()
+
+        # Clear old results if re-backfill requested
+        if body.get("rebackfill") and m.status == "published":
+            session.query(MetricResultModel).filter(MetricResultModel.metric_key == metric_key).delete()
+            session.query(MetricRunLog).filter(MetricRunLog.metric_key == metric_key).delete()
+            session.query(MetricJobClaim).filter(MetricJobClaim.metric_key == metric_key).delete()
+            session.commit()
+            from tasks.ingest import enqueue_metric_backfill
+            enqueue_metric_backfill.apply_async(args=[metric_key], queue="metrics")
+
+    return jsonify({"ok": True, "key": metric_key})
 
 
 def _resolve_entity_labels(session, rows):

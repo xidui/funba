@@ -393,7 +393,11 @@
   .status-msg.info  { background: color-mix(in srgb, #60a5fa 10%, transparent); color: #60a5fa; display:block; }
 </style>
 
+{% if edit_metric %}
+<a href="{{ url_for('metric_detail', metric_key=edit_metric.key) }}" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);text-decoration:none;margin-bottom:14px;">← Back to {{ edit_metric.name }}</a>
+{% else %}
 <a href="{{ url_for('metrics_browse') }}" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);text-decoration:none;margin-bottom:14px;">← Metrics</a>
+{% endif %}
 
 <div class="metric-builder">
 
@@ -482,8 +486,13 @@
     {% endif %}
 
     <div class="action-row">
+      {% if edit_metric %}
+      <button id="save-draft-btn" class="btn btn-secondary">Update</button>
+      <button id="publish-btn" class="btn btn-primary">Update & Re-backfill</button>
+      {% else %}
       <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
       <button id="publish-btn" class="btn btn-primary">Publish</button>
+      {% endif %}
     </div>
     <div id="save-msg" class="status-msg"></div>
   </div>
@@ -528,8 +537,22 @@
 
 <script>
 (function () {
+  const EDIT_MODE = {{ 'true' if edit_metric else 'false' }};
+  const EDIT_KEY = {{ ('"%s"' % edit_metric.key) if edit_metric else 'null' }};
   let currentSpec = null;
   let chatHistory = [];
+
+  // Pre-populate in edit mode
+  if (EDIT_MODE) {
+    currentSpec = {
+      name: {{ edit_metric.name | tojson if edit_metric else 'null' }},
+      description: {{ edit_metric.description | tojson if edit_metric else 'null' }},
+      scope: {{ edit_metric.scope | tojson if edit_metric else 'null' }},
+      category: {{ edit_metric.category | tojson if edit_metric else 'null' }},
+      code: {{ edit_metric.code | tojson if edit_metric else 'null' }},
+      min_sample: {{ edit_metric.min_sample if edit_metric else 1 }},
+    };
+  }
 
   const chatMessages = document.getElementById('chat-messages');
   const chatEmpty    = document.getElementById('chat-empty');
@@ -550,6 +573,22 @@
 
   function scrollChat() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  // ── Edit mode init ────────────────────────────────────────────────
+  if (EDIT_MODE && currentSpec) {
+    document.getElementById('f-name').value = currentSpec.name || '';
+    document.getElementById('f-desc').value = currentSpec.description || '';
+    document.getElementById('f-scope').value = currentSpec.scope || 'player';
+    document.getElementById('f-category').value = currentSpec.category || 'scoring';
+    document.getElementById('f-key').value = EDIT_KEY;
+    codeViewer.textContent = currentSpec.code || '';
+    settingsPanel.style.display = 'block';
+    const empty = document.getElementById('chat-empty');
+    if (empty) empty.style.display = 'none';
+    addAiMsg(currentSpec);
+    startOverBtn.style.display = 'inline-flex';
+    runPreview();
   }
 
   // ── Add message to chat ──────────────────────────────────────────
@@ -787,29 +826,47 @@
     saveMsg.className = 'status-msg info';
 
     try {
-      const res = await fetch('/api/metrics', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        saveMsg.textContent = data.error;
-        saveMsg.className = 'status-msg error';
-        return;
-      }
-
-      if (publish) {
-        const pub = await fetch(`/api/metrics/${data.key}/publish`, { method: 'POST' });
-        const pubData = await pub.json();
-        if (!pubData.ok) {
-          saveMsg.textContent = pubData.error;
+      if (EDIT_MODE) {
+        // Update existing metric
+        body.rebackfill = publish;  // "Update & Re-backfill" triggers rebackfill
+        const res = await fetch(`/api/metrics/${EDIT_KEY}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          saveMsg.textContent = data.error;
           saveMsg.className = 'status-msg error';
           return;
         }
-      }
+        window.location.href = `/metrics/${EDIT_KEY}`;
+      } else {
+        // Create new metric
+        const res = await fetch('/api/metrics', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          saveMsg.textContent = data.error;
+          saveMsg.className = 'status-msg error';
+          return;
+        }
 
-      window.location.href = `/metrics/${data.key}`;
+        if (publish) {
+          const pub = await fetch(`/api/metrics/${data.key}/publish`, { method: 'POST' });
+          const pubData = await pub.json();
+          if (!pubData.ok) {
+            saveMsg.textContent = pubData.error;
+            saveMsg.className = 'status-msg error';
+            return;
+          }
+        }
+
+        window.location.href = `/metrics/${data.key}`;
+      }
     } catch (e) {
       saveMsg.textContent = 'Error: ' + e.message;
       saveMsg.className = 'status-msg error';
