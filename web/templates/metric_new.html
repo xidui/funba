@@ -9,11 +9,12 @@
     align-items: start;
     min-height: calc(100vh - 200px);
   }
-  .metric-builder > .panel { grid-column: 1; }
   @media (max-width: 900px) {
     .metric-builder { grid-template-columns: 1fr; }
-    .metric-builder > .panel { grid-column: auto; }
+    .right-panels { grid-row: auto; grid-column: auto; position: static; max-height: none; }
   }
+
+  .left-panels { display: flex; flex-direction: column; gap: 16px; }
 
   /* ── Chat panel ──────────────────────────────────────────────────── */
   .chat-panel {
@@ -252,8 +253,6 @@
     top: 74px;
     max-height: calc(100vh - 100px);
     overflow-y: auto;
-    grid-row: 1 / -1;
-    grid-column: 2;
   }
 
   .panel {
@@ -373,7 +372,8 @@
 
 <div class="metric-builder">
 
-  <!-- ── Left: Chat ──────────────────────────────────────────────── -->
+  <!-- ── Left: Chat + Settings ──────────────────────────────────── -->
+  <div class="left-panels">
   <div class="chat-panel">
     <div class="chat-header">
       <span class="chat-header-title">Metric Builder</span>
@@ -409,7 +409,7 @@
   </div>
 
   <!-- Settings (shown after first generation, below chat) -->
-  <div id="settings-panel" class="panel" style="display:none;grid-column:1;">
+  <div id="settings-panel" class="panel" style="display:none;">
     <div class="panel-title">Settings</div>
     <div class="form-row-2">
       <div class="form-group">
@@ -461,6 +461,7 @@
       <button id="publish-btn" class="btn btn-primary">Publish</button>
     </div>
     <div id="save-msg" class="status-msg"></div>
+  </div>
   </div>
 
   <!-- ── Right: Preview ──────────────────────────────────────────── -->
