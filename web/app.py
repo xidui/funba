@@ -2009,13 +2009,17 @@ def _preview_code_metric(session, code_python: str, scope: str, season: str, lim
                 result = metric.compute(session, gid, season, gid)
             except Exception:
                 continue
-            if result and result.value_num is not None:
-                rows.append({
-                    "entity_id": gid,
-                    "value_num": round(result.value_num, 4),
-                    "value_str": result.value_str,
-                    "baseline": None,
-                })
+            if not result:
+                continue
+            result_list = result if isinstance(result, list) else [result]
+            for r in result_list:
+                if r.value_num is not None:
+                    rows.append({
+                        "entity_id": r.entity_id,
+                        "value_num": round(r.value_num, 4),
+                        "value_str": r.value_str,
+                        "baseline": None,
+                    })
         rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
         return rows[:limit]
 
