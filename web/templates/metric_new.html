@@ -460,6 +460,7 @@
       <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
       <button id="publish-btn" class="btn btn-primary">Publish</button>
     </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Preview shows one season. Publish to compute rankings across all seasons.</div>
     <div id="save-msg" class="status-msg"></div>
   </div>
   </div>
@@ -474,7 +475,6 @@
           {% for s in all_seasons %}
           <option value="{{ s }}" {% if s == current_season %}selected{% endif %}>{{ season_label(s) }}</option>
           {% endfor %}
-          <option value="all">All Seasons</option>
         </select>
       </div>
       <div id="preview-placeholder" style="padding:32px 0;text-align:center;color:var(--muted);font-size:13px;">
