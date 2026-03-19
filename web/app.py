@@ -1921,12 +1921,13 @@ def api_metric_generate():
     if denied:
         return denied
     from metrics.framework.generator import generate
-    body = request.get_json(force=True)
-    expression = (body or {}).get("expression", "").strip()
+    body = request.get_json(force=True) or {}
+    expression = body.get("expression", "").strip()
+    history = body.get("history")  # list of {"role", "content"} or None
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
     try:
-        spec = generate(expression)
+        spec = generate(expression, history=history)
         return jsonify({"ok": True, "spec": spec})
     except Exception as exc:
         logger.exception("metric generate failed")

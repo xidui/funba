@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # ── Prompt template fed to the LLM ──────────────────────────────────────────
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_TEMPLATE = """\
 You are an NBA analytics metric generator. Given a plain-English description,
 you produce a Python class that extends MetricDefinition and a JSON metadata block.
 
@@ -101,142 +101,32 @@ MetricResult(
 )
 ```
 
-## Examples
+## Helper functions (import from metrics.helpers)
 
-### Example 1: Game-scope, non-incremental
+These are available for use — especially recommended for PBP score parsing:
+
 ```python
-from metrics.framework.base import MetricDefinition, MetricResult
-from db.models import Game
+from metrics.helpers import get_quarter_scores, get_half_scores, team_abbr
 
-class CombinedScore(MetricDefinition):
-    key = "combined_score"
-    name = "Combined Score"
-    description = "Total points scored by both teams."
-    scope = "game"
-    category = "scoring"
-    min_sample = 1
-    incremental = False
+# get_quarter_scores(session, game_id) -> list[dict]
+# Returns per-quarter per-team points:
+# [{"period": 1, "home_pts": 28, "road_pts": 31, "home_team_id": "...", "road_team_id": "..."}, ...]
+# Handles all PBP cumulative score parsing internally.
 
-    def compute(self, session, entity_id, season, game_id=None):
-        game = session.query(Game.home_team_score, Game.road_team_score) \\
-            .filter(Game.game_id == entity_id).one_or_none()
-        if game is None or game.home_team_score is None:
-            return None
-        total = game.home_team_score + game.road_team_score
-        return MetricResult(
-            metric_key=self.key, entity_type="game", entity_id=entity_id,
-            season=season, game_id=entity_id,
-            value_num=float(total), value_str=f"{total} pts",
-            context={"combined_score": total},
-        )
+# get_half_scores(session, game_id) -> dict | None
+# Returns: {"home_team_id", "road_team_id", "home_first_half", "road_first_half",
+#           "home_second_half", "road_second_half"}
+
+# team_abbr(session, team_id) -> str
+# Returns team abbreviation like "GSW", "LAL", etc.
 ```
 
-### Example 2: Team-scope, incremental with career
-```python
-from metrics.framework.base import MetricDefinition, MetricResult
-from db.models import Game, GamePlayByPlay, TeamGameStats
+## Real examples from production
 
-class WinPctLeadingAtHalf(MetricDefinition):
-    key = "win_pct_leading_at_half"
-    name = "Leads-at-Half Win%"
-    description = "Win % in games where the team was leading at halftime."
-    scope = "team"
-    category = "conditional"
-    min_sample = 5
-    incremental = True
-    supports_career = True
+Below are real, tested metric implementations from the codebase. Study them carefully
+to understand the patterns, coding style, and data access conventions.
 
-    def compute_delta(self, session, entity_id, game_id) -> dict | None:
-        tgs = session.query(TeamGameStats).filter(
-            TeamGameStats.team_id == entity_id, TeamGameStats.game_id == game_id
-        ).first()
-        if tgs is None or tgs.win is None:
-            return None
-        game = session.query(Game).filter(Game.game_id == game_id).first()
-        if not game:
-            return None
-        is_home = game.home_team_id == entity_id
-        pbp_row = session.query(GamePlayByPlay.score_margin).filter(
-            GamePlayByPlay.game_id == game_id, GamePlayByPlay.period == 2,
-            GamePlayByPlay.score_margin.isnot(None),
-        ).order_by(GamePlayByPlay.event_num.desc()).first()
-        if pbp_row is None or pbp_row.score_margin in (None, "null", ""):
-            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
-        try:
-            margin = int(pbp_row.score_margin)
-        except (ValueError, TypeError):
-            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
-        team_leading = margin > 0 if is_home else margin < 0
-        if not team_leading:
-            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
-        return {"total_games": 1, "leading_total": 1, "leading_wins": 1 if tgs.win else 0}
-
-    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
-        leading_total = totals.get("leading_total", 0)
-        if leading_total < self.min_sample:
-            return None
-        win_pct = totals.get("leading_wins", 0) / leading_total
-        return MetricResult(
-            metric_key=self.key, entity_type="team", entity_id=entity_id,
-            season=season, game_id=None,
-            value_num=round(win_pct, 4),
-            context={"wins": totals.get("leading_wins", 0),
-                     "games_leading_at_half": leading_total,
-                     "total_games": totals.get("total_games", 0)},
-        )
-```
-
-### Example 3: Game-scope, parsing PBP score for quarter data
-```python
-from metrics.framework.base import MetricDefinition, MetricResult
-from db.models import Game, GamePlayByPlay, Team
-
-class FirstHalfHighScore(MetricDefinition):
-    key = "first_half_high_score"
-    name = "First Half High Score"
-    description = "Highest first-half score by either team in a game."
-    scope = "game"
-    category = "scoring"
-    min_sample = 1
-    incremental = False
-
-    def compute(self, session, entity_id, season, game_id=None):
-        target = entity_id
-        # Get cumulative score at end of Q2 (halftime)
-        row = session.query(GamePlayByPlay.score).filter(
-            GamePlayByPlay.game_id == target,
-            GamePlayByPlay.period == 2,
-            GamePlayByPlay.score.isnot(None),
-        ).order_by(GamePlayByPlay.event_num.desc()).first()
-        if not row or not row.score:
-            return None
-        parts = row.score.split("-")
-        if len(parts) != 2:
-            return None
-        try:
-            home_half = int(parts[0].strip())
-            road_half = int(parts[1].strip())
-        except (ValueError, TypeError):
-            return None
-        game = session.query(Game).filter(Game.game_id == target).one_or_none()
-        if not game:
-            return None
-        # Resolve team abbreviations for display
-        high = max(home_half, road_half)
-        if home_half >= road_half:
-            high_team_id = game.home_team_id
-        else:
-            high_team_id = game.road_team_id
-        team = session.query(Team.abbr).filter(Team.team_id == high_team_id).first()
-        abbr = team.abbr if team else high_team_id
-        return MetricResult(
-            metric_key=self.key, entity_type="game", entity_id=target,
-            season=season, game_id=target,
-            value_num=float(high), value_str=f"{abbr} {high}",
-            context={"home_half": home_half, "road_half": road_half,
-                     "high_team_id": high_team_id},
-        )
-```
+{EXAMPLES_PLACEHOLDER}
 
 ## Your output format
 
@@ -268,17 +158,79 @@ CRITICAL — PBP score parsing:
 - To get single-quarter points, you MUST subtract the previous quarter's end score.
 - The score field is the SAME regardless of which team scored — do NOT filter by home_description or visitor_description to get per-team scores.
 - Always parse ALL periods' last score row, then compute per-period deltas.
-- See Example 3 above for the correct pattern.
 """
 
 
-def _call_llm(prompt: str) -> str:
-    """Call Anthropic (preferred) or OpenAI and return the raw text response."""
+def _load_example_metrics() -> str:
+    """Load real builtin metric source files as examples for the prompt."""
+    from pathlib import Path
+
+    definitions_dir = Path(__file__).parent.parent / "definitions"
+    if not definitions_dir.exists():
+        return "(no examples found)"
+
+    # Curate a diverse set: mix of scopes, incremental vs non-incremental,
+    # different data sources (Game, PBP, ShotRecord, PlayerGameStats, TeamGameStats)
+    _CURATED = [
+        # game scope, non-incremental, simple
+        "game/combined_score.py",
+        # game scope, non-incremental, PBP parsing
+        "game/lead_changes.py",
+        # game scope, non-incremental, player stats
+        "game/top_scorer.py",
+        # team scope, incremental, PBP
+        "team/win_pct_leading_at_half.py",
+        # team scope, incremental, simple stats
+        "team/road_win_pct.py",
+        "team/bench_scoring_share.py",
+        "team/comeback_win_pct.py",
+        # player scope, incremental, shot records
+        "player/hot_hand.py",
+        "player/clutch_fg_pct.py",
+        # player scope, incremental, simple stats
+        "player/double_double_rate.py",
+        "player/true_shooting_pct.py",
+        "player/scoring_consistency.py",
+    ]
+
+    examples = []
+    for rel_path in _CURATED:
+        filepath = definitions_dir / rel_path
+        if not filepath.exists():
+            continue
+        code = filepath.read_text()
+        # Strip the register() call at the bottom — generated code shouldn't include it
+        lines = code.rstrip().split("\n")
+        cleaned = "\n".join(l for l in lines if not l.strip().startswith("register("))
+        examples.append(f"### {rel_path}\n```python\n{cleaned.strip()}\n```")
+
+    # Also include helpers source so LLM can see how they work
+    helpers_path = Path(__file__).parent.parent / "helpers.py"
+    if helpers_path.exists():
+        helpers_code = helpers_path.read_text()
+        examples.append(f"### metrics/helpers.py (available utility functions)\n```python\n{helpers_code.strip()}\n```")
+
+    return "\n\n".join(examples) if examples else "(no examples found)"
+
+
+def _build_system_prompt() -> str:
+    """Build the full system prompt with dynamically loaded examples."""
+    examples = _load_example_metrics()
+    return _SYSTEM_PROMPT_TEMPLATE.replace("{EXAMPLES_PLACEHOLDER}", examples)
+
+
+def _call_llm(messages: list[dict]) -> str:
+    """Call Anthropic (preferred) or OpenAI and return the raw text response.
+
+    messages: list of {"role": "user"|"assistant", "content": "..."}
+    """
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
 
     if not anthropic_key and not openai_key:
         raise ValueError("No AI API key set — set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+
+    system_prompt = _build_system_prompt()
 
     if anthropic_key:
         import anthropic
@@ -286,8 +238,8 @@ def _call_llm(prompt: str) -> str:
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4096,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            system=system_prompt,
+            messages=messages,
         )
         return message.content[0].text.strip()
     else:
@@ -296,28 +248,39 @@ def _call_llm(prompt: str) -> str:
         response = client.chat.completions.create(
             model="gpt-5.4",
             max_completion_tokens=4096,
+            temperature=0,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system_prompt},
+                *messages,
             ],
         )
         return response.choices[0].message.content.strip()
 
 
-def generate(expression: str) -> dict:
+def generate(expression: str, history: list[dict] | None = None) -> dict:
     """Convert a plain-English expression into a metric spec with Python code.
+
+    Args:
+        expression: The user's current message (initial description or followup).
+        history: Previous conversation turns as [{"role": "user"|"assistant", "content": "..."}].
+                 None for first-time generation.
 
     Returns a dict with keys: name, description, scope, category, min_sample,
     incremental, supports_career, rank_order, code.
 
     Raises ValueError if generation fails or output is unparseable.
     """
-    prompt = (
-        f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
-        f"\"{expression}\""
-    )
+    if history:
+        # Multi-turn: append the new user message to existing conversation
+        messages = list(history) + [{"role": "user", "content": expression}]
+    else:
+        # First turn
+        messages = [{"role": "user", "content": (
+            f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
+            f"\"{expression}\""
+        )}]
 
-    raw = _call_llm(prompt)
+    raw = _call_llm(messages)
 
     # Strip markdown code fences if the model wrapped the response
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

@@ -196,8 +196,8 @@
             autocomplete="off" />
           <button id="generate-btn" class="generate-btn">Generate</button>
         </div>
-        <div class="hint-text">
-          Describe what you want to measure in plain English. Claude will generate the metric code.<br>
+        <div id="hint-text" class="hint-text">
+          Describe what you want to measure in plain English.<br>
           Examples: "% of games where a player scores 30+", "highest single-quarter score in a game", "team win rate after 2 consecutive wins"
         </div>
         <div id="status-msg" class="status-msg"></div>
@@ -290,6 +290,7 @@
 <script>
 (function () {
   let currentSpec = null;
+  let chatHistory = [];  // conversation history for multi-turn
 
   const expressionEl = document.getElementById('expression');
   const generateBtn  = document.getElementById('generate-btn');
@@ -326,28 +327,71 @@
 
     generateBtn.disabled = true;
     generateBtn.textContent = '…';
-    setStatus('Generating metric code…', 'info');
+    const isFollowup = chatHistory.length > 0;
+    setStatus(isFollowup ? 'Refining metric code…' : 'Generating metric code…', 'info');
 
     try {
+      const payload = { expression: expr };
+      if (isFollowup) {
+        payload.history = chatHistory;
+      }
+
       const res = await fetch('/api/metrics/generate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ expression: expr }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!data.ok) { setStatus(data.error, 'error'); return; }
 
+      // Update conversation history
+      if (!isFollowup) {
+        // First turn: start fresh history
+        chatHistory = [
+          {role: 'user', content: 'Convert this NBA metric description into a MetricDefinition Python class:\n\n"' + expr + '"'},
+          {role: 'assistant', content: JSON.stringify(data.spec)},
+        ];
+      } else {
+        // Followup: append user message and assistant response
+        chatHistory.push({role: 'user', content: expr});
+        chatHistory.push({role: 'assistant', content: JSON.stringify(data.spec)});
+      }
+
       currentSpec = data.spec;
       statusMsg.className = 'status-msg';  // hide
 
-      // Populate form
-      document.getElementById('f-name').value     = currentSpec.name || '';
-      document.getElementById('f-desc').value     = currentSpec.description || '';
-      document.getElementById('f-scope').value    = currentSpec.scope || 'player';
-      document.getElementById('f-category').value = currentSpec.category || 'scoring';
-      document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
+      // Populate form (only on first generation, preserve user edits on followup)
+      if (!isFollowup) {
+        document.getElementById('f-name').value     = currentSpec.name || '';
+        document.getElementById('f-desc').value     = currentSpec.description || '';
+        document.getElementById('f-scope').value    = currentSpec.scope || 'player';
+        document.getElementById('f-category').value = currentSpec.category || 'scoring';
+        document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
+      }
       codeViewer.textContent = currentSpec.code || '';
       metaPanel.style.display = 'block';
+
+      // Clear input for next followup and update UI
+      expressionEl.value = '';
+      expressionEl.placeholder = 'Tell the AI what to fix or change…';
+      generateBtn.textContent = 'Refine';
+      document.getElementById('hint-text').innerHTML =
+        'Review the preview. If something is wrong, describe the issue above.<br>' +
+        '<a href="#" id="start-over-link" style="color:var(--accent);font-size:11px;">Start over</a>';
+      document.getElementById('start-over-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        chatHistory = [];
+        currentSpec = null;
+        expressionEl.value = '';
+        expressionEl.placeholder = 'e.g. FG% in the final 2 minutes of Q4 vs overall FG%';
+        generateBtn.textContent = 'Generate';
+        metaPanel.style.display = 'none';
+        previewWrap.style.display = 'none';
+        previewPH.style.display = 'block';
+        document.getElementById('hint-text').innerHTML =
+          'Describe what you want to measure in plain English.<br>' +
+          'Examples: "% of games where a player scores 30+", "highest single-quarter score in a game"';
+      });
 
       // Auto-preview
       await runPreview();
@@ -356,7 +400,6 @@
       setStatus('Network error: ' + e.message, 'error');
     } finally {
       generateBtn.disabled = false;
-      generateBtn.textContent = 'Generate';
     }
   });
 
