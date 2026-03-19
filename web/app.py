@@ -2057,7 +2057,8 @@ def _preview_code_metric(session, code_python: str, scope: str, season: str, lim
         game_q = session.query(Game.game_id, Game.season).filter(Game.home_team_score.isnot(None))
         if season and season != "all":
             game_q = game_q.filter(Game.season == season)
-        game_rows = game_q.order_by(Game.game_date.desc()).limit(500).all()
+        game_limit = 2000 if season == "all" else 500
+        game_rows = game_q.order_by(Game.game_date.desc()).limit(game_limit).all()
 
         rows = []
         for gr in game_rows:
