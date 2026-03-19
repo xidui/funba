@@ -29,7 +29,9 @@ _ALLOWED_IMPORT_ROOTS = {
 # The runtime already owns the SQLAlchemy session used by generated metrics, so they do
 # not need direct engine construction helpers like `create_engine`. If we ever allow
 # direct `sqlalchemy` imports here, the module would still have to be explicitly
-# imported by generated code, and any ORM-specific tightening can be scoped separately.
+# imported by generated code, generated metrics are constrained to read-only queries by
+# convention, and any stricter ORM-specific control should be scoped as a follow-on
+# ticket.
 _BLOCKED_IMPORT_ROOTS = {"importlib", "os", "socket", "subprocess"}
 _SAFE_BUILTINS = {
     "__build_class__": py_builtins.__build_class__,
