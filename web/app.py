@@ -2024,8 +2024,10 @@ def _resolve_game_entity_names(session, entity_ids: list[str]) -> tuple[dict[str
             dates[eid] = ""
             continue
 
-        home_abbr = _team_name(tm, game.home_team_id) if game.home_team_id else "?"
-        road_abbr = _team_name(tm, game.road_team_id) if game.road_team_id else "?"
+        home_team = tm.get(game.home_team_id)
+        road_team = tm.get(game.road_team_id)
+        home_abbr = (home_team.abbr if home_team and home_team.abbr else "?")
+        road_abbr = (road_team.abbr if road_team and road_team.abbr else "?")
         date_str = game.game_date.strftime("%Y-%m-%d") if game.game_date else ""
 
         if len(parts) == 1:
