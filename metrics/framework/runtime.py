@@ -18,6 +18,7 @@ from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult
 SessionLocal = sessionmaker(bind=engine)
 
 _ALLOWED_IMPORT_ROOTS = {
+    "__future__",
     "db",
     "math",
     "metrics",
