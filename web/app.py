@@ -1869,13 +1869,16 @@ def metric_new():
     denied = _require_admin_page()
     if denied:
         return denied
-    current_season = _pick_current_season(
-        [r[0] for r in SessionLocal().query(Game.season).distinct().all()]
+    all_seasons = sorted(
+        [r[0] for r in SessionLocal().query(Game.season).distinct().all()],
+        reverse=True,
     )
+    current_season = _pick_current_season(all_seasons)
     initial_expression = request.args.get("expression", "").strip()
     return render_template(
         "metric_new.html",
         current_season=current_season,
+        all_seasons=all_seasons,
         initial_expression=initial_expression,
     )
 
@@ -1996,17 +1999,15 @@ def _preview_code_metric(session, code_python: str, scope: str, season: str, lim
 
     if scope == "game":
         # For game-scope, run against recent games
-        game_ids = [
-            r.game_id for r in session.query(Game.game_id)
-            .filter(Game.season == season, Game.home_team_score.isnot(None))
-            .order_by(Game.game_date.desc())
-            .limit(200)
-            .all()
-        ]
+        game_q = session.query(Game.game_id, Game.season).filter(Game.home_team_score.isnot(None))
+        if season and season != "all":
+            game_q = game_q.filter(Game.season == season)
+        game_rows = game_q.order_by(Game.game_date.desc()).limit(500).all()
+
         rows = []
-        for gid in game_ids:
+        for gr in game_rows:
             try:
-                result = metric.compute(session, gid, season, gid)
+                result = metric.compute(session, gr.game_id, gr.season, gr.game_id)
             except Exception:
                 continue
             if not result:
@@ -2024,13 +2025,13 @@ def _preview_code_metric(session, code_python: str, scope: str, season: str, lim
         return rows[:limit]
 
     elif scope == "team":
-        team_ids = [t for t in [r.team_id for r in session.query(TeamGameStats.team_id).filter(
-            TeamGameStats.game_id.in_(
-                session.query(Game.game_id).filter(Game.season == season)
-            )
-        ).distinct().all()]]
-        game_ids = [r.game_id for r in session.query(Game.game_id)
-            .filter(Game.season == season).order_by(Game.game_date.asc()).all()]
+        game_q = session.query(Game.game_id).filter(Game.home_team_score.isnot(None))
+        if season and season != "all":
+            game_q = game_q.filter(Game.season == season)
+        team_ids = [r.team_id for r in session.query(TeamGameStats.team_id).filter(
+            TeamGameStats.game_id.in_(game_q)
+        ).distinct().all()]
+        game_ids = [r.game_id for r in game_q.order_by(Game.game_date.asc()).all()]
         # Run incrementally if the metric supports it
         if metric.incremental:
             from metrics.framework.base import merge_totals
@@ -2068,8 +2069,10 @@ def _preview_code_metric(session, code_python: str, scope: str, season: str, lim
 
     elif scope == "player":
         # For player scope, sample recent games and run incrementally
-        game_ids = [r.game_id for r in session.query(Game.game_id)
-            .filter(Game.season == season).order_by(Game.game_date.asc()).all()]
+        game_q = session.query(Game.game_id).filter(Game.home_team_score.isnot(None))
+        if season and season != "all":
+            game_q = game_q.filter(Game.season == season)
+        game_ids = [r.game_id for r in game_q.order_by(Game.game_date.asc()).all()]
         if metric.incremental:
             from metrics.framework.base import merge_totals
             accum: dict[str, dict] = {}

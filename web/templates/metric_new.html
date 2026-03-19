@@ -266,7 +266,10 @@
       <div class="form-group" style="margin-bottom:8px;">
         <label class="form-label">Season</label>
         <select id="preview-season" class="form-select">
-          <option value="{{ current_season }}">{{ current_season }}</option>
+          {% for s in all_seasons %}
+          <option value="{{ s }}" {% if s == current_season %}selected{% endif %}>{{ season_label(s) }}</option>
+          {% endfor %}
+          <option value="all">All Seasons</option>
         </select>
       </div>
       <div id="preview-placeholder" style="padding:40px 0;text-align:center;color:var(--muted);font-size:13px;">
