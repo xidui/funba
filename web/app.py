@@ -1935,18 +1935,22 @@ def api_metric_generate():
 
 @app.post("/api/metrics/preview")
 def api_metric_preview():
-    from metrics.framework.rule_engine import preview as re_preview
     body = request.get_json(force=True) or {}
     definition = body.get("definition")
+    code_python = (body.get("code") or "").strip()
     scope = body.get("scope", "player")
     season = body.get("season", "")
-    if not definition:
-        return jsonify({"ok": False, "error": "definition is required"}), 400
+
+    if not definition and not code_python:
+        return jsonify({"ok": False, "error": "definition or code is required"}), 400
 
     with SessionLocal() as session:
-        # Resolve entity names for results
         try:
-            rows = re_preview(session, definition, scope, season, limit=25)
+            if code_python:
+                rows = _preview_code_metric(session, code_python, scope, season, limit=25)
+            else:
+                from metrics.framework.rule_engine import preview as re_preview
+                rows = re_preview(session, definition, scope, season, limit=25)
         except Exception as exc:
             logger.exception("metric preview failed")
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -1971,6 +1975,116 @@ def api_metric_preview():
     return jsonify({"ok": True, "rows": rows})
 
 
+def _preview_code_metric(session, code_python: str, scope: str, season: str, limit: int = 25):
+    """Run a code-based metric against sample games and return ranked results."""
+    from metrics.framework.runtime import load_code_metric
+
+    metric = load_code_metric(code_python)
+    rank_order = getattr(metric, "rank_order", "desc")
+
+    if scope == "game":
+        # For game-scope, run against recent games
+        game_ids = [
+            r.game_id for r in session.query(Game.game_id)
+            .filter(Game.season == season, Game.home_team_score.isnot(None))
+            .order_by(Game.game_date.desc())
+            .limit(200)
+            .all()
+        ]
+        rows = []
+        for gid in game_ids:
+            try:
+                result = metric.compute(session, gid, season, gid)
+            except Exception:
+                continue
+            if result and result.value_num is not None:
+                rows.append({
+                    "entity_id": gid,
+                    "value_num": round(result.value_num, 4),
+                    "value_str": result.value_str,
+                    "baseline": None,
+                })
+        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        return rows[:limit]
+
+    elif scope == "team":
+        team_ids = [t for t in [r.team_id for r in session.query(TeamGameStats.team_id).filter(
+            TeamGameStats.game_id.in_(
+                session.query(Game.game_id).filter(Game.season == season)
+            )
+        ).distinct().all()]]
+        game_ids = [r.game_id for r in session.query(Game.game_id)
+            .filter(Game.season == season).order_by(Game.game_date.asc()).all()]
+        # Run incrementally if the metric supports it
+        if metric.incremental:
+            from metrics.framework.base import merge_totals
+            accum: dict[str, dict] = {}
+            for gid in game_ids:
+                for tid in team_ids:
+                    try:
+                        delta = metric.compute_delta(session, tid, gid)
+                    except Exception:
+                        continue
+                    if delta is None:
+                        continue
+                    accum[tid] = merge_totals(accum.get(tid, {}), delta)
+            rows = []
+            for tid, totals in accum.items():
+                try:
+                    result = metric.compute_value(totals, season, tid)
+                except Exception:
+                    continue
+                if result and result.value_num is not None:
+                    rows.append({"entity_id": tid, "value_num": round(result.value_num, 4),
+                                 "value_str": result.value_str, "baseline": None})
+        else:
+            rows = []
+            for tid in team_ids:
+                try:
+                    result = metric.compute(session, tid, season)
+                except Exception:
+                    continue
+                if result and result.value_num is not None:
+                    rows.append({"entity_id": tid, "value_num": round(result.value_num, 4),
+                                 "value_str": result.value_str, "baseline": None})
+        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        return rows[:limit]
+
+    elif scope == "player":
+        # For player scope, sample recent games and run incrementally
+        game_ids = [r.game_id for r in session.query(Game.game_id)
+            .filter(Game.season == season).order_by(Game.game_date.asc()).all()]
+        if metric.incremental:
+            from metrics.framework.base import merge_totals
+            accum: dict[str, dict] = {}
+            for gid in game_ids:
+                player_ids = [r.player_id for r in session.query(PlayerGameStats.player_id)
+                    .filter(PlayerGameStats.game_id == gid).distinct().all()]
+                for pid in player_ids:
+                    try:
+                        delta = metric.compute_delta(session, pid, gid)
+                    except Exception:
+                        continue
+                    if delta is None:
+                        continue
+                    accum[pid] = merge_totals(accum.get(pid, {}), delta)
+            rows = []
+            for pid, totals in accum.items():
+                try:
+                    result = metric.compute_value(totals, season, pid)
+                except Exception:
+                    continue
+                if result and result.value_num is not None:
+                    rows.append({"entity_id": pid, "value_num": round(result.value_num, 4),
+                                 "value_str": result.value_str, "baseline": None})
+        else:
+            rows = []
+        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        return rows[:limit]
+
+    return []
+
+
 @app.post("/api/metrics")
 def api_metric_create():
     denied = _require_admin_json()
@@ -1981,12 +2095,27 @@ def api_metric_create():
     from metrics.framework.registry import get as _get_builtin_metric
     body = request.get_json(force=True) or {}
 
-    required = ("key", "name", "scope", "definition")
-    missing = [k for k in required if not body.get(k)]
-    if missing:
-        return jsonify({"ok": False, "error": f"Missing: {missing}"}), 400
+    key = (body.get("key") or "").strip().lower().replace(" ", "_")
+    name = (body.get("name") or "").strip()
+    scope = (body.get("scope") or "").strip()
+    code_python = (body.get("code") or "").strip()
+    definition = body.get("definition")
 
-    key = body["key"].strip().lower().replace(" ", "_")
+    if not key or not name or not scope:
+        return jsonify({"ok": False, "error": "key, name, and scope are required"}), 400
+    if not code_python and not definition:
+        return jsonify({"ok": False, "error": "code or definition is required"}), 400
+
+    # Determine source type
+    source_type = "code" if code_python else "rule"
+
+    # Validate code by loading it
+    if code_python:
+        try:
+            from metrics.framework.runtime import load_code_metric
+            load_code_metric(code_python)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
 
     with SessionLocal() as session:
         if _get_builtin_metric(key) is not None:
@@ -1997,14 +2126,15 @@ def api_metric_create():
         now = datetime.utcnow()
         m = MetricDefinitionModel(
             key=key,
-            name=body["name"],
+            name=name,
             description=body.get("description", ""),
-            scope=body["scope"],
+            scope=scope,
             category=body.get("category", ""),
             group_key=body.get("group_key"),
-            source_type="rule",
+            source_type=source_type,
             status="draft",
-            definition_json=_json.dumps(body["definition"]),
+            definition_json=_json.dumps(definition) if definition else None,
+            code_python=code_python or None,
             expression=body.get("expression", ""),
             min_sample=int(body.get("min_sample", 1)),
             created_at=now,

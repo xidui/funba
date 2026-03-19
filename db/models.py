@@ -244,7 +244,8 @@ class MetricDefinition(Base):
     group_key = Column(String(64), nullable=True, index=True)
     source_type = Column(String(16), nullable=False, default='rule')  # rule | builtin
     status = Column(String(16), nullable=False, default='draft')      # draft | published | archived
-    definition_json = Column(Text, nullable=True)     # JSON rule spec
+    definition_json = Column(Text, nullable=True)     # JSON rule spec (source_type='rule')
+    code_python = Column(Text, nullable=True)         # generated Python code (source_type='code')
     expression = Column(Text, nullable=True)          # original plain-English input
     min_sample = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, nullable=False)
