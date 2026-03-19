@@ -1981,13 +1981,62 @@ def api_metric_preview():
         elif scope == "team":
             tm = _team_map(session)
             names = {tid: _team_name(tm, tid) for tid in entity_ids}
+        elif scope == "game":
+            names = _resolve_game_entity_names(session, entity_ids)
         else:
             names = {}
 
         for r in rows:
-            r["entity_name"] = names.get(r["entity_id"], r["entity_id"])
+            r["entity_name"] = names.get(r["entity_id"], r.get("value_str") or r["entity_id"])
 
     return jsonify({"ok": True, "rows": rows})
+
+
+def _resolve_game_entity_names(session, entity_ids: list[str]) -> dict[str, str]:
+    """Resolve game entity IDs (simple or composite) to readable names.
+
+    Handles:
+      "0022500826"                    → "PHX 77 - POR 92 (Feb 22)"
+      "0022500826:1610612756:Q1"      → "PHX Q1 — PHX vs POR Feb 22"
+    """
+    # Collect unique game IDs
+    game_ids = set()
+    for eid in entity_ids:
+        game_ids.add(eid.split(":")[0])
+
+    # Bulk fetch games and teams
+    games = {
+        g.game_id: g for g in session.query(Game)
+        .filter(Game.game_id.in_(game_ids)).all()
+    }
+    tm = _team_map(session)
+
+    names = {}
+    for eid in entity_ids:
+        parts = eid.split(":")
+        gid = parts[0]
+        game = games.get(gid)
+        if not game:
+            names[eid] = eid
+            continue
+
+        home_abbr = _team_name(tm, game.home_team_id) if game.home_team_id else "?"
+        road_abbr = _team_name(tm, game.road_team_id) if game.road_team_id else "?"
+        date_str = game.game_date.strftime("%b %d") if game.game_date else ""
+
+        if len(parts) == 1:
+            # Simple game ID
+            h_score = game.home_team_score or 0
+            r_score = game.road_team_score or 0
+            names[eid] = f"{home_abbr} {h_score} - {road_abbr} {r_score} ({date_str})"
+        else:
+            # Composite: game_id:team_id:qualifier
+            team_id = parts[1] if len(parts) > 1 else None
+            qualifier = parts[2] if len(parts) > 2 else ""
+            team_abbr = _team_name(tm, team_id) if team_id else "?"
+            names[eid] = f"{team_abbr} {qualifier} — {home_abbr} vs {road_abbr} {date_str}"
+
+    return names
 
 
 def _preview_code_metric(session, code_python: str, scope: str, season: str, limit: int = 25):
