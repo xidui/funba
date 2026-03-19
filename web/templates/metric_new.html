@@ -328,6 +328,31 @@
     text-align: right;
   }
 
+  .preview-fade-wrap {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .preview-fade-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 120px;
+    background: linear-gradient(transparent, var(--surface) 85%);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 12px;
+    pointer-events: none;
+  }
+
+  .preview-fade-overlay span {
+    font-size: 12px;
+    color: var(--muted);
+    pointer-events: auto;
+  }
+
   /* ── Action buttons ──────────────────────────────────────────────── */
   .action-row { display: flex; gap: 8px; margin-top: 14px; }
   .btn {
@@ -483,14 +508,18 @@
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:8px;">
           Top results <span id="preview-count"></span>
         </div>
-        <div class="table-wrap">
-          <table class="preview-table">
-            <thead><tr>
-              <th>#</th><th>Matchup</th><th>Date</th><th style="text-align:right">Value</th>
-            </tr></thead>
-            <tbody id="preview-body"></tbody>
-          </table>
-        <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center;">Preview shows one season. Publish to compute rankings across all seasons.</div>
+        <div class="preview-fade-wrap">
+          <div class="table-wrap">
+            <table class="preview-table">
+              <thead><tr>
+                <th>#</th><th>Matchup</th><th>Date</th><th style="text-align:right">Value</th>
+              </tr></thead>
+              <tbody id="preview-body"></tbody>
+            </table>
+          </div>
+          <div id="preview-fade" class="preview-fade-overlay" style="display:none;">
+            <span>Publish to see full rankings across all seasons</span>
+          </div>
         </div>
       </div>
     </div>
@@ -701,8 +730,12 @@
         return;
       }
 
-      previewCount.textContent = `(${data.rows.length})`;
-      previewBody.innerHTML = data.rows.map((r, i) => {
+      const totalRows = data.rows.length;
+      const showRows = data.rows.slice(0, 10);
+      const hasMore = totalRows > 10;
+      previewCount.textContent = `(${totalRows})`;
+      document.getElementById('preview-fade').style.display = hasMore ? 'flex' : 'none';
+      previewBody.innerHTML = showRows.map((r, i) => {
         const display = r.value_str || (r.value_num < 1 && r.value_num > -1
           ? (r.value_num * 100).toFixed(1) + '%'
           : r.value_num.toLocaleString(undefined, {maximumFractionDigits: 2}));
