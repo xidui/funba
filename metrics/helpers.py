@@ -26,7 +26,7 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
     if not game:
         return []
 
-    # Get last score row per period, filtering out score regressions (NBA data bugs)
+    # Get last score row per period
     rows = (
         session.query(GamePlayByPlay.period, GamePlayByPlay.score)
         .filter(
@@ -38,7 +38,6 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
     )
 
     period_end: dict[int, tuple[int, int]] = {}
-    max_total_seen = 0  # track monotonically increasing total to filter bad rows
     for r in rows:
         if r.period is None or not r.score:
             continue
@@ -47,13 +46,9 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
             continue
         try:
             h, rd = int(parts[0].strip()), int(parts[1].strip())
+            period_end[int(r.period)] = (h, rd)
         except (ValueError, TypeError):
             continue
-        total = h + rd
-        if total < max_total_seen:
-            continue  # skip rows where score regresses (NBA data bug)
-        max_total_seen = total
-        period_end[int(r.period)] = (h, rd)
 
     if not period_end:
         return []

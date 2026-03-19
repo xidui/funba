@@ -113,7 +113,33 @@ def _normalize_pbp(raw):
             'SUBTYPE': action.get('subType'),
         })
 
-    return {'PlayByPlay': rows}
+    # Reorder by period ASC, clock DESC (12:00→0:00), event_num ASC
+    # This fixes misplaced events (e.g., early-quarter plays with high event_num)
+    def _clock_sort_key(row):
+        pc = row.get('PCTIMESTRING') or '0:00'
+        try:
+            parts = pc.split(':')
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return 0
+
+    rows.sort(key=lambda r: (r.get('PERIOD') or 0, -_clock_sort_key(r), r.get('EVENTNUM') or 0))
+
+    # Dedup by (PERIOD, EVENTNUM) — keep first occurrence
+    seen = set()
+    deduped = []
+    for r in rows:
+        key = (r.get('PERIOD'), r.get('EVENTNUM'))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+
+    # Reassign sequential event_num so DB ordering matches corrected order
+    for i, r in enumerate(deduped):
+        r['EVENTNUM'] = i + 1
+
+    return {'PlayByPlay': deduped}
 
 
 @retry(
