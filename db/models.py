@@ -45,6 +45,20 @@ class Player(Base):
     is_active = Column(Boolean)
     is_team = Column(Boolean, default=False)
 
+    # Bio / demographics (from commonplayerinfo endpoint)
+    height = Column(String(10), nullable=True)        # e.g. "6-6"
+    weight = Column(Integer, nullable=True)            # lbs
+    birth_date = Column(DATE, nullable=True)
+    country = Column(String(50), nullable=True)
+    school = Column(String(100), nullable=True)
+    draft_year = Column(Integer, nullable=True)
+    draft_round = Column(Integer, nullable=True)
+    draft_number = Column(Integer, nullable=True)
+    jersey = Column(String(10), nullable=True)
+    position = Column(String(30), nullable=True)       # e.g. "Guard"
+    from_year = Column(Integer, nullable=True)         # first NBA season
+    to_year = Column(Integer, nullable=True)           # latest NBA season
+
 
 class Game(Base):
     __tablename__ = 'Game'
