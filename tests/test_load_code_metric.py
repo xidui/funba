@@ -215,6 +215,76 @@ class ExplodingMetric(MetricDefinition):
         with self.assertRaisesRegex(RuntimeError, "boom"):
             metric.compute(None, "player-1", "2025-26")
 
+    def test_importing_from_blocked_module_inside_compute_raises_value_error(self):
+        runtime = self._load_runtime()
+
+        with self.assertRaisesRegex(ValueError, "Import of 'os' is not allowed"):
+            runtime.load_code_metric(
+                """
+from metrics.framework.base import MetricDefinition
+
+
+class BadMetric(MetricDefinition):
+    key = "bad_metric"
+    name = "Bad Metric"
+    description = "Should never load."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        from os import system
+        return system("echo should-not-run")
+"""
+            )
+
+    def test_importing_unrecognized_module_raises_value_error(self):
+        runtime = self._load_runtime()
+
+        with self.assertRaisesRegex(ValueError, "Import of 'requests' is not allowed"):
+            runtime.load_code_metric(
+                """
+import requests
+from metrics.framework.base import MetricDefinition
+
+
+class BadMetric(MetricDefinition):
+    key = "bad_metric"
+    name = "Bad Metric"
+    description = "Should never load."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+"""
+            )
+
+    def test_runtime_safe_import_raises_value_error(self):
+        runtime = self._load_runtime()
+
+        metric = runtime.load_code_metric(
+            """
+from metrics.framework.base import MetricDefinition
+
+
+class BadMetric(MetricDefinition):
+    key = "bad_metric"
+    name = "Bad Metric"
+    description = "Should fail when compute hits __import__."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return __builtins__["__import__"]("os")
+"""
+        )
+
+        with self.assertRaisesRegex(ValueError, "Import of 'os' is not allowed"):
+            metric.compute(None, "player-1", "2025-26")
+
 
 if __name__ == "__main__":
     unittest.main()
