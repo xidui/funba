@@ -151,6 +151,7 @@ IMPORTANT:
 - Do NOT include register() call — the system handles registration.
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
+- Do NOT put ranking numbers (like #1, #2) in value_str. Ranking is handled by the system at query time, not inside compute(). value_str should only contain the descriptive value (e.g. "ATL Q1: 44 pts").
 
 CRITICAL — PBP score parsing:
 - GamePlayByPlay.score is a CUMULATIVE score string like "62 - 51" (home - road).
