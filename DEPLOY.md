@@ -154,6 +154,94 @@ launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
 
 ---
 
+## Mac Studio: Celery Workers + RabbitMQ (Docker Compose)
+
+The async pipeline (game ingestion, metric computation, backfill) runs via Celery
+workers inside Docker containers, with RabbitMQ as the message broker.
+
+### Architecture:
+
+```
+Web app (publish metric / daily scheduler)
+     → RabbitMQ (amqp://guest:guest@localhost:5672)
+     → worker-ingest (Queue: ingest, 4 concurrency)
+     → worker-metrics (Queue: metrics, 50 concurrency)
+     → MySQL (shared with web app)
+```
+
+### Docker Compose file: `docker-compose.yml`
+
+| Service | Image | Queue | Purpose |
+|---------|-------|-------|---------|
+| `rabbitmq` | `rabbitmq:3-management` | — | Message broker (management UI at `localhost:15672`, guest/guest) |
+| `worker-ingest` | Built from `Dockerfile` | `ingest` | Game data ingestion (box scores, PBP, shots) |
+| `worker-metrics` | Built from `Dockerfile` | `metrics` | Metric computation and backfill |
+| `scheduler` | Built from `Dockerfile` | — | Celery Beat (daily cron for new games) |
+
+Workers use `.env` for environment variables (NBA_DB_URL, API keys, etc.).
+Each worker sets `DB_POOL_SIZE=1` to limit MySQL connections per forked process.
+
+### Service management:
+
+```bash
+# Check status
+docker compose ps
+
+# Start all services
+docker compose up -d
+
+# Restart workers after code changes (rebuild images first)
+docker compose build worker-ingest worker-metrics
+docker compose up -d worker-ingest worker-metrics
+
+# Restart just one service
+docker compose restart worker-metrics
+
+# View logs
+docker compose logs -f worker-metrics
+docker compose logs -f worker-ingest
+
+# Stop all
+docker compose down
+```
+
+### After code changes:
+
+Workers run from the Docker image, not the live repo. After pushing code that
+affects `metrics/`, `tasks/`, or `db/`, rebuild and restart:
+
+```bash
+docker compose build worker-ingest worker-metrics scheduler
+docker compose up -d worker-ingest worker-metrics scheduler
+```
+
+### Metric backfill via CLI (bypasses Celery):
+
+For one-off backfills without Celery, use the dispatch CLI directly:
+
+```bash
+# Backfill a single metric across all games
+.venv/bin/python -m tasks.dispatch --metric single_quarter_team_scoring
+
+# Backfill a single game
+.venv/bin/python -m tasks.dispatch --game 0022500826
+```
+
+### Troubleshooting:
+
+```bash
+# RabbitMQ healthy?
+docker compose exec rabbitmq rabbitmq-diagnostics ping
+
+# Worker consuming tasks?
+docker compose logs --tail 50 worker-metrics
+
+# Purge stuck tasks from a queue
+docker compose exec rabbitmq rabbitmqctl purge_queue metrics
+```
+
+---
+
 ## End-to-End Verification
 
 ```bash
@@ -257,6 +345,7 @@ ls -lh ~/Documents/github/funba/backups/
 2. Web app: `launchctl list app.funba.web` — should show PID
 3. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
 4. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
+5. Docker / Celery: `docker compose ps` — rabbitmq (healthy), worker-ingest, worker-metrics, scheduler should all be Up
 
 Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
 start automatically after login, restart on crash, and stay up while the screen is
