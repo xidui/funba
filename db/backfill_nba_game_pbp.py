@@ -137,10 +137,15 @@ def is_game_pbp_back_filled(game_id, sess):
     return False
 
 
-def back_fill_pbp(game_id, sess, commit):
-    if is_game_pbp_back_filled(game_id, sess):
+def back_fill_pbp(game_id, sess, commit, force=False):
+    if not force and is_game_pbp_back_filled(game_id, sess):
         logger.info(f'skip back filling game pbp for game id {game_id}')
         return
+
+    if force:
+        deleted = sess.query(GamePlayByPlay).filter_by(game_id=str(game_id)).delete()
+        if deleted:
+            logger.info(f'Deleted {deleted} existing PBP rows for {game_id}')
 
     pbp = fetch_game_play_by_play(game_id)
 
@@ -166,14 +171,25 @@ def back_fill_pbp(game_id, sess, commit):
     if commit:
         try:
             sess.commit()
+            logger.info(f'Backfilled {len(pbp["PlayByPlay"])} PBP rows for {game_id}')
         except Exception as e:
             logger.info(f"Failed to insert game pbp {game_id}: {e}")
             sess.rollback()
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Backfill game play-by-play data (V3)")
+    parser.add_argument("--game", type=str, help="Single game_id to backfill")
+    parser.add_argument("--force", action="store_true", help="Delete existing PBP and re-fetch from API")
+    args = parser.parse_args()
+
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    for game in session.query(Game):
-        back_fill_pbp(game.game_id, session, True)
+    if args.game:
+        back_fill_pbp(args.game, session, True, force=args.force)
+    else:
+        for game in session.query(Game):
+            back_fill_pbp(game.game_id, session, True, force=args.force)
