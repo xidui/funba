@@ -9,8 +9,10 @@
     align-items: start;
     min-height: calc(100vh - 200px);
   }
+  .metric-builder > .panel { grid-column: 1; }
   @media (max-width: 900px) {
     .metric-builder { grid-template-columns: 1fr; }
+    .metric-builder > .panel { grid-column: auto; }
   }
 
   /* ── Chat panel ──────────────────────────────────────────────────── */
@@ -21,8 +23,6 @@
     display: flex;
     flex-direction: column;
     max-height: calc(100vh - 160px);
-    position: sticky;
-    top: 74px;
   }
 
   .chat-header {
@@ -244,7 +244,15 @@
   .chat-send-btn svg { width: 16px; height: 16px; }
 
   /* ── Right panel ─────────────────────────────────────────────────── */
-  .right-panels { display: flex; flex-direction: column; gap: 16px; }
+  .right-panels {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: sticky;
+    top: 74px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
 
   .panel {
     background: var(--surface);
@@ -398,64 +406,63 @@
     </div>
   </div>
 
-  <!-- ── Right: Settings + Preview ───────────────────────────────── -->
-  <div class="right-panels">
-
-    <!-- Settings (shown after first generation) -->
-    <div id="settings-panel" class="panel" style="display:none;">
-      <div class="panel-title">Settings</div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label class="form-label">Name</label>
-          <input id="f-name" class="form-input" type="text" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Key</label>
-          <input id="f-key" class="form-input" type="text" placeholder="auto_generated" />
-        </div>
+  <!-- Settings (shown after first generation, below chat) -->
+  <div id="settings-panel" class="panel" style="display:none;grid-column:1;">
+    <div class="panel-title">Settings</div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input id="f-name" class="form-input" type="text" />
       </div>
       <div class="form-group">
-        <label class="form-label">Description</label>
-        <input id="f-desc" class="form-input" type="text" />
+        <label class="form-label">Key</label>
+        <input id="f-key" class="form-input" type="text" placeholder="auto_generated" />
       </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label class="form-label">Scope</label>
-          <select id="f-scope" class="form-select">
-            <option value="player">Player</option>
-            <option value="team">Team</option>
-            <option value="game">Game</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Category</label>
-          <select id="f-category" class="form-select">
-            <option value="scoring">Scoring</option>
-            <option value="defense">Defense</option>
-            <option value="efficiency">Efficiency</option>
-            <option value="conditional">Conditional</option>
-            <option value="aggregate">Aggregate</option>
-            <option value="record">Record</option>
-          </select>
-        </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input id="f-desc" class="form-input" type="text" />
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Scope</label>
+        <select id="f-scope" class="form-select">
+          <option value="player">Player</option>
+          <option value="team">Team</option>
+          <option value="game">Game</option>
+        </select>
       </div>
-
-      {% if is_admin %}
-      <details style="margin-top:4px;">
-        <summary style="font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code</summary>
-        <div id="code-viewer" class="code-viewer" contenteditable="true" spellcheck="false"></div>
-      </details>
-      {% else %}
-      <div id="code-viewer" style="display:none;"></div>
-      {% endif %}
-
-      <div class="action-row">
-        <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
-        <button id="publish-btn" class="btn btn-primary">Publish</button>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select id="f-category" class="form-select">
+          <option value="scoring">Scoring</option>
+          <option value="defense">Defense</option>
+          <option value="efficiency">Efficiency</option>
+          <option value="conditional">Conditional</option>
+          <option value="aggregate">Aggregate</option>
+          <option value="record">Record</option>
+        </select>
       </div>
-      <div id="save-msg" class="status-msg"></div>
     </div>
 
+    {% if is_admin %}
+    <details style="margin-top:4px;">
+      <summary style="font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code</summary>
+      <div id="code-viewer" class="code-viewer" contenteditable="true" spellcheck="false"></div>
+    </details>
+    {% else %}
+    <div id="code-viewer" style="display:none;"></div>
+    {% endif %}
+
+    <div class="action-row">
+      <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
+      <button id="publish-btn" class="btn btn-primary">Publish</button>
+    </div>
+    <div id="save-msg" class="status-msg"></div>
+  </div>
+
+  <!-- ── Right: Preview ──────────────────────────────────────────── -->
+  <div class="right-panels">
     <!-- Preview -->
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
