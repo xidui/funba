@@ -1720,21 +1720,27 @@ def game_page(game_id: str):
             _prev_road, _prev_home = _road_s, _home_s
 
         # Derive per-period point totals from PBP (last score seen each period)
-        # Guard against score regressions in legacy data
-        _period_end: dict[int, tuple[int, int]] = {}  # period -> (home_cumulative, road_cumulative)
-        _max_total = 0
-        for _row in pbp_rows_raw:
-            if not _row.score or _row.period is None:
-                continue
+        # Reorder by (period, clock DESC) to handle misplaced events in legacy data
+        def _clock_secs(pc_time):
+            if not pc_time:
+                return 0
             try:
-                _parts = _row.score.split("-")
+                parts = pc_time.split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            except (ValueError, IndexError):
+                return 0
+
+        _score_rows = [(r.period, r.score, r.pc_time, r.event_num) for r in pbp_rows_raw if r.score and r.period is not None]
+        _score_rows.sort(key=lambda r: (r[0] or 0, -_clock_secs(r[2]), r[3] or 0))
+
+        _period_end: dict[int, tuple[int, int]] = {}
+        for _period, _score, _, _ in _score_rows:
+            try:
+                _parts = _score.split("-")
                 if len(_parts) != 2:
                     continue
                 _h, _r = int(_parts[0].strip()), int(_parts[1].strip())
-                if _h + _r < _max_total:
-                    continue
-                _max_total = _h + _r
-                _period_end[int(_row.period)] = (_h, _r)
+                _period_end[int(_period)] = (_h, _r)
             except (ValueError, AttributeError):
                 continue
         quarter_scores: list[dict] = []

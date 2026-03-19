@@ -26,19 +26,30 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
     if not game:
         return []
 
-    # Get last score row per period
+    # Get score rows, reorder by (period, clock DESC) to handle misplaced events
     rows = (
-        session.query(GamePlayByPlay.period, GamePlayByPlay.score)
+        session.query(GamePlayByPlay.period, GamePlayByPlay.score,
+                       GamePlayByPlay.pc_time, GamePlayByPlay.event_num)
         .filter(
             GamePlayByPlay.game_id == game_id,
             GamePlayByPlay.score.isnot(None),
         )
-        .order_by(GamePlayByPlay.period, GamePlayByPlay.event_num)
         .all()
     )
 
+    def _clock_seconds(pc_time):
+        if not pc_time:
+            return 0
+        try:
+            parts = pc_time.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return 0
+
+    # Sort: period ASC, clock DESC (12:00→0:00), event_num ASC
+    rows.sort(key=lambda r: (r.period or 0, -_clock_seconds(r.pc_time), r.event_num or 0))
+
     period_end: dict[int, tuple[int, int]] = {}
-    max_total = 0  # guard against score regressions in legacy data
     for r in rows:
         if r.period is None or not r.score:
             continue
@@ -47,13 +58,9 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
             continue
         try:
             h, rd = int(parts[0].strip()), int(parts[1].strip())
+            period_end[int(r.period)] = (h, rd)
         except (ValueError, TypeError):
             continue
-        total = h + rd
-        if total < max_total:
-            continue
-        max_total = total
-        period_end[int(r.period)] = (h, rd)
 
     if not period_end:
         return []
