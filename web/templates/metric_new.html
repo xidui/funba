@@ -446,6 +446,7 @@
   }
   .status-msg.error { background: color-mix(in srgb, var(--loss) 12%, transparent); color: var(--loss); display:block; }
   .status-msg.info  { background: color-mix(in srgb, #60a5fa 10%, transparent); color: #60a5fa; display:block; }
+  .status-msg.warning { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #f59e0b; display:block; }
 </style>
 
 {% if edit_metric %}
@@ -991,6 +992,11 @@
             saveMsg.textContent = pubData.error;
             saveMsg.className = 'status-msg error';
             return;
+          }
+          if (pubData.warning) {
+            saveMsg.textContent = `${pubData.warning} Redirecting to metric page…`;
+            saveMsg.className = 'status-msg warning';
+            await new Promise((resolve) => window.setTimeout(resolve, 1400));
           }
         }
 

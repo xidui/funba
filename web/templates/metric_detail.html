@@ -358,7 +358,7 @@
     <div class="detail-meta">
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
-      <span class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
+      <span id="metric-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
       {% if metric_def.source_type != 'builtin' %}
       <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">rule metric</span>
       {% endif %}
@@ -393,12 +393,18 @@
   {% endif %}
 </div>
 
-<details class="backfill-panel"{% if backfill.status == 'running' %} open{% endif %}>
+<details
+  id="backfill-panel"
+  class="backfill-panel"
+  data-status="{{ backfill.status }}"
+  data-status-url="{{ url_for('api_metric_backfill_status', metric_key=metric_def.key) }}"
+  {% if backfill.status in ['queued', 'running'] %}open{% endif %}
+>
   <summary class="backfill-summary">
     <div class="backfill-summary-main">
       <span class="backfill-summary-title">Backfill status</span>
-      <span class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
-      <span class="backfill-summary-meta">
+      <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
+      <span id="backfill-summary-meta" class="backfill-summary-meta">
         {% if backfill.latest_run_at %}
           Last compute activity: {{ backfill.latest_run_at }}
           {% if backfill.is_multi_component %}
@@ -418,8 +424,7 @@
     <span class="backfill-caret" aria-hidden="true"></span>
   </summary>
   <div class="backfill-body">
-  {% if backfill.is_multi_component %}
-  <div class="backfill-components">
+  <div id="backfill-components" class="backfill-components"{% if not backfill.is_multi_component %} style="display:none"{% endif %}>
     {% for component in backfill.components %}
     <div class="backfill-component">
       <span class="backfill-component-label">{{ component.label }}</span>
@@ -428,26 +433,25 @@
     </div>
     {% endfor %}
   </div>
-  {% endif %}
   <div class="progress-track">
-    <div class="progress-fill" style="width: {{ backfill.progress_pct }}%;"></div>
+    <div id="backfill-progress-fill" class="progress-fill" style="width: {{ backfill.progress_pct }}%;"></div>
   </div>
   <div class="backfill-grid">
     <div>
       <div class="backfill-stat-label">{{ 'Done Jobs' if backfill.is_multi_component else 'Done' }}</div>
-      <div class="backfill-stat-value">{{ backfill.done_games }}</div>
+      <div id="backfill-done-games" class="backfill-stat-value">{{ backfill.done_games }}</div>
     </div>
     <div>
       <div class="backfill-stat-label">{{ 'In Progress Jobs' if backfill.is_multi_component else 'In Progress' }}</div>
-      <div class="backfill-stat-value">{{ backfill.active_games }}</div>
+      <div id="backfill-active-games" class="backfill-stat-value">{{ backfill.active_games }}</div>
     </div>
     <div>
       <div class="backfill-stat-label">{{ 'Pending Jobs' if backfill.is_multi_component else 'Pending' }}</div>
-      <div class="backfill-stat-value">{{ backfill.pending_games }}</div>
+      <div id="backfill-pending-games" class="backfill-stat-value">{{ backfill.pending_games }}</div>
     </div>
     <div>
       <div class="backfill-stat-label">{{ 'Total Jobs' if backfill.is_multi_component else 'Total Games' }}</div>
-      <div class="backfill-stat-value">{{ backfill.total_games }}</div>
+      <div id="backfill-total-games" class="backfill-stat-value">{{ backfill.total_games }}</div>
     </div>
   </div>
   </div>
@@ -583,4 +587,107 @@
   {% endif %}
 </div>
 {% endif %}
+<script>
+(() => {
+  const panel = document.getElementById('backfill-panel');
+  if (!panel) return;
+
+  const statusUrl = panel.dataset.statusUrl;
+  const pagePill = document.getElementById('metric-status-pill');
+  const panelPill = document.getElementById('backfill-panel-status-pill');
+  const meta = document.getElementById('backfill-summary-meta');
+  const components = document.getElementById('backfill-components');
+  const progressFill = document.getElementById('backfill-progress-fill');
+  const doneValue = document.getElementById('backfill-done-games');
+  const activeValue = document.getElementById('backfill-active-games');
+  const pendingValue = document.getElementById('backfill-pending-games');
+  const totalValue = document.getElementById('backfill-total-games');
+  let timerId = null;
+
+  function shouldPoll(status) {
+    return status === 'queued' || status === 'running';
+  }
+
+  function syncPolling(status) {
+    if (shouldPoll(status) && timerId === null) {
+      timerId = window.setInterval(refreshBackfill, 5000);
+      return;
+    }
+    if (!shouldPoll(status) && timerId !== null) {
+      window.clearInterval(timerId);
+      timerId = null;
+    }
+  }
+
+  function setStatusPill(node, status) {
+    if (!node) return;
+    node.className = `status-pill ${status}`;
+    node.textContent = status.replaceAll('_', ' ');
+  }
+
+  function summaryMetaText(backfill) {
+    if (backfill.latest_run_at) {
+      return backfill.is_multi_component
+        ? `Last compute activity: ${backfill.latest_run_at} across season and career jobs.`
+        : `Last compute activity: ${backfill.latest_run_at}`;
+    }
+    if (backfill.status === 'draft') return 'Publish this metric to start backfilling it across games.';
+    if (backfill.status === 'queued') return 'Publish succeeded. Workers have not claimed jobs yet.';
+    if (backfill.status === 'not_started') return 'No backfill has run for this metric yet.';
+    return 'Progress is derived from per-game metric claims.';
+  }
+
+  function renderComponents(backfill) {
+    if (!components) return;
+    if (!backfill.is_multi_component) {
+      components.style.display = 'none';
+      components.innerHTML = '';
+      return;
+    }
+
+    components.style.display = '';
+    components.innerHTML = backfill.components.map((component) => `
+      <div class="backfill-component">
+        <span class="backfill-component-label">${component.label}</span>
+        <span>${component.done_games}/${component.total_games}</span>
+        <span class="status-pill ${component.status}">${component.status.replaceAll('_', ' ')}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderBackfill(backfill) {
+    panel.dataset.status = backfill.status;
+    setStatusPill(pagePill, backfill.status);
+    setStatusPill(panelPill, backfill.status);
+    if (meta) meta.textContent = summaryMetaText(backfill);
+    if (progressFill) progressFill.style.width = `${backfill.progress_pct}%`;
+    if (doneValue) doneValue.textContent = backfill.done_games;
+    if (activeValue) activeValue.textContent = backfill.active_games;
+    if (pendingValue) pendingValue.textContent = backfill.pending_games;
+    if (totalValue) totalValue.textContent = backfill.total_games;
+    renderComponents(backfill);
+    if (shouldPoll(backfill.status)) {
+      panel.open = true;
+    }
+    syncPolling(backfill.status);
+  }
+
+  async function refreshBackfill() {
+    try {
+      const response = await fetch(statusUrl, {
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok || !data.backfill) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      renderBackfill(data.backfill);
+    } catch (error) {
+      console.error('Failed to refresh backfill status', error);
+    }
+  }
+
+  syncPolling(panel.dataset.status);
+})();
+</script>
 {% endblock %}

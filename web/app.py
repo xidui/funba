@@ -589,6 +589,73 @@ def _combine_backfill_components(
     }
 
 
+def _format_backfill_timestamp(value) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)
+
+
+def _build_metric_backfill_status(session, metric_key: str):
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    base_metric_key = metric_key.removesuffix("_career")
+    db_metric = (
+        session.query(MetricDefinitionModel)
+        .filter(
+            MetricDefinitionModel.key == base_metric_key,
+            MetricDefinitionModel.status != "archived",
+        )
+        .first()
+    )
+    runtime_metric = _get_metric(metric_key, session=session)
+    if db_metric is None and runtime_metric is None:
+        return None, None
+
+    metric_def = _metric_def_view(
+        runtime_metric or db_metric,
+        source_type=getattr(db_metric, "source_type", None),
+    )
+    is_career_metric = bool(getattr(runtime_metric, "career", False))
+    total_games = (
+        session.query(func.count(Game.game_id))
+        .filter(Game.game_date.isnot(None))
+        .scalar() or 0
+    )
+
+    backfill_keys = [metric_key]
+    if runtime_metric is not None and not is_career_metric and getattr(runtime_metric, "supports_career", False):
+        career_key = metric_key + "_career"
+        if _get_metric(career_key, session=session) is not None:
+            backfill_keys.append(career_key)
+
+    components = []
+    for key in backfill_keys:
+        component = _metric_backfill_component(session, key, int(total_games))
+        component["label"] = "Career" if key.endswith("_career") else "Season"
+        component["latest_run_at"] = _format_backfill_timestamp(component["latest_run_at"])
+        components.append(component)
+
+    backfill = _combine_backfill_components(metric_def, components)
+    backfill["latest_run_at"] = _format_backfill_timestamp(backfill["latest_run_at"])
+    return metric_def, backfill
+
+
+def _dispatch_metric_backfill(metric_key: str) -> None:
+    import subprocess
+    import sys
+
+    # Use the same detached CLI dispatch path for publish and re-backfill so the
+    # web UI still works in local environments without a running Celery broker.
+    subprocess.Popen(
+        [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key],
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def _pbp_text(play: GamePlayByPlay) -> str:
     return (play.home_description or play.visitor_description or play.neutral_description or "").strip()
 
@@ -2241,7 +2308,6 @@ def api_metric_publish(metric_key: str):
     if denied:
         return denied
     from datetime import datetime
-    from tasks.ingest import enqueue_metric_backfill
 
     with SessionLocal() as session:
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
@@ -2250,11 +2316,26 @@ def api_metric_publish(metric_key: str):
         m.status = "published"
         m.updated_at = datetime.utcnow()
         session.commit()
-    # Route the control-plane fanout task to the metrics queue so it doesn't get
-    # buried behind long ingest backlogs. The task itself only enqueues ingest
-    # jobs; it does not fetch NBA API data.
-    enqueue_metric_backfill.apply_async(args=[metric_key], queue="metrics")
+    try:
+        _dispatch_metric_backfill(metric_key)
+    except Exception:
+        logger.exception("Failed to enqueue backfill for %s", metric_key)
+        return jsonify({
+            "ok": True,
+            "key": metric_key,
+            "status": "published",
+            "warning": "Metric published but backfill enqueue failed. Run manually.",
+        })
     return jsonify({"ok": True, "key": metric_key, "status": "published"})
+
+
+@app.get("/api/metrics/<metric_key>/backfill-status")
+def api_metric_backfill_status(metric_key: str):
+    with SessionLocal() as session:
+        metric_def, backfill = _build_metric_backfill_status(session, metric_key)
+        if metric_def is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        return jsonify({"ok": True, "metric_key": metric_key, "backfill": backfill})
 
 
 @app.post("/api/metrics/<metric_key>/update")
@@ -2304,13 +2385,7 @@ def api_metric_update(metric_key: str):
             session.query(MetricJobClaim).filter(MetricJobClaim.metric_key == metric_key).delete()
             session.commit()
             try:
-                import subprocess, sys
-                subprocess.Popen(
-                    [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key],
-                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                _dispatch_metric_backfill(metric_key)
             except Exception:
                 logger.exception("Failed to enqueue backfill for %s", metric_key)
                 return jsonify({"ok": True, "key": metric_key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
@@ -2557,22 +2632,7 @@ def metric_detail(metric_key: str):
             })
         show_rank_group = any(r["rank_group_label"] for r in result_rows)
 
-        total_games = (
-            session.query(func.count(Game.game_id))
-            .filter(Game.game_date.isnot(None))
-            .scalar() or 0
-        )
-        backfill_keys = [metric_key]
-        if runtime_metric is not None and not is_career_metric and getattr(runtime_metric, "supports_career", False):
-            career_key = metric_key + "_career"
-            if _get_metric(career_key, session=session) is not None:
-                backfill_keys.append(career_key)
-        components = []
-        for key in backfill_keys:
-            component = _metric_backfill_component(session, key, int(total_games))
-            component["label"] = "Career" if key.endswith("_career") else "Season"
-            components.append(component)
-        backfill = _combine_backfill_components(metric_def, components)
+        _, backfill = _build_metric_backfill_status(session, metric_key)
 
     if is_career_metric:
         display_season_label = "Career"
