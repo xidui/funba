@@ -540,7 +540,8 @@
     const isFollowup = chatHistory.length > 0;
 
     // Hide empty state, show user message
-    chatEmpty.style.display = 'none';
+    const empty = document.getElementById('chat-empty');
+    if (empty) empty.style.display = 'none';
     addUserMsg(expr);
     chatInput.value = '';
     chatSend.disabled = true;
@@ -625,9 +626,12 @@
     chatHistory = [];
     currentSpec = null;
     chatInput.value = '';
-    chatMessages.innerHTML = '';
-    chatMessages.appendChild(chatEmpty);
-    chatEmpty.style.display = 'flex';
+    // Remove all messages but keep chatEmpty
+    chatMessages.querySelectorAll('.msg').forEach(el => el.remove());
+    const empty = document.getElementById('chat-empty');
+    if (empty) {
+      empty.style.display = 'flex';
+    }
     settingsPanel.style.display = 'none';
     previewWrap.style.display = 'none';
     previewPH.style.display = 'block';
