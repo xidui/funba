@@ -2,7 +2,12 @@ import importlib
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 class _Field:
@@ -86,6 +91,10 @@ def _install_stubs():
     fake_models.Player = Player
     fake_models.engine = MagicMock()
 
+    fake_db = types.ModuleType("db")
+    fake_db.__path__ = [str(REPO_ROOT / "db")]
+    fake_db.models = fake_models
+    sys.modules["db"] = fake_db
     sys.modules["db.models"] = fake_models
 
 

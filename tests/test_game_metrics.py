@@ -9,10 +9,15 @@ Covers:
       and ★ prefix on hero entries, plain card on non-hero entries, section
       hidden when no metrics
 """
+from pathlib import Path
 import sys
 import types
 import unittest
 from unittest.mock import MagicMock
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 # ---------------------------------------------------------------------------
@@ -26,14 +31,17 @@ def _import_helper():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
+        "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "User",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.engine = fake_engine
     sys.modules["db.models"] = fake_models
-    sys.modules.setdefault("db", types.ModuleType("db"))
+    fake_db = sys.modules.get("db") or types.ModuleType("db")
+    fake_db.__path__ = [str(REPO_ROOT / "db")]
+    fake_db.models = fake_models
+    sys.modules["db"] = fake_db
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()

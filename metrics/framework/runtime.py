@@ -1,8 +1,13 @@
-"""Runtime metric catalog: built-ins from the registry plus published DB rule metrics."""
+"""Runtime metric catalog: built-ins from the registry plus published DB rule/code metrics."""
 from __future__ import annotations
 
+import ast
+import builtins as py_builtins
 import json
+import logging
 from typing import Iterable
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -11,6 +16,117 @@ from metrics.framework import registry
 from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult
 
 SessionLocal = sessionmaker(bind=engine)
+
+_ALLOWED_IMPORT_ROOTS = {
+    "db",
+    "math",
+    "metrics",
+    "numpy",
+    "pandas",
+    "statistics",
+}
+_BLOCKED_IMPORT_ROOTS = {"importlib", "os", "socket", "subprocess"}
+_SAFE_BUILTINS = {
+    "__build_class__": py_builtins.__build_class__,
+    "Exception": Exception,
+    "RuntimeError": RuntimeError,
+    "TypeError": TypeError,
+    "ValueError": ValueError,
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "classmethod": classmethod,
+    "dict": dict,
+    "enumerate": enumerate,
+    "filter": filter,
+    "float": float,
+    "getattr": getattr,
+    "hasattr": hasattr,
+    "int": int,
+    "isinstance": isinstance,
+    "issubclass": issubclass,
+    "len": len,
+    "list": list,
+    "max": max,
+    "min": min,
+    "next": next,
+    "object": object,
+    "property": property,
+    "range": range,
+    "reversed": reversed,
+    "round": round,
+    "set": set,
+    "setattr": setattr,
+    "sorted": sorted,
+    "staticmethod": staticmethod,
+    "str": str,
+    "sum": sum,
+    "super": super,
+    "tuple": tuple,
+    "zip": zip,
+}
+
+
+def _module_root(name: str | None) -> str:
+    return (name or "").split(".", 1)[0]
+
+
+def _raise_for_disallowed_import(module_name: str | None) -> None:
+    root = _module_root(module_name)
+    if root in _BLOCKED_IMPORT_ROOTS:
+        raise ValueError(f"Import of {root!r} is not allowed in code metrics")
+    if root and root not in _ALLOWED_IMPORT_ROOTS:
+        raise ValueError(f"Import of {module_name!r} is not allowed in code metrics")
+
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if level:
+        raise ValueError("Relative imports are not allowed in code metrics")
+    _raise_for_disallowed_import(name)
+    return py_builtins.__import__(name, globals, locals, fromlist, level)
+
+
+_SAFE_BUILTINS["__import__"] = _safe_import
+
+
+def _validate_code_metric_ast(code: str) -> None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise ValueError(f"Generated code has invalid syntax: {exc}") from exc
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                _raise_for_disallowed_import(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            _raise_for_disallowed_import(node.module)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "__import__":
+            raise ValueError("Use of '__import__' is not allowed in code metrics")
+
+
+def _validate_metric_instance(metric: MetricDefinition) -> None:
+    missing = [
+        attr for attr in ("key", "name", "description", "scope", "category")
+        if not getattr(metric, attr, None)
+    ]
+    if missing:
+        raise ValueError(
+            "Generated metric is missing required attributes: " + ", ".join(missing)
+        )
+
+    if metric.scope not in {"game", "league", "player", "team"}:
+        raise ValueError(f"Generated metric has invalid scope: {metric.scope!r}")
+
+    metric_cls = type(metric)
+    if getattr(metric, "incremental", True):
+        if metric_cls.compute_delta is MetricDefinition.compute_delta:
+            raise ValueError("Generated incremental metric must implement compute_delta()")
+        if metric_cls.compute_value is MetricDefinition.compute_value:
+            raise ValueError("Generated incremental metric must implement compute_value()")
+    elif metric_cls.compute is MetricDefinition.compute:
+        raise ValueError("Generated non-incremental metric must implement compute()")
 
 
 class RuleMetricDefinition(MetricDefinition):
@@ -103,6 +219,114 @@ class RuleMetricDefinition(MetricDefinition):
         )
 
 
+def load_code_metric(code: str) -> MetricDefinition:
+    """Execute generated Python code and return the MetricDefinition instance.
+
+    The code must define exactly one MetricDefinition subclass.
+    Raises ValueError if the code is invalid or defines no/multiple classes.
+    """
+    _validate_code_metric_ast(code)
+
+    # Defense-in-depth namespace restriction — not a full sandbox (seccomp follow-on).
+    # Use a single namespace so imports are visible inside class methods.
+    ns: dict = {"__builtins__": _SAFE_BUILTINS, "__name__": "__metric_code__"}
+    try:
+        exec(code, ns)
+    except Exception as exc:
+        raise ValueError(f"Code execution failed: {exc}") from exc
+
+    # Find all MetricDefinition subclasses defined in the code
+    metric_classes = [
+        v for v in ns.values()
+        if isinstance(v, type)
+        and issubclass(v, MetricDefinition)
+        and v is not MetricDefinition
+    ]
+
+    if not metric_classes:
+        raise ValueError("Generated code does not define a MetricDefinition subclass")
+    if len(metric_classes) > 1:
+        raise ValueError("Generated code must define exactly one MetricDefinition subclass")
+
+    metric = metric_classes[0]()
+    _validate_metric_instance(metric)
+    return metric
+
+
+class CodeMetricDefinition(MetricDefinition):
+    """Adapter that wraps a DB-backed code metric (source_type='code')."""
+
+    def __init__(self, row: MetricDefinitionModel, *, career: bool = False):
+        self._inner = load_code_metric(row.code_python)
+        self._base_row = row
+        # Copy attributes from the inner metric
+        self.key = self._inner.key
+        self.name = self._inner.name
+        self.description = self._inner.description
+        self.scope = self._inner.scope
+        self.category = getattr(self._inner, "category", row.category or "")
+        self.min_sample = self._inner.min_sample
+        self.incremental = self._inner.incremental
+        self.supports_career = getattr(self._inner, "supports_career", False)
+        self.rank_order = getattr(self._inner, "rank_order", "desc")
+        self.career = career
+        self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
+        self.career_min_sample = getattr(self._inner, "career_min_sample", None)
+
+        if self.career:
+            self.key = self._base_row.key + "_career"
+            self.name = self._inner.name + self.career_name_suffix
+            self.supports_career = False
+            if self.career_min_sample is not None:
+                self.min_sample = self.career_min_sample
+            else:
+                self.min_sample = self._inner.min_sample * 5
+
+    def make_career_sibling(self) -> CodeMetricDefinition | None:
+        if not self.supports_career or self.scope == "game":
+            return None
+        return CodeMetricDefinition(self._base_row, career=True)
+
+    def compute_delta(self, session, entity_id, game_id):
+        return self._inner.compute_delta(session, entity_id, game_id)
+
+    def compute_value(self, totals, season, entity_id):
+        result = self._inner.compute_value(totals, season, entity_id)
+        if result and self.career:
+            result.metric_key = self.key
+        return result
+
+    def compute(self, session, entity_id, season, game_id=None):
+        result = self._inner.compute(session, entity_id, season, game_id)
+        if result and self.career:
+            result.metric_key = self.key
+        return result
+
+
+def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]:
+    rows = (
+        session.query(MetricDefinitionModel)
+        .filter(
+            MetricDefinitionModel.status == "published",
+            MetricDefinitionModel.source_type == "code",
+            MetricDefinitionModel.code_python.isnot(None),
+        )
+        .order_by(MetricDefinitionModel.created_at.asc(), MetricDefinitionModel.id.asc())
+        .all()
+    )
+    metrics: list[CodeMetricDefinition] = []
+    for row in rows:
+        try:
+            metric = CodeMetricDefinition(row)
+            metrics.append(metric)
+            sibling = metric.make_career_sibling()
+            if sibling is not None:
+                metrics.append(sibling)
+        except Exception as exc:
+            logger.error("Failed to load code metric %s: %s", row.key, exc)
+    return metrics
+
+
 def _load_published_rule_metrics(session: Session) -> list[RuleMetricDefinition]:
     rows = (
         session.query(MetricDefinitionModel)
@@ -134,13 +358,17 @@ def _dedupe_by_key(metrics: Iterable[MetricDefinition]) -> list[MetricDefinition
     return merged
 
 
+def _load_all_db_metrics(session: Session) -> list[MetricDefinition]:
+    return [*_load_published_rule_metrics(session), *_load_published_code_metrics(session)]
+
+
 def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
     builtins = registry.get_all()
     if session is not None:
-        return _dedupe_by_key([*builtins, *_load_published_rule_metrics(session)])
+        return _dedupe_by_key([*builtins, *_load_all_db_metrics(session)])
 
     with SessionLocal() as owned:
-        return _dedupe_by_key([*builtins, *_load_published_rule_metrics(owned)])
+        return _dedupe_by_key([*builtins, *_load_all_db_metrics(owned)])
 
 
 def get_metric(key: str, session: Session | None = None) -> MetricDefinition | None:
@@ -149,7 +377,7 @@ def get_metric(key: str, session: Session | None = None) -> MetricDefinition | N
         return builtin
 
     def _load(sess: Session) -> MetricDefinition | None:
-        for metric in _load_published_rule_metrics(sess):
+        for metric in _load_all_db_metrics(sess):
             if metric.key == key:
                 return metric
         return None

@@ -1,12 +1,18 @@
 """Tests for admin access control, visitor cookie tracking, and Google OAuth."""
+import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def _make_app():
     """Import the Flask app with DB operations patched out."""
-    import sys, types
+    import types
 
     # Stub out DB-heavy modules so we don't need a live MySQL connection.
     fake_engine = MagicMock()
@@ -17,7 +23,7 @@ def _make_app():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
+        "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
     ):
@@ -27,6 +33,8 @@ def _make_app():
     sys.modules["db.models"] = fake_models
 
     fake_db = types.ModuleType("db")
+    fake_db.__path__ = [str(REPO_ROOT / "db")]
+    fake_db.models = fake_models
     sys.modules["db"] = fake_db
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")

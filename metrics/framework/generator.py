@@ -1,8 +1,7 @@
-"""AI-powered metric generator: converts plain-English expressions into definition_json.
+"""AI-powered metric generator: converts plain-English descriptions into executable Python code.
 
-Uses OpenAI by default (falls back to Anthropic) to parse the user's description into a
-structured rule that the RuleEngine can execute. Returns a full metric spec including
-name, description, scope, and the rule.
+Uses Anthropic Claude (preferred) or OpenAI to generate a MetricDefinition subclass
+that the runner can execute directly. Returns a spec dict with metadata + Python code.
 """
 from __future__ import annotations
 
@@ -13,130 +12,303 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# ── Schema documentation fed to Claude ───────────────────────────────────────
+# ── Prompt template fed to the LLM ──────────────────────────────────────────
 
-_SCHEMA_DOCS = """
-You convert plain-English NBA metric descriptions into structured JSON rule definitions.
+_SYSTEM_PROMPT = """\
+You are an NBA analytics metric generator. Given a plain-English description,
+you produce a Python class that extends MetricDefinition and a JSON metadata block.
 
-## Available data sources / datasets
+## Database Schema (SQLAlchemy models you can import from db.models)
 
-### player_game_stats  (one row per player per game)
-Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, plus_minus, min, starter (bool)
+### Game
+game_id (PK), season, game_date, home_team_id, road_team_id, wining_team_id,
+home_team_score, road_team_score, pity_loss (bool)
 
-### shot_records  (one row per shot attempt)
-Fields: shot_made (bool), shot_attempted (bool), shot_distance (int, feet),
-        shot_zone_basic (str: "Restricted Area","In The Paint (Non-RA)","Mid-Range","Left Corner 3","Right Corner 3","Above the Break 3","Backcourt"),
-        shot_zone_area (str), period (int), min (int, minutes remaining), sec (int)
+### TeamGameStats (one row per team per game)
+game_id (PK), team_id (PK), on_road (bool), win (bool), min, pts, fgm, fga,
+fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct, oreb, dreb, reb, ast, stl,
+blk, tov, pf
 
-### game_pbp  (one row per play-by-play event)
-Fields: period (int), score_margin (int, home perspective), event_type (str)
+### PlayerGameStats (one row per player per game)
+game_id (PK), team_id (PK), player_id (PK), comment, min, sec, starter (bool),
+position, pts, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct,
+oreb, dreb, reb, ast, stl, blk, tov, pf, plus (int, +/-)
 
-### team_game_stats  (one row per team per game)
-Fields: pts, reb, ast, stl, blk, tov, fgm, fga, fg3m, fg3a, ftm, fta, min, win (bool), on_road (bool)
+### GamePlayByPlay (one row per play event)
+id (PK), game_id, event_num, event_msg_type, event_msg_action_type, period,
+wc_time, pc_time, home_description, neutral_description, visitor_description,
+score (str, format "HOME - ROAD" cumulative, e.g. "62 - 51"),
+score_margin (str, home perspective, e.g. "11" or "-5"),
+player1_id, player2_id, player3_id
 
-## Aggregations
+### ShotRecord (one row per shot attempt)
+id (PK), game_id, team_id, player_id, season, period, min, sec,
+event_type, action_type, shot_type, shot_zone_basic, shot_zone_area,
+shot_zone_range, shot_distance, loc_x, loc_y, shot_attempted (bool),
+shot_made (bool)
 
-- avg        — average of a stat field  {"aggregation":"avg","stat":"pts"}
-- max        — max of a stat field      {"aggregation":"max","stat":"pts"}
-- sum        — total of a stat field    {"aggregation":"sum","stat":"pts"}
-- count      — count of matching rows   {"aggregation":"count"}
-- pct_rows   — % of rows matching filters vs total  {"aggregation":"pct_rows"}
-- ratio      — SUM(numerator)/SUM(denominator)  {"aggregation":"ratio","numerator":"fgm","denominator":"fga"}
-- pct_of_total — entity's SUM(stat) as % of all entities' SUM(stat)  {"aggregation":"pct_of_total","stat":"pts"}
+## MetricDefinition Base Class
 
-## Filter operators
-=, !=, >, >=, <, <=, in, not_in
+```python
+class MetricDefinition(ABC):
+    key: str            # unique identifier, e.g. "first_half_high_score"
+    name: str           # display name
+    description: str    # one-sentence description
+    scope: str          # "player" | "team" | "game"
+    category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
+    min_sample: int = 10
+    incremental: bool = True       # True: use compute_delta+compute_value; False: use compute()
+    supports_career: bool = False  # auto-register career sibling
+    career: bool = False
+    rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
+```
 
-## Scopes
-- player  (one result per player per season)
-- team    (one result per team per season)
-- game    (one result per game)
+### Two execution modes:
 
-## Output format (JSON only, no markdown)
+**Mode 1: incremental=True (for season/career aggregation)**
+Used when you accumulate stats across games (e.g., win rate, FG%).
+```python
+def compute_delta(self, session, entity_id, game_id) -> dict | None:
+    # Return per-game additive data. Numeric values are SUMMED across games.
+    # Return None if entity didn't participate.
+
+def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+    # Derive final value from accumulated totals. Return None if below min_sample.
+```
+
+**Mode 2: incremental=False (for per-game metrics)**
+Used when each game produces an independent value (e.g., combined score).
+```python
+def compute(self, session, entity_id, season, game_id=None) -> MetricResult | None:
+    # For game-scope: entity_id IS the game_id
+    # Compute and return result for this single game.
+```
+
+### MetricResult
+```python
+MetricResult(
+    metric_key=self.key,
+    entity_type="player"|"team"|"game",
+    entity_id=entity_id,
+    season=season,
+    game_id=game_id,       # set for game-scope; None for season
+    value_num=float,        # numeric value used for ranking
+    value_str="display",    # human-readable (optional)
+    context={...},          # additional data stored as JSON
+)
+```
+
+## Examples
+
+### Example 1: Game-scope, non-incremental
+```python
+from metrics.framework.base import MetricDefinition, MetricResult
+from db.models import Game
+
+class CombinedScore(MetricDefinition):
+    key = "combined_score"
+    name = "Combined Score"
+    description = "Total points scored by both teams."
+    scope = "game"
+    category = "scoring"
+    min_sample = 1
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        game = session.query(Game.home_team_score, Game.road_team_score) \\
+            .filter(Game.game_id == entity_id).one_or_none()
+        if game is None or game.home_team_score is None:
+            return None
+        total = game.home_team_score + game.road_team_score
+        return MetricResult(
+            metric_key=self.key, entity_type="game", entity_id=entity_id,
+            season=season, game_id=entity_id,
+            value_num=float(total), value_str=f"{total} pts",
+            context={"combined_score": total},
+        )
+```
+
+### Example 2: Team-scope, incremental with career
+```python
+from metrics.framework.base import MetricDefinition, MetricResult
+from db.models import Game, GamePlayByPlay, TeamGameStats
+
+class WinPctLeadingAtHalf(MetricDefinition):
+    key = "win_pct_leading_at_half"
+    name = "Leads-at-Half Win%"
+    description = "Win % in games where the team was leading at halftime."
+    scope = "team"
+    category = "conditional"
+    min_sample = 5
+    incremental = True
+    supports_career = True
+
+    def compute_delta(self, session, entity_id, game_id) -> dict | None:
+        tgs = session.query(TeamGameStats).filter(
+            TeamGameStats.team_id == entity_id, TeamGameStats.game_id == game_id
+        ).first()
+        if tgs is None or tgs.win is None:
+            return None
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if not game:
+            return None
+        is_home = game.home_team_id == entity_id
+        pbp_row = session.query(GamePlayByPlay.score_margin).filter(
+            GamePlayByPlay.game_id == game_id, GamePlayByPlay.period == 2,
+            GamePlayByPlay.score_margin.isnot(None),
+        ).order_by(GamePlayByPlay.event_num.desc()).first()
+        if pbp_row is None or pbp_row.score_margin in (None, "null", ""):
+            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
+        try:
+            margin = int(pbp_row.score_margin)
+        except (ValueError, TypeError):
+            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
+        team_leading = margin > 0 if is_home else margin < 0
+        if not team_leading:
+            return {"total_games": 1, "leading_total": 0, "leading_wins": 0}
+        return {"total_games": 1, "leading_total": 1, "leading_wins": 1 if tgs.win else 0}
+
+    def compute_value(self, totals, season, entity_id) -> MetricResult | None:
+        leading_total = totals.get("leading_total", 0)
+        if leading_total < self.min_sample:
+            return None
+        win_pct = totals.get("leading_wins", 0) / leading_total
+        return MetricResult(
+            metric_key=self.key, entity_type="team", entity_id=entity_id,
+            season=season, game_id=None,
+            value_num=round(win_pct, 4),
+            context={"wins": totals.get("leading_wins", 0),
+                     "games_leading_at_half": leading_total,
+                     "total_games": totals.get("total_games", 0)},
+        )
+```
+
+### Example 3: Game-scope, parsing PBP score for quarter data
+```python
+from metrics.framework.base import MetricDefinition, MetricResult
+from db.models import Game, GamePlayByPlay, Team
+
+class FirstHalfHighScore(MetricDefinition):
+    key = "first_half_high_score"
+    name = "First Half High Score"
+    description = "Highest first-half score by either team in a game."
+    scope = "game"
+    category = "scoring"
+    min_sample = 1
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        target = entity_id
+        # Get cumulative score at end of Q2 (halftime)
+        row = session.query(GamePlayByPlay.score).filter(
+            GamePlayByPlay.game_id == target,
+            GamePlayByPlay.period == 2,
+            GamePlayByPlay.score.isnot(None),
+        ).order_by(GamePlayByPlay.event_num.desc()).first()
+        if not row or not row.score:
+            return None
+        parts = row.score.split("-")
+        if len(parts) != 2:
+            return None
+        try:
+            home_half = int(parts[0].strip())
+            road_half = int(parts[1].strip())
+        except (ValueError, TypeError):
+            return None
+        game = session.query(Game).filter(Game.game_id == target).one_or_none()
+        if not game:
+            return None
+        # Resolve team abbreviations for display
+        high = max(home_half, road_half)
+        if home_half >= road_half:
+            high_team_id = game.home_team_id
+        else:
+            high_team_id = game.road_team_id
+        team = session.query(Team.abbr).filter(Team.team_id == high_team_id).first()
+        abbr = team.abbr if team else high_team_id
+        return MetricResult(
+            metric_key=self.key, entity_type="game", entity_id=target,
+            season=season, game_id=target,
+            value_num=float(high), value_str=f"{abbr} {high}",
+            context={"home_half": home_half, "road_half": road_half,
+                     "high_team_id": high_team_id},
+        )
+```
+
+## Your output format
+
+Reply with ONLY a JSON object (no markdown fences):
 {
   "name": "Short display name",
   "description": "One sentence describing what this measures.",
   "scope": "player | team | game",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
-  "group_key": null,
-  "min_sample": <int — minimum rows before result is meaningful>,
-  "definition": {
-    "source": "<source>",          // alias: dataset
-    "dataset": "<source>",         // optional alias for source
-    "time_scope": "season | career | season_and_career",   // optional, default season
-    "season_types": ["regular"] | ["playoffs"] | ["regular","playoffs"],  // optional
-    "filters": [{"field":"<f>","op":"<op>","value":<v>}, ...],
-    // filters may also resolve values dynamically from the target entity:
-    // {"field":"team_id","op":"=","value_from":"entity.current_team_id"}
-    "aggregation": "<agg>",
-    "supports_career": <bool>,  // optional
-    "career_name_suffix": "<suffix>",  // optional
-    "career_min_sample": <int>,  // optional
-    "ranking": {
-      "partition_by": ["entity.current_team_id"]  // optional
-    },
-    "display": {
-      "value_format": "number | integer",         // optional
-      "unit": "pts"                               // optional
-    },
-    // ratio only:
-    "numerator": "<field>",
-    "denominator": "<field>",
-    // avg/sum/count/pct_rows/pct_of_total:
-    "stat": "<field>",
-    // optional baseline for comparison:
-    "baseline": {
-      "aggregation": "<agg>",
-      "numerator": "<field>",   // if ratio
-      "denominator": "<field>", // if ratio
-      "stat": "<field>"         // if avg/sum
-    }
-  }
+  "min_sample": <int>,
+  "incremental": <bool>,
+  "supports_career": <bool>,
+  "rank_order": "desc | asc",
+  "code": "<full Python code for the class, with imports>"
 }
+
+IMPORTANT:
+- The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
+- Include all necessary imports at the top of the code.
+- Import MetricDefinition and MetricResult from metrics.framework.base.
+- Import DB models from db.models.
+- Do NOT include register() call — the system handles registration.
+- The class name should be CamelCase of the key.
+- Use raw strings or proper escaping in the code field.
 """
 
 
-def generate(expression: str) -> dict:
-    """Convert a plain-English expression into a metric spec using OpenAI or Anthropic.
-
-    Returns a dict with keys: name, description, scope, category, group_key,
-    min_sample, definition (the rule dict).
-
-    Raises ValueError if generation fails or output is unparseable.
-    """
-    openai_key = os.getenv("OPENAI_API_KEY")
+def _call_llm(prompt: str) -> str:
+    """Call Anthropic (preferred) or OpenAI and return the raw text response."""
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
 
-    if not openai_key and not anthropic_key:
-        raise ValueError("No AI API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY.")
+    if not anthropic_key and not openai_key:
+        raise ValueError("No AI API key set — set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
 
-    prompt = (
-        f"{_SCHEMA_DOCS}\n\n"
-        f"Convert this metric description into the JSON format above:\n\n"
-        f"\"{expression}\"\n\n"
-        f"Reply with valid JSON only."
-    )
-
-    if openai_key:
-        import openai
-        client = openai.OpenAI(api_key=openai_key)
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.choices[0].message.content.strip()
-    else:
+    if anthropic_key:
         import anthropic
         client = anthropic.Anthropic(api_key=anthropic_key)
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=4096,
+            system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = message.content[0].text.strip()
+        return message.content[0].text.strip()
+    else:
+        import openai
+        client = openai.OpenAI(api_key=openai_key)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=4096,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return response.choices[0].message.content.strip()
 
-    # Strip markdown code fences if Claude wrapped the response
+
+def generate(expression: str) -> dict:
+    """Convert a plain-English expression into a metric spec with Python code.
+
+    Returns a dict with keys: name, description, scope, category, min_sample,
+    incremental, supports_career, rank_order, code.
+
+    Raises ValueError if generation fails or output is unparseable.
+    """
+    prompt = (
+        f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
+        f"\"{expression}\""
+    )
+
+    raw = _call_llm(prompt)
+
+    # Strip markdown code fences if the model wrapped the response
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
 
@@ -147,8 +319,17 @@ def generate(expression: str) -> dict:
         raise ValueError(f"AI returned invalid JSON: {exc}") from exc
 
     # Validate required keys
-    for key in ("name", "description", "scope", "definition"):
+    for key in ("name", "description", "scope", "code"):
         if key not in spec:
             raise ValueError(f"AI response missing required key: {key!r}")
 
+    if not spec["code"].strip():
+        raise ValueError("AI returned empty code")
+
     return spec
+
+
+def generate_rule(expression: str) -> dict:
+    """Legacy: generate a JSON rule definition. Kept for backwards compatibility."""
+    from metrics.framework._generator_rule import generate as _gen_rule
+    return _gen_rule(expression)

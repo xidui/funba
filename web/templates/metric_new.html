@@ -197,8 +197,8 @@
           <button id="generate-btn" class="generate-btn">Generate</button>
         </div>
         <div class="hint-text">
-          Describe what you want to measure in plain English. Claude will convert it into a rule.<br>
-          Examples: "% of games where a player scores 30+", "team points from bench players", "3-point attempts per game"
+          Describe what you want to measure in plain English. Claude will generate the metric code.<br>
+          Examples: "% of games where a player scores 30+", "highest single-quarter score in a game", "team win rate after 2 consecutive wins"
         </div>
         <div id="status-msg" class="status-msg"></div>
       </div>
@@ -241,10 +241,14 @@
         <input id="f-key" class="form-input" type="text" placeholder="e.g. clutch_fg_pct_q4" />
       </div>
 
-      <details style="margin-top:8px;">
-        <summary style="font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Rule JSON ›</summary>
-        <div id="json-viewer" class="json-viewer"></div>
+      {% if is_admin %}
+      <details style="margin-top:8px;" open>
+        <summary style="font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code ›</summary>
+        <div id="code-viewer" class="json-viewer" contenteditable="true" spellcheck="false" style="min-height:120px;"></div>
       </details>
+      {% else %}
+      <div id="code-viewer" style="display:none;"></div>
+      {% endif %}
 
       <div class="action-row">
         <button id="preview-btn" class="btn btn-secondary">Preview Results</button>
@@ -291,7 +295,7 @@
   const generateBtn  = document.getElementById('generate-btn');
   const statusMsg    = document.getElementById('status-msg');
   const metaPanel    = document.getElementById('meta-panel');
-  const jsonViewer   = document.getElementById('json-viewer');
+  const codeViewer   = document.getElementById('code-viewer');
   const previewBtn   = document.getElementById('preview-btn');
   const saveDraftBtn = document.getElementById('save-draft-btn');
   const publishBtn   = document.getElementById('publish-btn');
@@ -322,7 +326,7 @@
 
     generateBtn.disabled = true;
     generateBtn.textContent = '…';
-    setStatus('Asking Claude to interpret your metric…', 'info');
+    setStatus('Generating metric code…', 'info');
 
     try {
       const res = await fetch('/api/metrics/generate', {
@@ -342,7 +346,7 @@
       document.getElementById('f-scope').value    = currentSpec.scope || 'player';
       document.getElementById('f-category').value = currentSpec.category || 'scoring';
       document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
-      jsonViewer.textContent = JSON.stringify(currentSpec.definition, null, 2);
+      codeViewer.textContent = currentSpec.code || '';
       metaPanel.style.display = 'block';
 
       // Auto-preview
@@ -367,12 +371,13 @@
 
     const season = document.getElementById('preview-season').value;
     const scope  = document.getElementById('f-scope').value;
+    const code   = codeViewer.textContent;
 
     try {
       const res = await fetch('/api/metrics/preview', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ definition: currentSpec.definition, scope, season }),
+        body: JSON.stringify({ code, scope, season }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -381,14 +386,25 @@
       }
 
       previewCount.textContent = `— ${data.rows.length} result${data.rows.length !== 1 ? 's' : ''}`;
-      previewBody.innerHTML = data.rows.map((r, i) => `
-        <tr>
+      previewBody.innerHTML = data.rows.map((r, i) => {
+        const display = r.value_str || (r.value_num < 1 && r.value_num > -1
+          ? (r.value_num * 100).toFixed(1) + '%'
+          : r.value_num.toLocaleString(undefined, {maximumFractionDigits: 2}));
+        const baseDisplay = r.baseline != null
+          ? (r.baseline < 1 && r.baseline > -1
+            ? (r.baseline * 100).toFixed(1) + '%'
+            : r.baseline.toLocaleString(undefined, {maximumFractionDigits: 2}))
+          : '—';
+        const entityUrl = scope === 'player' ? `/players/${r.entity_id}`
+          : scope === 'team' ? `/teams/${r.entity_id}`
+          : `/games/${r.entity_id}`;
+        return `<tr>
           <td style="color:var(--muted);font-size:12px;">#${i+1}</td>
-          <td style="font-weight:600;">${r.entity_name}</td>
-          <td class="preview-val">${(r.value_num * 100).toFixed(1)}%</td>
-          <td class="preview-val" style="color:var(--muted-2);font-size:13px;">${r.baseline != null ? (r.baseline * 100).toFixed(1) + '%' : '—'}</td>
-        </tr>
-      `).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results (min_sample not met)</td></tr>';
+          <td style="font-weight:600;"><a href="${entityUrl}" target="_blank">${r.entity_name}</a></td>
+          <td class="preview-val">${display}</td>
+          <td class="preview-val" style="color:var(--muted-2);font-size:13px;">${baseDisplay}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results (min_sample not met)</td></tr>';
 
     } catch (e) {
       previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
@@ -409,7 +425,7 @@
       description:document.getElementById('f-desc').value.trim(),
       scope:      document.getElementById('f-scope').value,
       category:   document.getElementById('f-category').value,
-      definition: currentSpec.definition,
+      code:       codeViewer.textContent,
       expression: expressionEl.value.trim(),
       min_sample: currentSpec.min_sample || 1,
     };
