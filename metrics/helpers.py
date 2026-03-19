@@ -38,6 +38,7 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
     )
 
     period_end: dict[int, tuple[int, int]] = {}
+    max_total = 0  # guard against score regressions in legacy data
     for r in rows:
         if r.period is None or not r.score:
             continue
@@ -46,9 +47,13 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
             continue
         try:
             h, rd = int(parts[0].strip()), int(parts[1].strip())
-            period_end[int(r.period)] = (h, rd)
         except (ValueError, TypeError):
             continue
+        total = h + rd
+        if total < max_total:
+            continue
+        max_total = total
+        period_end[int(r.period)] = (h, rd)
 
     if not period_end:
         return []

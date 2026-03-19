@@ -1720,7 +1720,9 @@ def game_page(game_id: str):
             _prev_road, _prev_home = _road_s, _home_s
 
         # Derive per-period point totals from PBP (last score seen each period)
+        # Guard against score regressions in legacy data
         _period_end: dict[int, tuple[int, int]] = {}  # period -> (home_cumulative, road_cumulative)
+        _max_total = 0
         for _row in pbp_rows_raw:
             if not _row.score or _row.period is None:
                 continue
@@ -1729,6 +1731,9 @@ def game_page(game_id: str):
                 if len(_parts) != 2:
                     continue
                 _h, _r = int(_parts[0].strip()), int(_parts[1].strip())
+                if _h + _r < _max_total:
+                    continue
+                _max_total = _h + _r
                 _period_end[int(_row.period)] = (_h, _r)
             except (ValueError, AttributeError):
                 continue
