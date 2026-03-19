@@ -52,6 +52,11 @@ def get_by_scope(scope: str) -> list[MetricDefinition]:
     return [m for m in _registry.values() if m.scope == scope]
 
 
+def get_asc_metric_keys() -> set[str]:
+    """Return keys of metrics that rank ascending (lower value = better rank)."""
+    return {k for k, m in _registry.items() if m.rank_order == "asc"}
+
+
 def _load_all() -> None:
     """Import all definition modules so they self-register."""
     import metrics.definitions.player.hot_hand              # noqa: F401

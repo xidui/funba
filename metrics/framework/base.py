@@ -65,6 +65,9 @@ class MetricDefinition(ABC):
     supports_career: bool = False  # True → auto-register career sibling on register()
     career: bool = False           # True → this IS the career version
 
+    # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)
+    rank_order: str = "desc"
+
     # Career sibling overrides (customisable per metric class)
     career_min_sample: int | None = None  # None → min_sample * 5
     career_name_suffix: str = " (Career)"

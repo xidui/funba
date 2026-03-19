@@ -347,8 +347,10 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     import json
     from sqlalchemy import func
     from metrics.framework.base import CAREER_SEASON
+    from metrics.framework.registry import get_asc_metric_keys
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
+    _asc_keys = get_asc_metric_keys()
     scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
 
     # Inner subquery: compute rank and total over the full population for
@@ -366,6 +368,11 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         inner_filters.append(season_filter)
 
     rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
+    # Flip sign for "asc" metrics so DESC ordering ranks lowest value first
+    _rank_value = case(
+        (MetricResultModel.metric_key.in_(_asc_keys), -MetricResultModel.value_num),
+        else_=MetricResultModel.value_num,
+    )
 
     inner_q = (
         session.query(
@@ -380,7 +387,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             MetricResultModel.computed_at,
             func.rank().over(
                 partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                order_by=MetricResultModel.value_num.desc(),
+                order_by=_rank_value.desc(),
             ).label("rank"),
             func.count(MetricResultModel.id).over(
                 partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
@@ -455,13 +462,17 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     # (RANK partitioned by metric_key only, no season filter).
     if entity_type == "game" and season_metrics:
         metric_keys = [e["metric_key"] for e in season_metrics]
+        _ag_rank_value = case(
+            (MetricResultModel.metric_key.in_(_asc_keys), -MetricResultModel.value_num),
+            else_=MetricResultModel.value_num,
+        )
         ag_inner = (
             session.query(
                 MetricResultModel.metric_key,
                 MetricResultModel.entity_id,
                 func.rank().over(
                     partition_by=[MetricResultModel.metric_key, func.coalesce(MetricResultModel.rank_group, "__all__")],
-                    order_by=MetricResultModel.value_num.desc(),
+                    order_by=_ag_rank_value.desc(),
                 ).label("rank"),
                 func.count(MetricResultModel.id).over(
                     partition_by=[MetricResultModel.metric_key, func.coalesce(MetricResultModel.rank_group, "__all__")],
@@ -2073,6 +2084,7 @@ def _resolve_entity_labels(session, rows):
 def metric_detail(metric_key: str):
     import json
     from metrics.framework.base import CAREER_SEASON
+    from metrics.framework.registry import get as _get_metric_def
 
     # Season filter — "all" is the explicit sentinel for cross-season view
     selected_season = request.args.get("season", "")
@@ -2133,6 +2145,9 @@ def metric_detail(metric_key: str):
             filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
         rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
+        _mdef = _get_metric_def(metric_key)
+        _is_asc = _mdef is not None and _mdef.rank_order == "asc"
+        _detail_rank_val = -MetricResultModel.value_num if _is_asc else MetricResultModel.value_num
         ranked_q = (
             filtered_q.with_entities(
                 MetricResultModel.id.label("id"),
@@ -2146,7 +2161,7 @@ def metric_detail(metric_key: str):
                 MetricResultModel.computed_at.label("computed_at"),
                 func.rank().over(
                     partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                    order_by=MetricResultModel.value_num.desc(),
+                    order_by=_detail_rank_val.desc(),
                 ).label("rank"),
                 func.count(MetricResultModel.id).over(
                     partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
@@ -2155,9 +2170,10 @@ def metric_detail(metric_key: str):
             .subquery()
         )
 
+        _detail_sort_col = ranked_q.c.value_num.asc() if _is_asc else ranked_q.c.value_num.desc()
         base_rows_q = (
             session.query(ranked_q)
-            .order_by(ranked_q.c.value_num.desc(), ranked_q.c.entity_id.asc())
+            .order_by(_detail_sort_col, ranked_q.c.entity_id.asc())
         )
 
         if search_q:
