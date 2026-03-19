@@ -1,96 +1,351 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .new-metric-layout {
+  /* ── Layout ──────────────────────────────────────────────────────── */
+  .metric-builder {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    gap: 20px;
     align-items: start;
+    min-height: calc(100vh - 200px);
   }
-  @media (max-width: 860px) {
-    .new-metric-layout { grid-template-columns: 1fr; }
+  @media (max-width: 900px) {
+    .metric-builder { grid-template-columns: 1fr; }
   }
 
-  .panel {
+  /* ── Chat panel ──────────────────────────────────────────────────── */
+  .chat-panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 22px 24px;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 160px);
+    position: sticky;
+    top: 74px;
   }
 
-  .panel-title {
+  .chat-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .chat-header-title {
     font-family: 'Outfit', sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-bottom: 16px;
+    color: #fff;
   }
 
-  .form-group { margin-bottom: 14px; }
+  .chat-start-over {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 10px;
+    display: none;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .chat-start-over:hover { color: var(--accent); border-color: var(--accent); }
 
-  .form-label {
-    display: block;
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 200px;
+  }
+
+  .chat-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .chat-empty-icon {
+    font-size: 32px;
+    opacity: 0.3;
+  }
+
+  .chat-empty-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+
+  .chat-empty-examples {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .chat-example {
     font-size: 12px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .chat-example:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Message bubbles */
+  .msg { max-width: 92%; animation: fadeUp 0.15s ease-out both; }
+  .msg-user { align-self: flex-end; }
+  .msg-ai { align-self: flex-start; }
+
+  .msg-bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .msg-user .msg-bubble {
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+
+  .msg-ai .msg-bubble {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+
+  .msg-label {
+    font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--muted);
-    margin-bottom: 5px;
+    margin-bottom: 4px;
+  }
+  .msg-user .msg-label { text-align: right; }
+
+  .msg-metric-name {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: #fff;
+    font-size: 14px;
+    margin-bottom: 2px;
   }
 
-  .form-input, .form-select, .form-textarea {
+  .msg-metric-desc {
+    font-size: 12px;
+    color: var(--muted-2);
+    margin-bottom: 6px;
+  }
+
+  .msg-code-toggle {
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    margin-top: 6px;
+  }
+  .msg-code-toggle:hover { color: var(--accent); }
+
+  .msg-code {
+    display: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--muted-2);
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .msg-code.open { display: block; }
+
+  .msg-thinking {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .msg-thinking-dots {
+    display: flex; gap: 3px;
+  }
+  .msg-thinking-dots span {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--muted);
+    animation: blink 1.2s infinite;
+  }
+  .msg-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .msg-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+  /* Input bar */
+  .chat-input-bar {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .chat-input {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .chat-input:focus { border-color: var(--accent); }
+  .chat-input::placeholder { color: var(--muted); }
+
+  .chat-send-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .chat-send-btn svg { width: 16px; height: 16px; }
+
+  /* ── Right panel ─────────────────────────────────────────────────── */
+  .right-panels { display: flex; flex-direction: column; gap: 16px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px;
+  }
+
+  .panel-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* ── Form elements ───────────────────────────────────────────────── */
+  .form-group { margin-bottom: 12px; }
+  .form-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .form-input, .form-select {
     width: 100%;
     background: var(--surface-2);
-    border: 1px solid var(--border-2);
+    border: 1px solid var(--border);
     border-radius: 7px;
     color: var(--text);
     font-size: 13px;
-    padding: 8px 11px;
+    font-family: inherit;
+    padding: 7px 10px;
     outline: none;
     box-sizing: border-box;
-    transition: border-color 0.15s;
   }
-  .form-input:focus, .form-select:focus, .form-textarea:focus {
-    border-color: var(--accent);
-  }
-  .form-textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+  .form-input:focus, .form-select:focus { border-color: var(--accent); }
 
-  .expression-wrap { position: relative; }
-  .expression-input {
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* ── Preview table ───────────────────────────────────────────────── */
+  .preview-table {
     width: 100%;
-    background: var(--surface-2);
-    border: 1px solid var(--border-2);
-    border-radius: 7px;
-    color: var(--text);
-    font-size: 14px;
-    padding: 12px 110px 12px 14px;
-    outline: none;
-    box-sizing: border-box;
-    transition: border-color 0.15s;
+    border-collapse: collapse;
+    font-size: 13px;
   }
-  .expression-input:focus { border-color: var(--accent); }
-  .generate-btn {
-    position: absolute;
-    right: 6px; top: 50%; transform: translateY(-50%);
-    padding: 6px 14px;
-    border-radius: 6px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 12px;
+  .preview-table th {
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .preview-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .preview-table tr:hover td { background: var(--surface-2); }
+  .preview-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  /* ── Action buttons ──────────────────────────────────────────────── */
+  .action-row { display: flex; gap: 8px; margin-top: 14px; }
+  .btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
     font-weight: 700;
     border: none;
     cursor: pointer;
-    white-space: nowrap;
+    font-family: inherit;
   }
-  .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .hint-text {
+  .code-viewer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px 12px;
     font-size: 11px;
-    color: var(--muted);
-    margin-top: 5px;
-    line-height: 1.5;
+    font-family: monospace;
+    color: var(--muted-2);
+    white-space: pre-wrap;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 6px;
   }
 
   .status-msg {
@@ -102,120 +357,97 @@
   }
   .status-msg.error { background: color-mix(in srgb, var(--loss) 12%, transparent); color: var(--loss); display:block; }
   .status-msg.info  { background: color-mix(in srgb, #60a5fa 10%, transparent); color: #60a5fa; display:block; }
-
-  /* Preview table */
-  .preview-wrap { margin-top: 20px; }
-  .preview-title {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-  .preview-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  .preview-table th {
-    text-align: left;
-    padding: 6px 10px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
-    border-bottom: 1px solid var(--border-2);
-  }
-  .preview-table td {
-    padding: 9px 10px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-  }
-  .preview-table tr:hover td { background: var(--surface-2); }
-  .preview-val {
-    font-family: 'Outfit', sans-serif;
-    font-size: 16px;
-    font-weight: 700;
-    text-align: right;
-  }
-
-  .action-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 20px;
-  }
-  .btn {
-    padding: 9px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 700;
-    border: none;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-  }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .json-viewer {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 12px;
-    font-size: 11px;
-    font-family: monospace;
-    color: var(--muted-2);
-    white-space: pre-wrap;
-    max-height: 260px;
-    overflow-y: auto;
-    margin-top: 8px;
-  }
 </style>
 
 <a href="{{ url_for('metrics_browse') }}" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);text-decoration:none;margin-bottom:14px;">← Metrics</a>
 
-<h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:20px;">New Metric</h1>
+<div class="metric-builder">
 
-<div class="new-metric-layout">
+  <!-- ── Left: Chat ──────────────────────────────────────────────── -->
+  <div class="chat-panel">
+    <div class="chat-header">
+      <span class="chat-header-title">Metric Builder</span>
+      <button id="start-over-btn" class="chat-start-over">Start over</button>
+    </div>
 
-  <!-- Left: define the metric -->
-  <div>
-    <div class="panel">
-      <div class="panel-title">Define</div>
-
-      <div class="form-group">
-        <label class="form-label">Describe your metric</label>
-        <div class="expression-wrap">
-          <input id="expression" class="expression-input" type="text"
-            placeholder="e.g. FG% in the final 2 minutes of Q4 vs overall FG%"
-            value="{{ initial_expression or '' }}"
-            autocomplete="off" />
-          <button id="generate-btn" class="generate-btn">Generate</button>
+    <div id="chat-messages" class="chat-messages">
+      <div id="chat-empty" class="chat-empty">
+        <div class="chat-empty-icon">&#9733;</div>
+        <div class="chat-empty-title">Describe any NBA metric</div>
+        <div style="font-size:12px;color:var(--muted);max-width:320px;">
+          Tell the AI what you want to measure in plain English. It will generate the code and show you a live preview.
         </div>
-        <div id="hint-text" class="hint-text">
-          Describe what you want to measure in plain English.<br>
-          Examples: "% of games where a player scores 30+", "highest single-quarter score in a game", "team win rate after 2 consecutive wins"
+        <div class="chat-empty-examples">
+          <div class="chat-example" data-expr="Highest single-quarter score by either team in a game">Highest single-quarter score by either team in a game</div>
+          <div class="chat-example" data-expr="Player FG% in the final 2 minutes of Q4">Player FG% in the final 2 minutes of Q4</div>
+          <div class="chat-example" data-expr="Team win rate after 2 consecutive wins">Team win rate after 2 consecutive wins</div>
         </div>
-        <div id="status-msg" class="status-msg"></div>
       </div>
     </div>
 
-    <!-- Metadata panel (shown after generation) -->
-    <div id="meta-panel" class="panel" style="margin-top:16px;display:none;">
-      <div class="panel-title">Details</div>
-      <div class="form-group">
-        <label class="form-label">Name</label>
-        <input id="f-name" class="form-input" type="text" />
+    <div class="chat-input-bar">
+      <input id="chat-input" class="chat-input" type="text"
+        placeholder="Describe a metric or tell the AI what to change…"
+        value="{{ initial_expression or '' }}"
+        autocomplete="off" spellcheck="false" />
+      <button id="chat-send" class="chat-send-btn" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Right: Preview + Settings ───────────────────────────────── -->
+  <div class="right-panels">
+
+    <!-- Preview -->
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <span class="panel-title" style="margin:0;">Preview</span>
+        <select id="preview-season" class="form-select" style="width:auto;min-width:140px;">
+          {% for s in all_seasons %}
+          <option value="{{ s }}" {% if s == current_season %}selected{% endif %}>{{ season_label(s) }}</option>
+          {% endfor %}
+          <option value="all">All Seasons</option>
+        </select>
+      </div>
+      <div id="preview-placeholder" style="padding:32px 0;text-align:center;color:var(--muted);font-size:13px;">
+        Results will appear here after you describe a metric.
+      </div>
+      <div id="preview-wrap" style="display:none;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:8px;">
+          Top results <span id="preview-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="preview-table">
+            <thead><tr>
+              <th>#</th><th>Entity</th><th style="text-align:right">Value</th>
+            </tr></thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings (shown after first generation) -->
+    <div id="settings-panel" class="panel" style="display:none;">
+      <div class="panel-title">Settings</div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input id="f-name" class="form-input" type="text" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Key</label>
+          <input id="f-key" class="form-input" type="text" placeholder="auto_generated" />
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
         <input id="f-desc" class="form-input" type="text" />
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-row-2">
         <div class="form-group">
           <label class="form-label">Scope</label>
           <select id="f-scope" class="form-select">
@@ -236,108 +468,117 @@
           </select>
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Key (unique identifier)</label>
-        <input id="f-key" class="form-input" type="text" placeholder="e.g. clutch_fg_pct_q4" />
-      </div>
 
       {% if is_admin %}
-      <details style="margin-top:8px;" open>
-        <summary style="font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code ›</summary>
-        <div id="code-viewer" class="json-viewer" contenteditable="true" spellcheck="false" style="min-height:120px;"></div>
+      <details style="margin-top:4px;">
+        <summary style="font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code</summary>
+        <div id="code-viewer" class="code-viewer" contenteditable="true" spellcheck="false"></div>
       </details>
       {% else %}
       <div id="code-viewer" style="display:none;"></div>
       {% endif %}
 
       <div class="action-row">
-        <button id="preview-btn" class="btn btn-secondary">Preview Results</button>
         <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
         <button id="publish-btn" class="btn btn-primary">Publish</button>
       </div>
       <div id="save-msg" class="status-msg"></div>
     </div>
   </div>
-
-  <!-- Right: live preview -->
-  <div>
-    <div class="panel">
-      <div class="panel-title">Preview</div>
-      <div class="form-group" style="margin-bottom:8px;">
-        <label class="form-label">Season</label>
-        <select id="preview-season" class="form-select">
-          {% for s in all_seasons %}
-          <option value="{{ s }}" {% if s == current_season %}selected{% endif %}>{{ season_label(s) }}</option>
-          {% endfor %}
-          <option value="all">All Seasons</option>
-        </select>
-      </div>
-      <div id="preview-placeholder" style="padding:40px 0;text-align:center;color:var(--muted);font-size:13px;">
-        Generate a metric definition first, then preview results here.
-      </div>
-      <div id="preview-wrap" class="preview-wrap" style="display:none;">
-        <div class="preview-title">Top results <span id="preview-count"></span></div>
-        <table class="preview-table">
-          <thead><tr>
-            <th>#</th><th>Entity</th><th style="text-align:right">Value</th>
-            <th style="text-align:right">Baseline</th>
-          </tr></thead>
-          <tbody id="preview-body"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
 (function () {
   let currentSpec = null;
-  let chatHistory = [];  // conversation history for multi-turn
+  let chatHistory = [];
 
-  const expressionEl = document.getElementById('expression');
-  const generateBtn  = document.getElementById('generate-btn');
-  const statusMsg    = document.getElementById('status-msg');
-  const metaPanel    = document.getElementById('meta-panel');
+  const chatMessages = document.getElementById('chat-messages');
+  const chatEmpty    = document.getElementById('chat-empty');
+  const chatInput    = document.getElementById('chat-input');
+  const chatSend     = document.getElementById('chat-send');
+  const startOverBtn = document.getElementById('start-over-btn');
   const codeViewer   = document.getElementById('code-viewer');
-  const previewBtn   = document.getElementById('preview-btn');
-  const saveDraftBtn = document.getElementById('save-draft-btn');
-  const publishBtn   = document.getElementById('publish-btn');
-  const saveMsg      = document.getElementById('save-msg');
+  const settingsPanel= document.getElementById('settings-panel');
   const previewWrap  = document.getElementById('preview-wrap');
   const previewPH    = document.getElementById('preview-placeholder');
   const previewBody  = document.getElementById('preview-body');
   const previewCount = document.getElementById('preview-count');
-
-  function setStatus(msg, type) {
-    statusMsg.textContent = msg;
-    statusMsg.className = 'status-msg ' + type;
-  }
-
-  function setSaveMsg(msg, type) {
-    saveMsg.textContent = msg;
-    saveMsg.className = 'status-msg ' + type;
-  }
+  const saveMsg      = document.getElementById('save-msg');
 
   function slugify(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   }
 
-  // ── Generate ──────────────────────────────────────────────────────────────
-  generateBtn.addEventListener('click', async () => {
-    const expr = expressionEl.value.trim();
+  function scrollChat() {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  // ── Add message to chat ──────────────────────────────────────────
+  function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-user';
+    div.innerHTML = `<div class="msg-label">You</div><div class="msg-bubble">${escHtml(text)}</div>`;
+    chatMessages.appendChild(div);
+    scrollChat();
+  }
+
+  function addAiMsg(spec) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-ai';
+    const codeId = 'code-' + Date.now();
+    let html = `<div class="msg-label">AI</div><div class="msg-bubble">`;
+    html += `<div class="msg-metric-name">${escHtml(spec.name || 'Metric')}</div>`;
+    html += `<div class="msg-metric-desc">${escHtml(spec.description || '')}</div>`;
+    html += `<span style="font-size:11px;color:var(--muted);">Scope: ${spec.scope || '?'} · Category: ${spec.category || '?'}</span>`;
+    {% if is_admin %}
+    html += `<div class="msg-code-toggle" onclick="document.getElementById('${codeId}').classList.toggle('open')">View code ›</div>`;
+    html += `<div id="${codeId}" class="msg-code">${escHtml(spec.code || '')}</div>`;
+    {% endif %}
+    html += `</div>`;
+    div.innerHTML = html;
+    chatMessages.appendChild(div);
+    scrollChat();
+  }
+
+  function addThinking() {
+    const div = document.createElement('div');
+    div.className = 'msg msg-ai';
+    div.id = 'thinking-msg';
+    div.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble"><div class="msg-thinking"><div class="msg-thinking-dots"><span></span><span></span><span></span></div> Generating…</div></div>`;
+    chatMessages.appendChild(div);
+    scrollChat();
+    return div;
+  }
+
+  function removeThinking() {
+    const el = document.getElementById('thinking-msg');
+    if (el) el.remove();
+  }
+
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ── Generate / Refine ────────────────────────────────────────────
+  async function handleSend() {
+    const expr = chatInput.value.trim();
     if (!expr) return;
 
-    generateBtn.disabled = true;
-    generateBtn.textContent = '…';
     const isFollowup = chatHistory.length > 0;
-    setStatus(isFollowup ? 'Refining metric code…' : 'Generating metric code…', 'info');
+
+    // Hide empty state, show user message
+    chatEmpty.style.display = 'none';
+    addUserMsg(expr);
+    chatInput.value = '';
+    chatSend.disabled = true;
+
+    const thinking = addThinking();
 
     try {
       const payload = { expression: expr };
-      if (isFollowup) {
-        payload.history = chatHistory;
-      }
+      if (isFollowup) payload.history = chatHistory;
 
       const res = await fetch('/api/metrics/generate', {
         method: 'POST',
@@ -345,25 +586,32 @@
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!data.ok) { setStatus(data.error, 'error'); return; }
+      removeThinking();
 
-      // Update conversation history
+      if (!data.ok) {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'msg msg-ai';
+        errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">${escHtml(data.error)}</div>`;
+        chatMessages.appendChild(errDiv);
+        scrollChat();
+        return;
+      }
+
+      // Update history
       if (!isFollowup) {
-        // First turn: start fresh history
         chatHistory = [
           {role: 'user', content: 'Convert this NBA metric description into a MetricDefinition Python class:\n\n"' + expr + '"'},
           {role: 'assistant', content: JSON.stringify(data.spec)},
         ];
       } else {
-        // Followup: append user message and assistant response
         chatHistory.push({role: 'user', content: expr});
         chatHistory.push({role: 'assistant', content: JSON.stringify(data.spec)});
       }
 
       currentSpec = data.spec;
-      statusMsg.className = 'status-msg';  // hide
+      addAiMsg(currentSpec);
 
-      // Populate form (only on first generation, preserve user edits on followup)
+      // Update settings (first time only for name/key)
       if (!isFollowup) {
         document.getElementById('f-name').value     = currentSpec.name || '';
         document.getElementById('f-desc').value     = currentSpec.description || '';
@@ -372,47 +620,55 @@
         document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
       }
       codeViewer.textContent = currentSpec.code || '';
-      metaPanel.style.display = 'block';
+      settingsPanel.style.display = 'block';
+      startOverBtn.style.display = 'inline-flex';
 
-      // Clear input for next followup and update UI
-      expressionEl.value = '';
-      expressionEl.placeholder = 'Tell the AI what to fix or change…';
-      generateBtn.textContent = 'Refine';
-      document.getElementById('hint-text').innerHTML =
-        'Review the preview. If something is wrong, describe the issue above.<br>' +
-        '<a href="#" id="start-over-link" style="color:var(--accent);font-size:11px;">Start over</a>';
-      document.getElementById('start-over-link').addEventListener('click', (e) => {
-        e.preventDefault();
-        chatHistory = [];
-        currentSpec = null;
-        expressionEl.value = '';
-        expressionEl.placeholder = 'e.g. FG% in the final 2 minutes of Q4 vs overall FG%';
-        generateBtn.textContent = 'Generate';
-        metaPanel.style.display = 'none';
-        previewWrap.style.display = 'none';
-        previewPH.style.display = 'block';
-        document.getElementById('hint-text').innerHTML =
-          'Describe what you want to measure in plain English.<br>' +
-          'Examples: "% of games where a player scores 30+", "highest single-quarter score in a game"';
-      });
-
-      // Auto-preview
       await runPreview();
 
     } catch (e) {
-      setStatus('Network error: ' + e.message, 'error');
+      removeThinking();
+      const errDiv = document.createElement('div');
+      errDiv.className = 'msg msg-ai';
+      errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">Network error: ${escHtml(e.message)}</div>`;
+      chatMessages.appendChild(errDiv);
+      scrollChat();
     } finally {
-      generateBtn.disabled = false;
+      chatSend.disabled = false;
+      chatInput.focus();
     }
+  }
+
+  chatSend.addEventListener('click', handleSend);
+  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
+
+  // Example clicks
+  document.querySelectorAll('.chat-example').forEach(el => {
+    el.addEventListener('click', () => {
+      chatInput.value = el.dataset.expr;
+      handleSend();
+    });
   });
 
-  expressionEl.addEventListener('keydown', e => { if (e.key === 'Enter') generateBtn.click(); });
+  // ── Start over ──────────────────────────────────────────────────
+  startOverBtn.addEventListener('click', () => {
+    chatHistory = [];
+    currentSpec = null;
+    chatInput.value = '';
+    chatMessages.innerHTML = '';
+    chatMessages.appendChild(chatEmpty);
+    chatEmpty.style.display = 'flex';
+    settingsPanel.style.display = 'none';
+    previewWrap.style.display = 'none';
+    previewPH.style.display = 'block';
+    startOverBtn.style.display = 'none';
+    codeViewer.textContent = '';
+  });
 
-  // ── Preview ───────────────────────────────────────────────────────────────
+  // ── Preview ─────────────────────────────────────────────────────
   async function runPreview() {
     if (!currentSpec) return;
     previewPH.style.display = 'none';
-    previewBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
+    previewBody.innerHTML = '<tr><td colspan="3" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
     previewWrap.style.display = 'block';
 
     const season = document.getElementById('preview-season').value;
@@ -427,41 +683,34 @@
       });
       const data = await res.json();
       if (!data.ok) {
-        previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
+        previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
         return;
       }
 
-      previewCount.textContent = `— ${data.rows.length} result${data.rows.length !== 1 ? 's' : ''}`;
+      previewCount.textContent = `(${data.rows.length})`;
       previewBody.innerHTML = data.rows.map((r, i) => {
         const display = r.value_str || (r.value_num < 1 && r.value_num > -1
           ? (r.value_num * 100).toFixed(1) + '%'
           : r.value_num.toLocaleString(undefined, {maximumFractionDigits: 2}));
-        const baseDisplay = r.baseline != null
-          ? (r.baseline < 1 && r.baseline > -1
-            ? (r.baseline * 100).toFixed(1) + '%'
-            : r.baseline.toLocaleString(undefined, {maximumFractionDigits: 2}))
-          : '—';
         const entityUrl = scope === 'player' ? `/players/${r.entity_id}`
           : scope === 'team' ? `/teams/${r.entity_id}`
           : `/games/${r.entity_id}`;
         return `<tr>
-          <td style="color:var(--muted);font-size:12px;">#${i+1}</td>
-          <td style="font-weight:600;"><a href="${entityUrl}" target="_blank">${r.entity_name}</a></td>
+          <td style="color:var(--muted);font-size:11px;width:30px;">${i+1}</td>
+          <td><a href="${entityUrl}" target="_blank" style="font-weight:600;">${r.entity_name}</a></td>
           <td class="preview-val">${display}</td>
-          <td class="preview-val" style="color:var(--muted-2);font-size:13px;">${baseDisplay}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results (min_sample not met)</td></tr>';
+      }).join('') || '<tr><td colspan="3" style="color:var(--muted);padding:16px 10px;">No results</td></tr>';
 
     } catch (e) {
-      previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
+      previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
     }
   }
 
-  previewBtn.addEventListener('click', runPreview);
   document.getElementById('preview-season').addEventListener('change', runPreview);
   document.getElementById('f-scope').addEventListener('change', runPreview);
 
-  // ── Save / Publish ────────────────────────────────────────────────────────
+  // ── Save / Publish ──────────────────────────────────────────────
   async function saveMetric(publish) {
     if (!currentSpec) return;
 
@@ -472,16 +721,20 @@
       scope:      document.getElementById('f-scope').value,
       category:   document.getElementById('f-category').value,
       code:       codeViewer.textContent,
-      expression: expressionEl.value.trim(),
+      expression: chatHistory.length ? chatHistory[0].content : '',
       min_sample: currentSpec.min_sample || 1,
     };
 
     if (!body.key || !body.name) {
-      setSaveMsg('Name and key are required.', 'error'); return;
+      saveMsg.textContent = 'Name and key are required.';
+      saveMsg.className = 'status-msg error';
+      return;
     }
 
-    saveDraftBtn.disabled = publishBtn.disabled = true;
-    setSaveMsg('Saving…', 'info');
+    document.getElementById('save-draft-btn').disabled = true;
+    document.getElementById('publish-btn').disabled = true;
+    saveMsg.textContent = 'Saving…';
+    saveMsg.className = 'status-msg info';
 
     try {
       const res = await fetch('/api/metrics', {
@@ -490,24 +743,34 @@
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!data.ok) { setSaveMsg(data.error, 'error'); return; }
+      if (!data.ok) {
+        saveMsg.textContent = data.error;
+        saveMsg.className = 'status-msg error';
+        return;
+      }
 
       if (publish) {
         const pub = await fetch(`/api/metrics/${data.key}/publish`, { method: 'POST' });
         const pubData = await pub.json();
-        if (!pubData.ok) { setSaveMsg(pubData.error, 'error'); return; }
+        if (!pubData.ok) {
+          saveMsg.textContent = pubData.error;
+          saveMsg.className = 'status-msg error';
+          return;
+        }
       }
 
       window.location.href = `/metrics/${data.key}`;
     } catch (e) {
-      setSaveMsg('Error: ' + e.message, 'error');
+      saveMsg.textContent = 'Error: ' + e.message;
+      saveMsg.className = 'status-msg error';
     } finally {
-      saveDraftBtn.disabled = publishBtn.disabled = false;
+      document.getElementById('save-draft-btn').disabled = false;
+      document.getElementById('publish-btn').disabled = false;
     }
   }
 
-  saveDraftBtn.addEventListener('click', () => saveMetric(false));
-  publishBtn.addEventListener('click',   () => saveMetric(true));
+  document.getElementById('save-draft-btn').addEventListener('click', () => saveMetric(false));
+  document.getElementById('publish-btn').addEventListener('click', () => saveMetric(true));
 })();
 </script>
 {% endblock %}
