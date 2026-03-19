@@ -197,11 +197,13 @@ def run_for_game(
                     logger.error("Metric %s failed for %s %s: %s",
                                  metric_def.key, entity_type, entity_id, exc, exc_info=True)
                     continue
-                if result:
-                    _upsert_result(session, result)
-                    results.append(result)
+                # Support compute() returning a list of results
+                result_list = result if isinstance(result, list) else [result] if result else []
+                for r in result_list:
+                    _upsert_result(session, r)
+                    results.append(r)
                 _log_run(session, game_id, metric_def.key, entity_type,
-                         entity_id or "", season, None, result is not None)
+                         entity_id or "", season, None, bool(result_list))
             continue
 
         # Incremental path — career metrics accumulate in CAREER_SEASON bucket
@@ -307,11 +309,12 @@ def run_for_game_single_metric(
                 logger.error("Metric %s failed for %s %s: %s",
                              metric_def.key, entity_type, entity_id, exc, exc_info=True)
                 continue
-            if result:
-                _upsert_result(session, result)
-                results.append(result)
+            result_list = result if isinstance(result, list) else [result] if result else []
+            for r in result_list:
+                _upsert_result(session, r)
+                results.append(r)
             _log_run(session, game_id, metric_def.key, entity_type,
-                     entity_id or "", season, None, result is not None)
+                     entity_id or "", season, None, bool(result_list))
     else:
         bucket_season = CAREER_SEASON if metric_def.career else season
 

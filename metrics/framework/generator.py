@@ -79,9 +79,12 @@ def compute_value(self, totals, season, entity_id) -> MetricResult | None:
 **Mode 2: incremental=False (for per-game metrics)**
 Used when each game produces an independent value (e.g., combined score).
 ```python
-def compute(self, session, entity_id, season, game_id=None) -> MetricResult | None:
+def compute(self, session, entity_id, season, game_id=None) -> MetricResult | list[MetricResult] | None:
     # For game-scope: entity_id IS the game_id
     # Compute and return result for this single game.
+    # Can return a LIST of MetricResults to produce multiple rows per game.
+    # When returning multiple rows, each must have a unique entity_id
+    # (e.g., "game_id:team_id:period" for per-quarter-per-team data).
 ```
 
 ### MetricResult
@@ -258,6 +261,14 @@ IMPORTANT:
 - Do NOT include register() call — the system handles registration.
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
+
+CRITICAL — PBP score parsing:
+- GamePlayByPlay.score is a CUMULATIVE score string like "62 - 51" (home - road).
+- It is NOT the score for that play or that quarter. It is the running total.
+- To get single-quarter points, you MUST subtract the previous quarter's end score.
+- The score field is the SAME regardless of which team scored — do NOT filter by home_description or visitor_description to get per-team scores.
+- Always parse ALL periods' last score row, then compute per-period deltas.
+- See Example 3 above for the correct pattern.
 """
 
 
@@ -283,8 +294,8 @@ def _call_llm(prompt: str) -> str:
         import openai
         client = openai.OpenAI(api_key=openai_key)
         response = client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=4096,
+            model="gpt-5.4",
+            max_completion_tokens=4096,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
