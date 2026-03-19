@@ -258,28 +258,48 @@ def _call_llm(messages: list[dict]) -> str:
         return response.choices[0].message.content.strip()
 
 
-def generate(expression: str, history: list[dict] | None = None) -> dict:
+def generate(expression: str, history: list[dict] | None = None,
+             existing: dict | None = None) -> dict:
     """Convert a plain-English expression into a metric spec with Python code.
 
     Args:
         expression: The user's current message (initial description or followup).
         history: Previous conversation turns as [{"role": "user"|"assistant", "content": "..."}].
                  None for first-time generation.
+        existing: Current metric info (name, description, scope, category, code) for edit mode.
+                  When provided, the AI should only modify the code and keep metadata unchanged.
 
     Returns a dict with keys: name, description, scope, category, min_sample,
     incremental, supports_career, rank_order, code.
 
     Raises ValueError if generation fails or output is unparseable.
     """
+    edit_prefix = ""
+    if existing:
+        edit_prefix = (
+            "You are EDITING an existing metric. Keep the name, description, scope, "
+            "and category exactly as provided below — only modify the code.\n\n"
+            f"Current metric:\n"
+            f"  name: {existing.get('name', '')}\n"
+            f"  description: {existing.get('description', '')}\n"
+            f"  scope: {existing.get('scope', '')}\n"
+            f"  category: {existing.get('category', '')}\n"
+            f"\nCurrent code:\n```python\n{existing.get('code', '')}\n```\n\n"
+            "User's requested change:\n"
+        )
+
     if history:
         # Multi-turn: append the new user message to existing conversation
-        messages = list(history) + [{"role": "user", "content": expression}]
+        messages = list(history) + [{"role": "user", "content": edit_prefix + expression}]
     else:
         # First turn
-        messages = [{"role": "user", "content": (
-            f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
-            f"\"{expression}\""
-        )}]
+        if existing:
+            messages = [{"role": "user", "content": edit_prefix + expression}]
+        else:
+            messages = [{"role": "user", "content": (
+                f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
+                f"\"{expression}\""
+            )}]
 
     raw = _call_llm(messages)
 
@@ -300,6 +320,12 @@ def generate(expression: str, history: list[dict] | None = None) -> dict:
 
     if not spec["code"].strip():
         raise ValueError("AI returned empty code")
+
+    # In edit mode, override metadata with the existing values
+    if existing:
+        for field in ("name", "description", "scope", "category"):
+            if field in existing:
+                spec[field] = existing[field]
 
     return spec
 

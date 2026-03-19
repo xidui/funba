@@ -381,6 +381,61 @@
     overflow-y: auto;
     margin-top: 6px;
   }
+  .diff-container {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 0;
+    font-size: 11px;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 6px;
+  }
+  .diff-container .diff-line {
+    padding: 1px 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+  .diff-container .diff-del {
+    background: rgba(248,113,113,0.12);
+    color: #f87171;
+  }
+  .diff-container .diff-add {
+    background: rgba(74,222,128,0.12);
+    color: #4ade80;
+  }
+  .diff-container .diff-ctx {
+    color: var(--muted);
+  }
+  .diff-container .diff-hunk {
+    color: var(--muted);
+    background: var(--surface);
+    padding: 2px 10px;
+    font-style: italic;
+  }
+  .diff-header {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    margin-bottom: 2px;
+  }
+  .diff-tab {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+  }
+  .diff-tab.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
 
   .status-msg {
     font-size: 12px;
@@ -477,10 +532,23 @@
     </div>
 
     {% if is_admin %}
+    {% if edit_metric %}
+    <div style="margin-top:4px;">
+      <div class="diff-header">
+        <button class="diff-tab active" id="diff-tab-diff" onclick="showCodeTab('diff')">Diff</button>
+        <button class="diff-tab" id="diff-tab-new" onclick="showCodeTab('new')">New Code</button>
+        <button class="diff-tab" id="diff-tab-original" onclick="showCodeTab('original')">Original</button>
+      </div>
+      <div id="diff-view" class="diff-container"></div>
+      <div id="code-viewer" class="code-viewer" contenteditable="true" spellcheck="false" style="display:none;"></div>
+      <div id="original-code-viewer" class="code-viewer" style="display:none;"></div>
+    </div>
+    {% else %}
     <details style="margin-top:4px;">
       <summary style="font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;">Generated Code</summary>
       <div id="code-viewer" class="code-viewer" contenteditable="true" spellcheck="false"></div>
     </details>
+    {% endif %}
     {% else %}
     <div id="code-viewer" style="display:none;"></div>
     {% endif %}
@@ -535,10 +603,14 @@
   </div>
 </div>
 
+{% if edit_metric and is_admin %}
+<script src="https://cdn.jsdelivr.net/npm/diff@7/dist/diff.min.js"></script>
+{% endif %}
+
 <script>
 (function () {
   const EDIT_MODE = {{ 'true' if edit_metric else 'false' }};
-  const EDIT_KEY = {{ ('"%s"' % edit_metric.key) if edit_metric else 'null' }};
+  const EDIT_KEY = {{ edit_metric.key | tojson if edit_metric else 'null' }};
   let currentSpec = null;
   let chatHistory = [];
 
@@ -566,10 +638,49 @@
   const previewBody  = document.getElementById('preview-body');
   const previewCount = document.getElementById('preview-count');
   const saveMsg      = document.getElementById('save-msg');
+  const diffView     = document.getElementById('diff-view');
+  const originalCodeViewer = document.getElementById('original-code-viewer');
+  let originalCode   = '';  // saved on edit mode init
 
   function slugify(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   }
+
+  // ── Diff utilities (uses jsdiff from CDN) ───────────────────────
+  function renderDiff(oldText, newText) {
+    if (!diffView) return;
+    if (oldText === newText) {
+      diffView.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center;font-size:12px;">No changes yet</div>';
+      return;
+    }
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const changes = Diff.structuredPatch('', '', oldText, newText, '', '', {context: 3});
+    let html = '';
+    for (const hunk of changes.hunks) {
+      html += `<div class="diff-line diff-hunk">@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@</div>`;
+      for (const line of hunk.lines) {
+        const ch = line[0];
+        const text = line.slice(1);
+        const cls = ch === '+' ? 'diff-add' : ch === '-' ? 'diff-del' : 'diff-ctx';
+        html += `<div class="diff-line ${cls}">${ch} ${esc(text)}</div>`;
+      }
+    }
+    diffView.innerHTML = html;
+  }
+
+  function showCodeTab(tab) {
+    if (!diffView) return;
+    const tabs = ['diff', 'new', 'original'];
+    tabs.forEach(t => {
+      const el = document.getElementById('diff-tab-' + t);
+      if (el) el.classList.toggle('active', t === tab);
+    });
+    diffView.style.display = tab === 'diff' ? '' : 'none';
+    codeViewer.style.display = tab === 'new' ? '' : 'none';
+    if (originalCodeViewer) originalCodeViewer.style.display = tab === 'original' ? '' : 'none';
+  }
+  // expose to onclick handlers
+  window.showCodeTab = showCodeTab;
 
   function scrollChat() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -577,12 +688,15 @@
 
   // ── Edit mode init ────────────────────────────────────────────────
   if (EDIT_MODE && currentSpec) {
+    originalCode = currentSpec.code || '';
     document.getElementById('f-name').value = currentSpec.name || '';
     document.getElementById('f-desc').value = currentSpec.description || '';
     document.getElementById('f-scope').value = currentSpec.scope || 'player';
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
     document.getElementById('f-key').value = EDIT_KEY;
     codeViewer.textContent = currentSpec.code || '';
+    if (originalCodeViewer) originalCodeViewer.textContent = originalCode;
+    renderDiff(originalCode, originalCode);
     settingsPanel.style.display = 'block';
     const empty = document.getElementById('chat-empty');
     if (empty) empty.style.display = 'none';
@@ -658,6 +772,15 @@
     try {
       const payload = { expression: expr };
       if (isFollowup) payload.history = chatHistory;
+      if (EDIT_MODE && currentSpec) {
+        payload.existing = {
+          name: document.getElementById('f-name').value,
+          description: document.getElementById('f-desc').value,
+          scope: document.getElementById('f-scope').value,
+          category: document.getElementById('f-category').value,
+          code: codeViewer.textContent,
+        };
+      }
 
       const res = await fetch('/api/metrics/generate', {
         method: 'POST',
@@ -690,8 +813,13 @@
       currentSpec = data.spec;
       addAiMsg(currentSpec);
 
-      // Update settings (first time only for name/key)
-      if (!isFollowup) {
+      // Update settings — in edit mode, keep original name/desc/scope/category
+      if (EDIT_MODE) {
+        currentSpec.name        = document.getElementById('f-name').value;
+        currentSpec.description = document.getElementById('f-desc').value;
+        currentSpec.scope       = document.getElementById('f-scope').value;
+        currentSpec.category    = document.getElementById('f-category').value;
+      } else if (!isFollowup) {
         document.getElementById('f-name').value     = currentSpec.name || '';
         document.getElementById('f-desc').value     = currentSpec.description || '';
         document.getElementById('f-scope').value    = currentSpec.scope || 'player';
@@ -699,6 +827,7 @@
         document.getElementById('f-key').value      = slugify(currentSpec.name || expr);
       }
       codeViewer.textContent = currentSpec.code || '';
+      if (EDIT_MODE && originalCode) renderDiff(originalCode, currentSpec.code || '');
       settingsPanel.style.display = 'block';
       startOverBtn.style.display = 'inline-flex';
 
@@ -829,8 +958,8 @@
       if (EDIT_MODE) {
         // Update existing metric
         body.rebackfill = publish;  // "Update & Re-backfill" triggers rebackfill
-        const res = await fetch(`/api/metrics/${EDIT_KEY}`, {
-          method: 'PUT',
+        const res = await fetch(`/api/metrics/${EDIT_KEY}/update`, {
+          method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(body),
         });

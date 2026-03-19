@@ -58,7 +58,12 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
             continue
         try:
             h, rd = int(parts[0].strip()), int(parts[1].strip())
-            period_end[int(r.period)] = (h, rd)
+            p = int(r.period)
+            # Keep the highest cumulative total for each period to avoid
+            # end-of-period marker rows that carry the previous period's score.
+            prev = period_end.get(p)
+            if prev is None or (h + rd) > (prev[0] + prev[1]):
+                period_end[p] = (h, rd)
         except (ValueError, TypeError):
             continue
 

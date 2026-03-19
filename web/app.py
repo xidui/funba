@@ -1719,36 +1719,10 @@ def game_page(game_id: str):
             })
             _prev_road, _prev_home = _road_s, _home_s
 
-        # Derive per-period point totals from PBP (last score seen each period)
-        # Reorder by (period, clock DESC) to handle misplaced events in legacy data
-        def _clock_secs(pc_time):
-            if not pc_time:
-                return 0
-            try:
-                parts = pc_time.split(":")
-                return int(parts[0]) * 60 + int(parts[1])
-            except (ValueError, IndexError):
-                return 0
-
-        _score_rows = [(r.period, r.score, r.pc_time, r.event_num) for r in pbp_rows_raw if r.score and r.period is not None]
-        _score_rows.sort(key=lambda r: (r[0] or 0, -_clock_secs(r[2]), r[3] or 0))
-
-        _period_end: dict[int, tuple[int, int]] = {}
-        for _period, _score, _, _ in _score_rows:
-            try:
-                _parts = _score.split("-")
-                if len(_parts) != 2:
-                    continue
-                _h, _r = int(_parts[0].strip()), int(_parts[1].strip())
-                _period_end[int(_period)] = (_h, _r)
-            except (ValueError, AttributeError):
-                continue
-        quarter_scores: list[dict] = []
-        _ph = _pr = 0
-        for _p in sorted(_period_end.keys()):
-            _eh, _er = _period_end[_p]
-            quarter_scores.append({"period": _p, "home": _eh - _ph, "road": _er - _pr})
-            _ph, _pr = _eh, _er
+        # Derive per-period point totals from PBP using shared helper
+        from metrics.helpers import get_quarter_scores as _get_quarter_scores
+        _qs = _get_quarter_scores(session, game_id)
+        quarter_scores = [{"period": q["period"], "home": q["home_pts"], "road": q["road_pts"]} for q in _qs]
 
         shot_rows_raw = (
             session.query(ShotRecord)
@@ -1978,10 +1952,11 @@ def api_metric_generate():
     body = request.get_json(force=True) or {}
     expression = body.get("expression", "").strip()
     history = body.get("history")  # list of {"role", "content"} or None
+    existing = body.get("existing")  # dict with current metric info for edit mode
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
     try:
-        spec = generate(expression, history=history)
+        spec = generate(expression, history=history, existing=existing)
         return jsonify({"ok": True, "spec": spec})
     except Exception as exc:
         logger.exception("metric generate failed")
@@ -2282,7 +2257,7 @@ def api_metric_publish(metric_key: str):
     return jsonify({"ok": True, "key": metric_key, "status": "published"})
 
 
-@app.put("/api/metrics/<metric_key>")
+@app.post("/api/metrics/<metric_key>/update")
 def api_metric_update(metric_key: str):
     """Update an existing metric's code/settings and optionally re-backfill."""
     denied = _require_admin_json()
@@ -2328,8 +2303,17 @@ def api_metric_update(metric_key: str):
             session.query(MetricRunLog).filter(MetricRunLog.metric_key == metric_key).delete()
             session.query(MetricJobClaim).filter(MetricJobClaim.metric_key == metric_key).delete()
             session.commit()
-            from tasks.ingest import enqueue_metric_backfill
-            enqueue_metric_backfill.apply_async(args=[metric_key], queue="metrics")
+            try:
+                import subprocess, sys
+                subprocess.Popen(
+                    [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key],
+                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                logger.exception("Failed to enqueue backfill for %s", metric_key)
+                return jsonify({"ok": True, "key": metric_key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
 
     return jsonify({"ok": True, "key": metric_key})
 
@@ -2417,7 +2401,10 @@ def metric_detail(metric_key: str):
         if db_metric is None and runtime_metric is None:
             abort(404, description=f"Metric '{metric_key}' not found.")
 
-        metric_def = _metric_def_view(runtime_metric or db_metric)
+        metric_def = _metric_def_view(
+            runtime_metric or db_metric,
+            source_type=getattr(db_metric, "source_type", None),
+        )
         is_career_metric = bool(getattr(runtime_metric, "career", False))
         related_metrics = _related_metric_links(session, metric_key, runtime_metric, db_metric)
 
