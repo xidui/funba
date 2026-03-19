@@ -2253,7 +2253,7 @@ def _resolve_entity_labels(session, rows):
     player_ids.update({player_id for player_id, _ in player_franchise_pairs})
     team_ids   = {r.entity_id for r in rows if r.entity_type == "team"   and r.entity_id}
     team_ids.update({franchise_id for _, franchise_id in player_franchise_pairs})
-    game_ids   = {r.entity_id for r in rows if r.entity_type == "game"   and r.entity_id}
+    game_ids   = {r.entity_id.split(":")[0] for r in rows if r.entity_type == "game" and r.entity_id}
 
     player_names = {
         p.player_id: p.full_name
@@ -2277,9 +2277,20 @@ def _resolve_entity_labels(session, rows):
         if entity_type == "team":
             t = team_map.get(entity_id)
             return (t.full_name or t.abbr) if t else entity_id
-        if entity_type == "game" and entity_id in game_info:
-            gdate, home_id, road_id = game_info[entity_id]
-            return f"{_team_abbr(team_map, road_id)} @ {_team_abbr(team_map, home_id)} ({_fmt_date(gdate)})"
+        if entity_type == "game":
+            parts = entity_id.split(":")
+            gid = parts[0]
+            if gid in game_info:
+                gdate, home_id, road_id = game_info[gid]
+                matchup = f"{_team_abbr(team_map, road_id)} @ {_team_abbr(team_map, home_id)}"
+                date_str = _fmt_date(gdate)
+                if len(parts) > 1:
+                    # Composite: game_id:team_id:qualifier
+                    team_id = parts[1] if len(parts) > 1 else None
+                    qualifier = parts[2] if len(parts) > 2 else ""
+                    team_label = _team_abbr(team_map, team_id) if team_id else ""
+                    return f"{team_label} {qualifier} — {matchup} ({date_str})"
+                return f"{matchup} ({date_str})"
         return entity_id
 
     return {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
@@ -2415,7 +2426,7 @@ def metric_detail(metric_key: str):
         team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
-        scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "games"}.get(
+        scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "results"}.get(
             metric_def.scope, "entities"
         )
         if is_career_metric:
