@@ -1982,17 +1982,19 @@ def api_metric_preview():
             tm = _team_map(session)
             names = {tid: _team_name(tm, tid) for tid in entity_ids}
         elif scope == "game":
-            names = _resolve_game_entity_names(session, entity_ids)
+            names, game_dates = _resolve_game_entity_names(session, entity_ids)
         else:
             names = {}
 
         for r in rows:
             r["entity_name"] = names.get(r["entity_id"], r.get("value_str") or r["entity_id"])
+            if scope == "game":
+                r["date"] = game_dates.get(r["entity_id"], "")
 
     return jsonify({"ok": True, "rows": rows})
 
 
-def _resolve_game_entity_names(session, entity_ids: list[str]) -> dict[str, str]:
+def _resolve_game_entity_names(session, entity_ids: list[str]) -> tuple[dict[str, str], dict[str, str]]:
     """Resolve game entity IDs (simple or composite) to readable names.
 
     Handles:
@@ -2012,31 +2014,33 @@ def _resolve_game_entity_names(session, entity_ids: list[str]) -> dict[str, str]
     tm = _team_map(session)
 
     names = {}
+    dates = {}
     for eid in entity_ids:
         parts = eid.split(":")
         gid = parts[0]
         game = games.get(gid)
         if not game:
             names[eid] = eid
+            dates[eid] = ""
             continue
 
         home_abbr = _team_name(tm, game.home_team_id) if game.home_team_id else "?"
         road_abbr = _team_name(tm, game.road_team_id) if game.road_team_id else "?"
-        date_str = game.game_date.strftime("%b %d") if game.game_date else ""
+        date_str = game.game_date.strftime("%Y-%m-%d") if game.game_date else ""
 
         if len(parts) == 1:
             # Simple game ID
             h_score = game.home_team_score or 0
             r_score = game.road_team_score or 0
-            names[eid] = f"{home_abbr} {h_score} - {road_abbr} {r_score} ({date_str})"
+            names[eid] = f"{home_abbr} {h_score} - {road_abbr} {r_score}"
         else:
-            # Composite: game_id:team_id:qualifier
-            team_id = parts[1] if len(parts) > 1 else None
-            qualifier = parts[2] if len(parts) > 2 else ""
-            team_abbr = _team_name(tm, team_id) if team_id else "?"
-            names[eid] = f"{team_abbr} {qualifier} — {home_abbr} vs {road_abbr} {date_str}"
+            # Composite: game_id:team_id:qualifier — just show matchup
+            names[eid] = f"{home_abbr} vs {road_abbr}"
 
-    return names
+        # Always include date as separate field
+        dates[eid] = date_str
+
+    return names, dates
 
 
 def _preview_code_metric(session, code_python: str, scope: str, season: str, limit: int = 25):

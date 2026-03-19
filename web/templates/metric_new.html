@@ -487,7 +487,7 @@
         <div class="table-wrap">
           <table class="preview-table">
             <thead><tr>
-              <th>#</th><th>Entity</th><th style="text-align:right">Value</th>
+              <th>#</th><th>Matchup</th><th>Date</th><th style="text-align:right">Value</th>
             </tr></thead>
             <tbody id="preview-body"></tbody>
           </table>
@@ -682,7 +682,7 @@
   async function runPreview() {
     if (!currentSpec) return;
     previewPH.style.display = 'none';
-    previewBody.innerHTML = '<tr><td colspan="3" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
+    previewBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
     previewWrap.style.display = 'block';
 
     const season = document.getElementById('preview-season').value;
@@ -697,7 +697,7 @@
       });
       const data = await res.json();
       if (!data.ok) {
-        previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
+        previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
         return;
       }
 
@@ -710,15 +710,17 @@
         const entityUrl = scope === 'player' ? `/players/${baseId}`
           : scope === 'team' ? `/teams/${baseId}`
           : `/games/${baseId}`;
+        const dateCol = r.date ? `<td style="color:var(--muted);font-size:12px;white-space:nowrap;">${r.date}</td>` : '<td></td>';
         return `<tr>
           <td style="color:var(--muted);font-size:11px;width:30px;">${i+1}</td>
           <td><a href="${entityUrl}" target="_blank" style="font-weight:600;">${r.entity_name}</a></td>
+          ${dateCol}
           <td class="preview-val">${display}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="3" style="color:var(--muted);padding:16px 10px;">No results</td></tr>';
+      }).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results</td></tr>';
 
     } catch (e) {
-      previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
+      previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
     }
   }
 
