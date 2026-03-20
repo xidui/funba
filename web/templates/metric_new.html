@@ -640,7 +640,7 @@
       description: {{ edit_metric.description | tojson if edit_metric else 'null' }},
       scope: {{ edit_metric.scope | tojson if edit_metric else 'null' }},
       category: {{ edit_metric.category | tojson if edit_metric else 'null' }},
-      rank_order: {{ edit_metric.rank_order | tojson if edit_metric else '"desc"' }},
+      rank_order: {{ ((edit_metric.rank_order if edit_metric else 'desc') | tojson) | safe }},
       code: {{ edit_metric.code | tojson if edit_metric else 'null' }},
       min_sample: {{ edit_metric.min_sample if edit_metric else 1 }},
     };
