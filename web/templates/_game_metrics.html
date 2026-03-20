@@ -1,5 +1,6 @@
 <!-- ── Game Metrics ────────────────────────────────────────────────── -->
 {% set game_metric_list = game_metrics.season %}
+{% set extra_game_metric_list = game_metrics.season_extra %}
 {% if game_metric_list %}
 <div class="card">
   <div class="analytics-header">
@@ -8,14 +9,32 @@
   </div>
   <div class="game-metrics-grid">
     {% for m in game_metric_list %}
-    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_notable %} gmc-notable{% endif %}"
+    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_featured %} gmc-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
       <div class="gmc-top">
         <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_key | replace('_', ' ') | title }}</div>
         {% if m.season_badge_text or m.all_badge_text %}
         <div class="gmc-ranks">
-          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_notable %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
-          {% if m.all_badge_text %}<span class="rank-chip{% if m.all_games_is_notable %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
+          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
+          {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="gmc-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      {% if m.context_label %}<div class="gmc-context">{{ m.context_label }}</div>{% endif %}
+    </a>
+    {% endfor %}
+    {% for m in extra_game_metric_list %}
+    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_featured %} gmc-notable{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
+       data-extra-game-metric
+       style="display:none;">
+      <div class="gmc-top">
+        <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_key | replace('_', ' ') | title }}</div>
+        {% if m.season_badge_text or m.all_badge_text %}
+        <div class="gmc-ranks">
+          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
+          {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
         </div>
         {% endif %}
       </div>
@@ -24,5 +43,22 @@
     </a>
     {% endfor %}
   </div>
+  {% if extra_game_metric_list %}
+  <div style="margin-top:14px;">
+    <button type="button" id="show-more-game-metrics" class="btn btn-secondary" style="width:100%;">Show More</button>
+  </div>
+  <script>
+    (function () {
+      const btn = document.getElementById('show-more-game-metrics');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('[data-extra-game-metric]').forEach((el) => {
+          el.style.display = '';
+        });
+        btn.remove();
+      });
+    })();
+  </script>
+  {% endif %}
 </div>
 {% endif %}

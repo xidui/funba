@@ -610,13 +610,39 @@ def _game_metric_badge_text(rank: int | None, total: int | None, label: str) -> 
     return None
 
 
-def _prepare_game_metric_cards(season_metrics: list[dict], limit: int = 6) -> list[dict]:
+def _game_metric_best_ratio(entry: dict) -> float:
+    ratios = []
+    if entry.get("total"):
+        ratios.append(entry["rank"] / entry["total"])
+    if entry.get("all_games_rank") is not None and entry.get("all_games_total"):
+        ratios.append(entry["all_games_rank"] / entry["all_games_total"])
+    return min(ratios) if ratios else 1.0
+
+
+def _game_metric_best_rank(entry: dict) -> int:
+    ranks: list[int] = []
+    if entry.get("rank") is not None and entry.get("total"):
+        ranks.append(entry["rank"])
+    if entry.get("all_games_rank") is not None and entry.get("all_games_total"):
+        ranks.append(entry["all_games_rank"])
+    return min(ranks) if ranks else 10**9
+
+
+def _prepare_game_metric_cards(
+    season_metrics: list[dict],
+    visible_limit: int = 4,
+    extra_limit: int = 8,
+) -> tuple[list[dict], list[dict]]:
     if not season_metrics:
-        return []
+        return [], []
 
     cards: list[dict] = []
     for entry in season_metrics:
         card = dict(entry)
+        card["best_ratio"] = _game_metric_best_ratio(card)
+        card["best_rank"] = _game_metric_best_rank(card)
+        card["is_featured"] = card["best_rank"] <= 10 or card["best_ratio"] <= 0.01
+        card["is_notable"] = card["is_featured"] and not card["is_hero"]
         card["season_badge_text"] = _game_metric_badge_text(card["rank"], card["total"], "Season")
         card["all_badge_text"] = _game_metric_badge_text(
             card.get("all_games_rank"),
@@ -625,10 +651,16 @@ def _prepare_game_metric_cards(season_metrics: list[dict], limit: int = 6) -> li
         )
         cards.append(card)
 
-    return [
-        card for card in cards[:limit]
-        if card["is_hero"] or card["is_notable"] or card.get("all_games_is_notable")
-    ]
+    cards.sort(key=lambda card: (card["best_ratio"], card["best_rank"], card["metric_key"], card["entity_id"]))
+
+    featured = [card for card in cards if card["is_featured"]]
+    if len(featured) > visible_limit:
+        return featured, []
+
+    visible_count = max(visible_limit, len(featured))
+    visible_cards = cards[:visible_count]
+    extra_cards = cards[visible_count:visible_count + extra_limit]
+    return visible_cards, extra_cards
 
 
 def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> dict:
@@ -793,9 +825,11 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
         # Mark hero metrics (top 1% of all games) and sort by exceptionality
         _apply_game_metric_tiers(season_metrics)
-        season_metrics = _prepare_game_metric_cards(season_metrics)
+        season_metrics, season_extra = _prepare_game_metric_cards(season_metrics)
+    else:
+        season_extra = []
 
-    return {"season": season_metrics, "alltime": alltime_metrics}
+    return {"season": season_metrics, "season_extra": season_extra, "alltime": alltime_metrics}
 
 
 def _metric_backfill_component(session, metric_key: str, total_games: int) -> dict:

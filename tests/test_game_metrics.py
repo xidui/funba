@@ -63,6 +63,7 @@ def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
     """Build a minimal game metric entry dict."""
     return {
         "metric_key": metric_key,
+        "entity_id": f"{metric_key}:{rank}",
         "rank": rank,
         "total": total,
         "all_games_rank": ag_rank,
@@ -195,7 +196,7 @@ class TestTemplateHeroRendering(unittest.TestCase):
         if not self.available:
             self.skipTest("Jinja2 not available in test environment")
         tmpl = self.env.get_template("_game_metrics.html")
-        return tmpl.render(game_metrics={"season": metrics})
+        return tmpl.render(game_metrics={"season": metrics, "season_extra": []})
 
     def test_hero_entry_gets_gmc_hero_class(self):
         hero = _make_entry("top_scorer", rank=1, total=100, ag_rank=1, ag_total=100)
@@ -240,12 +241,16 @@ class TestGameMetricCardSelection(unittest.TestCase):
             _make_entry("low_quarter_score", rank=60, total=100, ag_rank=600, ag_total=1000),
         ]
         _apply_game_metric_tiers(entries)
-        cards = _prepare_game_metric_cards(entries)
+        visible, extra = _prepare_game_metric_cards(entries)
 
-        self.assertEqual(len(cards), 2)
-        self.assertEqual([c["rank"] for c in cards], [1, 8])
-        self.assertEqual(cards[0]["season_badge_text"], "#1 Season")
-        self.assertEqual(cards[1]["season_badge_text"], "#8 Season")
+        self.assertEqual(len(visible), 4 if len(entries) >= 4 else len(entries))
+        self.assertEqual([c["rank"] for c in visible], [1, 8, 60])
+        self.assertTrue(visible[0]["is_featured"])
+        self.assertTrue(visible[1]["is_featured"])
+        self.assertFalse(visible[2]["is_featured"])
+        self.assertEqual(visible[0]["season_badge_text"], "#1 Season")
+        self.assertEqual(visible[1]["season_badge_text"], "#8 Season")
+        self.assertEqual(extra, [])
 
     def test_prepare_game_metric_cards_hides_metrics_when_nothing_is_notable(self):
         entries = [
@@ -253,9 +258,23 @@ class TestGameMetricCardSelection(unittest.TestCase):
             _make_entry("single_quarter_team_scoring", rank=70, total=100, ag_rank=700, ag_total=1000),
         ]
         _apply_game_metric_tiers(entries)
-        cards = _prepare_game_metric_cards(entries)
+        visible, extra = _prepare_game_metric_cards(entries)
 
-        self.assertEqual(cards, [])
+        self.assertEqual(len(visible), 2)
+        self.assertFalse(any(card["is_featured"] for card in visible))
+        self.assertEqual(extra, [])
+
+    def test_prepare_game_metric_cards_shows_all_featured_when_more_than_four(self):
+        entries = [
+            _make_entry(f"metric_{i}", rank=i + 1, total=100, ag_rank=i + 1, ag_total=1000)
+            for i in range(5)
+        ]
+        _apply_game_metric_tiers(entries)
+        visible, extra = _prepare_game_metric_cards(entries)
+
+        self.assertEqual(len(visible), 5)
+        self.assertTrue(all(card["is_featured"] for card in visible))
+        self.assertEqual(extra, [])
 
 
 if __name__ == "__main__":
