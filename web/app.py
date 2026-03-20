@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+from functools import lru_cache
+import inspect
+import json
 import logging
 import os
 import time
@@ -136,6 +139,101 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
     )
 
 
+def _truncate_search_text(text: str | None, limit: int = 2400) -> str:
+    value = (text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: limit - 15].rstrip() + " ...[truncated]"
+
+
+def _metric_source_owner(metric_def) -> type:
+    metric_cls = type(metric_def)
+    module = inspect.getmodule(metric_cls)
+    if module is not None and module.__name__ == "metrics.framework.registry" and len(metric_cls.__mro__) > 1:
+        return metric_cls.__mro__[1]
+    return metric_cls
+
+
+@lru_cache(maxsize=256)
+def _metric_module_doc(metric_cls: type) -> str:
+    module = inspect.getmodule(metric_cls)
+    if module is None:
+        return ""
+    return _truncate_search_text(inspect.getdoc(module) or "", limit=600)
+
+
+@lru_cache(maxsize=256)
+def _metric_source_excerpt(metric_cls: type) -> str:
+    try:
+        return _truncate_search_text(inspect.getsource(metric_cls), limit=2400)
+    except (OSError, TypeError):
+        return ""
+
+
+def _builtin_metric_search_fields(metric_def) -> dict:
+    source_cls = _metric_source_owner(metric_def)
+    return {
+        "group_key": getattr(metric_def, "group_key", None),
+        "min_sample": int(getattr(metric_def, "min_sample", 1) or 1),
+        "career_min_sample": getattr(metric_def, "career_min_sample", None),
+        "supports_career": bool(getattr(metric_def, "supports_career", False)),
+        "career": bool(getattr(metric_def, "career", False)),
+        "incremental": bool(getattr(metric_def, "incremental", True)),
+        "rank_order": getattr(metric_def, "rank_order", "desc"),
+        "module_doc": _metric_module_doc(source_cls),
+        "source_excerpt": _metric_source_excerpt(source_cls),
+    }
+
+
+def _db_metric_search_fields(row: MetricDefinitionModel) -> dict:
+    details = {
+        "group_key": row.group_key,
+        "min_sample": int(row.min_sample or 1),
+        "expression": row.expression or "",
+        "definition_json": "",
+        "code_python": _truncate_search_text(row.code_python or "", limit=2400),
+    }
+
+    if row.source_type == "rule":
+        try:
+            definition = json.loads(row.definition_json or "{}")
+        except json.JSONDecodeError:
+            definition = {}
+        time_scope = str(definition.get("time_scope") or "season").strip().lower() if definition else ""
+        details.update(
+            definition_json=json.dumps(definition, ensure_ascii=True, sort_keys=True) if definition else "",
+            time_scope=time_scope or None,
+            supports_career=bool(
+                definition.get("supports_career")
+                or time_scope == "season_and_career"
+            ) if definition else False,
+            career=time_scope == "career",
+            incremental=False,
+            rank_order=str(definition.get("rank_order") or "desc").strip().lower() if definition else "desc",
+            career_min_sample=definition.get("career_min_sample") if definition else None,
+        )
+        return details
+
+    if row.source_type == "code" and row.code_python:
+        try:
+            from metrics.framework.runtime import load_code_metric
+
+            metric = load_code_metric(row.code_python)
+        except Exception as exc:
+            logger.warning("Failed to inspect code metric %s for search context: %s", row.key, exc)
+            return details
+
+        details.update(
+            min_sample=int(getattr(metric, "min_sample", row.min_sample) or 1),
+            career_min_sample=getattr(metric, "career_min_sample", None),
+            supports_career=bool(getattr(metric, "supports_career", False)),
+            career=bool(getattr(metric, "career", False)),
+            incremental=bool(getattr(metric, "incremental", True)),
+            rank_order=getattr(metric, "rank_order", "desc"),
+        )
+    return details
+
+
 def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -> list[dict]:
     """Return related metric links for the current metric family.
 
@@ -233,6 +331,7 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
             "status": m.status,
             "source_type": m.source_type,
             "result_count": counts.get(m.key, 0),
+            **_db_metric_search_fields(m),
         }
         for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
     ]
@@ -249,6 +348,7 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
             "status": "published",
             "source_type": "builtin",
             "result_count": counts.get(m.key, 0),
+            **_builtin_metric_search_fields(m),
         }
         for m in _get_all_metrics()
         if include_builtins
@@ -1979,22 +2079,7 @@ def api_metric_search():
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
 
     try:
-        ranked = rank_metrics(
-            query,
-            [
-                {
-                    "key": metric["key"],
-                    "name": metric["name"],
-                    "description": metric["description"],
-                    "scope": metric["scope"],
-                    "category": metric["category"],
-                    "status": metric["status"],
-                    "source_type": metric["source_type"],
-                }
-                for metric in catalog
-            ],
-            limit=8,
-        )
+        ranked = rank_metrics(query, catalog, limit=8)
     except Exception as exc:
         logger.exception("metric search failed")
         return jsonify({"ok": False, "error": str(exc)}), 500

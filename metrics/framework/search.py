@@ -5,39 +5,81 @@ import json
 import os
 import re
 
+_FIELD_ORDER = (
+    "key",
+    "name",
+    "description",
+    "scope",
+    "category",
+    "status",
+    "source_type",
+    "group_key",
+    "time_scope",
+    "min_sample",
+    "career_min_sample",
+    "supports_career",
+    "career",
+    "incremental",
+    "rank_order",
+    "result_count",
+    "expression",
+    "module_doc",
+    "definition_json",
+    "code_python",
+    "source_excerpt",
+)
+_LONG_TEXT_FIELDS = {"expression", "module_doc", "definition_json", "code_python", "source_excerpt"}
+_MAX_FIELD_CHARS = 2400
+_MAX_DOCUMENT_CHARS = 8000
 
-def _tokenize(text: str) -> set[str]:
-    return {tok for tok in re.findall(r"[a-z0-9]+", text.lower()) if len(tok) > 1}
+
+def _truncate_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 15].rstrip() + " ...[truncated]"
 
 
-def _heuristic_rank(query: str, candidates: list[dict], limit: int) -> list[dict]:
-    q_tokens = _tokenize(query)
-    ranked: list[tuple[float, dict]] = []
-    for candidate in candidates:
-        hay = " ".join(
-            str(candidate.get(k, "") or "")
-            for k in ("name", "description", "category", "scope", "key")
-        )
-        c_tokens = _tokenize(hay)
-        overlap = len(q_tokens & c_tokens)
-        phrase_bonus = 2 if query.lower() in hay.lower() else 0
-        score = overlap + phrase_bonus
-        if score <= 0:
+def _stringify_candidate_value(key: str, value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    else:
+        text = str(value)
+    text = text.strip()
+    if not text:
+        return ""
+    if key in _LONG_TEXT_FIELDS:
+        text = _truncate_text(text, _MAX_FIELD_CHARS)
+    return text
+
+
+def _candidate_search_document(candidate: dict) -> str:
+    lines: list[str] = []
+    seen: set[str] = set()
+
+    def _append(key: str) -> None:
+        seen.add(key)
+        text = _stringify_candidate_value(key, candidate.get(key))
+        if text:
+            lines.append(f"{key}: {text}")
+
+    for key in _FIELD_ORDER:
+        _append(key)
+
+    for key in sorted(candidate):
+        if key in seen:
             continue
-        ranked.append((score, candidate))
+        _append(key)
 
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    results = []
-    for score, candidate in ranked[:limit]:
-        results.append({
-            "key": candidate["key"],
-            "reason": f"Keyword overlap score {score}.",
-        })
-    return results
+    document = "\n".join(lines)
+    return _truncate_text(document, _MAX_DOCUMENT_CHARS)
 
 
 def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dict]:
-    """Return ranked metric keys + reasons using an LLM, with heuristic fallback."""
+    """Return ranked metric keys + reasons using an LLM."""
     openai_key = os.getenv("OPENAI_API_KEY")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
@@ -45,7 +87,15 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
         return []
 
     if not openai_key and not anthropic_key:
-        return _heuristic_rank(query, candidates, limit)
+        raise ValueError("Metric search requires OPENAI_API_KEY or ANTHROPIC_API_KEY.")
+
+    candidate_docs = [
+        {
+            "key": candidate["key"],
+            "document": _candidate_search_document(candidate),
+        }
+        for candidate in candidates
+    ]
 
     prompt = (
         "You rank existing NBA metrics by relevance to a user's natural-language query.\n"
@@ -53,9 +103,11 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
         "Return JSON only as an array of objects: "
         '[{"key":"metric_key","reason":"short reason"}, ...]\n'
         f"Return at most {limit} results.\n"
-        "Prefer semantic relevance over keyword overlap.\n\n"
-        "Metric candidates:\n"
-        f"{json.dumps(candidates, ensure_ascii=True)}"
+        "Prefer semantic relevance over keyword overlap.\n"
+        "A strong match may come from the metric description, expression, rule definition, "
+        "implementation details, min sample, career support, or ranking direction.\n\n"
+        "Metric candidates with detailed dossiers:\n"
+        f"{json.dumps(candidate_docs, ensure_ascii=True)}"
     )
 
     if openai_key:
@@ -63,8 +115,9 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
 
         client = openai.OpenAI(api_key=openai_key)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=1200,
+            model="gpt-5.4",
+            max_completion_tokens=1200,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.choices[0].message.content.strip()
@@ -85,10 +138,10 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        return _heuristic_rank(query, candidates, limit)
+        raise ValueError("Metric search returned invalid JSON.")
 
     if not isinstance(parsed, list):
-        return _heuristic_rank(query, candidates, limit)
+        raise ValueError("Metric search returned a non-list response.")
 
     allowed_keys = {candidate["key"] for candidate in candidates}
     results = []
@@ -105,4 +158,7 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
         if len(results) >= limit:
             break
 
-    return results or _heuristic_rank(query, candidates, limit)
+    if not results:
+        raise ValueError("Metric search returned no valid matches.")
+
+    return results

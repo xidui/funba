@@ -1,7 +1,8 @@
 """AI-powered metric generator: converts plain-English descriptions into executable Python code.
 
-Uses Anthropic Claude (preferred) or OpenAI to generate a MetricDefinition subclass
-that the runner can execute directly. Returns a spec dict with metadata + Python code.
+Uses OpenAI GPT-5.4 when available, with Anthropic as a fallback, to generate a
+MetricDefinition subclass that the runner can execute directly. Returns a spec
+dict with metadata + Python code.
 """
 from __future__ import annotations
 
@@ -221,7 +222,7 @@ def _build_system_prompt() -> str:
 
 
 def _call_llm(messages: list[dict]) -> str:
-    """Call Anthropic (preferred) or OpenAI and return the raw text response.
+    """Call OpenAI (preferred) or Anthropic and return the raw text response.
 
     messages: list of {"role": "user"|"assistant", "content": "..."}
     """
@@ -233,17 +234,7 @@ def _call_llm(messages: list[dict]) -> str:
 
     system_prompt = _build_system_prompt()
 
-    if anthropic_key:
-        import anthropic
-        client = anthropic.Anthropic(api_key=anthropic_key)
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages,
-        )
-        return message.content[0].text.strip()
-    else:
+    if openai_key:
         import openai
         client = openai.OpenAI(api_key=openai_key)
         response = client.chat.completions.create(
@@ -256,6 +247,16 @@ def _call_llm(messages: list[dict]) -> str:
             ],
         )
         return response.choices[0].message.content.strip()
+    else:
+        import anthropic
+        client = anthropic.Anthropic(api_key=anthropic_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+        )
+        return message.content[0].text.strip()
 
 
 def generate(expression: str, history: list[dict] | None = None,
