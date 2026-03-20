@@ -1016,6 +1016,38 @@ def _season_label(season_id: str | None) -> str:
     return s
 
 
+_SEASON_TYPE_NAMES = {
+    "2": "Regular Season",
+    "4": "Playoffs",
+    "5": "PlayIn",
+    "1": "Pre Season",
+    "3": "All Star",
+}
+
+_SEASON_TYPE_PLURAL = {
+    "2": "Regular Seasons",
+    "4": "Playoffs",
+    "5": "PlayIn",
+    "1": "Pre Seasons",
+    "3": "All Star",
+}
+
+
+def _season_year_label(season_id: str | None) -> str:
+    """Year-only label, e.g. '2025-26', for use inside grouped dropdowns."""
+    if not season_id:
+        return "-"
+    s = str(season_id).strip()
+    if len(s) == 5 and s.isdigit():
+        year = s[1:]
+        try:
+            next_year_suffix = str(int(year) + 1)[-2:]
+            return f"{year}-{next_year_suffix}"
+        except ValueError:
+            return s
+    return s
+
+
 def _season_sort_key(season_id: str | None) -> tuple[int, int]:
     """
     Sort seasons by actual year first, then type priority.
@@ -2817,9 +2849,17 @@ def metric_detail(metric_key: str):
     import json
     from metrics.framework.base import CAREER_SEASON
 
-    # Season filter — "all" is the explicit sentinel for cross-season view
+    # Season filter — "all_X" for type-specific cross-season, "all" legacy → regular season
     selected_season = request.args.get("season", "")
-    show_all_seasons = selected_season == "all"
+    all_season_type = None  # e.g. "2" for regular, "4" for playoffs
+    if selected_season.startswith("all_") and len(selected_season) == 5:
+        show_all_seasons = True
+        all_season_type = selected_season[4]
+    elif selected_season == "all":
+        show_all_seasons = True
+        all_season_type = "2"  # legacy URL defaults to regular season
+    else:
+        show_all_seasons = False
     page = max(1, int(request.args.get("page", 1) or 1))
     search_q = request.args.get("q", "").strip()
     page_size = 50
@@ -2859,12 +2899,29 @@ def metric_detail(metric_key: str):
             show_all_seasons = False
             selected_season = CAREER_SEASON
             season_options = []
+            season_groups = []
         else:
             season_options = sorted(
                 [s for s in season_values if s != CAREER_SEASON],
                 key=_season_sort_key,
                 reverse=True,
             )
+            # Group seasons by type for the dropdown
+            from collections import defaultdict
+            _type_buckets = defaultdict(list)
+            for s in season_options:
+                if len(s) == 5 and s.isdigit():
+                    _type_buckets[s[0]].append(s)
+            season_groups = []
+            for type_code in ["2", "4", "5", "1", "3"]:
+                if type_code in _type_buckets:
+                    season_groups.append({
+                        "type_code": type_code,
+                        "type_name": _SEASON_TYPE_NAMES.get(type_code, type_code),
+                        "type_name_plural": _SEASON_TYPE_PLURAL.get(type_code, type_code),
+                        "all_value": f"all_{type_code}",
+                        "seasons": _type_buckets[type_code],
+                    })
             if not show_all_seasons and not selected_season and season_options:
                 selected_season = season_options[0]
 
@@ -2875,7 +2932,9 @@ def metric_detail(metric_key: str):
                 MetricResultModel.value_num.isnot(None),
             )
         )
-        if not show_all_seasons and selected_season:
+        if show_all_seasons and all_season_type:
+            filtered_q = filtered_q.filter(MetricResultModel.season.like(f"{all_season_type}%"))
+        elif not show_all_seasons and selected_season:
             filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
         rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
@@ -2948,8 +3007,11 @@ def metric_detail(metric_key: str):
         )
         if is_career_metric:
             period = "across all seasons"
+        elif show_all_seasons:
+            _type_name = _SEASON_TYPE_NAMES.get(all_season_type, "").lower()
+            period = f"across all {_type_name} seasons" if _type_name else "across all seasons"
         else:
-            period = "across all seasons" if show_all_seasons else "this season"
+            period = "this season"
         result_rows = []
         for r in rows:
             ctx = json.loads(r.context_json) if r.context_json else {}
@@ -2999,20 +3061,26 @@ def metric_detail(metric_key: str):
 
     if is_career_metric:
         display_season_label = "Career"
+    elif show_all_seasons:
+        _type_name = _SEASON_TYPE_PLURAL.get(all_season_type, "Seasons")
+        display_season_label = f"All {_type_name}"
     else:
-        display_season_label = "All Seasons" if show_all_seasons else _season_label(selected_season)
+        display_season_label = _season_label(selected_season)
     return render_template(
         "metric_detail.html",
         metric_def=metric_def,
             result_rows=result_rows,
             show_rank_group=show_rank_group,
         season_options=season_options,
+        season_groups=season_groups,
         selected_season=selected_season,
         show_all_seasons=show_all_seasons,
+        all_season_type=all_season_type,
         is_career_metric=is_career_metric,
         related_metrics=related_metrics,
         season_label=display_season_label,
         fmt_season=_season_label,
+        fmt_season_short=_season_year_label,
         page=page,
         total_pages=total_pages,
         total=total,

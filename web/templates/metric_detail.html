@@ -377,17 +377,21 @@
     {% endif %}
   </div>
 
-  {% if season_options and not is_career_metric %}
+  {% if season_groups and not is_career_metric %}
   <select class="season-select" onchange="location.href=this.value">
-    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season='all') }}"
-            {% if show_all_seasons %}selected{% endif %}>
-      All Seasons
-    </option>
-    {% for s in season_options %}
-    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
-            {% if s == selected_season %}selected{% endif %}>
-      {{ fmt_season(s) }}
-    </option>
+    {% for group in season_groups %}
+    <optgroup label="{{ group.type_name }}">
+      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}"
+              {% if show_all_seasons and all_season_type == group.type_code %}selected{% endif %}>
+        All {{ group.type_name_plural }}
+      </option>
+      {% for s in group.seasons %}
+      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
+              {% if not show_all_seasons and s == selected_season %}selected{% endif %}>
+        {{ fmt_season_short(s) }}
+      </option>
+      {% endfor %}
+    </optgroup>
     {% endfor %}
   </select>
   {% endif %}
@@ -457,9 +461,10 @@
   </div>
 </details>
 
-{% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=selected_season if not show_all_seasons else 'all') %}
+{% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
+{% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
 <form method="get" action="{{ search_base_url }}" style="margin-bottom:16px;">
-  <input type="hidden" name="season" value="{{ 'all' if show_all_seasons else selected_season }}">
+  <input type="hidden" name="season" value="{{ _season_param }}">
   <div style="display:flex;align-items:center;gap:8px;max-width:420px;">
     <input
       type="search"
@@ -551,7 +556,7 @@
 </div>
 
 {% if total_pages > 1 and not search_q %}
-{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=selected_season if not show_all_seasons else 'all', page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p) }}{% endmacro %}
 <nav class="pagination" aria-label="Page navigation">
   {# Prev #}
   <a class="page-btn{% if page == 1 %} disabled{% endif %}" href="{{ page_url(page - 1) }}" aria-label="Previous">&#8592;</a>
