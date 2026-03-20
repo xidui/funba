@@ -95,6 +95,31 @@ The droplet now only serves `*.babyrasier.com`.
 
 The app runs under launchd as service `app.funba.web`, supervised by gunicorn (4 workers).
 
+### Runtime source of truth:
+
+The live launchd service does **not** run directly from the repo root checkout.
+It runs from the deploy worktree:
+
+```bash
+/Users/yuewang/Documents/github/funba/.paperclip/deploy-main
+```
+
+That path is the `WorkingDirectory` in `~/Library/LaunchAgents/app.funba.web.plist`.
+
+This means a normal `git push origin main` does **not** update the running app by itself.
+Deploying the latest `main` requires two explicit steps:
+
+```bash
+# 1. Update the deploy worktree to the target commit
+git -C /Users/yuewang/Documents/github/funba/.paperclip/deploy-main checkout --detach <commit-or-origin/main>
+
+# 2. Restart the launchd web service
+launchctl kickstart -k gui/$(id -u)/app.funba.web
+```
+
+If the deploy worktree is not updated first, the restarted service will continue
+running the old code even when `origin/main` is newer.
+
 ### Service management:
 
 ```bash

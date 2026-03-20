@@ -38,6 +38,10 @@ Keep actual values only in local machine config and local `SECRETS.md`. Never co
 
 Follow the company delivery workflow. See [DEPLOY.md](./DEPLOY.md) for deployment targets and instructions.
 
+Important deployment detail:
+- The live web service runs from the deploy worktree at `.paperclip/deploy-main`, not from the repo root checkout.
+- Updating `main` is not enough by itself; an actual deploy must update `.paperclip/deploy-main` to the target commit and then restart `app.funba.web`.
+
 ## Verification Strategy
 
 - **Verification type**: web app (Flask)
