@@ -159,6 +159,7 @@ class TestMetricBackfillFeedback(unittest.TestCase):
                      "career": False,
                      "incremental": False,
                      "rank_order": "desc",
+                     "code_python": "normalized code",
                  },
              ):
             response = self.client.post(
@@ -173,9 +174,32 @@ class TestMetricBackfillFeedback(unittest.TestCase):
         self.assertEqual(metric.scope, "game")
         self.assertEqual(metric.category, "scoring")
         self.assertEqual(metric.min_sample, 1)
-        self.assertEqual(metric.code_python, "new code")
+        self.assertEqual(metric.code_python, "normalized code")
         self.assertEqual(metric.source_type, "code")
         self.assertIsNone(metric.definition_json)
+
+    def test_code_metric_metadata_normalizes_key_to_expected_key(self):
+        metadata = self.web_app._code_metric_metadata_from_code(
+            """
+from metrics.framework.base import MetricDefinition
+
+
+class LowestRegulationQuarterScore(MetricDefinition):
+    key = "lowest_regulation_quarter_score"
+    name = "Lowest Regulation Quarter Score"
+    description = "Lowest score in a regulation quarter."
+    scope = "game"
+    category = "record"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+""",
+            expected_key="lowest_quarter_score",
+        )
+
+        self.assertEqual(metadata["key"], "lowest_quarter_score")
+        self.assertIn("key = 'lowest_quarter_score'", metadata["code_python"])
 
     def test_catalog_prefers_code_metric_name_over_stale_db_name(self):
         row = SimpleNamespace(
@@ -228,6 +252,56 @@ class TestMetricBackfillFeedback(unittest.TestCase):
         self.assertEqual(metric["description"], "Per-quarter team points.")
         self.assertEqual(metric["scope"], "game")
         self.assertEqual(metric["category"], "scoring")
+
+    def test_create_uses_latest_code_metric_key(self):
+        class FakeMetricDefinitionModel:
+            key = MagicMock()
+
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        session = _session_ctx(MagicMock())
+        session.query.return_value.filter.return_value.first.return_value = None
+
+        with patch.object(self.web_app, "SessionLocal", return_value=session), \
+             patch.object(self.web_app, "MetricDefinitionModel", FakeMetricDefinitionModel), \
+             patch("metrics.framework.registry.get", return_value=None), \
+             patch.object(
+                 self.web_app,
+                 "_code_metric_metadata_from_code",
+                 return_value={
+                     "key": "lowest_regulation_quarter_score",
+                     "name": "Lowest Regulation Quarter Score",
+                     "description": "Lowest score in a regulation quarter.",
+                     "scope": "game",
+                     "category": "record",
+                     "min_sample": 1,
+                     "career_min_sample": None,
+                     "supports_career": False,
+                     "career": False,
+                     "incremental": False,
+                     "rank_order": "asc",
+                     "code_python": "normalized code",
+                 },
+             ):
+            response = self.client.post(
+                "/api/metrics",
+                json={
+                    "key": "lowest_quarter_score",
+                    "name": "Old Name",
+                    "scope": "game",
+                    "code": "latest code",
+                },
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+
+        body = response.get_json()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(body["key"], "lowest_regulation_quarter_score")
+        created = session.add.call_args.args[0]
+        self.assertEqual(created.key, "lowest_regulation_quarter_score")
+        self.assertEqual(created.name, "Lowest Regulation Quarter Score")
+        self.assertEqual(created.code_python, "normalized code")
 
     def test_backfill_status_endpoint_returns_combined_payload(self):
         backfill = {

@@ -267,7 +267,7 @@ def generate(expression: str, history: list[dict] | None = None,
         expression: The user's current message (initial description or followup).
         history: Previous conversation turns as [{"role": "user"|"assistant", "content": "..."}].
                  None for first-time generation.
-        existing: Current metric info (name, description, scope, category, code) for edit mode.
+        existing: Current metric info (key, name, description, scope, category, code) for edit mode.
                   When provided, the AI should only modify the code and keep metadata unchanged.
 
     Returns a dict with keys: name, description, scope, category, min_sample,
@@ -278,9 +278,11 @@ def generate(expression: str, history: list[dict] | None = None,
     edit_prefix = ""
     if existing:
         edit_prefix = (
-            "You are EDITING an existing metric. Keep the name, description, scope, "
-            "and category exactly as provided below — only modify the code.\n\n"
+            "You are EDITING an existing metric. Keep the key, name, description, scope, "
+            "and category exactly as provided below — only modify the code.\n"
+            "The MetricDefinition subclass in the code must keep the same key value.\n\n"
             f"Current metric:\n"
+            f"  key: {existing.get('key', '')}\n"
             f"  name: {existing.get('name', '')}\n"
             f"  description: {existing.get('description', '')}\n"
             f"  scope: {existing.get('scope', '')}\n"
@@ -324,7 +326,7 @@ def generate(expression: str, history: list[dict] | None = None,
 
     # In edit mode, override metadata with the existing values
     if existing:
-        for field in ("name", "description", "scope", "category"):
+        for field in ("key", "name", "description", "scope", "category"):
             if field in existing:
                 spec[field] = existing[field]
 

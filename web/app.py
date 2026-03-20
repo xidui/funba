@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from collections import defaultdict
 from datetime import date
 from functools import lru_cache
@@ -170,10 +171,59 @@ def _metric_source_excerpt(metric_cls: type) -> str:
         return ""
 
 
+def _is_metric_definition_base(base: ast.expr) -> bool:
+    return (
+        isinstance(base, ast.Name) and base.id == "MetricDefinition"
+    ) or (
+        isinstance(base, ast.Attribute) and base.attr == "MetricDefinition"
+    )
+
+
+def _normalize_code_metric_key(code_python: str, expected_key: str | None = None) -> str:
+    if not expected_key:
+        return code_python
+
+    try:
+        tree = ast.parse(code_python)
+    except SyntaxError:
+        return code_python
+
+    lines = code_python.splitlines(keepends=True)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(_is_metric_definition_base(base) for base in node.bases):
+            continue
+        for stmt in node.body:
+            target_name = None
+            value_node = None
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                target_name = stmt.targets[0].id
+                value_node = stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                target_name = stmt.target.id
+                value_node = stmt.value
+
+            if target_name != "key" or not isinstance(value_node, ast.Constant) or not isinstance(value_node.value, str):
+                continue
+            if stmt.end_lineno is None or stmt.end_col_offset is None or stmt.lineno != stmt.end_lineno:
+                return code_python
+
+            lineno = stmt.lineno - 1
+            line = lines[lineno]
+            prefix = line[:stmt.col_offset]
+            suffix = line[stmt.end_col_offset:]
+            lines[lineno] = prefix + f"key = {expected_key!r}" + suffix
+            return "".join(lines)
+
+    return code_python
+
+
 def _code_metric_metadata_from_code(code_python: str, *, expected_key: str | None = None) -> dict:
     from metrics.framework.runtime import load_code_metric
 
-    metric = load_code_metric(code_python)
+    normalized_code = _normalize_code_metric_key(code_python, expected_key)
+    metric = load_code_metric(normalized_code)
     metadata = {
         "key": metric.key,
         "name": metric.name,
@@ -186,6 +236,7 @@ def _code_metric_metadata_from_code(code_python: str, *, expected_key: str | Non
         "career": bool(getattr(metric, "career", False)),
         "incremental": bool(getattr(metric, "incremental", True)),
         "rank_order": getattr(metric, "rank_order", "desc"),
+        "code_python": normalized_code,
     }
     if expected_key and metadata["key"] != expected_key:
         raise ValueError(
@@ -2376,8 +2427,6 @@ def api_metric_create():
     code_python = (body.get("code") or "").strip()
     definition = body.get("definition")
 
-    if not key:
-        return jsonify({"ok": False, "error": "key is required"}), 400
     if not code_python and not definition:
         return jsonify({"ok": False, "error": "code or definition is required"}), 400
 
@@ -2388,15 +2437,19 @@ def api_metric_create():
     # Validate code by loading it
     if code_python:
         try:
-            code_metadata = _code_metric_metadata_from_code(code_python, expected_key=key)
+            code_metadata = _code_metric_metadata_from_code(code_python)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
+        code_python = code_metadata["code_python"]
+        key = code_metadata["key"]
         name = code_metadata["name"]
         scope = code_metadata["scope"]
         description = code_metadata["description"]
         category = code_metadata["category"]
         min_sample = code_metadata["min_sample"]
     else:
+        if not key:
+            return jsonify({"ok": False, "error": "key is required"}), 400
         if not name or not scope:
             return jsonify({"ok": False, "error": "name and scope are required"}), 400
         description = body.get("description", "")
@@ -2485,6 +2538,7 @@ def api_metric_update(metric_key: str):
             code_metadata = _code_metric_metadata_from_code(code_python, expected_key=metric_key)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
+        code_python = code_metadata["code_python"]
 
     with SessionLocal() as session:
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
