@@ -17,6 +17,7 @@ def test_generate_edit_mode_includes_key_and_preserves_existing_metadata():
         "description": "Lowest score in any quarter.",
         "scope": "game",
         "category": "record",
+        "rank_order": "asc",
         "code": "class Demo:\n    key = 'lowest_quarter_score'\n",
     }
 
@@ -29,6 +30,7 @@ def test_generate_edit_mode_includes_key_and_preserves_existing_metadata():
                 "description": "Different description.",
                 "scope": "team",
                 "category": "scoring",
+                "rank_order": "desc",
                 "code": "class Demo:\n    key = 'lowest_regulation_quarter_score'\n",
             }
         ),
@@ -37,9 +39,11 @@ def test_generate_edit_mode_includes_key_and_preserves_existing_metadata():
 
     prompt = mock_call.call_args.args[0][0]["content"]
     assert "key: lowest_quarter_score" in prompt
-    assert "Keep the key, name, description, scope, and category exactly" in prompt
+    assert "rank_order: asc" in prompt
+    assert "Keep the key, name, description, scope, category, and rank_order exactly" in prompt
     assert spec["key"] == "lowest_quarter_score"
     assert spec["name"] == "Lowest Quarter Score"
     assert spec["description"] == "Lowest score in any quarter."
     assert spec["scope"] == "game"
     assert spec["category"] == "record"
+    assert spec["rank_order"] == "asc"

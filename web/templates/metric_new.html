@@ -531,6 +531,16 @@
         </select>
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Ranking Direction</label>
+      <select id="f-rank-order" class="form-select">
+        <option value="desc">Highest First</option>
+        <option value="asc">Lowest First</option>
+      </select>
+      <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+        Controls which values rank at the top in preview and after publish.
+      </div>
+    </div>
 
     {% if is_admin %}
     {% if edit_metric %}
@@ -622,6 +632,7 @@
       description: {{ edit_metric.description | tojson if edit_metric else 'null' }},
       scope: {{ edit_metric.scope | tojson if edit_metric else 'null' }},
       category: {{ edit_metric.category | tojson if edit_metric else 'null' }},
+      rank_order: {{ edit_metric.rank_order | tojson if edit_metric else '"desc"' }},
       code: {{ edit_metric.code | tojson if edit_metric else 'null' }},
       min_sample: {{ edit_metric.min_sample if edit_metric else 1 }},
     };
@@ -634,6 +645,7 @@
   const startOverBtn = document.getElementById('start-over-btn');
   const codeViewer   = document.getElementById('code-viewer');
   const keyInput     = document.getElementById('f-key');
+  const rankOrderInput = document.getElementById('f-rank-order');
   const settingsPanel= document.getElementById('settings-panel');
   const previewWrap  = document.getElementById('preview-wrap');
   const previewPH    = document.getElementById('preview-placeholder');
@@ -652,6 +664,44 @@
   function extractCodeKey(code) {
     const match = (code || '').match(/^\s*key\s*=\s*["']([^"']+)["']/m);
     return match ? match[1].trim() : '';
+  }
+
+  function applyRankOrderToCode(rankOrder) {
+    const code = codeViewer.textContent || '';
+    if (!code || !rankOrder) return;
+
+    const lines = code.split('\n');
+    const rankIdx = lines.findIndex(line => /^\s*rank_order\s*=/.test(line));
+    if (rankIdx !== -1) {
+      const indent = (lines[rankIdx].match(/^(\s*)/) || ['','    '])[1];
+      lines[rankIdx] = `${indent}rank_order = "${rankOrder}"`;
+      codeViewer.textContent = lines.join('\n');
+      return;
+    }
+
+    const insertAfterAttrs = ['supports_career', 'incremental', 'min_sample', 'category'];
+    let insertIdx = -1;
+    let indent = '    ';
+    for (const attr of insertAfterAttrs) {
+      const idx = lines.findIndex(line => new RegExp(`^\\s*${attr}\\s*=`).test(line));
+      if (idx !== -1) {
+        insertIdx = idx;
+        indent = (lines[idx].match(/^(\s*)/) || ['','    '])[1];
+      }
+    }
+
+    if (insertIdx === -1) {
+      const classIdx = lines.findIndex(line => /^\s*class\s+\w+\(.*MetricDefinition.*\):/.test(line));
+      if (classIdx !== -1) {
+        const nextContent = lines.slice(classIdx + 1).find(line => line.trim());
+        indent = (nextContent && (nextContent.match(/^(\s*)/) || ['','    '])[1]) || '    ';
+        insertIdx = classIdx;
+      }
+    }
+
+    if (insertIdx === -1) return;
+    lines.splice(insertIdx + 1, 0, `${indent}rank_order = "${rankOrder}"`);
+    codeViewer.textContent = lines.join('\n');
   }
 
   function syncCreateKey(spec, fallbackExpr) {
@@ -709,6 +759,7 @@
     document.getElementById('f-desc').value = currentSpec.description || '';
     document.getElementById('f-scope').value = currentSpec.scope || 'player';
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
+    rankOrderInput.value = currentSpec.rank_order || 'desc';
     keyInput.value = EDIT_KEY;
     lastAutoKey = EDIT_KEY;
     codeViewer.textContent = currentSpec.code || '';
@@ -796,6 +847,7 @@
           description: document.getElementById('f-desc').value,
           scope: document.getElementById('f-scope').value,
           category: document.getElementById('f-category').value,
+          rank_order: rankOrderInput.value,
           code: codeViewer.textContent,
         };
       }
@@ -837,6 +889,7 @@
         currentSpec.description = document.getElementById('f-desc').value;
         currentSpec.scope       = document.getElementById('f-scope').value;
         currentSpec.category    = document.getElementById('f-category').value;
+        currentSpec.rank_order  = rankOrderInput.value;
       } else {
         if (!isFollowup) {
           document.getElementById('f-name').value     = currentSpec.name || '';
@@ -844,9 +897,11 @@
           document.getElementById('f-scope').value    = currentSpec.scope || 'player';
           document.getElementById('f-category').value = currentSpec.category || 'scoring';
         }
+        rankOrderInput.value = currentSpec.rank_order || rankOrderInput.value || 'desc';
         syncCreateKey(currentSpec, expr);
       }
       codeViewer.textContent = currentSpec.code || '';
+      applyRankOrderToCode(rankOrderInput.value);
       if (EDIT_MODE && originalCode) renderDiff(originalCode, currentSpec.code || '');
       settingsPanel.style.display = 'block';
       startOverBtn.style.display = 'inline-flex';
@@ -900,6 +955,7 @@
       document.getElementById('f-desc').value = '';
       document.getElementById('f-scope').value = 'player';
       document.getElementById('f-category').value = 'scoring';
+      rankOrderInput.value = 'desc';
     }
   });
 
@@ -913,12 +969,13 @@
     const season = document.getElementById('preview-season').value;
     const scope  = document.getElementById('f-scope').value;
     const code   = codeViewer.textContent;
+    const rankOrder = rankOrderInput.value;
 
     try {
       const res = await fetch('/api/metrics/preview', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ code, scope, season }),
+        body: JSON.stringify({ code, scope, season, rank_order: rankOrder }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -955,6 +1012,13 @@
 
   document.getElementById('preview-season').addEventListener('change', runPreview);
   document.getElementById('f-scope').addEventListener('change', runPreview);
+  rankOrderInput.addEventListener('change', () => {
+    if (!currentSpec) return;
+    currentSpec.rank_order = rankOrderInput.value;
+    applyRankOrderToCode(rankOrderInput.value);
+    if (EDIT_MODE && originalCode) renderDiff(originalCode, codeViewer.textContent || '');
+    runPreview();
+  });
 
   // ── Save / Publish ──────────────────────────────────────────────
   async function saveMetric(publish) {
@@ -967,6 +1031,7 @@
       description:document.getElementById('f-desc').value.trim(),
       scope:      document.getElementById('f-scope').value,
       category:   document.getElementById('f-category').value,
+      rank_order: rankOrderInput.value,
       code:       codeViewer.textContent,
       expression: chatHistory.length ? chatHistory[0].content : '',
       min_sample: currentSpec.min_sample || 1,

@@ -161,10 +161,10 @@ class TestMetricBackfillFeedback(unittest.TestCase):
                      "rank_order": "desc",
                      "code_python": "normalized code",
                  },
-             ):
+             ) as metadata_from_code:
             response = self.client.post(
                 "/api/metrics/single_quarter_team_scoring/update",
-                json={"code": "new code", "name": "test"},
+                json={"code": "new code", "name": "test", "rank_order": "asc"},
                 environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
             )
 
@@ -177,6 +177,7 @@ class TestMetricBackfillFeedback(unittest.TestCase):
         self.assertEqual(metric.code_python, "normalized code")
         self.assertEqual(metric.source_type, "code")
         self.assertIsNone(metric.definition_json)
+        self.assertEqual(metadata_from_code.call_args.kwargs["rank_order_override"], "asc")
 
     def test_code_metric_metadata_normalizes_key_to_expected_key(self):
         metadata = self.web_app._code_metric_metadata_from_code(
@@ -200,6 +201,29 @@ class LowestRegulationQuarterScore(MetricDefinition):
 
         self.assertEqual(metadata["key"], "lowest_quarter_score")
         self.assertIn("key = 'lowest_quarter_score'", metadata["code_python"])
+
+    def test_code_metric_metadata_applies_rank_order_override(self):
+        metadata = self.web_app._code_metric_metadata_from_code(
+            """
+from metrics.framework.base import MetricDefinition
+
+
+class LowestQuarterScore(MetricDefinition):
+    key = "lowest_quarter_score"
+    name = "Lowest Quarter Score"
+    description = "Lowest score in any quarter."
+    scope = "game"
+    category = "record"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+""",
+            rank_order_override="asc",
+        )
+
+        self.assertEqual(metadata["rank_order"], "asc")
+        self.assertIn('rank_order = "asc"', metadata["code_python"])
 
     def test_catalog_prefers_code_metric_name_over_stale_db_name(self):
         row = SimpleNamespace(
@@ -283,7 +307,7 @@ class LowestRegulationQuarterScore(MetricDefinition):
                      "rank_order": "asc",
                      "code_python": "normalized code",
                  },
-             ):
+             ) as metadata_from_code:
             response = self.client.post(
                 "/api/metrics",
                 json={
@@ -291,6 +315,7 @@ class LowestRegulationQuarterScore(MetricDefinition):
                     "name": "Old Name",
                     "scope": "game",
                     "code": "latest code",
+                    "rank_order": "asc",
                 },
                 environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
             )
@@ -302,6 +327,26 @@ class LowestRegulationQuarterScore(MetricDefinition):
         self.assertEqual(created.key, "lowest_regulation_quarter_score")
         self.assertEqual(created.name, "Lowest Regulation Quarter Score")
         self.assertEqual(created.code_python, "normalized code")
+        self.assertEqual(metadata_from_code.call_args.kwargs["rank_order_override"], "asc")
+
+    def test_metric_rank_order_uses_runtime_metric(self):
+        with patch("metrics.framework.runtime.get_metric", return_value=SimpleNamespace(rank_order="asc")):
+            rank_order = self.web_app._metric_rank_order(MagicMock(), "low_quarter_score")
+
+        self.assertEqual(rank_order, "asc")
+
+    def test_asc_metric_keys_uses_runtime_catalog(self):
+        with patch(
+            "metrics.framework.runtime.get_all_metrics",
+            return_value=[
+                SimpleNamespace(key="low_quarter_score", rank_order="asc"),
+                SimpleNamespace(key="combined_score", rank_order="desc"),
+                SimpleNamespace(key="true_shooting_pct", rank_order="asc"),
+            ],
+        ):
+            asc_keys = self.web_app._asc_metric_keys(MagicMock())
+
+        self.assertEqual(asc_keys, {"low_quarter_score", "true_shooting_pct"})
 
     def test_backfill_status_endpoint_returns_combined_payload(self):
         backfill = {

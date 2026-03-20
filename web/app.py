@@ -219,10 +219,68 @@ def _normalize_code_metric_key(code_python: str, expected_key: str | None = None
     return code_python
 
 
-def _code_metric_metadata_from_code(code_python: str, *, expected_key: str | None = None) -> dict:
+def _normalize_code_metric_rank_order(code_python: str, rank_order: str | None = None) -> str:
+    if rank_order not in {"asc", "desc"}:
+        return code_python
+
+    try:
+        tree = ast.parse(code_python)
+    except SyntaxError:
+        return code_python
+
+    lines = code_python.splitlines(keepends=True)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(_is_metric_definition_base(base) for base in node.bases):
+            continue
+
+        indent = " " * ((node.body[0].col_offset if node.body else node.col_offset + 4))
+        insert_at = node.lineno
+
+        for stmt in node.body:
+            target_name = None
+            value_node = None
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                target_name = stmt.targets[0].id
+                value_node = stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                target_name = stmt.target.id
+                value_node = stmt.value
+
+            if target_name == "rank_order" and isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+                if stmt.end_lineno is None or stmt.end_col_offset is None or stmt.lineno != stmt.end_lineno:
+                    return code_python
+                lineno = stmt.lineno - 1
+                line = lines[lineno]
+                prefix = line[:stmt.col_offset]
+                suffix = line[stmt.end_col_offset:]
+                lines[lineno] = prefix + f'rank_order = "{rank_order}"' + suffix
+                return "".join(lines)
+
+            if target_name in {"category", "min_sample", "incremental", "supports_career"}:
+                insert_at = max(insert_at, getattr(stmt, "end_lineno", stmt.lineno))
+                indent = " " * stmt.col_offset
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                insert_at = min(insert_at, stmt.lineno - 1 if insert_at == node.lineno else insert_at)
+                break
+
+        lines.insert(insert_at, f'{indent}rank_order = "{rank_order}"\n')
+        return "".join(lines)
+
+    return code_python
+
+
+def _code_metric_metadata_from_code(
+    code_python: str,
+    *,
+    expected_key: str | None = None,
+    rank_order_override: str | None = None,
+) -> dict:
     from metrics.framework.runtime import load_code_metric
 
     normalized_code = _normalize_code_metric_key(code_python, expected_key)
+    normalized_code = _normalize_code_metric_rank_order(normalized_code, rank_order_override)
     metric = load_code_metric(normalized_code)
     metadata = {
         "key": metric.key,
@@ -474,6 +532,23 @@ def _fmt_int(v) -> str:
     return str(int(v)) if v is not None else "0"
 
 
+def _metric_rank_order(session, metric_key: str) -> str:
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    metric = _get_metric(metric_key, session=session)
+    return getattr(metric, "rank_order", "desc") if metric is not None else "desc"
+
+
+def _asc_metric_keys(session) -> set[str]:
+    from metrics.framework.runtime import get_all_metrics as _get_all_metrics
+
+    return {
+        metric.key
+        for metric in _get_all_metrics(session=session)
+        if getattr(metric, "rank_order", "desc") == "asc"
+    }
+
+
 _METRIC_CONTEXT_LABEL: dict = {
     "clutch_fg_pct":          lambda c: f"{_fmt_int(c.get('clutch_made'))}/{_fmt_int(c.get('clutch_attempts'))} clutch",
     "hot_hand":               lambda c: f"{_fmt_int(c.get('hot_made'))}/{_fmt_int(c.get('hot_opps'))} after make",
@@ -531,10 +606,9 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     import json
     from sqlalchemy import func
     from metrics.framework.base import CAREER_SEASON
-    from metrics.framework.registry import get_asc_metric_keys
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
-    _asc_keys = get_asc_metric_keys()
+    _asc_keys = _asc_metric_keys(session)
     scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
 
     # Inner subquery: compute rank and total over the full population for
@@ -2117,6 +2191,8 @@ def metric_edit(metric_key: str):
     import json as _json
 
     with SessionLocal() as session:
+        from metrics.framework.runtime import get_metric as _get_metric
+
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
         if m is None:
             abort(404)
@@ -2126,6 +2202,7 @@ def metric_edit(metric_key: str):
             reverse=True,
         )
         current_season = _pick_current_season(all_seasons)
+        runtime_metric = _get_metric(metric_key, session=session)
 
         edit_data = {
             "key": m.key,
@@ -2136,6 +2213,7 @@ def metric_edit(metric_key: str):
             "code": m.code_python or "",
             "expression": m.expression or "",
             "min_sample": m.min_sample,
+            "rank_order": getattr(runtime_metric, "rank_order", "desc"),
             "status": m.status,
         }
 
@@ -2206,6 +2284,7 @@ def api_metric_preview():
     code_python = (body.get("code") or "").strip()
     scope = body.get("scope", "player")
     season = body.get("season", "")
+    rank_order = str(body.get("rank_order") or "").strip().lower() or None
 
     if not definition and not code_python:
         return jsonify({"ok": False, "error": "definition or code is required"}), 400
@@ -2213,7 +2292,14 @@ def api_metric_preview():
     with SessionLocal() as session:
         try:
             if code_python:
-                rows = _preview_code_metric(session, code_python, scope, season, limit=25)
+                rows = _preview_code_metric(
+                    session,
+                    code_python,
+                    scope,
+                    season,
+                    limit=25,
+                    rank_order_override=rank_order,
+                )
             else:
                 from metrics.framework.rule_engine import preview as re_preview
                 rows = re_preview(session, definition, scope, season, limit=25)
@@ -2296,12 +2382,20 @@ def _resolve_game_entity_names(session, entity_ids: list[str]) -> tuple[dict[str
     return names, dates
 
 
-def _preview_code_metric(session, code_python: str, scope: str, season: str, limit: int = 25):
+def _preview_code_metric(
+    session,
+    code_python: str,
+    scope: str,
+    season: str,
+    limit: int = 25,
+    rank_order_override: str | None = None,
+):
     """Run a code-based metric against sample games and return ranked results."""
     from metrics.framework.runtime import load_code_metric
 
-    metric = load_code_metric(code_python)
-    rank_order = getattr(metric, "rank_order", "desc")
+    metadata = _code_metric_metadata_from_code(code_python, rank_order_override=rank_order_override)
+    metric = load_code_metric(metadata["code_python"])
+    rank_order = metadata["rank_order"]
 
     if scope == "game":
         # For game-scope, run against recent games
@@ -2426,6 +2520,7 @@ def api_metric_create():
     scope = (body.get("scope") or "").strip()
     code_python = (body.get("code") or "").strip()
     definition = body.get("definition")
+    rank_order_override = str(body.get("rank_order") or "").strip().lower() or None
 
     if not code_python and not definition:
         return jsonify({"ok": False, "error": "code or definition is required"}), 400
@@ -2437,7 +2532,10 @@ def api_metric_create():
     # Validate code by loading it
     if code_python:
         try:
-            code_metadata = _code_metric_metadata_from_code(code_python)
+            code_metadata = _code_metric_metadata_from_code(
+                code_python,
+                rank_order_override=rank_order_override,
+            )
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
         code_python = code_metadata["code_python"]
@@ -2532,10 +2630,15 @@ def api_metric_update(metric_key: str):
     body = request.get_json(force=True) or {}
     code_python = (body.get("code") or "").strip()
     code_metadata = None
+    rank_order_override = str(body.get("rank_order") or "").strip().lower() or None
 
     if code_python:
         try:
-            code_metadata = _code_metric_metadata_from_code(code_python, expected_key=metric_key)
+            code_metadata = _code_metric_metadata_from_code(
+                code_python,
+                expected_key=metric_key,
+                rank_order_override=rank_order_override,
+            )
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
         code_python = code_metadata["code_python"]
@@ -2643,7 +2746,6 @@ def _resolve_entity_labels(session, rows):
 def metric_detail(metric_key: str):
     import json
     from metrics.framework.base import CAREER_SEASON
-    from metrics.framework.registry import get as _get_metric_def
 
     # Season filter — "all" is the explicit sentinel for cross-season view
     selected_season = request.args.get("season", "")
@@ -2707,8 +2809,7 @@ def metric_detail(metric_key: str):
             filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
         rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-        _mdef = _get_metric_def(metric_key)
-        _is_asc = _mdef is not None and _mdef.rank_order == "asc"
+        _is_asc = _metric_rank_order(session, metric_key) == "asc"
         _detail_rank_val = -MetricResultModel.value_num if _is_asc else MetricResultModel.value_num
         ranked_q = (
             filtered_q.with_entities(
