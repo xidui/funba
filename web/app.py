@@ -604,17 +604,9 @@ def _apply_game_metric_tiers(season_metrics: list) -> None:
 def _game_metric_badge_text(rank: int | None, total: int | None, label: str) -> str | None:
     if rank is None or not total:
         return None
-    if rank == 1:
-        return f"Best {label}"
     ratio = rank / total
-    if ratio <= 0.01:
-        return f"Top 1% {label}"
-    if ratio <= 0.05:
-        return f"Top 5% {label}"
-    if ratio <= 0.10:
-        return f"Top 10% {label}"
     if ratio <= 0.25:
-        return f"Top 25% {label}"
+        return f"#{rank} {label}"
     return None
 
 
@@ -625,11 +617,11 @@ def _prepare_game_metric_cards(season_metrics: list[dict], limit: int = 6) -> li
     cards: list[dict] = []
     for entry in season_metrics:
         card = dict(entry)
-        card["season_badge_text"] = _game_metric_badge_text(card["rank"], card["total"], "This Season")
+        card["season_badge_text"] = _game_metric_badge_text(card["rank"], card["total"], "Season")
         card["all_badge_text"] = _game_metric_badge_text(
             card.get("all_games_rank"),
             card.get("all_games_total"),
-            "All Games",
+            "All",
         )
         cards.append(card)
 

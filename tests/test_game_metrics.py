@@ -228,10 +228,10 @@ class TestTemplateHeroRendering(unittest.TestCase):
 
 
 class TestGameMetricCardSelection(unittest.TestCase):
-    def test_badge_text_is_human_friendly(self):
-        self.assertEqual(_game_metric_badge_text(1, 500, "This Season"), "Best This Season")
-        self.assertEqual(_game_metric_badge_text(12, 400, "All Games"), "Top 5% All Games")
-        self.assertIsNone(_game_metric_badge_text(300, 400, "All Games"))
+    def test_badge_text_uses_absolute_rank(self):
+        self.assertEqual(_game_metric_badge_text(1, 500, "Season"), "#1 Season")
+        self.assertEqual(_game_metric_badge_text(12, 400, "All"), "#12 All")
+        self.assertIsNone(_game_metric_badge_text(300, 400, "All"))
 
     def test_prepare_game_metric_cards_keeps_multiple_notable_rows_for_same_metric(self):
         entries = [
@@ -244,8 +244,8 @@ class TestGameMetricCardSelection(unittest.TestCase):
 
         self.assertEqual(len(cards), 2)
         self.assertEqual([c["rank"] for c in cards], [1, 8])
-        self.assertEqual(cards[0]["season_badge_text"], "Best This Season")
-        self.assertEqual(cards[1]["season_badge_text"], "Top 10% This Season")
+        self.assertEqual(cards[0]["season_badge_text"], "#1 Season")
+        self.assertEqual(cards[1]["season_badge_text"], "#8 Season")
 
     def test_prepare_game_metric_cards_hides_metrics_when_nothing_is_notable(self):
         entries = [
