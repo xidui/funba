@@ -44,8 +44,27 @@
     {% endfor %}
   </div>
   {% if extra_game_metric_list %}
-  <div style="margin-top:14px;">
-    <button type="button" id="show-more-game-metrics" class="btn btn-secondary" style="width:100%;">Show More</button>
+  <div style="margin-top:14px; text-align:center;">
+    <button type="button" id="show-more-game-metrics"
+      style="
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 22px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        color: var(--muted-2);
+        font-family: 'Outfit', sans-serif;
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+      "
+      onmouseover="this.style.background='var(--surface-3)';this.style.color='var(--text)';this.style.borderColor='var(--border-2)'"
+      onmouseout="this.style.background='var(--surface-2)';this.style.color='var(--muted-2)';this.style.borderColor='var(--border)'"
+    >Show {{ extra_game_metric_list|length }} More <span style="font-size:10px;">▼</span></button>
   </div>
   <script>
     (function () {
@@ -55,7 +74,7 @@
         document.querySelectorAll('[data-extra-game-metric]').forEach((el) => {
           el.style.display = '';
         });
-        btn.remove();
+        btn.parentElement.remove();
       });
     })();
   </script>
