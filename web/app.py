@@ -2940,6 +2940,9 @@ def metric_detail(metric_key: str):
         rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
         _is_asc = _metric_rank_order(session, metric_key) == "asc"
         _detail_rank_val = -MetricResultModel.value_num if _is_asc else MetricResultModel.value_num
+        rank_group_fields = [MetricResultModel.metric_key, rank_partition]
+        if not show_all_seasons:
+            rank_group_fields.insert(1, MetricResultModel.season)
         ranked_q = (
             filtered_q.with_entities(
                 MetricResultModel.id.label("id"),
@@ -2952,11 +2955,11 @@ def metric_detail(metric_key: str):
                 MetricResultModel.context_json.label("context_json"),
                 MetricResultModel.computed_at.label("computed_at"),
                 func.rank().over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+                    partition_by=rank_group_fields,
                     order_by=_detail_rank_val.desc(),
                 ).label("rank"),
                 func.count(MetricResultModel.id).over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+                    partition_by=rank_group_fields,
                 ).label("standing_total"),
             )
             .subquery()
