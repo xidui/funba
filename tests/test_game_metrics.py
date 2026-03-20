@@ -52,11 +52,16 @@ def _import_helper():
         if key.startswith("web.app") or key == "web.app":
             del sys.modules[key]
 
-    from web.app import _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards
-    return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards
+    from web.app import (
+        _apply_game_metric_tiers,
+        _game_metric_badge_text,
+        _prepare_game_metric_cards,
+        _season_type_prefix,
+    )
+    return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
 
 
-_apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards = _import_helper()
+_apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix = _import_helper()
 
 
 def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
@@ -229,6 +234,12 @@ class TestTemplateHeroRendering(unittest.TestCase):
 
 
 class TestGameMetricCardSelection(unittest.TestCase):
+    def test_season_type_prefix_extracts_type_code(self):
+        self.assertEqual(_season_type_prefix("22025"), "2")
+        self.assertEqual(_season_type_prefix("42024"), "4")
+        self.assertIsNone(_season_type_prefix("all_2"))
+        self.assertIsNone(_season_type_prefix(None))
+
     def test_badge_text_uses_absolute_rank(self):
         self.assertEqual(_game_metric_badge_text(1, 500, "Season"), "#1 Season")
         self.assertEqual(_game_metric_badge_text(12, 400, "All"), "#12 All")

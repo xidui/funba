@@ -787,11 +787,12 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     # (RANK partitioned by metric_key only, no season filter).
     if entity_type == "game" and season_metrics:
         metric_keys = [e["metric_key"] for e in season_metrics]
+        season_type_prefix = _season_type_prefix(season)
         _ag_rank_value = case(
             (MetricResultModel.metric_key.in_(_asc_keys), -MetricResultModel.value_num),
             else_=MetricResultModel.value_num,
         )
-        ag_inner = (
+        ag_query = (
             session.query(
                 MetricResultModel.metric_key,
                 MetricResultModel.entity_id,
@@ -808,8 +809,10 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 MetricResultModel.value_num.isnot(None),
                 MetricResultModel.metric_key.in_(metric_keys),
             )
-            .subquery()
         )
+        if season_type_prefix:
+            ag_query = ag_query.filter(MetricResultModel.season.like(f"{season_type_prefix}%"))
+        ag_inner = ag_query.subquery()
         ag_rows = (
             session.query(ag_inner)
             .filter(_game_entity_filter(ag_inner.c.entity_id, entity_id))
@@ -1068,6 +1071,11 @@ def _season_sort_key(season_id: str | None) -> tuple[int, int]:
         }.get(s[0], 0)
         return (year, type_priority)
     return (-1, -1)
+
+
+def _season_type_prefix(season_id: str | None) -> str | None:
+    s = str(season_id or "").strip()
+    return s[0] if len(s) == 5 and s.isdigit() else None
 
 
 def _pick_current_season(season_ids: list[str]) -> str | None:
