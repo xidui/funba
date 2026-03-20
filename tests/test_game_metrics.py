@@ -34,6 +34,7 @@ def _import_helper():
         "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "User",
+        "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.engine = fake_engine
@@ -46,6 +47,10 @@ def _import_helper():
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()
     sys.modules["db.backfill_nba_player_shot_detail"] = fake_backfill
+
+    fake_line = types.ModuleType("db.backfill_nba_game_line_score")
+    fake_line.has_game_line_score = MagicMock(return_value=False)
+    sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
     # Clear any cached web.app so the stubs are picked up.
     for key in list(sys.modules):

@@ -20,7 +20,7 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Feedback, Game, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Feedback, Game, GameLineScore, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 
 app = Flask(__name__)
@@ -2039,9 +2039,17 @@ def team_page(team_id: str):
 @app.route("/games/<game_id>")
 def game_page(game_id: str):
     with SessionLocal() as session:
+        from db.backfill_nba_game_line_score import has_game_line_score
+
         game = session.query(Game).filter(Game.game_id == game_id).first()
         if game is None:
             abort(404, description=f"Game {game_id} not found")
+
+        if not has_game_line_score(session, game_id):
+            try:
+                _enqueue_line_score_backfill(game_id)
+            except Exception:
+                logger.exception("failed to enqueue line-score backfill for game_id=%s", game_id)
 
         teams = _team_map(session)
         team_stats_rows = (
@@ -3103,6 +3111,23 @@ def metric_detail(metric_key: str):
 
 _admin_cache: dict = {}
 _ADMIN_CACHE_TTL = 30  # seconds
+_LINE_SCORE_ENQUEUE_CACHE: dict[str, float] = {}
+_LINE_SCORE_ENQUEUE_TTL = 300
+
+
+def _enqueue_line_score_backfill(game_id: str) -> bool:
+    """Best-effort enqueue for missing line score data, throttled per web process."""
+    now = time.time()
+    last = _LINE_SCORE_ENQUEUE_CACHE.get(game_id, 0)
+    if now - last < _LINE_SCORE_ENQUEUE_TTL:
+        return False
+
+    from tasks.ingest import backfill_game_line_score
+
+    backfill_game_line_score.apply_async(args=[game_id], queue="ingest")
+    _LINE_SCORE_ENQUEUE_CACHE[game_id] = now
+    logger.info("enqueued line-score backfill for game_id=%s", game_id)
+    return True
 
 
 @app.get("/admin")
@@ -3123,12 +3148,14 @@ def admin_pipeline():
                     COUNT(DISTINCT g.game_id)   AS total,
                     COUNT(DISTINCT pgs.game_id) AS has_detail,
                     COUNT(DISTINCT pbp.game_id) AS has_pbp,
+                    COUNT(DISTINCT gls.game_id) AS has_line,
                     COUNT(DISTINCT sr.game_id)  AS has_shot,
                     COALESCE(SUM(mjc_agg.done_cnt > 0), 0)   AS has_metrics,
                     COALESCE(SUM(mjc_agg.active_cnt), 0)     AS active_claims
                 FROM Game g
                 LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
                 LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
+                LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
                 LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
                 LEFT JOIN (
                     SELECT game_id,
@@ -3153,6 +3180,7 @@ def admin_pipeline():
                 "total": row.total,
                 "detail": row.has_detail,
                 "pbp": row.has_pbp,
+                "line": row.has_line,
                 "shot": row.has_shot,
                 "metrics": row.has_metrics,
                 "active_claims": row.active_claims,

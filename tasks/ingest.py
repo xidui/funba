@@ -15,6 +15,7 @@ from celery import shared_task
 from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
+from db.backfill_nba_game_line_score import back_fill_game_line_score, has_game_line_score
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
 from db.backfill_nba_games import process_and_store_game
 from db.backfill_nba_player_shot_detail import (
@@ -52,6 +53,36 @@ def _fetch_api_row(game_id: str) -> dict | None:
     if df.empty:
         return None
     return df.iloc[0].to_dict()
+
+
+@shared_task(
+    bind=True,
+    name="tasks.ingest.backfill_game_line_score",
+    max_retries=5,
+    queue="ingest",
+)
+def backfill_game_line_score(self, game_id: str, replace_existing: bool = False) -> dict:
+    """Fetch and persist official line score data for one game."""
+    SessionLocal = _session_factory()
+
+    try:
+        with SessionLocal() as sess:
+            row_count = back_fill_game_line_score(
+                sess,
+                game_id,
+                commit=True,
+                replace_existing=replace_existing,
+            )
+    except Exception as exc:
+        wait = 30 * (2 ** self.request.retries)
+        logger.warning(
+            "backfill_game_line_score %s: failed (attempt %d): %s — retrying in %ds",
+            game_id, self.request.retries + 1, exc, wait,
+        )
+        raise self.retry(exc=exc, countdown=wait)
+
+    logger.info("backfill_game_line_score %s: stored %d rows.", game_id, row_count)
+    return {"game_id": game_id, "line_score_rows": int(row_count)}
 
 
 def _season_start_year(season: str | None) -> int | None:
@@ -176,6 +207,11 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     )
     for key in keys_to_run:
         compute_game_metrics.apply_async(args=[game_id, key], kwargs={"force": force}, queue="metrics")
+
+    with SessionLocal() as sess:
+        has_line = has_game_line_score(sess, game_id)
+    if not has_line:
+        backfill_game_line_score.apply_async(args=[game_id], queue="ingest")
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s) → %d metric tasks enqueued.",

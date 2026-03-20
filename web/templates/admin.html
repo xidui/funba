@@ -170,6 +170,7 @@
           <th style="text-align:center">Games</th>
           <th>Stats</th>
           <th>PBP</th>
+          <th>Line</th>
           <th>Shots</th>
           <th>Metrics</th>
           <th style="text-align:center">Status</th>
@@ -186,7 +187,7 @@
             <span class="stype-badge stype-{{ stype }}">{{ 'Playoffs' if stype == 'playoffs' else ('Play-In' if stype == 'playin' else ('Regular' if stype == 'regular' else 'Other')) }}</span>
           </td>
           <td style="text-align:center; color:var(--muted-2); font-size:12px;">{{ row.total }}</td>
-          {% for val in [row.detail, row.pbp, row.shot, row.metrics] %}
+          {% for val in [row.detail, row.pbp, row.line, row.shot, row.metrics] %}
           {% if row.total %}
             {% set pct = (val / row.total * 100) %}
             {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}

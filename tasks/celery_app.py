@@ -38,6 +38,7 @@ app.conf.update(
     task_default_queue="ingest",
     task_routes={
         "tasks.ingest.ingest_game": {"queue": "ingest"},
+        "tasks.ingest.backfill_game_line_score": {"queue": "ingest"},
         "tasks.metrics.compute_game_metrics": {"queue": "metrics"},
     },
 

@@ -5,9 +5,104 @@ metric code can call them instead of reimplementing the logic each time.
 """
 from __future__ import annotations
 
+import json
+
 from sqlalchemy.orm import Session
 
-from db.models import Game, GamePlayByPlay, Team
+from db.models import Game, GameLineScore, GamePlayByPlay, Team
+
+
+def _game_line_score_rows(session: Session, game_id: str) -> list[GameLineScore]:
+    return (
+        session.query(GameLineScore)
+        .filter(GameLineScore.game_id == game_id)
+        .all()
+    )
+
+
+def _line_score_period_map(row: GameLineScore) -> dict[int, int]:
+    period_map: dict[int, int] = {}
+    for period, value in (
+        (1, row.q1_pts),
+        (2, row.q2_pts),
+        (3, row.q3_pts),
+        (4, row.q4_pts),
+        (5, row.ot1_pts),
+        (6, row.ot2_pts),
+        (7, row.ot3_pts),
+    ):
+        if value is not None:
+            period_map[period] = int(value)
+    if row.ot_extra_json:
+        try:
+            extra = json.loads(row.ot_extra_json)
+        except json.JSONDecodeError:
+            extra = []
+        for idx, value in enumerate(extra, start=8):
+            if value is not None:
+                period_map[idx] = int(value)
+    return period_map
+
+
+def _quarter_scores_from_line_score(session: Session, game_id: str) -> list[dict]:
+    rows = _game_line_score_rows(session, game_id)
+    if len(rows) < 2:
+        return []
+
+    game = session.query(Game).filter(Game.game_id == game_id).one_or_none()
+    if not game:
+        return []
+
+    home_row = next((row for row in rows if str(row.team_id) == str(game.home_team_id)), None)
+    road_row = next((row for row in rows if str(row.team_id) == str(game.road_team_id)), None)
+    if home_row is None or road_row is None:
+        return []
+
+    home_periods = _line_score_period_map(home_row)
+    road_periods = _line_score_period_map(road_row)
+    periods = sorted(set(home_periods) | set(road_periods))
+    if not periods:
+        return []
+
+    return [
+        {
+            "period": period,
+            "home_pts": home_periods.get(period, 0),
+            "road_pts": road_periods.get(period, 0),
+            "home_team_id": game.home_team_id,
+            "road_team_id": game.road_team_id,
+        }
+        for period in periods
+    ]
+
+
+def _half_scores_from_line_score(session: Session, game_id: str) -> dict | None:
+    rows = _game_line_score_rows(session, game_id)
+    if len(rows) < 2:
+        return None
+
+    game = session.query(Game).filter(Game.game_id == game_id).one_or_none()
+    if not game:
+        return None
+
+    home_row = next((row for row in rows if str(row.team_id) == str(game.home_team_id)), None)
+    road_row = next((row for row in rows if str(row.team_id) == str(game.road_team_id)), None)
+    if home_row is None or road_row is None:
+        return None
+
+    if home_row.first_half_pts is None or road_row.first_half_pts is None:
+        return None
+    if home_row.second_half_pts is None or road_row.second_half_pts is None:
+        return None
+
+    return {
+        "home_team_id": game.home_team_id,
+        "road_team_id": game.road_team_id,
+        "home_first_half": int(home_row.first_half_pts),
+        "road_first_half": int(road_row.first_half_pts),
+        "home_second_half": int(home_row.second_half_pts),
+        "road_second_half": int(road_row.second_half_pts),
+    }
 
 
 def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
@@ -22,6 +117,10 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
 
     Returns empty list if no PBP score data is available.
     """
+    line_scores = _quarter_scores_from_line_score(session, game_id)
+    if line_scores:
+        return line_scores
+
     game = session.query(Game).filter(Game.game_id == game_id).one_or_none()
     if not game:
         return []
@@ -98,6 +197,10 @@ def get_half_scores(session: Session, game_id: str) -> dict | None:
 
     Returns None if insufficient PBP data.
     """
+    line_scores = _half_scores_from_line_score(session, game_id)
+    if line_scores is not None:
+        return line_scores
+
     quarters = get_quarter_scores(session, game_id)
     if len(quarters) < 4:
         return None

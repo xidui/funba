@@ -207,6 +207,29 @@ Index('ix_ShotRecord_player_id_season', ShotRecord.player_id, ShotRecord.season)
 Index('ix_ShotRecord_season_zone', ShotRecord.season, ShotRecord.shot_zone_area)
 
 
+class GameLineScore(Base):
+    __tablename__ = 'GameLineScore'
+
+    game_id = Column(String(50), ForeignKey('Game.game_id'), primary_key=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id'), primary_key=True)
+    on_road = Column(Boolean, nullable=False)
+    q1_pts = Column(Integer, nullable=True)
+    q2_pts = Column(Integer, nullable=True)
+    q3_pts = Column(Integer, nullable=True)
+    q4_pts = Column(Integer, nullable=True)
+    ot1_pts = Column(Integer, nullable=True)
+    ot2_pts = Column(Integer, nullable=True)
+    ot3_pts = Column(Integer, nullable=True)
+    ot_extra_json = Column(Text, nullable=True)
+    first_half_pts = Column(Integer, nullable=True)
+    second_half_pts = Column(Integer, nullable=True)
+    regulation_total_pts = Column(Integer, nullable=True)
+    total_pts = Column(Integer, nullable=False)
+    source = Column(String(64), nullable=False, default='nba_api_boxscoresummaryv3')
+    fetched_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+
 
 class MetricResult(Base):
     __tablename__ = 'MetricResult'

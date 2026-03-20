@@ -26,6 +26,7 @@ def _make_app():
         "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
+        "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.User = fake_user_cls
@@ -40,6 +41,10 @@ def _make_app():
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()
     sys.modules["db.backfill_nba_player_shot_detail"] = fake_backfill
+
+    fake_line = types.ModuleType("db.backfill_nba_game_line_score")
+    fake_line.has_game_line_score = MagicMock(return_value=False)
+    sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
     # Remove cached web.app so imports are re-evaluated with stubs
     for key in list(sys.modules):

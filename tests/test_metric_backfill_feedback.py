@@ -23,6 +23,7 @@ def _make_app_module():
         "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
+        "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.User = fake_user_cls
@@ -37,6 +38,10 @@ def _make_app_module():
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()
     sys.modules["db.backfill_nba_player_shot_detail"] = fake_backfill
+
+    fake_line = types.ModuleType("db.backfill_nba_game_line_score")
+    fake_line.has_game_line_score = MagicMock(return_value=False)
+    sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
     for key in list(sys.modules):
         if key == "web.app" or key.startswith("web.app."):

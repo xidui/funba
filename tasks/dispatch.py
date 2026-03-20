@@ -13,6 +13,9 @@ Usage examples:
   # Backfill one metric across all games (routes through ingest to ensure artifacts exist)
   python -m tasks.dispatch metric-backfill --metric clutch_fg_pct
 
+  # Backfill official line score data across games
+  python -m tasks.dispatch line-backfill --season 22025
+
   # Backfill all metrics across all games
   python -m tasks.dispatch metric-backfill
 
@@ -31,7 +34,7 @@ from db.models import Game, MetricJobClaim, engine
 from tasks.celery_app import app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
-from tasks.ingest import ingest_game  # noqa: F401
+from tasks.ingest import backfill_game_line_score, ingest_game  # noqa: F401
 
 
 def _session():
@@ -279,6 +282,23 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_line_backfill(args: argparse.Namespace) -> None:
+    game_ids = _query_games(
+        season=args.season,
+        date_from=args.date_from,
+        date_to=args.date_to,
+    ) if (args.season or args.date_from or args.date_to) else _all_game_ids()
+
+    if not game_ids:
+        print("No games found.")
+        return
+
+    for gid in game_ids:
+        backfill_game_line_score.apply_async(args=[gid], queue="ingest")
+
+    print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: ingest.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tasks.dispatch",
@@ -333,6 +353,16 @@ def main() -> None:
     p_mb.add_argument("--force", action="store_true",
                       help="Clear existing claims so workers recompute even completed games.")
     p_mb.set_defaults(func=cmd_metric_backfill)
+
+    # --- line-backfill ---
+    p_lb = sub.add_parser(
+        "line-backfill",
+        help="Enqueue official line-score fetch tasks for stored games.",
+    )
+    p_lb.add_argument("--season", help="Limit to a season prefix, e.g. 22025")
+    p_lb.add_argument("--date-from", dest="date_from", help="Start date YYYY-MM-DD")
+    p_lb.add_argument("--date-to", dest="date_to", help="End date YYYY-MM-DD")
+    p_lb.set_defaults(func=cmd_line_backfill)
 
     args = parser.parse_args()
     args.func(args)
