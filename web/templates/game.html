@@ -226,6 +226,36 @@
     line-height: 1.4;
   }
 
+  .gmc-more-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+  }
+
+  .gmc-more-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .gmc-more-btn:hover {
+    color: var(--accent);
+  }
+
+  .gmc-more-btn span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   /* ── Box Score (unified card with tabs) ───────────────────────── */
   .boxscore-tabs {
     display: flex;
