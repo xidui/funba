@@ -244,6 +244,13 @@
   .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .chat-send-btn svg { width: 16px; height: 16px; }
 
+  .chat-status {
+    min-height: 18px;
+    padding: 0 16px 12px;
+    font-size: 12px;
+    color: var(--loss);
+  }
+
   /* ── Right panel ─────────────────────────────────────────────────── */
   .right-panels {
     display: flex;
@@ -480,17 +487,18 @@
       </div>
     </div>
 
-    <div class="chat-input-bar">
+    <form id="chat-form" class="chat-input-bar">
       <input id="chat-input" class="chat-input" type="text"
         placeholder="Describe a metric or tell the AI what to change…"
         value="{{ initial_expression or '' }}"
         autocomplete="off" spellcheck="false" />
-      <button id="chat-send" class="chat-send-btn" title="Send">
+      <button id="chat-send" class="chat-send-btn" type="submit" title="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
-    </div>
+    </form>
+    <div id="chat-status" class="chat-status"></div>
   </div>
 
   <!-- Settings (shown after first generation, below chat) -->
@@ -640,8 +648,10 @@
 
   const chatMessages = document.getElementById('chat-messages');
   const chatEmpty    = document.getElementById('chat-empty');
+  const chatForm     = document.getElementById('chat-form');
   const chatInput    = document.getElementById('chat-input');
   const chatSend     = document.getElementById('chat-send');
+  const chatStatus   = document.getElementById('chat-status');
   const startOverBtn = document.getElementById('start-over-btn');
   const codeViewer   = document.getElementById('code-viewer');
   const keyInput     = document.getElementById('f-key');
@@ -821,8 +831,13 @@
     return d.innerHTML;
   }
 
+  function setChatStatus(message) {
+    chatStatus.textContent = message || '';
+  }
+
   // ── Generate / Refine ────────────────────────────────────────────
-  async function handleSend() {
+  async function handleSend(event) {
+    if (event) event.preventDefault();
     const expr = chatInput.value.trim();
     if (!expr) return;
 
@@ -834,6 +849,7 @@
     addUserMsg(expr);
     chatInput.value = '';
     chatSend.disabled = true;
+    setChatStatus('');
 
     const thinking = addThinking();
 
@@ -865,6 +881,7 @@
         errDiv.className = 'msg msg-ai';
         errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">${escHtml(data.error)}</div>`;
         chatMessages.appendChild(errDiv);
+        setChatStatus(data.error || 'Generation failed.');
         scrollChat();
         return;
       }
@@ -914,6 +931,7 @@
       errDiv.className = 'msg msg-ai';
       errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">Network error: ${escHtml(e.message)}</div>`;
       chatMessages.appendChild(errDiv);
+      setChatStatus(`Network error: ${e.message}`);
       scrollChat();
     } finally {
       chatSend.disabled = false;
@@ -921,8 +939,7 @@
     }
   }
 
-  chatSend.addEventListener('click', handleSend);
-  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
+  chatForm.addEventListener('submit', handleSend);
 
   // Example clicks
   document.querySelectorAll('.chat-example').forEach(el => {
