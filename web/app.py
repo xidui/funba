@@ -549,6 +549,10 @@ def _asc_metric_keys(session) -> set[str]:
     }
 
 
+def _game_entity_filter(entity_col, game_id: str):
+    return or_(entity_col == game_id, entity_col.like(f"{game_id}:%"))
+
+
 _METRIC_CONTEXT_LABEL: dict = {
     "clutch_fg_pct":          lambda c: f"{_fmt_int(c.get('clutch_made'))}/{_fmt_int(c.get('clutch_attempts'))} clutch",
     "hot_hand":               lambda c: f"{_fmt_int(c.get('hot_made'))}/{_fmt_int(c.get('hot_opps'))} after make",
@@ -655,12 +659,12 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         .subquery()
     )
 
-    rows = (
-        session.query(inner_q)
-        .filter(inner_q.c.entity_id == entity_id)
-        .order_by(inner_q.c.rank.asc())
-        .all()
-    )
+    rows_q = session.query(inner_q)
+    if entity_type == "game":
+        rows_q = rows_q.filter(_game_entity_filter(inner_q.c.entity_id, entity_id))
+    else:
+        rows_q = rows_q.filter(inner_q.c.entity_id == entity_id)
+    rows = rows_q.order_by(inner_q.c.rank.asc()).all()
 
     team_map = _team_map(session)
 
@@ -681,6 +685,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         is_notable = total > 0 and rank / total <= 0.25
         entry = {
             "metric_key": r.metric_key,
+            "entity_id": r.entity_id,
             "value_num": r.value_num,
             "value_str": r.value_str,
             "rank": rank,
@@ -745,12 +750,12 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         )
         ag_rows = (
             session.query(ag_inner)
-            .filter(ag_inner.c.entity_id == entity_id)
+            .filter(_game_entity_filter(ag_inner.c.entity_id, entity_id))
             .all()
         )
-        ag_by_key = {r.metric_key: (r.rank, r.total) for r in ag_rows}
+        ag_by_key = {(r.metric_key, r.entity_id): (r.rank, r.total) for r in ag_rows}
         for entry in season_metrics:
-            ag_rank, ag_total = ag_by_key.get(entry["metric_key"], (None, None))
+            ag_rank, ag_total = ag_by_key.get((entry["metric_key"], entry["entity_id"]), (None, None))
             if ag_rank is not None:
                 entry["all_games_rank"] = ag_rank
                 entry["all_games_total"] = ag_total

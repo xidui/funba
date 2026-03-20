@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from sqlalchemy.sql import column
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -347,6 +348,13 @@ class LowestQuarterScore(MetricDefinition):
             asc_keys = self.web_app._asc_metric_keys(MagicMock())
 
         self.assertEqual(asc_keys, {"low_quarter_score", "true_shooting_pct"})
+
+    def test_game_entity_filter_matches_base_and_composite_ids(self):
+        expr = self.web_app._game_entity_filter(column("entity_id"), "0022500870")
+        compiled = str(expr.compile(compile_kwargs={"literal_binds": True}))
+
+        self.assertIn("entity_id = '0022500870'", compiled)
+        self.assertIn("entity_id LIKE '0022500870:%'", compiled)
 
     def test_backfill_status_endpoint_returns_combined_payload(self):
         backfill = {
