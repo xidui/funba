@@ -21,12 +21,12 @@ if str(REPO_ROOT) not in sys.path:
 
 
 # ---------------------------------------------------------------------------
-# Import the real _apply_game_metric_tiers from web.app using module stubs.
+# Import the real game-metric helpers from web.app using module stubs.
 # Mirrors the pattern used in test_auth.py to avoid a live DB connection.
 # ---------------------------------------------------------------------------
 
 def _import_helper():
-    """Return the real _apply_game_metric_tiers from web.app."""
+    """Return the real game metric helpers from web.app."""
     fake_engine = MagicMock()
 
     fake_models = types.ModuleType("db.models")
@@ -52,11 +52,11 @@ def _import_helper():
         if key.startswith("web.app") or key == "web.app":
             del sys.modules[key]
 
-    from web.app import _apply_game_metric_tiers
-    return _apply_game_metric_tiers
+    from web.app import _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards
+    return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards
 
 
-_apply_game_metric_tiers = _import_helper()
+_apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards = _import_helper()
 
 
 def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
@@ -225,6 +225,37 @@ class TestTemplateHeroRendering(unittest.TestCase):
     def test_empty_metrics_section_hidden(self):
         html = self._render_section([])
         self.assertNotIn("card", html)
+
+
+class TestGameMetricCardSelection(unittest.TestCase):
+    def test_badge_text_is_human_friendly(self):
+        self.assertEqual(_game_metric_badge_text(1, 500, "This Season"), "Best This Season")
+        self.assertEqual(_game_metric_badge_text(12, 400, "All Games"), "Top 5% All Games")
+        self.assertIsNone(_game_metric_badge_text(300, 400, "All Games"))
+
+    def test_prepare_game_metric_cards_keeps_multiple_notable_rows_for_same_metric(self):
+        entries = [
+            _make_entry("low_quarter_score", rank=1, total=100, ag_rank=10, ag_total=1000),
+            _make_entry("low_quarter_score", rank=8, total=100, ag_rank=50, ag_total=1000),
+            _make_entry("low_quarter_score", rank=60, total=100, ag_rank=600, ag_total=1000),
+        ]
+        _apply_game_metric_tiers(entries)
+        cards = _prepare_game_metric_cards(entries)
+
+        self.assertEqual(len(cards), 2)
+        self.assertEqual([c["rank"] for c in cards], [1, 8])
+        self.assertEqual(cards[0]["season_badge_text"], "Best This Season")
+        self.assertEqual(cards[1]["season_badge_text"], "Top 10% This Season")
+
+    def test_prepare_game_metric_cards_hides_metrics_when_nothing_is_notable(self):
+        entries = [
+            _make_entry("single_quarter_team_scoring", rank=60, total=100, ag_rank=600, ag_total=1000),
+            _make_entry("single_quarter_team_scoring", rank=70, total=100, ag_rank=700, ag_total=1000),
+        ]
+        _apply_game_metric_tiers(entries)
+        cards = _prepare_game_metric_cards(entries)
+
+        self.assertEqual(cards, [])
 
 
 if __name__ == "__main__":

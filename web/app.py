@@ -601,6 +601,44 @@ def _apply_game_metric_tiers(season_metrics: list) -> None:
     season_metrics.sort(key=_sort_key)
 
 
+def _game_metric_badge_text(rank: int | None, total: int | None, label: str) -> str | None:
+    if rank is None or not total:
+        return None
+    if rank == 1:
+        return f"Best {label}"
+    ratio = rank / total
+    if ratio <= 0.01:
+        return f"Top 1% {label}"
+    if ratio <= 0.05:
+        return f"Top 5% {label}"
+    if ratio <= 0.10:
+        return f"Top 10% {label}"
+    if ratio <= 0.25:
+        return f"Top 25% {label}"
+    return None
+
+
+def _prepare_game_metric_cards(season_metrics: list[dict], limit: int = 6) -> list[dict]:
+    if not season_metrics:
+        return []
+
+    cards: list[dict] = []
+    for entry in season_metrics:
+        card = dict(entry)
+        card["season_badge_text"] = _game_metric_badge_text(card["rank"], card["total"], "This Season")
+        card["all_badge_text"] = _game_metric_badge_text(
+            card.get("all_games_rank"),
+            card.get("all_games_total"),
+            "All Games",
+        )
+        cards.append(card)
+
+    return [
+        card for card in cards[:limit]
+        if card["is_hero"] or card["is_notable"] or card.get("all_games_is_notable")
+    ]
+
+
 def _get_metric_results(session, entity_type: str, entity_id: str, season: str | None = None) -> dict:
     """Fetch metric results for an entity, split into season and alltime lists.
 
@@ -763,6 +801,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
         # Mark hero metrics (top 1% of all games) and sort by exceptionality
         _apply_game_metric_tiers(season_metrics)
+        season_metrics = _prepare_game_metric_cards(season_metrics)
 
     return {"season": season_metrics, "alltime": alltime_metrics}
 
