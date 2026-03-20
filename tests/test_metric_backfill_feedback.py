@@ -126,6 +126,109 @@ class TestMetricBackfillFeedback(unittest.TestCase):
         self.assertTrue(response.get_json()["ok"])
         dispatch.assert_called_once_with("custom_metric")
 
+    def test_update_syncs_code_metric_metadata_from_code(self):
+        metric = SimpleNamespace(
+            key="single_quarter_team_scoring",
+            name="test",
+            description="old desc",
+            scope="team",
+            category="old",
+            min_sample=99,
+            status="published",
+            source_type="code",
+            code_python="old code",
+            definition_json="{}",
+            updated_at=None,
+        )
+        session = _session_ctx(MagicMock())
+        session.query.return_value.filter.return_value.first.return_value = metric
+
+        with patch.object(self.web_app, "SessionLocal", return_value=session), \
+             patch.object(
+                 self.web_app,
+                 "_code_metric_metadata_from_code",
+                 return_value={
+                     "key": "single_quarter_team_scoring",
+                     "name": "Single-Quarter Team Scoring",
+                     "description": "Per-quarter team points.",
+                     "scope": "game",
+                     "category": "scoring",
+                     "min_sample": 1,
+                     "career_min_sample": None,
+                     "supports_career": False,
+                     "career": False,
+                     "incremental": False,
+                     "rank_order": "desc",
+                 },
+             ):
+            response = self.client.post(
+                "/api/metrics/single_quarter_team_scoring/update",
+                json={"code": "new code", "name": "test"},
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(metric.name, "Single-Quarter Team Scoring")
+        self.assertEqual(metric.description, "Per-quarter team points.")
+        self.assertEqual(metric.scope, "game")
+        self.assertEqual(metric.category, "scoring")
+        self.assertEqual(metric.min_sample, 1)
+        self.assertEqual(metric.code_python, "new code")
+        self.assertEqual(metric.source_type, "code")
+        self.assertIsNone(metric.definition_json)
+
+    def test_catalog_prefers_code_metric_name_over_stale_db_name(self):
+        row = SimpleNamespace(
+            key="single_quarter_team_scoring",
+            name="test",
+            description="old desc",
+            scope="team",
+            category="old",
+            status="published",
+            source_type="code",
+            group_key=None,
+            min_sample=1,
+            expression="",
+            code_python="fake code",
+            created_at=1,
+        )
+
+        counts_query = MagicMock()
+        counts_query.group_by.return_value.all.return_value = [
+            SimpleNamespace(metric_key="single_quarter_team_scoring", count=12)
+        ]
+        db_query = MagicMock()
+        db_query.filter.return_value = db_query
+        db_query.order_by.return_value.all.return_value = [row]
+
+        session = MagicMock()
+        session.query.side_effect = [counts_query, db_query]
+
+        with patch.object(
+            self.web_app,
+            "_safe_code_metric_metadata",
+            return_value={
+                "key": "single_quarter_team_scoring",
+                "name": "Single-Quarter Team Scoring",
+                "description": "Per-quarter team points.",
+                "scope": "game",
+                "category": "scoring",
+                "min_sample": 1,
+                "career_min_sample": None,
+                "supports_career": False,
+                "career": False,
+                "incremental": False,
+                "rank_order": "desc",
+            },
+        ):
+            catalog = self.web_app._catalog_metrics(session)
+
+        metric = next(m for m in catalog if m["key"] == "single_quarter_team_scoring")
+        self.assertEqual(metric["name"], "Single-Quarter Team Scoring")
+        self.assertEqual(metric["description"], "Per-quarter team points.")
+        self.assertEqual(metric["scope"], "game")
+        self.assertEqual(metric["category"], "scoring")
+
     def test_backfill_status_endpoint_returns_combined_payload(self):
         backfill = {
             "status": "queued",

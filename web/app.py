@@ -170,6 +170,40 @@ def _metric_source_excerpt(metric_cls: type) -> str:
         return ""
 
 
+def _code_metric_metadata_from_code(code_python: str, *, expected_key: str | None = None) -> dict:
+    from metrics.framework.runtime import load_code_metric
+
+    metric = load_code_metric(code_python)
+    metadata = {
+        "key": metric.key,
+        "name": metric.name,
+        "description": metric.description,
+        "scope": metric.scope,
+        "category": getattr(metric, "category", "") or "",
+        "min_sample": int(getattr(metric, "min_sample", 1) or 1),
+        "career_min_sample": getattr(metric, "career_min_sample", None),
+        "supports_career": bool(getattr(metric, "supports_career", False)),
+        "career": bool(getattr(metric, "career", False)),
+        "incremental": bool(getattr(metric, "incremental", True)),
+        "rank_order": getattr(metric, "rank_order", "desc"),
+    }
+    if expected_key and metadata["key"] != expected_key:
+        raise ValueError(
+            f"Code metric key {metadata['key']!r} must match metric key {expected_key!r}."
+        )
+    return metadata
+
+
+def _safe_code_metric_metadata(row: MetricDefinitionModel) -> dict:
+    if row.source_type != "code" or not row.code_python:
+        return {}
+    try:
+        return _code_metric_metadata_from_code(row.code_python, expected_key=row.key)
+    except Exception as exc:
+        logger.warning("Failed to inspect code metric %s for catalog metadata: %s", row.key, exc)
+        return {}
+
+
 def _builtin_metric_search_fields(metric_def) -> dict:
     source_cls = _metric_source_owner(metric_def)
     return {
@@ -185,7 +219,7 @@ def _builtin_metric_search_fields(metric_def) -> dict:
     }
 
 
-def _db_metric_search_fields(row: MetricDefinitionModel) -> dict:
+def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict | None = None) -> dict:
     details = {
         "group_key": row.group_key,
         "min_sample": int(row.min_sample or 1),
@@ -214,22 +248,18 @@ def _db_metric_search_fields(row: MetricDefinitionModel) -> dict:
         )
         return details
 
-    if row.source_type == "code" and row.code_python:
-        try:
-            from metrics.framework.runtime import load_code_metric
-
-            metric = load_code_metric(row.code_python)
-        except Exception as exc:
-            logger.warning("Failed to inspect code metric %s for search context: %s", row.key, exc)
-            return details
-
+    if code_metadata:
         details.update(
-            min_sample=int(getattr(metric, "min_sample", row.min_sample) or 1),
-            career_min_sample=getattr(metric, "career_min_sample", None),
-            supports_career=bool(getattr(metric, "supports_career", False)),
-            career=bool(getattr(metric, "career", False)),
-            incremental=bool(getattr(metric, "incremental", True)),
-            rank_order=getattr(metric, "rank_order", "desc"),
+            min_sample=code_metadata["min_sample"],
+            career_min_sample=code_metadata["career_min_sample"],
+            supports_career=code_metadata["supports_career"],
+            career=code_metadata["career"],
+            incremental=code_metadata["incremental"],
+            rank_order=code_metadata["rank_order"],
+            name=code_metadata["name"],
+            description=code_metadata["description"],
+            scope=code_metadata["scope"],
+            category=code_metadata["category"],
         )
     return details
 
@@ -321,20 +351,23 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
             db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
     if status_filter:
         db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
-    db_metrics = [
-        {
-            "key": m.key,
-            "name": m.name,
-            "description": m.description,
-            "scope": m.scope,
-            "category": m.category or "",
-            "status": m.status,
-            "source_type": m.source_type,
-            "result_count": counts.get(m.key, 0),
-            **_db_metric_search_fields(m),
-        }
-        for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
-    ]
+    db_metrics = []
+    for m in db_q.order_by(MetricDefinitionModel.created_at.desc()).all():
+        code_metadata = _safe_code_metric_metadata(m)
+        search_fields = _db_metric_search_fields(m, code_metadata=code_metadata)
+        db_metrics.append(
+            {
+                "key": m.key,
+                "name": search_fields.get("name", m.name),
+                "description": search_fields.get("description", m.description),
+                "scope": search_fields.get("scope", m.scope),
+                "category": search_fields.get("category", m.category or ""),
+                "status": m.status,
+                "source_type": m.source_type,
+                "result_count": counts.get(m.key, 0),
+                **search_fields,
+            }
+        )
 
     db_keys = {m["key"] for m in db_metrics}
     include_builtins = not status_filter or status_filter == "published"
@@ -2343,21 +2376,32 @@ def api_metric_create():
     code_python = (body.get("code") or "").strip()
     definition = body.get("definition")
 
-    if not key or not name or not scope:
-        return jsonify({"ok": False, "error": "key, name, and scope are required"}), 400
+    if not key:
+        return jsonify({"ok": False, "error": "key is required"}), 400
     if not code_python and not definition:
         return jsonify({"ok": False, "error": "code or definition is required"}), 400
 
     # Determine source type
     source_type = "code" if code_python else "rule"
+    code_metadata = None
 
     # Validate code by loading it
     if code_python:
         try:
-            from metrics.framework.runtime import load_code_metric
-            load_code_metric(code_python)
+            code_metadata = _code_metric_metadata_from_code(code_python, expected_key=key)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
+        name = code_metadata["name"]
+        scope = code_metadata["scope"]
+        description = code_metadata["description"]
+        category = code_metadata["category"]
+        min_sample = code_metadata["min_sample"]
+    else:
+        if not name or not scope:
+            return jsonify({"ok": False, "error": "name and scope are required"}), 400
+        description = body.get("description", "")
+        category = body.get("category", "")
+        min_sample = int(body.get("min_sample", 1))
 
     with SessionLocal() as session:
         if _get_builtin_metric(key) is not None:
@@ -2369,16 +2413,16 @@ def api_metric_create():
         m = MetricDefinitionModel(
             key=key,
             name=name,
-            description=body.get("description", ""),
+            description=description,
             scope=scope,
-            category=body.get("category", ""),
+            category=category,
             group_key=body.get("group_key"),
             source_type=source_type,
             status="draft",
             definition_json=_json.dumps(definition) if definition else None,
             code_python=code_python or None,
             expression=body.get("expression", ""),
-            min_sample=int(body.get("min_sample", 1)),
+            min_sample=min_sample,
             created_at=now,
             updated_at=now,
         )
@@ -2434,11 +2478,11 @@ def api_metric_update(metric_key: str):
 
     body = request.get_json(force=True) or {}
     code_python = (body.get("code") or "").strip()
+    code_metadata = None
 
     if code_python:
         try:
-            from metrics.framework.runtime import load_code_metric
-            load_code_metric(code_python)
+            code_metadata = _code_metric_metadata_from_code(code_python, expected_key=metric_key)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
 
@@ -2447,17 +2491,26 @@ def api_metric_update(metric_key: str):
         if m is None:
             return jsonify({"ok": False, "error": "Not found"}), 404
 
-        if body.get("name"):
+        if code_metadata:
+            m.name = code_metadata["name"]
+            m.description = code_metadata["description"]
+            m.scope = code_metadata["scope"]
+            m.category = code_metadata["category"]
+            m.min_sample = code_metadata["min_sample"]
+        elif body.get("name"):
             m.name = body["name"]
-        if body.get("description") is not None:
+        if not code_metadata and body.get("description") is not None:
             m.description = body["description"]
-        if body.get("scope"):
+        if not code_metadata and body.get("scope"):
             m.scope = body["scope"]
-        if body.get("category"):
+        if not code_metadata and body.get("category"):
             m.category = body["category"]
+        if not code_metadata and body.get("min_sample") is not None:
+            m.min_sample = int(body["min_sample"])
         if code_python:
             m.code_python = code_python
             m.source_type = "code"
+            m.definition_json = None
         if body.get("definition"):
             m.definition_json = _json.dumps(body["definition"])
         m.updated_at = datetime.utcnow()
