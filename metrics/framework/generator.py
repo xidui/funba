@@ -164,49 +164,49 @@ CRITICAL — PBP score parsing:
 
 
 def _load_example_metrics() -> str:
-    """Load real builtin metric source files as examples for the prompt."""
-    from pathlib import Path
+    """Load curated DB-backed metric source examples for the prompt."""
+    from sqlalchemy.orm import sessionmaker
 
-    definitions_dir = Path(__file__).parent.parent / "definitions"
-    if not definitions_dir.exists():
-        return "(no examples found)"
+    from db.models import MetricDefinition as MetricDefinitionModel, engine
 
-    # Curate a diverse set: mix of scopes, incremental vs non-incremental,
-    # different data sources (Game, PBP, ShotRecord, PlayerGameStats, TeamGameStats)
-    _CURATED = [
-        # game scope, non-incremental, simple
-        "game/combined_score.py",
-        # game scope, non-incremental, PBP parsing
-        "game/lead_changes.py",
-        # game scope, non-incremental, player stats
-        "game/top_scorer.py",
-        # team scope, incremental, PBP
-        "team/win_pct_leading_at_half.py",
-        # team scope, incremental, simple stats
-        "team/road_win_pct.py",
-        "team/bench_scoring_share.py",
-        "team/comeback_win_pct.py",
-        # player scope, incremental, shot records
-        "player/hot_hand.py",
-        "player/clutch_fg_pct.py",
-        # player scope, incremental, simple stats
-        "player/double_double_rate.py",
-        "player/true_shooting_pct.py",
-        "player/scoring_consistency.py",
+    SessionLocal = sessionmaker(bind=engine)
+
+    curated_keys = [
+        "combined_score",
+        "lead_changes",
+        "top_scorer",
+        "win_pct_leading_at_half",
+        "road_win_pct",
+        "bench_scoring_share",
+        "comeback_win_pct",
+        "hot_hand",
+        "clutch_fg_pct",
+        "double_double_rate",
+        "true_shooting_pct",
+        "scoring_consistency",
     ]
 
     examples = []
-    for rel_path in _CURATED:
-        filepath = definitions_dir / rel_path
-        if not filepath.exists():
-            continue
-        code = filepath.read_text()
-        # Strip the register() call at the bottom — generated code shouldn't include it
-        lines = code.rstrip().split("\n")
-        cleaned = "\n".join(l for l in lines if not l.strip().startswith("register("))
-        examples.append(f"### {rel_path}\n```python\n{cleaned.strip()}\n```")
+    with SessionLocal() as session:
+        rows = (
+            session.query(MetricDefinitionModel)
+            .filter(MetricDefinitionModel.key.in_(curated_keys))
+            .all()
+        )
+        rows_by_key = {row.key: row for row in rows}
+        for key in curated_keys:
+            row = rows_by_key.get(key)
+            if row is None or not row.code_python:
+                continue
+            cleaned = "\n".join(
+                line
+                for line in row.code_python.rstrip().split("\n")
+                if not line.strip().startswith("register(")
+            )
+            examples.append(f"### {key}\n```python\n{cleaned.strip()}\n```")
 
     # Also include helpers source so LLM can see how they work
+    from pathlib import Path
     helpers_path = Path(__file__).parent.parent / "helpers.py"
     if helpers_path.exists():
         helpers_code = helpers_path.read_text()

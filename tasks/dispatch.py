@@ -338,16 +338,6 @@ def cmd_line_backfill(args: argparse.Namespace) -> None:
     print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: line_score.")
 
 
-def cmd_seed_builtins(args: argparse.Namespace) -> None:
-    from db.sync_builtin_metrics_to_db import sync_builtin_metrics_to_db
-
-    with _session() as sess:
-        result = sync_builtin_metrics_to_db(sess, overwrite=args.overwrite)
-    print(
-        f"Seeded builtins → inserted={result['inserted']} updated={result['updated']} skipped={result['skipped']}"
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tasks.dispatch",
@@ -412,13 +402,6 @@ def main() -> None:
     p_lb.add_argument("--date-from", dest="date_from", help="Start date YYYY-MM-DD")
     p_lb.add_argument("--date-to", dest="date_to", help="End date YYYY-MM-DD")
     p_lb.set_defaults(func=cmd_line_backfill)
-
-    p_sb = sub.add_parser(
-        "seed-builtins",
-        help="Seed repo builtin metrics into MetricDefinition as published code metrics.",
-    )
-    p_sb.add_argument("--overwrite", action="store_true", help="Overwrite existing DB rows for matching keys.")
-    p_sb.set_defaults(func=cmd_seed_builtins)
 
     args = parser.parse_args()
     args.func(args)

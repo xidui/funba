@@ -138,7 +138,7 @@ def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
 
 
 def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
-    """Normalize built-in and DB metric objects for template rendering."""
+    """Normalize runtime and DB metric objects for template rendering."""
     return SimpleNamespace(
         key=metric_def.key,
         name=metric_def.name,
@@ -146,7 +146,7 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         scope=metric_def.scope,
         category=getattr(metric_def, "category", "") or "",
         status=status or getattr(metric_def, "status", "published"),
-        source_type=source_type or getattr(metric_def, "source_type", "builtin"),
+        source_type=source_type or getattr(metric_def, "source_type", "code"),
         min_sample=int(getattr(metric_def, "min_sample", 1) or 1),
         group_key=getattr(metric_def, "group_key", None),
         career=bool(getattr(metric_def, "career", False)),
@@ -326,21 +326,6 @@ def _safe_code_metric_metadata(row: MetricDefinitionModel) -> dict:
     except Exception as exc:
         logger.warning("Failed to inspect code metric %s for catalog metadata: %s", row.key, exc)
         return {}
-
-
-def _builtin_metric_search_fields(metric_def) -> dict:
-    source_cls = _metric_source_owner(metric_def)
-    return {
-        "group_key": getattr(metric_def, "group_key", None),
-        "min_sample": int(getattr(metric_def, "min_sample", 1) or 1),
-        "career_min_sample": getattr(metric_def, "career_min_sample", None),
-        "supports_career": bool(getattr(metric_def, "supports_career", False)),
-        "career": bool(getattr(metric_def, "career", False)),
-        "incremental": bool(getattr(metric_def, "incremental", True)),
-        "rank_order": getattr(metric_def, "rank_order", "desc"),
-        "module_doc": _metric_module_doc(source_cls),
-        "source_excerpt": _metric_source_excerpt(source_cls),
-    }
 
 
 def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict | None = None) -> dict:
@@ -608,8 +593,6 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
 
 
 def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -> list[dict]:
-    from metrics.framework.registry import get_all as _get_all_metrics
-
     counts = {
         row.metric_key: row.count
         for row in session.query(
@@ -645,32 +628,7 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
                 **search_fields,
             }
         )
-
-    db_keys = {m["key"] for m in db_metrics}
-    include_builtins = not status_filter or status_filter == "published"
-    builtin_metrics = [
-        {
-            "key": m.key,
-            "name": m.name,
-            "description": m.description,
-            "scope": m.scope,
-            "category": m.category,
-            "status": "published",
-            "source_type": "builtin",
-            "result_count": counts.get(m.key, 0),
-            **_builtin_metric_search_fields(m),
-        }
-        for m in _get_all_metrics()
-        if include_builtins
-        and m.key not in db_keys
-        and (
-            not scope_filter
-            or m.scope == scope_filter
-            or (scope_filter == "player" and m.scope == "player_franchise")
-        )
-    ]
-
-    return builtin_metrics + db_metrics
+    return db_metrics
 
 
 def _fmt_minutes(minute: int | None, sec: int | None) -> str:

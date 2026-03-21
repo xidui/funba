@@ -1,4 +1,4 @@
-"""Runtime metric catalog: built-ins from the registry plus published DB rule/code metrics."""
+"""Runtime metric catalog backed by published DB rule/code metrics."""
 from __future__ import annotations
 
 import ast
@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import MetricDefinition as MetricDefinitionModel, engine
-from metrics.framework import registry
 from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -391,10 +390,10 @@ def _load_all_db_metrics(session: Session) -> list[MetricDefinition]:
 
 def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
     if session is not None:
-        return _dedupe_by_key([*_load_all_db_metrics(session), *registry.get_all()])
+        return _dedupe_by_key(_load_all_db_metrics(session))
 
     with SessionLocal() as owned:
-        return _dedupe_by_key([*_load_all_db_metrics(owned), *registry.get_all()])
+        return _dedupe_by_key(_load_all_db_metrics(owned))
 
 
 def get_metric(key: str, session: Session | None = None) -> MetricDefinition | None:
@@ -402,7 +401,7 @@ def get_metric(key: str, session: Session | None = None) -> MetricDefinition | N
         for metric in _load_all_db_metrics(sess):
             if metric.key == key:
                 return metric
-        return registry.get(key)
+        return None
 
     if session is not None:
         return _load(session)
