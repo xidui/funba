@@ -197,6 +197,26 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                        game_id, self.request.retries + 1, exc, wait)
         raise self.retry(exc=exc, countdown=wait)
 
+    line_score_rows = 0
+    if metric_keys is None:
+        with SessionLocal() as sess:
+            has_line = has_game_line_score(sess, game_id)
+        if not has_line:
+            try:
+                with SessionLocal() as sess:
+                    line_score_rows = back_fill_game_line_score(sess, game_id, commit=True)
+                logger.info(
+                    "ingest_game %s: ensured line score inline (%d rows).",
+                    game_id,
+                    line_score_rows,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "ingest_game %s: line-score fetch failed (non-fatal): %s",
+                    game_id,
+                    exc,
+                )
+
     # Step 4: fan out — only reached after all ingestion steps succeed
     from tasks.metrics import compute_game_metrics  # local import avoids circular at module load
 
@@ -208,14 +228,9 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     for key in keys_to_run:
         compute_game_metrics.apply_async(args=[game_id, key], kwargs={"force": force}, queue="metrics")
 
-    with SessionLocal() as sess:
-        has_line = has_game_line_score(sess, game_id)
-    if not has_line:
-        backfill_game_line_score.apply_async(args=[game_id], queue="ingest")
-
     logger.info(
-        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s) → %d metric tasks enqueued.",
-        game_id, not game_exists, needs_detail_pbp, needs_shot, len(keys_to_run),
+        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d) → %d metric tasks enqueued.",
+        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, len(keys_to_run),
     )
     return {
         "game_id": game_id,
@@ -223,6 +238,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         "new_game": not game_exists,
         "detail_pbp_refreshed": needs_detail_pbp,
         "shot_refreshed": needs_shot,
+        "line_score_rows": int(line_score_rows),
         "metric_tasks_enqueued": len(keys_to_run),
     }
 

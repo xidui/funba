@@ -28,9 +28,10 @@ from __future__ import annotations
 import argparse
 import sys
 
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, MetricJobClaim, engine
+from db.models import Game, GameLineScore, MetricJobClaim, engine
 from tasks.celery_app import app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
@@ -64,6 +65,39 @@ def _all_game_ids() -> list[str]:
     sess = _session()
     try:
         return [row.game_id for row in sess.query(Game.game_id).filter(Game.game_date.isnot(None)).all()]
+    finally:
+        sess.close()
+
+
+def _query_games_missing_line_score(
+    season: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    sess = _session()
+    try:
+        completed_line_games = (
+            sess.query(GameLineScore.game_id.label("game_id"))
+            .group_by(GameLineScore.game_id)
+            .having(func.count() >= 2)
+            .subquery()
+        )
+        q = (
+            sess.query(Game.game_id)
+            .outerjoin(completed_line_games, completed_line_games.c.game_id == Game.game_id)
+            .filter(
+                Game.game_date.isnot(None),
+                completed_line_games.c.game_id.is_(None),
+            )
+            .order_by(Game.game_date.asc(), Game.game_id.asc())
+        )
+        if season:
+            q = q.filter(Game.season.like(f"{season}%"))
+        if date_from:
+            q = q.filter(Game.game_date >= date_from)
+        if date_to:
+            q = q.filter(Game.game_date <= date_to)
+        return [row.game_id for row in q.all()]
     finally:
         sess.close()
 
@@ -283,14 +317,14 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_line_backfill(args: argparse.Namespace) -> None:
-    game_ids = _query_games(
+    game_ids = _query_games_missing_line_score(
         season=args.season,
         date_from=args.date_from,
         date_to=args.date_to,
-    ) if (args.season or args.date_from or args.date_to) else _all_game_ids()
+    )
 
     if not game_ids:
-        print("No games found.")
+        print("No games missing line score.")
         return
 
     for gid in game_ids:
