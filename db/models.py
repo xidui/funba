@@ -265,7 +265,7 @@ class MetricDefinition(Base):
     scope = Column(String(16), nullable=False)        # player | team | game
     category = Column(String(32), nullable=True)
     group_key = Column(String(64), nullable=True, index=True)
-    source_type = Column(String(16), nullable=False, default='rule')  # rule | builtin
+    source_type = Column(String(16), nullable=False, default='rule')  # rule | code
     status = Column(String(16), nullable=False, default='draft')      # draft | published | archived
     definition_json = Column(Text, nullable=True)     # JSON rule spec (source_type='rule')
     code_python = Column(Text, nullable=True)         # generated Python code (source_type='code')

@@ -191,6 +191,40 @@ class BadMetric(MetricDefinition):
 """
             )
 
+    def test_importing_sqlalchemy_func_is_allowed(self):
+        runtime = self._load_runtime()
+
+        metric = runtime.load_code_metric(
+            """
+from sqlalchemy import func
+from metrics.framework.base import MetricDefinition, MetricResult
+
+
+class SqlAlchemyMetric(MetricDefinition):
+    key = "sqlalchemy_metric"
+    name = "SqlAlchemy Metric"
+    description = "Uses sqlalchemy func."
+    scope = "game"
+    category = "aggregate"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="game",
+            entity_id=entity_id,
+            season=season,
+            game_id=game_id,
+            value_num=float(func.count().name == 'count'),
+            value_str="ok",
+        )
+"""
+        )
+
+        result = metric.compute(None, "game-1", "2025-26", "game-1")
+        self.assertEqual(metric.key, "sqlalchemy_metric")
+        self.assertEqual(result.value_str, "ok")
+
     def test_metric_runtime_exceptions_still_surface_on_compute(self):
         runtime = self._load_runtime()
 

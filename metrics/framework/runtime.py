@@ -24,6 +24,7 @@ _ALLOWED_IMPORT_ROOTS = {
     "metrics",
     "numpy",
     "pandas",
+    "sqlalchemy",
     "statistics",
 }
 # The runtime already owns the SQLAlchemy session used by generated metrics, so they do
@@ -370,24 +371,19 @@ def _load_all_db_metrics(session: Session) -> list[MetricDefinition]:
 
 
 def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
-    builtins = registry.get_all()
     if session is not None:
-        return _dedupe_by_key([*builtins, *_load_all_db_metrics(session)])
+        return _dedupe_by_key([*_load_all_db_metrics(session), *registry.get_all()])
 
     with SessionLocal() as owned:
-        return _dedupe_by_key([*builtins, *_load_all_db_metrics(owned)])
+        return _dedupe_by_key([*_load_all_db_metrics(owned), *registry.get_all()])
 
 
 def get_metric(key: str, session: Session | None = None) -> MetricDefinition | None:
-    builtin = registry.get(key)
-    if builtin is not None:
-        return builtin
-
     def _load(sess: Session) -> MetricDefinition | None:
         for metric in _load_all_db_metrics(sess):
             if metric.key == key:
                 return metric
-        return None
+        return registry.get(key)
 
     if session is not None:
         return _load(session)
