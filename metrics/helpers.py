@@ -156,7 +156,7 @@ def get_quarter_scores(session: Session, game_id: str) -> list[dict]:
         if len(parts) != 2:
             continue
         try:
-            h, rd = int(parts[0].strip()), int(parts[1].strip())
+            rd, h = int(parts[0].strip()), int(parts[1].strip())
             p = int(r.period)
             # Keep the highest cumulative total for each period to avoid
             # end-of-period marker rows that carry the previous period's score.
