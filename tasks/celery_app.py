@@ -12,6 +12,7 @@ app = Celery("funba", broker=BROKER_URL, backend=RESULT_BACKEND)
 # Dead-letter exchanges — must be declared before the main queues that reference them
 _dlx_ingest = Exchange("ingest.dlx", type="fanout", durable=True)
 _dlx_metrics = Exchange("metrics.dlx", type="fanout", durable=True)
+_dlx_line_score = Exchange("line_score.dlx", type="fanout", durable=True)
 
 app.conf.update(
     # --- Queue routing ---
@@ -31,14 +32,22 @@ app.conf.update(
             queue_arguments={"x-dead-letter-exchange": "metrics.dlx"},
             durable=True,
         ),
+        Queue(
+            "line_score",
+            Exchange("line_score", type="direct", durable=True),
+            routing_key="line_score",
+            queue_arguments={"x-dead-letter-exchange": "line_score.dlx"},
+            durable=True,
+        ),
         # Dead-letter queues — fanout-bound so all rejected messages land here
         Queue("ingest.dlq", _dlx_ingest, routing_key="#", durable=True),
         Queue("metrics.dlq", _dlx_metrics, routing_key="#", durable=True),
+        Queue("line_score.dlq", _dlx_line_score, routing_key="#", durable=True),
     ),
     task_default_queue="ingest",
     task_routes={
         "tasks.ingest.ingest_game": {"queue": "ingest"},
-        "tasks.ingest.backfill_game_line_score": {"queue": "ingest"},
+        "tasks.ingest.backfill_game_line_score": {"queue": "line_score"},
         "tasks.metrics.compute_game_metrics": {"queue": "metrics"},
     },
 
@@ -83,7 +92,11 @@ def declare_dlx_topology(sender, **kwargs):
     """
     with sender.connection_for_write() as conn:
         channel = conn.channel()
-        for dlx, dlq in [(_dlx_ingest, "ingest.dlq"), (_dlx_metrics, "metrics.dlq")]:
+        for dlx, dlq in [
+            (_dlx_ingest, "ingest.dlq"),
+            (_dlx_metrics, "metrics.dlq"),
+            (_dlx_line_score, "line_score.dlq"),
+        ]:
             dlx.declare(channel=channel)
             from kombu import Queue as KombuQueue
             KombuQueue(dlq, dlx, routing_key="#", durable=True).declare(channel=channel)

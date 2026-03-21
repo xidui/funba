@@ -59,7 +59,7 @@ def _fetch_api_row(game_id: str) -> dict | None:
     bind=True,
     name="tasks.ingest.backfill_game_line_score",
     max_retries=5,
-    queue="ingest",
+    queue="line_score",
 )
 def backfill_game_line_score(self, game_id: str, replace_existing: bool = False) -> dict:
     """Fetch and persist official line score data for one game."""

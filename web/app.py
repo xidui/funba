@@ -3122,9 +3122,11 @@ def _enqueue_line_score_backfill(game_id: str) -> bool:
     if now - last < _LINE_SCORE_ENQUEUE_TTL:
         return False
 
+    from tasks.celery_app import app as celery_app
     from tasks.ingest import backfill_game_line_score
 
-    backfill_game_line_score.apply_async(args=[game_id], queue="ingest")
+    line_score_q = next(q for q in celery_app.conf.task_queues if q.name == "line_score")
+    backfill_game_line_score.apply_async(args=[game_id], queue="line_score", declare=[line_score_q])
     _LINE_SCORE_ENQUEUE_CACHE[game_id] = now
     logger.info("enqueued line-score backfill for game_id=%s", game_id)
     return True

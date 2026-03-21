@@ -190,6 +190,7 @@ workers inside Docker containers, with RabbitMQ as the message broker.
 Web app (publish metric / daily scheduler)
      → RabbitMQ (amqp://guest:guest@localhost:5672)
      → worker-ingest (Queue: ingest, 4 concurrency)
+     → worker-line-score (Queue: line_score, 4 concurrency)
      → worker-metrics (Queue: metrics, 50 concurrency)
      → MySQL (shared with web app)
 ```
@@ -200,6 +201,7 @@ Web app (publish metric / daily scheduler)
 |---------|-------|-------|---------|
 | `rabbitmq` | `rabbitmq:3-management` | — | Message broker (management UI at `localhost:15672`, guest/guest) |
 | `worker-ingest` | Built from `Dockerfile` | `ingest` | Game data ingestion (box scores, PBP, shots) |
+| `worker-line-score` | Built from `Dockerfile` | `line_score` | Official line-score backfill |
 | `worker-metrics` | Built from `Dockerfile` | `metrics` | Metric computation and backfill |
 | `scheduler` | Built from `Dockerfile` | — | Celery Beat (daily cron for new games) |
 
@@ -216,8 +218,8 @@ docker compose ps
 docker compose up -d
 
 # Restart workers after code changes (rebuild images first)
-docker compose build worker-ingest worker-metrics
-docker compose up -d worker-ingest worker-metrics
+docker compose build worker-ingest worker-line-score worker-metrics
+docker compose up -d worker-ingest worker-line-score worker-metrics
 
 # Restart just one service
 docker compose restart worker-metrics
@@ -225,6 +227,7 @@ docker compose restart worker-metrics
 # View logs
 docker compose logs -f worker-metrics
 docker compose logs -f worker-ingest
+docker compose logs -f worker-line-score
 
 # Stop all
 docker compose down
@@ -236,8 +239,8 @@ Workers run from the Docker image, not the live repo. After pushing code that
 affects `metrics/`, `tasks/`, or `db/`, rebuild and restart:
 
 ```bash
-docker compose build worker-ingest worker-metrics scheduler
-docker compose up -d worker-ingest worker-metrics scheduler
+docker compose build worker-ingest worker-line-score worker-metrics scheduler
+docker compose up -d worker-ingest worker-line-score worker-metrics scheduler
 ```
 
 ### Metric backfill via CLI (bypasses Celery):

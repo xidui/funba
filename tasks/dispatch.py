@@ -32,10 +32,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Game, GameLineScore, MetricJobClaim, engine
-from tasks.celery_app import app  # noqa: F401 — ensures tasks are registered
+from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
 from tasks.ingest import backfill_game_line_score, ingest_game  # noqa: F401
+
+
+def _queue(name: str):
+    return next(q for q in celery_app.conf.task_queues if q.name == name)
 
 
 def _session():
@@ -327,10 +331,11 @@ def cmd_line_backfill(args: argparse.Namespace) -> None:
         print("No games missing line score.")
         return
 
+    line_score_q = _queue("line_score")
     for gid in game_ids:
-        backfill_game_line_score.apply_async(args=[gid], queue="ingest")
+        backfill_game_line_score.apply_async(args=[gid], queue="line_score", declare=[line_score_q])
 
-    print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: ingest.")
+    print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: line_score.")
 
 
 def cmd_seed_builtins(args: argparse.Namespace) -> None:
