@@ -62,7 +62,7 @@ class MetricDefinition(ABC):
 
     # Incremental / career flags
     incremental: bool = True       # False → use compute() instead
-    supports_career: bool = False  # True → auto-register career sibling on register()
+    supports_career: bool = False  # True → create/manage a career sibling metric
     career: bool = False           # True → this IS the career version
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)

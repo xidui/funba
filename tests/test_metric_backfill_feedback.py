@@ -295,7 +295,6 @@ class LowestQuarterScore(MetricDefinition):
 
         with patch.object(self.web_app, "SessionLocal", return_value=session), \
              patch.object(self.web_app, "MetricDefinitionModel", FakeMetricDefinitionModel), \
-             patch("metrics.framework.registry.get", return_value=None), \
              patch.object(
                  self.web_app,
                  "_code_metric_metadata_from_code",

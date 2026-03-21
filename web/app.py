@@ -162,11 +162,7 @@ def _truncate_search_text(text: str | None, limit: int = 2400) -> str:
 
 
 def _metric_source_owner(metric_def) -> type:
-    metric_cls = type(metric_def)
-    module = inspect.getmodule(metric_cls)
-    if module is not None and module.__name__ == "metrics.framework.registry" and len(metric_cls.__mro__) > 1:
-        return metric_cls.__mro__[1]
-    return metric_cls
+    return type(metric_def)
 
 
 @lru_cache(maxsize=256)

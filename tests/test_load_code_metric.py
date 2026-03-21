@@ -13,19 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 _ORIGINAL_DB_MODELS = sys.modules.get("db.models")
-_ORIGINAL_REGISTRY = sys.modules.get("metrics.framework.registry")
 _ORIGINAL_DB_ATTR = getattr(sys.modules.get("db"), "models", None) if "db" in sys.modules else None
-_ORIGINAL_FRAMEWORK_REGISTRY_ATTR = (
-    getattr(sys.modules.get("metrics.framework"), "registry", None)
-    if "metrics.framework" in sys.modules else None
-)
-
-
-def _make_fake_registry():
-    module = types.ModuleType("metrics.framework.registry")
-    module.get = lambda key: None
-    module.get_all = lambda: []
-    return module
 
 
 def _make_fake_db_models():
@@ -41,36 +29,21 @@ def _make_fake_db_models():
 
 class TestLoadCodeMetric(unittest.TestCase):
     def setUp(self):
-        self.fake_registry = _make_fake_registry()
         self.fake_db_models = _make_fake_db_models()
 
         sys.modules.pop("metrics.framework.runtime", None)
-        sys.modules["metrics.framework.registry"] = self.fake_registry
         sys.modules["db.models"] = self.fake_db_models
 
-        if "metrics.framework" in sys.modules:
-            sys.modules["metrics.framework"].registry = self.fake_registry
         if "db" in sys.modules:
             sys.modules["db"].models = self.fake_db_models
 
     def tearDown(self):
         sys.modules.pop("metrics.framework.runtime", None)
 
-        if _ORIGINAL_REGISTRY is not None:
-            sys.modules["metrics.framework.registry"] = _ORIGINAL_REGISTRY
-        else:
-            sys.modules.pop("metrics.framework.registry", None)
-
         if _ORIGINAL_DB_MODELS is not None:
             sys.modules["db.models"] = _ORIGINAL_DB_MODELS
         else:
             sys.modules.pop("db.models", None)
-
-        if "metrics.framework" in sys.modules:
-            if _ORIGINAL_FRAMEWORK_REGISTRY_ATTR is not None:
-                sys.modules["metrics.framework"].registry = _ORIGINAL_FRAMEWORK_REGISTRY_ATTR
-            elif hasattr(sys.modules["metrics.framework"], "registry"):
-                delattr(sys.modules["metrics.framework"], "registry")
 
         if "db" in sys.modules:
             if _ORIGINAL_DB_ATTR is not None:
