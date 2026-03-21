@@ -14,6 +14,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from db.models import MetricDefinition as MetricDefinitionModel, engine
 from metrics.framework import registry
 from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult
+from metrics.framework.family import (
+    FAMILY_VARIANT_CAREER,
+    FAMILY_VARIANT_SEASON,
+    derive_career_description,
+    derive_career_min_sample,
+    derive_career_name,
+    family_career_key,
+    rule_supports_career,
+)
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -146,7 +155,7 @@ class RuleMetricDefinition(MetricDefinition):
     career_name_suffix = " (Career)"
     career_min_sample: int | None = None
 
-    def __init__(self, row: MetricDefinitionModel, *, career: bool = False):
+    def __init__(self, row: MetricDefinitionModel, *, career: bool | None = None):
         self._base_row = row
         self._base_key = row.key
         self._base_name = row.name
@@ -161,13 +170,18 @@ class RuleMetricDefinition(MetricDefinition):
         self.group_key = row.group_key
         self.source_type = row.source_type
         self.status = row.status
+        self.family_key = getattr(row, "family_key", None) or row.key
+        self.variant = getattr(row, "variant", None)
+        self.base_metric_key = getattr(row, "base_metric_key", None)
+        self.managed_family = bool(getattr(row, "managed_family", False))
         self.definition = json.loads(row.definition_json or "{}")
         self.time_scope = str(self.definition.get("time_scope") or "season").strip().lower()
-        self.supports_career = bool(self.definition.get("supports_career", False))
+        self.supports_career = rule_supports_career(self.definition, row.scope)
         self.career_name_suffix = str(self.definition.get("career_name_suffix") or " (Career)")
         career_min_sample = self.definition.get("career_min_sample")
         self.career_min_sample = int(career_min_sample) if career_min_sample is not None else None
-        self.career = career
+        explicit_career = self.variant == FAMILY_VARIANT_CAREER
+        self.career = explicit_career if career is None else career
 
         if self.time_scope == "career":
             self.career = True
@@ -176,16 +190,12 @@ class RuleMetricDefinition(MetricDefinition):
             self.supports_career = True
 
         if self.career:
-            if self.time_scope != "career":
-                self.key = self._base_key + "_career"
-                self.name = self._base_name + self.career_name_suffix
-                suffix = " Computed across all seasons."
-                self.description = (self.description + suffix).strip() if self.description else suffix.strip()
+            if not explicit_career and self.time_scope != "career":
+                self.key = family_career_key(self._base_key)
+                self.name = derive_career_name(self._base_name, self.career_name_suffix)
+                self.description = derive_career_description(self.description)
                 self.supports_career = False
-            if self.career_min_sample is not None:
-                self.min_sample = self.career_min_sample
-            else:
-                self.min_sample = max(self.min_sample * 5, self.min_sample)
+            self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
 
     def make_career_sibling(self) -> RuleMetricDefinition | None:
         if not self.supports_career or self.scope == "game":
@@ -264,31 +274,38 @@ def load_code_metric(code: str) -> MetricDefinition:
 class CodeMetricDefinition(MetricDefinition):
     """Adapter that wraps a DB-backed code metric (source_type='code')."""
 
-    def __init__(self, row: MetricDefinitionModel, *, career: bool = False):
+    def __init__(self, row: MetricDefinitionModel, *, career: bool | None = None):
         self._inner = load_code_metric(row.code_python)
         self._base_row = row
         # Copy attributes from the inner metric
-        self.key = self._inner.key
-        self.name = self._inner.name
-        self.description = self._inner.description
-        self.scope = self._inner.scope
+        self.key = row.key or self._inner.key
+        self.name = row.name or self._inner.name
+        self.description = row.description or self._inner.description
+        self.scope = row.scope or self._inner.scope
         self.category = getattr(self._inner, "category", row.category or "")
-        self.min_sample = self._inner.min_sample
+        self.min_sample = int(row.min_sample or self._inner.min_sample or 1)
         self.incremental = self._inner.incremental
         self.supports_career = getattr(self._inner, "supports_career", False)
         self.rank_order = getattr(self._inner, "rank_order", "desc")
-        self.career = career
+        self.group_key = row.group_key
+        self.source_type = row.source_type
+        self.status = row.status
+        self.family_key = getattr(row, "family_key", None) or row.key
+        self.variant = getattr(row, "variant", None)
+        self.base_metric_key = getattr(row, "base_metric_key", None)
+        self.managed_family = bool(getattr(row, "managed_family", False))
+        explicit_career = self.variant == FAMILY_VARIANT_CAREER or bool(getattr(self._inner, "career", False))
+        self.career = explicit_career if career is None else career
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
 
         if self.career:
-            self.key = self._base_row.key + "_career"
-            self.name = self._inner.name + self.career_name_suffix
+            if not explicit_career:
+                self.key = family_career_key(self._base_row.key)
+                self.name = derive_career_name(self._inner.name, self.career_name_suffix)
+                self.description = derive_career_description(self._inner.description)
             self.supports_career = False
-            if self.career_min_sample is not None:
-                self.min_sample = self.career_min_sample
-            else:
-                self.min_sample = self._inner.min_sample * 5
+            self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
 
     def make_career_sibling(self) -> CodeMetricDefinition | None:
         if not self.supports_career or self.scope == "game":
@@ -323,12 +340,13 @@ def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]
         .all()
     )
     metrics: list[CodeMetricDefinition] = []
+    existing_keys = {row.key for row in rows}
     for row in rows:
         try:
             metric = CodeMetricDefinition(row)
             metrics.append(metric)
             sibling = metric.make_career_sibling()
-            if sibling is not None:
+            if sibling is not None and sibling.key not in existing_keys:
                 metrics.append(sibling)
         except Exception as exc:
             logger.error("Failed to load code metric %s: %s", row.key, exc)
@@ -346,11 +364,12 @@ def _load_published_rule_metrics(session: Session) -> list[RuleMetricDefinition]
         .all()
     )
     metrics: list[RuleMetricDefinition] = []
+    existing_keys = {row.key for row in rows}
     for row in rows:
         metric = RuleMetricDefinition(row)
         metrics.append(metric)
         sibling = metric.make_career_sibling()
-        if sibling is not None:
+        if sibling is not None and sibling.key not in existing_keys:
             metrics.append(sibling)
     return metrics
 

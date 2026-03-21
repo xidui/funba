@@ -260,6 +260,10 @@ class MetricDefinition(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(64), nullable=False, unique=True, index=True)
+    family_key = Column(String(64), nullable=False, index=True)
+    variant = Column(String(16), nullable=False, default='season')
+    base_metric_key = Column(String(64), nullable=True, index=True)
+    managed_family = Column(Boolean, nullable=False, default=False)
     name = Column(String(128), nullable=False)
     description = Column(Text, nullable=True)
     scope = Column(String(16), nullable=False)        # player | team | game
@@ -273,6 +277,10 @@ class MetricDefinition(Base):
     min_sample = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('uq_MetricDefinition_family_variant', 'family_key', 'variant', unique=True),
+    )
 
 
 class MetricRunLog(Base):

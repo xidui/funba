@@ -22,6 +22,20 @@ from sqlalchemy.orm import sessionmaker
 
 from db.models import Feedback, Game, GameLineScore, GamePlayByPlay, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
+from metrics.framework.family import (
+    FAMILY_VARIANT_CAREER,
+    FAMILY_VARIANT_SEASON,
+    build_career_code_variant,
+    build_career_rule_definition,
+    derive_career_description,
+    derive_career_min_sample,
+    derive_career_name,
+    family_base_key,
+    family_career_key,
+    is_reserved_career_key,
+    rule_is_career_variant,
+    rule_supports_career,
+)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
@@ -290,6 +304,7 @@ def _code_metric_metadata_from_code(
         "category": getattr(metric, "category", "") or "",
         "min_sample": int(getattr(metric, "min_sample", 1) or 1),
         "career_min_sample": getattr(metric, "career_min_sample", None),
+        "career_name_suffix": getattr(metric, "career_name_suffix", " (Career)"),
         "supports_career": bool(getattr(metric, "supports_career", False)),
         "career": bool(getattr(metric, "career", False)),
         "incremental": bool(getattr(metric, "incremental", True)),
@@ -371,6 +386,159 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             category=code_metadata["category"],
         )
     return details
+
+
+def _metric_family_rows(session, row: MetricDefinitionModel) -> list[MetricDefinitionModel]:
+    family_key = getattr(row, "family_key", None) or getattr(row, "key", None)
+    if not family_key:
+        return [row]
+    if not getattr(row, "managed_family", False):
+        return [row]
+    return (
+        session.query(MetricDefinitionModel)
+        .filter(MetricDefinitionModel.family_key == family_key)
+        .order_by(MetricDefinitionModel.variant.asc(), MetricDefinitionModel.created_at.asc(), MetricDefinitionModel.id.asc())
+        .all()
+    )
+
+
+def _metric_family_base_row(session, row: MetricDefinitionModel) -> MetricDefinitionModel:
+    if getattr(row, "managed_family", False) and getattr(row, "variant", FAMILY_VARIANT_SEASON) == FAMILY_VARIANT_CAREER:
+        row_key = getattr(row, "key", "")
+        family_key = getattr(row, "family_key", None) or family_base_key(row_key)
+        base_row = (
+            session.query(MetricDefinitionModel)
+            .filter(
+                MetricDefinitionModel.family_key == family_key,
+                MetricDefinitionModel.variant == FAMILY_VARIANT_SEASON,
+            )
+            .first()
+        )
+        if base_row is not None:
+            return base_row
+    return row
+
+
+def _metric_supports_career(
+    source_type: str,
+    *,
+    scope: str,
+    code_metadata: dict | None = None,
+    definition: dict | None = None,
+) -> tuple[bool, bool, int | None]:
+    if source_type == "code":
+        supports = bool(code_metadata and code_metadata["supports_career"]) and scope != "game" and not code_metadata["career"]
+        career_only = bool(code_metadata and code_metadata["career"])
+        career_min_sample = int(code_metadata["career_min_sample"]) if code_metadata and code_metadata["career_min_sample"] is not None else None
+        return supports, career_only, career_min_sample
+
+    supports = rule_supports_career(definition, scope)
+    career_only = rule_is_career_variant(definition)
+    career_min_sample = None
+    if definition and definition.get("career_min_sample") is not None:
+        career_min_sample = int(definition["career_min_sample"])
+    return supports, career_only, career_min_sample
+
+
+def _sync_metric_family(
+    session,
+    base_row: MetricDefinitionModel,
+    *,
+    source_type: str,
+    name: str,
+    description: str,
+    scope: str,
+    category: str,
+    group_key: str | None,
+    expression: str | None,
+    min_sample: int,
+    code_python: str | None,
+    definition: dict | None,
+    code_metadata: dict | None,
+    now,
+) -> None:
+    supports_career, career_only, career_min_sample = _metric_supports_career(
+        source_type,
+        scope=scope,
+        code_metadata=code_metadata,
+        definition=definition,
+    )
+
+    base_row.family_key = base_row.key
+    base_row.variant = FAMILY_VARIANT_CAREER if career_only else FAMILY_VARIANT_SEASON
+    base_row.base_metric_key = None
+    base_row.managed_family = bool(supports_career and not career_only)
+    base_row.name = name
+    base_row.description = description
+    base_row.scope = scope
+    base_row.category = category
+    base_row.group_key = group_key
+    base_row.source_type = source_type
+    base_row.expression = expression or ""
+    base_row.min_sample = int(min_sample or 1)
+    base_row.updated_at = now
+
+    if source_type == "code":
+        base_row.code_python = code_python or ""
+        base_row.definition_json = None
+    else:
+        base_row.definition_json = json.dumps(definition or {})
+        base_row.code_python = None
+
+    existing_sibling = (
+        session.query(MetricDefinitionModel)
+        .filter(MetricDefinitionModel.key == family_career_key(base_row.key))
+        .first()
+    )
+
+    if supports_career and not career_only:
+        career_suffix = (
+            (code_metadata or {}).get("career_name_suffix")
+            if source_type == "code"
+            else str((definition or {}).get("career_name_suffix") or " (Career)")
+        ) or " (Career)"
+        career_name = derive_career_name(name, career_suffix)
+        career_description = derive_career_description(description)
+        career_min_sample_value = derive_career_min_sample(min_sample, career_min_sample)
+
+        if existing_sibling is None:
+            existing_sibling = MetricDefinitionModel(
+                key=family_career_key(base_row.key),
+                created_at=base_row.created_at or now,
+            )
+            session.add(existing_sibling)
+        elif existing_sibling.id != base_row.id and getattr(existing_sibling, "family_key", None) not in {None, base_row.key}:
+            raise ValueError(f"Key '{existing_sibling.key}' already exists")
+
+        existing_sibling.family_key = base_row.key
+        existing_sibling.variant = FAMILY_VARIANT_CAREER
+        existing_sibling.base_metric_key = base_row.key
+        existing_sibling.managed_family = True
+        existing_sibling.name = career_name
+        existing_sibling.description = career_description
+        existing_sibling.scope = scope
+        existing_sibling.category = category
+        existing_sibling.group_key = group_key
+        existing_sibling.source_type = source_type
+        existing_sibling.status = base_row.status
+        existing_sibling.expression = expression or ""
+        existing_sibling.min_sample = career_min_sample_value
+        existing_sibling.updated_at = now
+        if source_type == "code":
+            existing_sibling.code_python = build_career_code_variant(
+                code_python or "",
+                base_key=base_row.key,
+                name=career_name,
+                description=career_description,
+                min_sample=career_min_sample_value,
+            )
+            existing_sibling.definition_json = None
+        else:
+            existing_sibling.definition_json = json.dumps(build_career_rule_definition(definition or {}))
+            existing_sibling.code_python = None
+    elif existing_sibling is not None and getattr(existing_sibling, "managed_family", False):
+        existing_sibling.status = "archived"
+        existing_sibling.updated_at = now
 
 
 def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -> list[dict]:
@@ -2314,6 +2482,8 @@ def metric_edit(metric_key: str):
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
         if m is None:
             abort(404)
+        if getattr(m, "managed_family", False) and getattr(m, "variant", FAMILY_VARIANT_SEASON) == FAMILY_VARIANT_CAREER:
+            return redirect(url_for("metric_edit", metric_key=getattr(m, "base_metric_key", None) or getattr(m, "family_key", None) or family_base_key(m.key)))
 
         all_seasons = sorted(
             [r[0] for r in session.query(Game.season).distinct().all()],
@@ -2630,7 +2800,7 @@ def api_metric_create():
         return denied
     import json as _json
     from datetime import datetime
-    from metrics.framework.registry import get as _get_builtin_metric
+    from metrics.framework.runtime import get_metric as _get_runtime_metric
     body = request.get_json(force=True) or {}
 
     key = (body.get("key") or "").strip().lower().replace(" ", "_")
@@ -2671,16 +2841,35 @@ def api_metric_create():
         description = body.get("description", "")
         category = body.get("category", "")
         min_sample = int(body.get("min_sample", 1))
+        definition = definition or {}
+
+    if is_reserved_career_key(key):
+        return jsonify({"ok": False, "error": "Keys ending with '_career' are reserved for managed sibling metrics"}), 409
+
+    supports_career, career_only, _ = _metric_supports_career(
+        source_type,
+        scope=scope,
+        code_metadata=code_metadata,
+        definition=definition if source_type == "rule" else None,
+    )
 
     with SessionLocal() as session:
-        if _get_builtin_metric(key) is not None:
-            return jsonify({"ok": False, "error": f"Key '{key}' conflicts with a built-in metric"}), 409
-        if session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == key).first():
-            return jsonify({"ok": False, "error": f"Key '{key}' already exists"}), 409
+        reserved_keys = [key]
+        if supports_career and not career_only:
+            reserved_keys.append(family_career_key(key))
+        for reserved_key in reserved_keys:
+            if _get_runtime_metric(reserved_key, session=session) is not None:
+                return jsonify({"ok": False, "error": f"Key '{reserved_key}' already exists"}), 409
+            if session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == reserved_key).first():
+                return jsonify({"ok": False, "error": f"Key '{reserved_key}' already exists"}), 409
 
         now = datetime.utcnow()
         m = MetricDefinitionModel(
             key=key,
+            family_key=key,
+            variant=FAMILY_VARIANT_CAREER if career_only else FAMILY_VARIANT_SEASON,
+            base_metric_key=None,
+            managed_family=False,
             name=name,
             description=description,
             scope=scope,
@@ -2696,6 +2885,23 @@ def api_metric_create():
             updated_at=now,
         )
         session.add(m)
+        session.flush()
+        _sync_metric_family(
+            session,
+            m,
+            source_type=source_type,
+            name=name,
+            description=description,
+            scope=scope,
+            category=category,
+            group_key=body.get("group_key"),
+            expression=body.get("expression", ""),
+            min_sample=min_sample,
+            code_python=code_python,
+            definition=definition if source_type == "rule" else None,
+            code_metadata=code_metadata,
+            now=now,
+        )
         session.commit()
         return jsonify({"ok": True, "key": key}), 201
 
@@ -2711,20 +2917,28 @@ def api_metric_publish(metric_key: str):
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
         if m is None:
             return jsonify({"ok": False, "error": "Not found"}), 404
-        m.status = "published"
-        m.updated_at = datetime.utcnow()
+        base_row = _metric_family_base_row(session, m)
+        if not getattr(base_row, "key", None):
+            base_row.key = metric_key
+        family_rows = _metric_family_rows(session, base_row)
+        for row in family_rows:
+            if row.status == "archived":
+                continue
+            row.status = "published"
+            row.updated_at = datetime.utcnow()
         session.commit()
+        dispatch_key = getattr(base_row, "key", metric_key)
     try:
-        _dispatch_metric_backfill(metric_key)
+        _dispatch_metric_backfill(dispatch_key)
     except Exception:
-        logger.exception("Failed to enqueue backfill for %s", metric_key)
+        logger.exception("Failed to enqueue backfill for %s", dispatch_key)
         return jsonify({
             "ok": True,
-            "key": metric_key,
+            "key": dispatch_key,
             "status": "published",
             "warning": "Metric published but backfill enqueue failed. Run manually.",
         })
-    return jsonify({"ok": True, "key": metric_key, "status": "published"})
+    return jsonify({"ok": True, "key": dispatch_key, "status": "published"})
 
 
 @app.get("/api/metrics/<metric_key>/backfill-status")
@@ -2750,60 +2964,93 @@ def api_metric_update(metric_key: str):
     code_metadata = None
     rank_order_override = str(body.get("rank_order") or "").strip().lower() or None
 
-    if code_python:
-        try:
-            code_metadata = _code_metric_metadata_from_code(
-                code_python,
-                expected_key=metric_key,
-                rank_order_override=rank_order_override,
-            )
-        except Exception as exc:
-            return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
-        code_python = code_metadata["code_python"]
-
     with SessionLocal() as session:
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
         if m is None:
             return jsonify({"ok": False, "error": "Not found"}), 404
+        m = _metric_family_base_row(session, m)
+        if not getattr(m, "key", None):
+            m.key = metric_key
 
-        if code_metadata:
-            m.name = code_metadata["name"]
-            m.description = code_metadata["description"]
-            m.scope = code_metadata["scope"]
-            m.category = code_metadata["category"]
-            m.min_sample = code_metadata["min_sample"]
-        elif body.get("name"):
-            m.name = body["name"]
-        if not code_metadata and body.get("description") is not None:
-            m.description = body["description"]
-        if not code_metadata and body.get("scope"):
-            m.scope = body["scope"]
-        if not code_metadata and body.get("category"):
-            m.category = body["category"]
-        if not code_metadata and body.get("min_sample") is not None:
-            m.min_sample = int(body["min_sample"])
         if code_python:
-            m.code_python = code_python
-            m.source_type = "code"
-            m.definition_json = None
-        if body.get("definition"):
-            m.definition_json = _json.dumps(body["definition"])
-        m.updated_at = datetime.utcnow()
-        session.commit()
+            try:
+                code_metadata = _code_metric_metadata_from_code(
+                    code_python,
+                    expected_key=m.key,
+                    rank_order_override=rank_order_override,
+                )
+            except Exception as exc:
+                return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
+            code_python = code_metadata["code_python"]
+
+        metadata_fields = {"code", "definition", "name", "description", "scope", "category", "min_sample", "group_key", "expression", "rank_order"}
+        if not any(field in body for field in metadata_fields):
+            m.updated_at = datetime.utcnow()
+            session.commit()
+        else:
+            source_type = "code" if code_python else ("rule" if body.get("definition") is not None else getattr(m, "source_type", "rule"))
+            if source_type == "code":
+                source_code = code_python or getattr(m, "code_python", "") or ""
+                if code_metadata is None and source_code:
+                    code_metadata = _code_metric_metadata_from_code(
+                        source_code,
+                        expected_key=m.key,
+                        rank_order_override=rank_order_override,
+                    )
+                    source_code = code_metadata["code_python"]
+                source_definition = None
+                name = code_metadata["name"]
+                description = code_metadata["description"]
+                scope = code_metadata["scope"]
+                category = code_metadata["category"]
+                min_sample = code_metadata["min_sample"]
+            else:
+                source_code = None
+                source_definition = body.get("definition")
+                if source_definition is None:
+                    try:
+                        source_definition = _json.loads(getattr(m, "definition_json", None) or "{}")
+                    except Exception:
+                        source_definition = {}
+                name = body.get("name", getattr(m, "name", metric_key))
+                description = body["description"] if body.get("description") is not None else (getattr(m, "description", "") or "")
+                scope = body.get("scope", getattr(m, "scope", "player"))
+                category = body.get("category", getattr(m, "category", "") or "")
+                min_sample = int(body.get("min_sample", getattr(m, "min_sample", 1) or 1))
+
+            now = datetime.utcnow()
+            _sync_metric_family(
+                session,
+                m,
+                source_type=source_type,
+                name=name,
+                description=description,
+                scope=scope,
+                category=category,
+                group_key=body.get("group_key", getattr(m, "group_key", None)),
+                expression=body.get("expression", getattr(m, "expression", "") or ""),
+                min_sample=min_sample,
+                code_python=source_code,
+                definition=source_definition,
+                code_metadata=code_metadata,
+                now=now,
+            )
+            session.commit()
 
         # Clear old results if re-backfill requested
         if body.get("rebackfill") and m.status == "published":
-            session.query(MetricResultModel).filter(MetricResultModel.metric_key == metric_key).delete()
-            session.query(MetricRunLog).filter(MetricRunLog.metric_key == metric_key).delete()
-            session.query(MetricJobClaim).filter(MetricJobClaim.metric_key == metric_key).delete()
+            family_keys = [row.key for row in _metric_family_rows(session, m)]
+            session.query(MetricResultModel).filter(MetricResultModel.metric_key.in_(family_keys)).delete(synchronize_session=False)
+            session.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(family_keys)).delete(synchronize_session=False)
+            session.query(MetricJobClaim).filter(MetricJobClaim.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.commit()
             try:
-                _dispatch_metric_backfill(metric_key)
+                _dispatch_metric_backfill(m.key)
             except Exception:
-                logger.exception("Failed to enqueue backfill for %s", metric_key)
-                return jsonify({"ok": True, "key": metric_key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
+                logger.exception("Failed to enqueue backfill for %s", m.key)
+                return jsonify({"ok": True, "key": m.key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
 
-    return jsonify({"ok": True, "key": metric_key})
+    return jsonify({"ok": True, "key": m.key})
 
 
 def _resolve_entity_labels(session, rows):
