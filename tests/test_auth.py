@@ -3,6 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch, MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,7 @@ def _make_app():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
+        "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
         "GameLineScore",
@@ -324,10 +325,12 @@ class TestGoogleOAuth(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess["user_id"] = "some-user-id"
 
-        resp = self.client.get(
-            "/metrics/new",
-            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
-        )
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", display_name="Test User")), \
+             patch("web.app.render_template", return_value="upgrade"):
+            resp = self.client.get(
+                "/metrics/new",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
         self.assertEqual(resp.status_code, 403)
 
 
@@ -426,16 +429,69 @@ class TestRedirectSafety(unittest.TestCase):
         self.assertEqual(result, "/metrics?season=22025")
 
     def test_auth_login_absolute_same_origin_next_stored_as_path(self):
-        """GET /auth/login?next=<absolute same-origin URL> must store the local path in session."""
+        """GET /auth/google?next=<absolute same-origin URL> must store the local path in session."""
         with patch("web.app.oauth") as mock_oauth, patch.dict("os.environ", {"GOOGLE_CLIENT_ID": "test-client-id"}):
             mock_oauth.google.authorize_redirect.return_value = MagicMock(
                 status_code=302, headers={"Location": "https://accounts.google.com/"}
             )
-            self.client.get("/auth/login?next=http://localhost/players/456")
+            self.client.get("/auth/google?next=http://localhost/players/456")
 
         with self.client.session_transaction() as sess:
             stored = sess.get("oauth_next", "")
         self.assertEqual(stored, "/players/456", f"oauth_next should be path-only, got: {stored!r}")
+
+
+class TestMetricSearchAuth(unittest.TestCase):
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def test_metrics_requires_login_for_external_visitors(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app.SessionLocal", return_value=session):
+            response = self.client.get(
+                "/metrics",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        location = urlsplit(response.headers["Location"])
+        self.assertEqual(location.path, "/auth/login")
+        self.assertEqual(parse_qs(location.query)["next"], ["/metrics"])
+
+    def test_metric_search_api_requires_login_for_external_visitors(self):
+        response = self.client.post(
+            "/api/metrics/search",
+            json={"query": "clutch shooting"},
+            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json(), {"error": "login_required"})
+
+    def test_metric_search_api_allows_logged_in_non_pro_users(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["matches"][0]["key"], "late_game_scoring")
 
 
 if __name__ == "__main__":

@@ -284,6 +284,10 @@
   const createCta = document.getElementById('metric-create-cta');
   const createInline = document.getElementById('metric-create-cta-inline');
 
+  function loginUrl() {
+    return `/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
+
   function scopeBadge(scope) {
     return `<span class="scope-badge ${esc(scope)}">${esc(scope)}</span>`;
   }
@@ -348,9 +352,13 @@
           status: '{{ status_filter }}',
         }),
       });
-      const data = await res.json();
-      if (!data.ok) {
-        status.textContent = data.error || 'Search failed.';
+      const data = await res.json().catch(() => null);
+      if (res.status === 401 && data && data.error === 'login_required') {
+        window.location.href = loginUrl();
+        return;
+      }
+      if (!res.ok || !data || !data.ok) {
+        status.textContent = (data && data.error) || 'Search failed.';
         resultsWrap.style.display = 'none';
         return;
       }
