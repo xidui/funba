@@ -72,6 +72,10 @@ class MetricDefinition(ABC):
     career_min_sample: int | None = None  # None → min_sample * 5
     career_name_suffix: str = " (Career)"
 
+    # Optional format string for context label display, e.g. "{b2b_wins}/{b2b_games} B2B".
+    # Keys are interpolated from the context dict via str.format_map().
+    context_label_template: str | None = None
+
     def compute_delta(self, session: Any, entity_id: str | None, game_id: str) -> dict | None:
         """Return this game's additive contribution to running totals.
 

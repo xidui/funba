@@ -305,6 +305,7 @@ def _code_metric_metadata_from_code(
         "career": bool(getattr(metric, "career", False)),
         "incremental": bool(getattr(metric, "incremental", True)),
         "rank_order": getattr(metric, "rank_order", "desc"),
+        "context_label_template": getattr(metric, "context_label_template", None),
         "code_python": normalized_code,
     }
     if expected_key and metadata["key"] != expected_key:
@@ -462,9 +463,11 @@ def _sync_metric_family(
     if source_type == "code":
         base_row.code_python = code_python or ""
         base_row.definition_json = None
+        base_row.context_label_template = (code_metadata or {}).get("context_label_template")
     else:
         base_row.definition_json = json.dumps(definition or {})
         base_row.code_python = None
+        base_row.context_label_template = None
 
     existing_sibling = (
         session.query(MetricDefinitionModel)
@@ -514,9 +517,11 @@ def _sync_metric_family(
                 min_sample=career_min_sample_value,
             )
             existing_sibling.definition_json = None
+            existing_sibling.context_label_template = base_row.context_label_template
         else:
             existing_sibling.definition_json = json.dumps(build_career_rule_definition(definition or {}))
             existing_sibling.code_python = None
+            existing_sibling.context_label_template = None
     elif existing_sibling is not None and getattr(existing_sibling, "managed_family", False):
         existing_sibling.status = "archived"
         existing_sibling.updated_at = now
@@ -675,22 +680,34 @@ def _game_entity_filter(entity_col, game_id: str):
     return or_(entity_col == game_id, entity_col.like(f"{game_id}:%"))
 
 
-_METRIC_CONTEXT_LABEL: dict = {
-    "clutch_fg_pct":          lambda c: f"{_fmt_int(c.get('clutch_made'))}/{_fmt_int(c.get('clutch_attempts'))} clutch",
-    "hot_hand":               lambda c: f"{_fmt_int(c.get('hot_made'))}/{_fmt_int(c.get('hot_opps'))} after make",
-    "cold_streak_recovery":   lambda c: f"{_fmt_int(c.get('cold_made'))}/{_fmt_int(c.get('cold_opps'))} after miss",
-    "double_double_rate":     lambda c: f"{_fmt_int(c.get('dd_count'))}/{_fmt_int(c.get('games_played'))} games",
-    "scoring_consistency":    lambda c: f"{_fmt_int(c.get('games_20_plus'))}/{_fmt_int(c.get('games_played'))} games",
-    "true_shooting_pct":      lambda c: f"{_fmt_int(c.get('pts'))} pts / {_fmt_int(c.get('fga'))} FGA + {_fmt_int(c.get('fta'))} FTA",
-    "assist_to_turnover_ratio": lambda c: f"{_fmt_int(c.get('ast'))} ast / {_fmt_int(c.get('tov'))} tov",
-    "paint_scoring_share":    lambda c: f"{_fmt_int(c.get('paint_shots'))}/{_fmt_int(c.get('total_shots'))} shots",
-    "bench_scoring_share":    lambda c: f"{_fmt_int(c.get('bench_pts'))}/{_fmt_int(c.get('total_pts'))} pts",
-    "blowout_rate":           lambda c: f"{_fmt_int(c.get('blowout_wins'))}/{_fmt_int(c.get('total_games'))} games",
-    "comeback_win_pct":       lambda c: f"{_fmt_int(c.get('trailing_wins'))}/{_fmt_int(c.get('trailing_total'))} trailing",
-    "win_pct_leading_at_half": lambda c: f"{_fmt_int(c.get('leading_wins'))}/{_fmt_int(c.get('leading_total'))} at half",
-    "road_win_pct":           lambda c: f"{_fmt_int(c.get('road_wins'))}/{_fmt_int(c.get('road_games'))} road",
-    "home_court_advantage":   lambda c: f"home {_fmt_int(c.get('home_wins'))}/{_fmt_int(c.get('home_games'))} · road {_fmt_int(c.get('road_wins'))}/{_fmt_int(c.get('road_games'))}",
-}
+def _resolve_context_label(base_key: str, ctx: dict, db_templates: dict[str, str]) -> str | None:
+    """Resolve context label from DB template."""
+    template = db_templates.get(base_key)
+    if not template:
+        return None
+    try:
+        fmt_ctx = {k: _fmt_int(v) if isinstance(v, (int, float)) else v for k, v in ctx.items()}
+        return template.format_map(fmt_ctx)
+    except Exception:
+        return None
+
+
+def _load_context_label_templates(session, metric_keys: set[str]) -> dict[str, str]:
+    """Load context_label_template from DB for the given metric keys."""
+    if not metric_keys:
+        return {}
+    rows = (
+        session.query(
+            MetricDefinitionModel.key,
+            MetricDefinitionModel.context_label_template,
+        )
+        .filter(
+            MetricDefinitionModel.key.in_(metric_keys),
+            MetricDefinitionModel.context_label_template.isnot(None),
+        )
+        .all()
+    )
+    return {r.key: r.context_label_template for r in rows}
 
 
 def _apply_game_metric_tiers(season_metrics: list) -> None:
@@ -852,19 +869,16 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
     team_map = _team_map(session)
 
+    all_base_keys = {r.metric_key.removesuffix("_career") for r in rows}
+    db_templates = _load_context_label_templates(session, all_base_keys)
+
     season_metrics = []
     alltime_metrics = []
     for r in rows:
         ctx = json.loads(r.context_json) if r.context_json else {}
         rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
         base_key = r.metric_key.removesuffix("_career")
-        label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
-        context_label = None
-        if label_fn:
-            try:
-                context_label = label_fn(ctx)
-            except Exception:
-                pass
+        context_label = _resolve_context_label(base_key, ctx, db_templates)
         rank, total = r.rank, r.total
         is_notable = total > 0 and rank / total <= 0.25
         entry = {
@@ -3232,6 +3246,8 @@ def metric_detail(metric_key: str):
             period = f"across all {_type_name} seasons" if _type_name else "across all seasons"
         else:
             period = "this season"
+        base_key = metric_key.removesuffix("_career")
+        detail_db_templates = _load_context_label_templates(session, {base_key})
         result_rows = []
         for r in rows:
             ctx = json.loads(r.context_json) if r.context_json else {}
@@ -3245,13 +3261,7 @@ def metric_detail(metric_key: str):
             )
             rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
             base_key = metric_key.removesuffix("_career")
-            label_fn = _METRIC_CONTEXT_LABEL.get(base_key)
-            context_label = None
-            if label_fn:
-                try:
-                    context_label = label_fn(ctx)
-                except Exception:
-                    pass
+            context_label = _resolve_context_label(base_key, ctx, detail_db_templates)
             rank = int(r.rank or 0)
             standing_total = int(r.standing_total or 0)
             is_notable = standing_total > 0 and rank / standing_total <= 0.25

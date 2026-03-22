@@ -154,6 +154,7 @@ IMPORTANT:
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
 - Do NOT put ranking numbers (like #1, #2) in value_str. Ranking is handled by the system at query time, not inside compute(). value_str should only contain the descriptive value (e.g. "ATL Q1: 44 pts").
+- Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
 
 CRITICAL — PBP score parsing:
 - GamePlayByPlay.score is a CUMULATIVE score string like "62 - 51" (home - road).

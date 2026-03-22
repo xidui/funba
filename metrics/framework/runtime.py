@@ -298,6 +298,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career = explicit_career if career is None else career
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
+        self.context_label_template = getattr(self._inner, "context_label_template", None)
 
         if self.career:
             if not explicit_career:
