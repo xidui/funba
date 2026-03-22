@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from requests.exceptions import ConnectionError, Timeout
-from sqlalchemy import and_, or_
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from tenacity import (
     RetryError,
@@ -38,6 +38,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 Session = sessionmaker(bind=engine)
+DEFAULT_PLAYER_CANDIDATE_LIMIT = 75
 
 AWARD_TYPE_ORDER = [
     "champion",
@@ -157,22 +158,63 @@ def _target_award_seasons(session, only_season: int | None = None) -> list[int]:
     return seasons
 
 
-def _player_ids_for_target_seasons(session, target_seasons: list[int]) -> list[str]:
+def _candidate_player_ids_from_rows(
+    rows: list[tuple[str | None, str | None, int | float | None]],
+    *,
+    per_season_limit: int | None,
+) -> list[str]:
+    if per_season_limit is not None and per_season_limit < 1:
+        raise ValueError("per_season_limit must be >= 1 when provided")
+
+    season_players: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for season_token, player_id, total_seconds in rows:
+        if not season_token or not player_id:
+            continue
+        season_players[str(season_token)].append((int(total_seconds or 0), str(player_id)))
+
+    selected_player_ids: set[str] = set()
+    for season_token, season_rows in season_players.items():
+        ordered = sorted(season_rows, key=lambda item: (-item[0], item[1]))
+        if per_season_limit is not None:
+            ordered = ordered[:per_season_limit]
+        logger.info(
+            "Selected %s candidate players for season %s",
+            len(ordered),
+            season_token,
+        )
+        selected_player_ids.update(player_id for _, player_id in ordered)
+
+    return sorted(selected_player_ids)
+
+
+def _player_ids_for_target_seasons(
+    session,
+    target_seasons: list[int],
+    *,
+    per_season_limit: int | None = DEFAULT_PLAYER_CANDIDATE_LIMIT,
+) -> list[str]:
     if not target_seasons:
         return []
     season_tokens = [str(season) for season in target_seasons]
-    playoff_tokens = [f"4{str(season)[1:]}" for season in target_seasons]
+    total_seconds = (
+        func.coalesce(PlayerGameStats.min, 0) * 60
+        + func.coalesce(PlayerGameStats.sec, 0)
+    )
     rows = (
-        session.query(PlayerGameStats.player_id)
+        session.query(
+            Game.season,
+            PlayerGameStats.player_id,
+            func.sum(total_seconds).label("total_seconds"),
+        )
         .join(Game, PlayerGameStats.game_id == Game.game_id)
         .filter(
             PlayerGameStats.player_id.isnot(None),
-            or_(Game.season.in_(season_tokens), Game.season.in_(playoff_tokens)),
+            Game.season.in_(season_tokens),
         )
-        .distinct()
+        .group_by(Game.season, PlayerGameStats.player_id)
         .all()
     )
-    return sorted(str(player_id) for (player_id,) in rows if player_id)
+    return _candidate_player_ids_from_rows(rows, per_season_limit=per_season_limit)
 
 
 def _champion_seeds(session, target_seasons: list[int]) -> list[AwardSeed]:
@@ -240,7 +282,7 @@ def _player_award_seed_from_row(row: dict[str, object], team_lookup: dict[str, l
 @retry(
     wait=wait_exponential(multiplier=1, max=60),
     stop=stop_after_attempt(8),
-    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),
+    retry=retry_if_exception_type((ConnectionError, Timeout)),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def _fetch_player_awards(player_id: str) -> list[dict[str, object]]:
@@ -255,7 +297,7 @@ def _fetch_player_awards(player_id: str) -> list[dict[str, object]]:
 @retry(
     wait=wait_exponential(multiplier=1, max=60),
     stop=stop_after_attempt(8),
-    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),
+    retry=retry_if_exception_type((ConnectionError, Timeout)),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def _fetch_scoring_leader(season_text: str) -> dict[str, object] | None:
@@ -368,7 +410,12 @@ def _parse_season_arg(value: str | None) -> int | None:
     raise ValueError(f"Unsupported season format: {value}")
 
 
-def run(*, dry_run: bool = False, only_season: int | None = None) -> dict[str, int]:
+def run(
+    *,
+    dry_run: bool = False,
+    only_season: int | None = None,
+    player_candidate_limit: int | None = DEFAULT_PLAYER_CANDIDATE_LIMIT,
+) -> dict[str, int]:
     with Session() as session:
         target_seasons = _target_award_seasons(session, only_season=only_season)
         if not target_seasons:
@@ -381,8 +428,20 @@ def run(*, dry_run: bool = False, only_season: int | None = None) -> dict[str, i
         seeds: list[AwardSeed] = []
         seeds.extend(_champion_seeds(session, target_seasons))
 
-        player_ids = _player_ids_for_target_seasons(session, target_seasons)
-        logger.info("Fetching player awards for %s tracked players", len(player_ids))
+        player_ids = _player_ids_for_target_seasons(
+            session,
+            target_seasons,
+            per_season_limit=player_candidate_limit,
+        )
+        logger.info(
+            "Fetching player awards for %s candidate players (%s)",
+            len(player_ids),
+            (
+                f"top {player_candidate_limit} regular-season minute leaders per season"
+                if player_candidate_limit is not None
+                else "all tracked regular-season players"
+            ),
+        )
         seeds.extend(_player_award_seeds(player_ids, set(target_seasons), team_lookup))
 
         logger.info("Fetching scoring champions for %s seasons", len(target_seasons))
@@ -433,5 +492,18 @@ if __name__ == "__main__":
         type=str,
         help="Limit to a single season (e.g. 22024 or 2024-25)",
     )
+    parser.add_argument(
+        "--player-candidate-limit",
+        type=int,
+        default=DEFAULT_PLAYER_CANDIDATE_LIMIT,
+        help=(
+            "Scan only the top N regular-season minute leaders per season for player awards; "
+            "use 0 to scan every tracked player"
+        ),
+    )
     args = parser.parse_args()
-    run(dry_run=args.dry_run, only_season=_parse_season_arg(args.season))
+    run(
+        dry_run=args.dry_run,
+        only_season=_parse_season_arg(args.season),
+        player_candidate_limit=None if args.player_candidate_limit == 0 else args.player_candidate_limit,
+    )

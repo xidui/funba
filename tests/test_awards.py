@@ -71,6 +71,23 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
         self.assertEqual(_season_text_to_award_season("22024"), 22024)
         self.assertIsNone(_season_text_to_award_season("202425"))
 
+    def test_candidate_player_ids_limit_to_top_minutes_per_season(self):
+        from db.backfill_awards import _candidate_player_ids_from_rows
+
+        rows = [
+            ("22024", "2544", 3000),
+            ("22024", "201939", 2900),
+            ("22024", "203507", 2800),
+            ("22023", "2544", 2500),
+            ("22023", "1629029", 2400),
+            ("22023", "203507", 2300),
+        ]
+
+        self.assertEqual(
+            _candidate_player_ids_from_rows(rows, per_season_limit=2),
+            ["1629029", "201939", "2544"],
+        )
+
     def test_player_award_row_maps_all_nba_and_mvp_variants(self):
         from db.backfill_awards import _player_award_seed_from_row
 
