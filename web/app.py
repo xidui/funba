@@ -3072,9 +3072,6 @@ def game_page(game_id: str):
 
 @app.route("/metrics")
 def metrics_browse():
-    denied = _require_login_page()
-    if denied:
-        return denied
     scope_filter = request.args.get("scope", "")
     status_filter = request.args.get("status", "")  # draft | published | ""
     search_query = request.args.get("q", "").strip()

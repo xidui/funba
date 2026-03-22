@@ -451,21 +451,34 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
-    def test_metrics_requires_login_for_external_visitors(self):
+    def test_metrics_allows_external_visitors_and_uses_anonymous_catalog_context(self):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)
         session.__exit__ = MagicMock(return_value=False)
 
-        with patch("web.app.SessionLocal", return_value=session):
+        with patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._current_user", return_value=None), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring"}]) as mock_catalog, \
+             patch("web.app.render_template", return_value="<html></html>") as mock_render:
             response = self.client.get(
-                "/metrics",
+                "/metrics?scope=player&status=published&q=late",
                 environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
             )
 
-        self.assertEqual(response.status_code, 302)
-        location = urlsplit(response.headers["Location"])
-        self.assertEqual(location.path, "/auth/login")
-        self.assertEqual(parse_qs(location.query)["next"], ["/metrics"])
+        self.assertEqual(response.status_code, 200)
+        mock_catalog.assert_called_once_with(
+            session,
+            scope_filter="player",
+            status_filter="published",
+            current_user_id=None,
+        )
+        mock_render.assert_called_once_with(
+            "metrics.html",
+            metrics_list=[{"key": "late_game_scoring"}],
+            scope_filter="player",
+            status_filter="published",
+            search_query="late",
+        )
 
     def test_metric_search_api_requires_login_for_external_visitors(self):
         response = self.client.post(
