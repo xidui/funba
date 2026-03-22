@@ -225,33 +225,35 @@
     {% for conf_name, conf_teams in [('Eastern Conference', east_standings), ('Western Conference', west_standings)] %}
     <div>
       <div class="conf-label">{{ conf_name }}</div>
-      <table class="standings-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Team</th>
-            <th class="right">W</th>
-            <th class="right">L</th>
-            <th class="right">Win%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in conf_teams %}
-          <tr>
-            <td><span class="rank-num{% if loop.index <= 3 %} top3{% endif %}">{{ loop.index }}</span></td>
-            <td>
-              <a href="{{ url_for('team_page', team_id=t.team_id) }}"
-                 style="font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap;">
-                <span style="color:var(--accent);font-family:'Outfit',sans-serif;font-weight:700;margin-right:6px;">{{ t.abbr }}</span>{{ t.full_name }}
-              </a>
-            </td>
-            <td class="right" style="font-weight:700;color:var(--win);">{{ t.wins }}</td>
-            <td class="right" style="color:var(--muted-2);">{{ t.losses }}</td>
-            <td class="right" style="font-family:'Outfit',sans-serif;font-weight:700;">{{ "%.1f"|format(t.win_pct * 100) }}%</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="standings-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Team</th>
+              <th class="right">W</th>
+              <th class="right">L</th>
+              <th class="right">Win%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in conf_teams %}
+            <tr>
+              <td><span class="rank-num{% if loop.index <= 3 %} top3{% endif %}">{{ loop.index }}</span></td>
+              <td>
+                <a href="{{ url_for('team_page', team_id=t.team_id) }}"
+                   style="font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap;">
+                  <span style="color:var(--accent);font-family:'Outfit',sans-serif;font-weight:700;margin-right:6px;">{{ t.abbr }}</span>{{ t.full_name }}
+                </a>
+              </td>
+              <td class="right" style="font-weight:700;color:var(--win);">{{ t.wins }}</td>
+              <td class="right" style="color:var(--muted-2);">{{ t.losses }}</td>
+              <td class="right" style="font-family:'Outfit',sans-serif;font-weight:700;">{{ "%.1f"|format(t.win_pct * 100) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
     {% endfor %}
   </div>
