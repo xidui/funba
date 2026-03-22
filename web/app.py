@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 import uuid as _uuid_mod
 
 from flask import Flask, abort, after_this_request, flash, get_flashed_messages, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
@@ -40,6 +42,62 @@ from metrics.framework.family import (
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per minute"],
+    storage_uri="memory://",
+)
+
+
+# ── Error handlers ───────────────────────────────────────────────────────────
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template("404.html"), 404
+
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template("500.html"), 500
+
+
+# ── SEO routes ───────────────────────────────────────────────────────────────
+
+@app.route("/robots.txt")
+def robots_txt():
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /admin",
+        "Disallow: /auth/",
+        "Disallow: /api/",
+        "",
+        "Sitemap: https://funba.app/sitemap.xml",
+    ]
+    return make_response("\n".join(lines)), 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    urls = [
+        "https://funba.app/",
+        "https://funba.app/games",
+        "https://funba.app/awards",
+        "https://funba.app/metrics",
+    ]
+    with SessionLocal() as db:
+        teams = db.query(Team.team_id).all()
+        for (tid,) in teams:
+            urls.append(f"https://funba.app/teams/{tid}")
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
+    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+    for url in urls:
+        xml.append(f"  <url><loc>{url}</loc></url>")
+    xml.append("</urlset>")
+    return make_response("\n".join(xml)), 200, {"Content-Type": "application/xml"}
+
 
 # ── Google OAuth ─────────────────────────────────────────────────────────────
 oauth = OAuth(app)
@@ -1868,6 +1926,7 @@ def auth_callback():
 
 
 @app.route("/auth/magic", methods=["POST"])
+@limiter.limit("5 per minute")
 def auth_magic_send():
     """Send a magic login link to the provided email."""
     import secrets
@@ -2175,6 +2234,7 @@ def _on_payment_failed(invoice):
 # ── Feedback routes ───────────────────────────────────────────────────────────
 
 @app.post("/feedback")
+@limiter.limit("10 per minute")
 def submit_feedback():
     user = _current_user()
     if not user:
@@ -2425,6 +2485,7 @@ def awards_page():
 
 
 @app.route("/api/players/hints")
+@limiter.limit("60 per minute")
 def player_hints_api():
     query = (request.args.get("q") or "").strip()
     try:
@@ -3155,6 +3216,7 @@ def metric_edit(metric_key: str):
 
 
 @app.post("/api/metrics/search")
+@limiter.limit("30 per minute")
 def api_metric_search():
     denied = _require_login_json()
     if denied:
@@ -3189,6 +3251,7 @@ def api_metric_search():
 
 
 @app.post("/api/metrics/generate")
+@limiter.limit("10 per minute")
 def api_metric_generate():
     denied = _require_metric_creator_json()
     if denied:
@@ -3209,6 +3272,7 @@ def api_metric_generate():
 
 
 @app.post("/api/metrics/preview")
+@limiter.limit("20 per minute")
 def api_metric_preview():
     body = request.get_json(force=True) or {}
     definition = body.get("definition")

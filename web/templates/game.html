@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — FUNBA{% endblock %}
+{% block meta_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score, play-by-play, and shot charts on FUNBA.{% endblock %}
+{% block og_title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — FUNBA{% endblock %}
+{% block og_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score, play-by-play, and shot charts.{% endblock %}
+{% block tw_title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — FUNBA{% endblock %}
+{% block tw_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score and shot charts.{% endblock %}
 {% block content %}
 <style>
   /* ── Scoreboard ───────────────────────────────────────────────── */

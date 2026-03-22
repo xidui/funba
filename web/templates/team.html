@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block title %}{{ team.full_name }} — FUNBA{% endblock %}
+{% block meta_description %}{{ team.full_name }} season record, game log, and advanced metrics on FUNBA.{% endblock %}
+{% block og_title %}{{ team.full_name }} — FUNBA{% endblock %}
+{% block og_description %}{{ team.full_name }} season record, game log, and advanced metrics.{% endblock %}
+{% block tw_title %}{{ team.full_name }} — FUNBA{% endblock %}
+{% block tw_description %}{{ team.full_name }} season record and game log.{% endblock %}
 {% block content %}
 <style>
   .team-header-meta {
