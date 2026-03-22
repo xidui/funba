@@ -3102,13 +3102,19 @@ def _preview_code_metric(
         return rows[:limit]
 
     elif scope == "player":
-        # For player scope, sample recent games and run incrementally
+        # For player scope, sample recent games and run incrementally.
+        # Cap at 200 games for preview speed (full backfill runs all games).
         game_q = session.query(Game.game_id).filter(Game.home_team_score.isnot(None))
         if season and season != "all":
             game_q = game_q.filter(Game.season == season)
-        game_ids = [r.game_id for r in game_q.order_by(Game.game_date.asc()).all()]
+        game_ids = [r.game_id for r in game_q.order_by(Game.game_date.desc()).limit(200).all()]
+        game_ids.reverse()  # restore chronological order for incremental accumulation
         if metric.incremental:
             from metrics.framework.base import merge_totals
+            # Pre-warm the session identity map with all Games for this season
+            # so compute_delta's session.query(Game).filter(game_id==X).first()
+            # hits the identity map instead of issuing a new query each time.
+            session.query(Game).filter(Game.game_id.in_(game_ids)).all()
             accum: dict[str, dict] = {}
             for gid in game_ids:
                 player_ids = [r.player_id for r in session.query(PlayerGameStats.player_id)
