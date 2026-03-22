@@ -64,6 +64,9 @@
         --chart-tooltip-title: rgba(255, 255, 255, 0.5);
         --chart-tooltip-body: #ffffff;
         --chart-tooltip-border: rgba(255, 255, 255, 0.1);
+        --award-gold: #fbbf24;
+        --award-gold-dim: rgba(251, 191, 36, 0.12);
+        --award-gold-glow: rgba(251, 191, 36, 0.3);
       }
 
       html[data-theme='light'] {
@@ -106,6 +109,9 @@
         --chart-tooltip-title: rgba(30, 41, 59, 0.55);
         --chart-tooltip-body: #0f172a;
         --chart-tooltip-border: rgba(15, 23, 42, 0.08);
+        --award-gold: #d97706;
+        --award-gold-dim: rgba(217, 119, 6, 0.08);
+        --award-gold-glow: rgba(217, 119, 6, 0.15);
       }
 
       /* ── Reset ─────────────────────────────────────────────────── */
@@ -916,6 +922,7 @@
           <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if request.endpoint == 'home' }}">Home</a>
           <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if request.endpoint == 'games_list' }}">Games</a>
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}">Metrics</a>
+          <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if request.endpoint == 'awards_page' }}">Awards</a>
           <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if request.endpoint == 'pricing' }}">Pricing</a>
           {% if is_admin %}
           <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>

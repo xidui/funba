@@ -1,0 +1,467 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .awards-hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at top right, var(--award-gold-glow), transparent 42%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.02), transparent 45%),
+      var(--surface);
+  }
+
+  .awards-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.05), transparent),
+      linear-gradient(transparent, rgba(251, 191, 36, 0.03));
+    pointer-events: none;
+  }
+
+  .awards-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .awards-hero-copy {
+    max-width: 640px;
+  }
+
+  .awards-hero-copy p {
+    color: var(--muted-2);
+    max-width: 520px;
+  }
+
+  .awards-hero-mark {
+    width: 72px;
+    height: 72px;
+    border-radius: 22px;
+    display: grid;
+    place-items: center;
+    background: var(--award-gold-dim);
+    border: 1px solid rgba(251, 191, 36, 0.22);
+    box-shadow: 0 0 28px var(--award-gold-glow);
+    color: var(--award-gold);
+  }
+
+  .awards-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .awards-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .awards-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted-2);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .awards-tab:hover,
+  .awards-tab.active {
+    text-decoration: none;
+    color: var(--award-gold);
+    background: var(--award-gold-dim);
+    border-color: rgba(251, 191, 36, 0.22);
+  }
+
+  .awards-filter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .awards-filter label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .awards-filter select {
+    min-width: 180px;
+  }
+
+  .awards-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .awards-section-header p {
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+
+  .awards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .award-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .award-row.dynasty {
+    border-left: 4px solid var(--award-gold);
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.12);
+  }
+
+  .award-season {
+    width: 108px;
+    flex-shrink: 0;
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--heading);
+  }
+
+  .award-player {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .award-player img {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    object-fit: cover;
+    border: 1px solid var(--border-2);
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+
+  .award-player-copy {
+    min-width: 0;
+  }
+
+  .award-player-copy a {
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--heading);
+  }
+
+  .award-player-copy a:hover {
+    color: var(--award-gold);
+  }
+
+  .award-meta-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .award-team-chip,
+  .award-streak,
+  .award-note-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .award-team-chip {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border-2);
+  }
+
+  .award-team-chip:hover {
+    text-decoration: none;
+    color: var(--award-gold);
+    border-color: rgba(251, 191, 36, 0.22);
+  }
+
+  .award-streak {
+    background: var(--award-gold-dim);
+    color: var(--award-gold);
+    border: 1px solid rgba(251, 191, 36, 0.22);
+  }
+
+  .award-note-chip {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--muted-2);
+  }
+
+  .all-nba-row {
+    align-items: flex-start;
+  }
+
+  .all-nba-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    flex: 1;
+  }
+
+  .all-nba-card {
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    text-align: center;
+  }
+
+  .all-nba-card img {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    object-fit: cover;
+    border: 1px solid var(--border-2);
+    background: var(--surface-3);
+    margin-bottom: 10px;
+  }
+
+  .all-nba-card a {
+    display: block;
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--heading);
+  }
+
+  .all-nba-card a:hover {
+    color: var(--award-gold);
+  }
+
+  .all-nba-card .award-team-chip {
+    margin-top: 8px;
+    justify-content: center;
+  }
+
+  .all-nba-card .award-streak {
+    margin-top: 8px;
+  }
+
+  .awards-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 18px 0;
+  }
+
+  @media (max-width: 980px) {
+    .all-nba-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 700px) {
+    .award-row,
+    .all-nba-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .award-season {
+      width: auto;
+    }
+
+    .all-nba-grid {
+      width: 100%;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+</style>
+
+<div class="card awards-hero">
+  <div class="awards-hero-inner">
+    <div class="awards-hero-copy">
+      <h1>NBA Awards</h1>
+      <p>Historical honors, championships, and All-NBA selections. Every result on this page is loaded from the database, not hardcoded into the UI.</p>
+    </div>
+    <div class="awards-hero-mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 14h22v6c0 7-5 13-11 13s-11-6-11-13v-6Z"></path>
+        <path d="M18 18H9c0 8 5 13 12 14"></path>
+        <path d="M46 18h9c0 8-5 13-12 14"></path>
+        <path d="M32 33v9"></path>
+        <path d="M22 54h20"></path>
+        <path d="M25 42h14l3 12H22l3-12Z"></path>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<div class="card awards-controls">
+  <div class="awards-tabs">
+    {% for tab in award_tabs %}
+    <a
+      class="awards-tab {{ 'active' if tab.award_type == selected_award_type }}"
+      href="{{ url_for('awards_page', type=tab.award_type, season=selected_season) if selected_season else url_for('awards_page', type=tab.award_type) }}"
+    >
+      {{ tab.label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="awards-filter">
+    <label for="award-season-select">Season</label>
+    <select id="award-season-select" onchange="updateAwardSeason(this.value)">
+      <option value="">All seasons</option>
+      {% for season in season_options %}
+      <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>{{ season_label(season) }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+{% if award_sections %}
+  {% for section in award_sections %}
+  <section class="card">
+    <div class="awards-section-header">
+      <div>
+        <h2>{{ section.label }}</h2>
+        {% if selected_season %}
+        <p>{{ season_label(selected_season) }} across the league.</p>
+        {% else %}
+        <p>Reverse-chronological history.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="awards-list">
+      {% for group in section.groups %}
+        {% if section.is_all_nba %}
+        <div class="award-row all-nba-row">
+          <div class="award-season">{{ group.season_label }}</div>
+          <div class="all-nba-grid">
+            {% for entry in group.entries %}
+            <div class="all-nba-card">
+              <img
+                src="{{ entry.player_headshot_url }}"
+                alt="{{ entry.player_name }}"
+                loading="lazy"
+                onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
+              />
+              <a href="{{ url_for('player_page', player_id=entry.player_id) }}">{{ entry.player_name }}</a>
+              {% if entry.team_id %}
+              <a class="award-team-chip" href="{{ url_for('team_page', team_id=entry.team_id) }}">{{ entry.team_abbr }}</a>
+              {% elif entry.team_name %}
+              <span class="award-team-chip">{{ entry.team_name }}</span>
+              {% endif %}
+              {% if entry.streak %}
+              <div class="award-streak">&times;{{ entry.streak }}</div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% elif section.is_team_award %}
+        {% set champion = group.entries[0] %}
+        <div class="award-row {{ 'dynasty' if group.is_dynasty }}">
+          <div class="award-season">{{ group.season_label }}</div>
+          <div class="award-player">
+            <div class="award-player-copy">
+              {% if champion.team_id %}
+              <a href="{{ url_for('team_page', team_id=champion.team_id) }}">{{ champion.team_name }}</a>
+              {% else %}
+              <span style="font-family:'Outfit', sans-serif; font-size:16px; font-weight:700; color:var(--heading);">{{ champion.team_name or champion.notes or 'Unknown Team' }}</span>
+              {% endif %}
+              <div class="award-meta-line">
+                {% if champion.team_id %}
+                <a class="award-team-chip" href="{{ url_for('team_page', team_id=champion.team_id) }}">{{ champion.team_abbr }}</a>
+                {% endif %}
+                {% if group.streak %}
+                <span class="award-streak">&times;{{ group.streak }}</span>
+                {% endif %}
+                {% if champion.notes %}
+                <span class="award-note-chip">{{ champion.notes }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        {% set winner = group.entries[0] %}
+        <div class="award-row">
+          <div class="award-season">{{ group.season_label }}</div>
+          <div class="award-player">
+            <img
+              src="{{ winner.player_headshot_url }}"
+              alt="{{ winner.player_name }}"
+              loading="lazy"
+              onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
+            />
+            <div class="award-player-copy">
+              <a href="{{ url_for('player_page', player_id=winner.player_id) }}">{{ winner.player_name }}</a>
+              <div class="award-meta-line">
+                {% if winner.team_id %}
+                <a class="award-team-chip" href="{{ url_for('team_page', team_id=winner.team_id) }}">{{ winner.team_abbr }}</a>
+                {% elif winner.team_name %}
+                <span class="award-team-chip">{{ winner.team_name }}</span>
+                {% endif %}
+                {% if group.streak %}
+                <span class="award-streak">&times;{{ group.streak }}</span>
+                {% endif %}
+                {% if winner.notes and not winner.team_name %}
+                <span class="award-note-chip">{{ winner.notes }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+{% else %}
+<div class="card">
+  <p class="awards-empty">No awards found for this season.</p>
+</div>
+{% endif %}
+
+<script>
+  function updateAwardSeason(value) {
+    const url = new URL(window.location.href);
+    if (value) url.searchParams.set('season', value);
+    else url.searchParams.delete('season');
+    window.location.href = url.toString();
+  }
+</script>
+{% endblock %}

@@ -42,6 +42,33 @@
     flex-shrink: 0;
   }
 
+  .team-championship-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .team-championship-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    background: var(--award-gold-dim);
+    color: var(--award-gold);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .team-championship-pill:hover {
+    text-decoration: none;
+    filter: brightness(1.05);
+  }
+
   /* Score link — fills full cell for tap target; hover/focus handled here */
   td.score-cell { padding: 0; }
   a.score-link {
@@ -93,6 +120,23 @@
     </span>
   </div>
 </div>
+
+{% if team_championships %}
+<div class="card">
+  <h2>Championships</h2>
+  <div class="team-championship-row">
+    {% for championship in team_championships %}
+    <a
+      class="team-championship-pill"
+      href="{{ url_for('awards_page', type='champion', season=championship.season) }}"
+    >
+      <span>🏆</span>
+      <span>{{ championship.season_label }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% set season_metrics = team_metrics.season %}
 {% set alltime_metrics = team_metrics.alltime %}

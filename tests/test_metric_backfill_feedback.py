@@ -20,7 +20,7 @@ def _make_app_module():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Feedback", "Game", "GamePlayByPlay", "MetricJobClaim", "MetricDefinition",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
         "GameLineScore",
@@ -36,11 +36,15 @@ def _make_app_module():
     sys.modules["db"] = fake_db
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
+    fake_backfill.back_fill_game_shot_record = MagicMock()
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()
+    fake_backfill.is_game_shot_back_filled = MagicMock(return_value=False)
     sys.modules["db.backfill_nba_player_shot_detail"] = fake_backfill
 
     fake_line = types.ModuleType("db.backfill_nba_game_line_score")
+    fake_line.back_fill_game_line_score = MagicMock()
     fake_line.has_game_line_score = MagicMock(return_value=False)
+    fake_line.normalize_game_line_score_payload = MagicMock()
     sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
     for key in list(sys.modules):
