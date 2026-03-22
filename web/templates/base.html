@@ -789,6 +789,7 @@
           <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if request.endpoint == 'home' }}">Home</a>
           <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if request.endpoint == 'games_list' }}">Games</a>
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}">Metrics</a>
+          <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if request.endpoint == 'pricing' }}">Pricing</a>
           {% if is_admin %}
           <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>
           <span class="admin-badge" title="Admin mode (localhost)">&#9737;</span>
@@ -821,6 +822,7 @@
                 <div class="user-dropdown-name">{{ current_user.display_name }}</div>
                 <div class="user-dropdown-email">{{ current_user.email }}</div>
               </div>
+              <a href="{{ url_for('account_page') }}" class="user-dropdown-action">Account</a>
               <form method="post" action="{{ url_for('auth_logout') }}" style="margin:0;">
                 <button type="submit" class="user-dropdown-action">Sign out</button>
               </form>

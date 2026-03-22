@@ -339,6 +339,10 @@ class User(Base):
     display_name = Column(String(255), nullable=False)
     avatar_url = Column(String(1024), nullable=True)
     is_admin = Column(Boolean, default=False, nullable=False)
+    stripe_customer_id = Column(String(255), nullable=True, unique=True, index=True)
+    subscription_tier = Column(String(16), nullable=False, default='free')
+    subscription_status = Column(String(32), nullable=True)
+    subscription_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False)
     last_login_at = Column(DateTime, nullable=False)
 

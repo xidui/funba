@@ -1436,6 +1436,53 @@ def _require_admin_page():
     return None
 
 
+def is_pro() -> bool:
+    """True if the current user has Pro subscription access.
+
+    Pro access is granted if the user is admin, or has an active/grace-period
+    Pro subscription.
+    """
+    if is_admin():
+        return True
+    user = _current_user()
+    if user is None or user.subscription_tier != "pro":
+        return False
+    if user.subscription_expires_at is not None:
+        from datetime import datetime
+        if datetime.utcnow() > user.subscription_expires_at:
+            return False
+    return True
+
+
+def _require_pro_json():
+    if not is_pro():
+        return jsonify({"error": "pro_required", "upgrade_url": url_for("pricing")}), 403
+    return None
+
+
+def _require_pro_page():
+    if not is_pro():
+        return render_template("upgrade_required.html"), 403
+    return None
+
+
+def _require_metric_creator_json():
+    """Admin or Pro can create/edit metrics."""
+    if is_admin() or is_pro():
+        return None
+    if _current_user():
+        return jsonify({"error": "pro_required", "upgrade_url": url_for("pricing")}), 403
+    return jsonify({"error": "login_required"}), 401
+
+
+def _require_metric_creator_page():
+    if is_admin() or is_pro():
+        return None
+    if _current_user():
+        return render_template("upgrade_required.html"), 403
+    return redirect(url_for("auth_login", next=request.url))
+
+
 _VISITOR_COOKIE = "funba_visitor"
 _VISITOR_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year in seconds
 
@@ -1502,6 +1549,7 @@ def inject_template_helpers():
     return {
         "season_label": _season_label,
         "is_admin": is_admin(),
+        "is_pro": is_pro(),
         "current_user": _current_user(),
         "current_year": date.today().year,
     }
@@ -1611,6 +1659,156 @@ def auth_logout():
     """Clear session and redirect to home."""
     session.pop("user_id", None)
     return redirect(url_for("home"))
+
+
+# ── Subscription routes ──────────────────────────────────────────────────────
+
+@app.route("/pricing")
+def pricing():
+    return render_template("pricing.html")
+
+
+@app.route("/account")
+def account_page():
+    user = _current_user()
+    if not user:
+        return redirect(url_for("auth_login", next=url_for("account_page")))
+    return render_template("account.html", user=user, checkout=request.args.get("checkout"))
+
+
+@app.post("/subscribe/checkout")
+def subscribe_checkout():
+    import stripe
+    user = _current_user()
+    if not user:
+        return redirect(url_for("auth_login", next=url_for("pricing")))
+
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    if not stripe.api_key:
+        flash("Payment is not configured yet.", "error")
+        return redirect(url_for("pricing"))
+
+    # Create or retrieve Stripe Customer
+    if not user.stripe_customer_id:
+        customer = stripe.Customer.create(
+            email=user.email,
+            name=user.display_name,
+            metadata={"funba_user_id": user.id},
+        )
+        with SessionLocal() as db:
+            db_user = db.get(User, user.id)
+            db_user.stripe_customer_id = customer.id
+            db.commit()
+        customer_id = customer.id
+    else:
+        customer_id = user.stripe_customer_id
+
+    price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
+    if not price_id:
+        flash("Payment is not configured yet.", "error")
+        return redirect(url_for("pricing"))
+
+    checkout_session = stripe.checkout.Session.create(
+        customer=customer_id,
+        mode="subscription",
+        line_items=[{"price": price_id, "quantity": 1}],
+        success_url=url_for("account_page", checkout="success", _external=True),
+        cancel_url=url_for("pricing", _external=True),
+    )
+    return redirect(checkout_session.url, code=303)
+
+
+@app.post("/subscribe/portal")
+def subscribe_portal():
+    import stripe
+    user = _current_user()
+    if not user or not user.stripe_customer_id:
+        return redirect(url_for("pricing"))
+
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    portal_session = stripe.billing_portal.Session.create(
+        customer=user.stripe_customer_id,
+        return_url=url_for("account_page", _external=True),
+    )
+    return redirect(portal_session.url, code=303)
+
+
+@app.post("/stripe/webhook")
+def stripe_webhook():
+    import stripe
+    payload = request.get_data()
+    sig_header = request.headers.get("Stripe-Signature")
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        return "Invalid signature", 400
+
+    _handle_stripe_event(event)
+    return "", 200
+
+
+def _handle_stripe_event(event):
+    event_type = event["type"]
+    data = event["data"]["object"]
+
+    if event_type == "checkout.session.completed":
+        _on_checkout_completed(data)
+    elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
+        _on_subscription_changed(data)
+    elif event_type == "invoice.payment_failed":
+        _on_payment_failed(data)
+
+
+def _on_checkout_completed(session_data):
+    customer_id = session_data.get("customer")
+    if not customer_id:
+        return
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+        if user:
+            user.subscription_tier = "pro"
+            user.subscription_status = "active"
+            user.subscription_expires_at = None
+            db.commit()
+
+
+def _on_subscription_changed(subscription):
+    from datetime import datetime as _dt
+    customer_id = subscription.get("customer")
+    if not customer_id:
+        return
+    status = subscription.get("status", "")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+        if not user:
+            return
+        user.subscription_status = status
+        if status == "active":
+            user.subscription_tier = "pro"
+            user.subscription_expires_at = None
+        elif status == "canceled":
+            period_end = subscription.get("current_period_end")
+            if period_end:
+                user.subscription_expires_at = _dt.utcfromtimestamp(period_end)
+            else:
+                user.subscription_tier = "free"
+        elif status in ("unpaid", "incomplete_expired"):
+            user.subscription_tier = "free"
+            user.subscription_expires_at = None
+        db.commit()
+
+
+def _on_payment_failed(invoice):
+    customer_id = invoice.get("customer")
+    if not customer_id:
+        return
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+        if user:
+            user.subscription_status = "past_due"
+            db.commit()
 
 
 # ── Feedback routes ───────────────────────────────────────────────────────────
@@ -1996,6 +2194,10 @@ def player_page(player_id: str):
             .all()
         )
         season_options = sorted([row[0] for row in seasons], key=_season_sort_key, reverse=True)
+        if not is_pro():
+            _cur = _pick_current_season(season_options)
+            if _cur:
+                season_options = [_cur]
         selected_season = request.args.get("season")
         if selected_season not in season_options:
             selected_season = _pick_current_season(season_options)
@@ -2101,6 +2303,9 @@ def team_page(team_id: str):
 
         current_season = _pick_current_season([row["season"] for row in season_summary])
         season_options = [row["season"] for row in season_summary]
+        if not is_pro() and current_season:
+            season_options = [s for s in season_options if s == current_season]
+            season_summary_view = [r for r in season_summary_view if r["season"] == current_season]
         selected_games_season = request.args.get("games_season")
         if selected_games_season not in season_options:
             selected_games_season = current_season
@@ -2419,7 +2624,7 @@ def metrics_browse():
 
 @app.route("/metrics/new")
 def metric_new():
-    denied = _require_admin_page()
+    denied = _require_metric_creator_page()
     if denied:
         return denied
     all_seasons = sorted(
@@ -2439,7 +2644,7 @@ def metric_new():
 
 @app.route("/metrics/<metric_key>/edit")
 def metric_edit(metric_key: str):
-    denied = _require_admin_page()
+    denied = _require_metric_creator_page()
     if denied:
         return denied
     import json as _json
@@ -2515,7 +2720,7 @@ def api_metric_search():
 
 @app.post("/api/metrics/generate")
 def api_metric_generate():
-    denied = _require_admin_json()
+    denied = _require_metric_creator_json()
     if denied:
         return denied
     from metrics.framework.generator import generate
@@ -2771,7 +2976,7 @@ def _preview_code_metric(
 
 @app.post("/api/metrics")
 def api_metric_create():
-    denied = _require_admin_json()
+    denied = _require_metric_creator_json()
     if denied:
         return denied
     import json as _json
@@ -2929,7 +3134,7 @@ def api_metric_backfill_status(metric_key: str):
 @app.post("/api/metrics/<metric_key>/update")
 def api_metric_update(metric_key: str):
     """Update an existing metric's code/settings and optionally re-backfill."""
-    denied = _require_admin_json()
+    denied = _require_metric_creator_json()
     if denied:
         return denied
     import json as _json
@@ -3145,6 +3350,11 @@ def metric_detail(metric_key: str):
                 key=_season_sort_key,
                 reverse=True,
             )
+            if not is_pro():
+                _cur = _pick_current_season(season_options)
+                if _cur:
+                    season_options = [_cur]
+                    show_all_seasons = False
             # Group seasons by type for the dropdown
             from collections import defaultdict
             _type_buckets = defaultdict(list)

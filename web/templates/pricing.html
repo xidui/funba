@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% set title = "Pricing — FUNBA" %}
+{% block content %}
+<style>
+  .pricing-wrap { max-width: 800px; margin: 48px auto; padding: 0 16px; }
+  .pricing-title { font-family: 'Outfit', sans-serif; font-size: 2rem; font-weight: 800; text-align: center; margin-bottom: 8px; }
+  .pricing-subtitle { text-align: center; color: var(--muted-2); margin-bottom: 40px; font-size: 15px; }
+  .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 600px) { .pricing-grid { grid-template-columns: 1fr; } }
+  .plan-card {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 14px;
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+  }
+  .plan-card.featured {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 4px 24px rgba(249,115,22,0.15);
+  }
+  .plan-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    width: fit-content;
+  }
+  .plan-badge-free { background: var(--surface-3); color: var(--muted-2); }
+  .plan-badge-pro { background: var(--accent); color: #fff; }
+  .plan-name { font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+  .plan-price { font-size: 2rem; font-weight: 800; margin-bottom: 4px; }
+  .plan-price span { font-size: 14px; font-weight: 400; color: var(--muted-2); }
+  .plan-desc { color: var(--muted-2); font-size: 13px; margin-bottom: 20px; }
+  .plan-features { list-style: none; padding: 0; margin: 0 0 28px 0; flex: 1; }
+  .plan-features li {
+    font-size: 13px;
+    padding: 6px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--text);
+  }
+  .plan-features li::before { content: "\2713"; color: var(--win); font-weight: 700; flex-shrink: 0; }
+  .plan-features li.disabled { color: var(--muted); }
+  .plan-features li.disabled::before { content: "\2014"; color: var(--muted); }
+  .plan-cta {
+    display: block;
+    text-align: center;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    width: 100%;
+  }
+  .plan-cta-free { background: var(--surface-3); color: var(--text); }
+  .plan-cta-pro { background: var(--accent); color: #fff; }
+  .plan-cta-pro:hover { filter: brightness(1.1); }
+</style>
+
+<div class="pricing-wrap">
+  <h1 class="pricing-title">Choose your plan</h1>
+  <p class="pricing-subtitle">Unlock the full power of NBA analytics</p>
+
+  <div class="pricing-grid">
+    <!-- Free -->
+    <div class="plan-card">
+      <span class="plan-badge plan-badge-free">Free</span>
+      <div class="plan-name">Explorer</div>
+      <div class="plan-price">$0<span> / forever</span></div>
+      <div class="plan-desc">Browse stats for the current season.</div>
+      <ul class="plan-features">
+        <li>Player, team, and game pages</li>
+        <li>Current season data</li>
+        <li>Shot charts and play-by-play</li>
+        <li>Metric leaderboards (current season)</li>
+        <li class="disabled">AI custom metric creation</li>
+        <li class="disabled">Full historical seasons</li>
+        <li class="disabled">Data export (CSV)</li>
+      </ul>
+      {% if current_user %}
+      <span class="plan-cta plan-cta-free">Current Plan</span>
+      {% else %}
+      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-free">Sign in</a>
+      {% endif %}
+    </div>
+
+    <!-- Pro -->
+    <div class="plan-card featured">
+      <span class="plan-badge plan-badge-pro">Pro</span>
+      <div class="plan-name">Analyst</div>
+      <div class="plan-price">$9<span> / month</span></div>
+      <div class="plan-desc">Full access to every feature and all historical data.</div>
+      <ul class="plan-features">
+        <li>Everything in Free</li>
+        <li>AI-powered custom metric creation</li>
+        <li>All historical seasons (2000+)</li>
+        <li>Metric leaderboards across all seasons</li>
+        <li>Data export (CSV)</li>
+        <li>Priority support</li>
+      </ul>
+      {% if is_pro %}
+      <span class="plan-cta plan-cta-free">Current Plan</span>
+      {% elif current_user %}
+      <form method="post" action="{{ url_for('subscribe_checkout') }}" style="margin:0;">
+        <button type="submit" class="plan-cta plan-cta-pro">Upgrade to Pro</button>
+      </form>
+      {% else %}
+      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-pro">Sign in to upgrade</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
