@@ -60,6 +60,23 @@ class Player(Base):
     to_year = Column(Integer, nullable=True)           # latest NBA season
 
 
+class Award(Base):
+    __tablename__ = 'Award'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    award_type = Column(String(50), nullable=False)
+    season = Column(Integer, nullable=False)
+    player_id = Column(String(50), ForeignKey('Player.player_id'), nullable=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id'), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('ix_Award_type_season', 'award_type', 'season'),
+        Index('ix_Award_player_type', 'player_id', 'award_type'),
+        Index('ix_Award_team_type', 'team_id', 'award_type'),
+    )
+
+
 class Game(Base):
     __tablename__ = 'Game'
 

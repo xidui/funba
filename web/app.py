@@ -20,7 +20,7 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -135,6 +135,180 @@ def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
     if team is None:
         return team_id
     return team.abbr or team.full_name or team_id
+
+
+_AWARD_TYPE_META: dict[str, dict[str, str]] = {
+    "champion": {
+        "label": "Champions",
+        "short_label": "Champion",
+        "badge_label": "Champion",
+        "entity": "team",
+    },
+    "finals_mvp": {
+        "label": "Finals MVP",
+        "short_label": "Finals MVP",
+        "badge_label": "Finals MVP",
+        "entity": "player",
+    },
+    "mvp": {
+        "label": "MVP",
+        "short_label": "MVP",
+        "badge_label": "MVP",
+        "entity": "player",
+    },
+    "scoring_champion": {
+        "label": "Scoring Champ",
+        "short_label": "Scoring Champ",
+        "badge_label": "Scoring Champ",
+        "entity": "player",
+    },
+    "all_nba_first": {
+        "label": "All-NBA 1st",
+        "short_label": "All-NBA 1st",
+        "badge_label": "1st Team",
+        "entity": "player",
+    },
+    "all_nba_second": {
+        "label": "All-NBA 2nd",
+        "short_label": "All-NBA 2nd",
+        "badge_label": "2nd Team",
+        "entity": "player",
+    },
+    "all_nba_third": {
+        "label": "All-NBA 3rd",
+        "short_label": "All-NBA 3rd",
+        "badge_label": "3rd Team",
+        "entity": "player",
+    },
+}
+_AWARD_TYPE_ORDER = list(_AWARD_TYPE_META.keys())
+_AWARD_SORT_INDEX = {award_type: idx for idx, award_type in enumerate(_AWARD_TYPE_ORDER)}
+
+
+def _award_type_label(award_type: str, *, short: bool = False) -> str:
+    meta = _AWARD_TYPE_META.get(award_type, {})
+    key = "short_label" if short else "label"
+    return meta.get(key, award_type.replace("_", " ").title())
+
+
+def _award_badge_label(award_type: str) -> str:
+    meta = _AWARD_TYPE_META.get(award_type, {})
+    return meta.get("badge_label", _award_type_label(award_type, short=True))
+
+
+def _award_order_case(column):
+    return case(_AWARD_SORT_INDEX, value=column, else_=len(_AWARD_TYPE_ORDER) + 1)
+
+
+def _coerce_award_season(value: str | int | None) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if len(text) == 5 and text.isdigit():
+        return int(text)
+    return None
+
+
+def _player_headshot_url(player_id: str | None) -> str | None:
+    if not player_id:
+        return None
+    return f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
+
+
+def _award_entry_from_row(row, teams: dict[str, Team]) -> dict[str, object]:
+    season_value = _coerce_award_season(row.season)
+    season_token = str(season_value) if season_value is not None else str(row.season)
+    team = teams.get(row.team_id) if row.team_id else None
+    team_abbr, team_name = (None, None)
+    if row.team_id:
+        team_abbr, team_name = _franchise_display(str(row.team_id), season_token, team)
+    elif row.notes:
+        team_name = str(row.notes)
+
+    return {
+        "award_type": row.award_type,
+        "season": season_value or 0,
+        "season_label": _season_year_label(season_token),
+        "player_id": row.player_id,
+        "player_name": row.player_name or row.player_id,
+        "player_headshot_url": _player_headshot_url(row.player_id),
+        "team_id": row.team_id,
+        "team_abbr": team_abbr,
+        "team_name": team_name,
+        "notes": row.notes,
+        "winner_key": row.player_id or row.team_id or row.notes or f"{row.award_type}:{season_token}:{row.id}",
+        "streak": None,
+    }
+
+
+def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    sections: list[dict[str, object]] = []
+    for award_type in _AWARD_TYPE_ORDER:
+        award_entries = [entry.copy() for entry in entries if entry["award_type"] == award_type]
+        if not award_entries:
+            continue
+
+        by_season: dict[int, list[dict[str, object]]] = defaultdict(list)
+        for entry in award_entries:
+            by_season[int(entry["season"])].append(entry)
+
+        ordered_seasons = sorted(by_season.keys(), reverse=True)
+        season_winners = {
+            season: {str(entry["winner_key"]) for entry in season_entries if entry.get("winner_key")}
+            for season, season_entries in by_season.items()
+        }
+
+        groups: list[dict[str, object]] = []
+        for season in ordered_seasons:
+            season_entries = by_season[season]
+            season_entries.sort(
+                key=lambda entry: (
+                    str(entry.get("player_name") or entry.get("team_name") or ""),
+                    str(entry.get("player_id") or ""),
+                    str(entry.get("team_id") or ""),
+                )
+            )
+            group = {
+                "award_type": award_type,
+                "season": season,
+                "season_label": season_entries[0]["season_label"],
+                "entries": season_entries,
+                "streak": None,
+                "is_dynasty": False,
+            }
+
+            if award_type.startswith("all_nba_"):
+                for entry in season_entries:
+                    winner_key = str(entry.get("winner_key") or "")
+                    streak = 1
+                    next_season = season - 1
+                    while winner_key and winner_key in season_winners.get(next_season, set()):
+                        streak += 1
+                        next_season -= 1
+                    entry["streak"] = streak if streak > 1 else None
+            else:
+                winner_key = str(season_entries[0].get("winner_key") or "")
+                streak = 1
+                next_season = season - 1
+                while winner_key and winner_key in season_winners.get(next_season, set()):
+                    streak += 1
+                    next_season -= 1
+                group["streak"] = streak if streak > 1 else None
+                group["is_dynasty"] = award_type == "champion" and streak > 1
+
+            groups.append(group)
+
+        sections.append(
+            {
+                "award_type": award_type,
+                "label": _award_type_label(award_type),
+                "short_label": _award_type_label(award_type, short=True),
+                "is_team_award": _AWARD_TYPE_META[award_type]["entity"] == "team",
+                "is_all_nba": award_type.startswith("all_nba_"),
+                "groups": groups,
+            }
+        )
+    return sections
 
 
 def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
@@ -1564,7 +1738,14 @@ def _current_user() -> User | None:
         with SessionLocal() as db:
             return db.get(User, user_id)
     except Exception:
-        return None
+        return SimpleNamespace(
+            id=user_id,
+            is_admin=False,
+            subscription_tier="free",
+            subscription_expires_at=None,
+            display_name="",
+            avatar_url=None,
+        )
 
 
 @app.context_processor
@@ -1614,6 +1795,7 @@ def _safe_redirect_url(url: str | None) -> str:
 def auth_login():
     """Show login page with Google and email options."""
     next_url = _safe_redirect_url(request.args.get("next") or request.referrer)
+    session["oauth_next"] = next_url
     return render_template("login.html", next_url=next_url)
 
 
@@ -2193,6 +2375,55 @@ def games_list():
     )
 
 
+@app.route("/awards")
+def awards_page():
+    selected_award_type = request.args.get("type", "champion")
+    if selected_award_type not in _AWARD_TYPE_META:
+        selected_award_type = "champion"
+
+    with SessionLocal() as session:
+        season_rows = session.query(Award.season).distinct().order_by(Award.season.desc()).all()
+        season_options = [int(row[0]) for row in season_rows if _coerce_award_season(row[0]) is not None]
+        selected_season = _coerce_award_season(request.args.get("season"))
+        if selected_season not in season_options:
+            selected_season = None
+
+        award_query = (
+            session.query(
+                Award.id,
+                Award.award_type,
+                Award.season,
+                Award.player_id,
+                Award.team_id,
+                Award.notes,
+                Player.full_name.label("player_name"),
+                Team.full_name.label("team_name"),
+                Team.abbr.label("team_abbr"),
+            )
+            .outerjoin(Player, Award.player_id == Player.player_id)
+            .outerjoin(Team, Award.team_id == Team.team_id)
+        )
+        if selected_season is not None:
+            award_query = award_query.filter(Award.season == selected_season)
+        else:
+            award_query = award_query.filter(Award.award_type == selected_award_type)
+
+        award_rows = award_query.order_by(_award_order_case(Award.award_type), Award.season.desc(), Award.id.asc()).all()
+        teams = _team_map(session)
+        award_entries = [_award_entry_from_row(row, teams) for row in award_rows]
+        award_sections = _group_award_entries(award_entries)
+
+    return render_template(
+        "awards.html",
+        title="Awards • FUNBA",
+        award_tabs=[{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in _AWARD_TYPE_ORDER],
+        award_sections=award_sections,
+        selected_award_type=selected_award_type,
+        season_options=season_options,
+        selected_season=selected_season,
+    )
+
+
 @app.route("/api/players/hints")
 def player_hints_api():
     query = (request.args.get("q") or "").strip()
@@ -2218,6 +2449,25 @@ def player_page(player_id: str):
         player = session.query(Player).filter(Player.player_id == player_id).first()
         if player is None:
             abort(404, description=f"Player {player_id} not found")
+
+        player_award_rows = (
+            session.query(
+                Award.award_type,
+                func.count(Award.id).label("award_count"),
+            )
+            .filter(Award.player_id == player_id)
+            .group_by(Award.award_type)
+            .order_by(_award_order_case(Award.award_type))
+            .all()
+        )
+        player_awards = [
+            {
+                "award_type": row.award_type,
+                "label": _award_badge_label(row.award_type),
+                "count": int(row.award_count or 0),
+            }
+            for row in player_award_rows
+        ]
 
         played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
         selected_career_kind = request.args.get("career_kind", "regular")
@@ -2454,6 +2704,7 @@ def player_page(player_id: str):
         selected_season=selected_season,
         game_rows=game_rows,
         player_metrics=player_metrics,
+        player_awards=player_awards,
     )
 
 
@@ -2463,6 +2714,24 @@ def team_page(team_id: str):
         team = session.query(Team).filter(Team.team_id == team_id).first()
         if team is None:
             abort(404, description=f"Team {team_id} not found")
+
+        championship_rows = (
+            session.query(Award.season)
+            .filter(
+                Award.award_type == "champion",
+                Award.team_id == team_id,
+            )
+            .order_by(Award.season.desc())
+            .all()
+        )
+        team_championships = [
+            {
+                "season": int(row.season),
+                "season_label": _season_year_label(str(row.season)),
+            }
+            for row in championship_rows
+            if _coerce_award_season(row.season) is not None
+        ]
 
         season_summary_rows = (
             session.query(
@@ -2570,6 +2839,7 @@ def team_page(team_id: str):
         selected_games_season=selected_games_season,
         current_games=current_games,
         team_metrics=team_metrics,
+        team_championships=team_championships,
     )
 
 
