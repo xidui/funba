@@ -2652,6 +2652,22 @@ def _preview_code_metric(
     metadata = _code_metric_metadata_from_code(code_python, rank_order_override=rank_order_override)
     metric = load_code_metric(metadata["code_python"])
     rank_order = metadata["rank_order"]
+    ctx_template = metadata.get("context_label_template")
+
+    def _row(r):
+        row = {
+            "entity_id": r.entity_id,
+            "value_num": round(r.value_num, 4),
+            "value_str": r.value_str,
+            "baseline": None,
+        }
+        if ctx_template and r.context:
+            try:
+                fmt_ctx = {k: _fmt_int(v) if isinstance(v, (int, float)) else v for k, v in r.context.items()}
+                row["context_label"] = ctx_template.format_map(fmt_ctx)
+            except Exception:
+                pass
+        return row
 
     if scope == "game":
         # For game-scope, run against recent games
@@ -2672,12 +2688,7 @@ def _preview_code_metric(
             result_list = result if isinstance(result, list) else [result]
             for r in result_list:
                 if r.value_num is not None:
-                    rows.append({
-                        "entity_id": r.entity_id,
-                        "value_num": round(r.value_num, 4),
-                        "value_str": r.value_str,
-                        "baseline": None,
-                    })
+                    rows.append(_row(r))
         rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
         return rows[:limit]
 
@@ -2709,8 +2720,7 @@ def _preview_code_metric(
                 except Exception:
                     continue
                 if result and result.value_num is not None:
-                    rows.append({"entity_id": tid, "value_num": round(result.value_num, 4),
-                                 "value_str": result.value_str, "baseline": None})
+                    rows.append(_row(result))
         else:
             rows = []
             for tid in team_ids:
@@ -2719,8 +2729,7 @@ def _preview_code_metric(
                 except Exception:
                     continue
                 if result and result.value_num is not None:
-                    rows.append({"entity_id": tid, "value_num": round(result.value_num, 4),
-                                 "value_str": result.value_str, "baseline": None})
+                    rows.append(_row(result))
         rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
         return rows[:limit]
 
@@ -2751,8 +2760,7 @@ def _preview_code_metric(
                 except Exception:
                     continue
                 if result and result.value_num is not None:
-                    rows.append({"entity_id": pid, "value_num": round(result.value_num, 4),
-                                 "value_str": result.value_str, "baseline": None})
+                    rows.append(_row(result))
         else:
             rows = []
         rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))

@@ -607,8 +607,8 @@
         <div class="preview-fade-wrap">
           <div class="table-wrap">
             <table class="preview-table">
-              <thead><tr>
-                <th>#</th><th>Matchup</th><th>Date</th><th style="text-align:right">Value</th>
+              <thead id="preview-head"><tr>
+                <th>#</th><th>Name</th><th style="text-align:right">Value</th>
               </tr></thead>
               <tbody id="preview-body"></tbody>
             </table>
@@ -980,7 +980,7 @@
   async function runPreview() {
     if (!currentSpec) return;
     previewPH.style.display = 'none';
-    previewBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
+    previewBody.innerHTML = '<tr><td colspan="3" style="color:var(--muted);padding:16px 10px;">Loading…</td></tr>';
     previewWrap.style.display = 'block';
 
     const season = document.getElementById('preview-season').value;
@@ -996,7 +996,7 @@
       });
       const data = await res.json();
       if (!data.ok) {
-        previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
+        previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);padding:16px 10px;">${data.error}</td></tr>`;
         return;
       }
 
@@ -1005,6 +1005,11 @@
       const hasMore = totalRows > 10;
       previewCount.textContent = `(${totalRows})`;
       document.getElementById('preview-fade').style.display = hasMore ? 'flex' : 'none';
+      const isGame = scope === 'game';
+      const colCount = isGame ? 4 : 3;
+      document.getElementById('preview-head').innerHTML = isGame
+        ? '<tr><th>#</th><th>Matchup</th><th>Date</th><th style="text-align:right">Value</th></tr>'
+        : '<tr><th>#</th><th>Name</th><th style="text-align:right">Value</th></tr>';
       previewBody.innerHTML = showRows.map((r, i) => {
         const display = r.value_str || (r.value_num < 1 && r.value_num > -1
           ? (r.value_num * 100).toFixed(1) + '%'
@@ -1013,17 +1018,18 @@
         const entityUrl = scope === 'player' ? `/players/${baseId}`
           : scope === 'team' ? `/teams/${baseId}`
           : `/games/${baseId}`;
-        const dateCol = r.date ? `<td style="color:var(--muted);font-size:12px;white-space:nowrap;">${r.date}</td>` : '<td></td>';
+        const dateCol = isGame && r.date ? `<td style="color:var(--muted);font-size:12px;white-space:nowrap;">${r.date}</td>` : '';
+        const ctxLabel = r.context_label ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.context_label}</div>` : '';
         return `<tr>
           <td style="color:var(--muted);font-size:11px;width:30px;">${i+1}</td>
           <td><a href="${entityUrl}" target="_blank" style="font-weight:600;">${r.entity_name}</a></td>
           ${dateCol}
-          <td class="preview-val">${display}</td>
+          <td class="preview-val">${display}${ctxLabel}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="4" style="color:var(--muted);padding:16px 10px;">No results</td></tr>';
+      }).join('') || `<tr><td colspan="${colCount}" style="color:var(--muted);padding:16px 10px;">No results</td></tr>`;
 
     } catch (e) {
-      previewBody.innerHTML = `<tr><td colspan="4" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
+      previewBody.innerHTML = `<tr><td colspan="3" style="color:var(--loss);">Error: ${e.message}</td></tr>`;
     }
   }
 
