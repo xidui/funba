@@ -791,7 +791,25 @@
       }
 
       @media (max-width: 540px) {
-        .gs-wrap { max-width: none; }
+        .topbar-inner {
+          height: auto;
+          padding-top: 10px;
+          padding-bottom: 10px;
+          flex-wrap: wrap;
+          row-gap: 10px;
+        }
+        .topbar-nav {
+          order: 2;
+          width: 100%;
+          margin-left: 0;
+          justify-content: flex-start;
+          flex-wrap: wrap;
+        }
+        .gs-wrap {
+          order: 3;
+          flex: 1 1 100%;
+          max-width: none;
+        }
         .shot-court,
         .player-heat-court { height: auto; }
       }
