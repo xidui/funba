@@ -1473,6 +1473,23 @@ def _require_pro_page():
     return None
 
 
+def _request_next_url() -> str:
+    next_url = request.full_path or request.path or url_for("home")
+    return next_url[:-1] if next_url.endswith("?") else next_url
+
+
+def _require_login_json():
+    if _current_user():
+        return None
+    return jsonify({"error": "login_required"}), 401
+
+
+def _require_login_page():
+    if _current_user():
+        return None
+    return redirect(url_for("auth_login", next=_request_next_url()))
+
+
 def _require_metric_creator_json():
     """Admin or Pro can create/edit metrics."""
     if is_admin() or is_pro():
@@ -2768,6 +2785,9 @@ def game_page(game_id: str):
 
 @app.route("/metrics")
 def metrics_browse():
+    denied = _require_login_page()
+    if denied:
+        return denied
     scope_filter = request.args.get("scope", "")
     status_filter = request.args.get("status", "")  # draft | published | ""
     search_query = request.args.get("q", "").strip()
@@ -2852,6 +2872,9 @@ def metric_edit(metric_key: str):
 
 @app.post("/api/metrics/search")
 def api_metric_search():
+    denied = _require_login_json()
+    if denied:
+        return denied
     from metrics.framework.search import rank_metrics
 
     body = request.get_json(force=True) or {}
