@@ -34,7 +34,7 @@
     line-height: 1;
     padding: 5px 8px;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.4);
+    box-shadow: 0 2px 8px var(--brand-glow);
   }
 
   .player-info { flex: 1; min-width: 0; }
@@ -435,7 +435,6 @@
         data-fg="{{ zone.fg_pct }}"
         fill="{{ zone.color }}"
         fill-opacity="{{ zone.alpha }}"
-        stroke="#3d5a70"
         stroke-opacity="0.7"
         stroke-width="1.4"
         vector-effect="non-scaling-stroke"
@@ -445,15 +444,15 @@
       {% endfor %}
 
       <!-- Court lines -->
-      <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#b09060" stroke-width="2"></rect>
-      <circle cx="0" cy="0" r="7.5" fill="none" stroke="#b09060" stroke-width="2"></circle>
-      <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#b09060" stroke-width="2"></rect>
-      <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#b09060" stroke-width="2"></rect>
-      <circle cx="0" cy="142.5" r="60" fill="none" stroke="#b09060" stroke-width="2"></circle>
-      <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
-      <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
-      <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#b09060" stroke-width="2"></path>
-      <line x1="-250" y1="375" x2="250" y2="375" stroke="#b09060" stroke-width="2"></line>
+      <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
+      <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
+      <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
+      <rect x="-80" y="-47.5" width="160" height="190" fill="none" class="court-line" stroke-width="2"></rect>
+      <circle cx="0" cy="142.5" r="60" fill="none" class="court-line" stroke-width="2"></circle>
+      <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="court-line" stroke-width="2"></line>
+      <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
+      <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
+      <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
     </g>
   </svg>
   <div id="player-heat-tooltip"></div>

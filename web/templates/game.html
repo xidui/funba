@@ -22,7 +22,7 @@
     font-family: 'Outfit', sans-serif;
     font-size: 2.8rem;
     font-weight: 800;
-    color: #fff;
+    color: var(--heading);
     line-height: 1;
     letter-spacing: -0.02em;
   }
@@ -64,7 +64,7 @@
     letter-spacing: -0.03em;
   }
 
-  .sb-score.winner { color: #fff; }
+  .sb-score.winner { color: var(--heading); }
   .sb-score.loser  { color: var(--muted); }
   .sb-score.neutral { color: var(--muted-2); }
 
@@ -213,7 +213,7 @@
     font-family: 'Outfit', sans-serif;
     font-size: 2.1rem;
     font-weight: 800;
-    color: #fff;
+    color: var(--heading);
     line-height: 1.1;
     margin-top: 4px;
     letter-spacing: -0.02em;
@@ -285,7 +285,7 @@
 
   .bs-tab.active {
     background: var(--surface-3);
-    color: #fff;
+    color: var(--heading);
     box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
 
@@ -324,7 +324,7 @@
     height: 500px;
     border: 1px solid var(--border);
     border-radius: 10px;
-    background: #f4e9d0;
+    background: var(--court-floor);
   }
 
   .shot-team-title {
@@ -509,7 +509,7 @@
             {% for qs in quarter_scores %}
             <td style="text-align:center; font-variant-numeric:tabular-nums;">{{ qs.home if is_home else qs.road }}</td>
             {% endfor %}
-            <td style="text-align:center; font-weight:700; color:#fff;">{{ row.pts if row.pts is not none else '—' }}</td>
+            <td style="text-align:center; font-weight:700; color:var(--heading);">{{ row.pts if row.pts is not none else '—' }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -639,10 +639,10 @@
   {% if shot_rows %}
   <div class="shot-legend">
     <span class="shot-legend-item">
-      <span class="shot-legend-dot" style="background:#1a8f45;"></span> Made
+      <span class="shot-legend-dot" style="background:var(--shot-made);"></span> Made
     </span>
     <span class="shot-legend-item">
-      <span class="shot-legend-dot" style="background:#cf2f2f;"></span> Missed
+      <span class="shot-legend-dot" style="background:var(--shot-missed);"></span> Missed
     </span>
     <span class="meta">
       {{ shot_made_count }} made · {{ shot_miss_count }} missed · {{ shot_made_count + shot_miss_count }} total
@@ -671,22 +671,22 @@
       <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="shot-team-court">
         <g transform="scale(1,-1)">
           <!-- Court lines -->
-          <rect x="-250" y="-47.5" width="500" height="470" fill="none" stroke="#b09060" stroke-width="2"></rect>
-          <circle cx="0" cy="0" r="7.5" fill="none" stroke="#b09060" stroke-width="2"></circle>
-          <rect x="-30" y="-7.5" width="60" height="0" fill="none" stroke="#b09060" stroke-width="2"></rect>
-          <rect x="-80" y="-47.5" width="160" height="190" fill="none" stroke="#b09060" stroke-width="2"></rect>
-          <circle cx="0" cy="142.5" r="60" fill="none" stroke="#b09060" stroke-width="2"></circle>
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#b09060" stroke-width="2"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#b09060" stroke-width="2"></path>
-          <line x1="-250" y1="375" x2="250" y2="375" stroke="#b09060" stroke-width="2"></line>
+          <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
+          <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
+          <rect x="-80" y="-47.5" width="160" height="190" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="142.5" r="60" fill="none" class="court-line" stroke-width="2"></circle>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
+          <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
 
           {% for shot in team_shots %}
           <circle
             cx="{{ shot.x }}"
             cy="{{ shot.y }}"
             r="4"
-            class="shot-dot"
+            class="shot-dot {{ 'is-made' if shot.made else 'is-missed' }}"
             data-period="{{ shot.period }}"
             data-period-label="{{ shot.period_label }}"
             data-clock="{{ shot.clock }}"
@@ -695,9 +695,7 @@
             data-team="{{ shot.team_name }}"
             data-shot-type="{{ shot.shot_type }}"
             data-distance="{{ shot.shot_distance }}"
-            fill="{% if shot.made %}#1a8f45{% else %}#cf2f2f{% endif %}"
             fill-opacity="0.78"
-            stroke="{% if shot.made %}#0e5c2a{% else %}#8a1f1f{% endif %}"
             stroke-width="0.8"
           >
             <title>{{ shot.period_label }} {{ shot.clock }} | {% if shot.made %}Made{% else %}Missed{% endif %} | {{ shot.player_name }} | {{ shot.shot_type }} ({{ shot.shot_distance }} ft)</title>
@@ -705,12 +703,12 @@
           {% endfor %}
 
           <!-- 3PT line overlay -->
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.9"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#ffffff" stroke-width="5" opacity="0.9"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.9"></path>
-          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" stroke="#3a4f62" stroke-width="2.5"></line>
-          <line x1="220" y1="-47.5" x2="220" y2="92.5" stroke="#3a4f62" stroke-width="2.5"></line>
-          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" stroke="#3a4f62" stroke-width="2.5"></path>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="three-line-glow" stroke-width="5" opacity="0.9"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" class="three-line-glow" stroke-width="5" opacity="0.9"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="three-line-glow" stroke-width="5" opacity="0.9"></path>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="three-line-outline" stroke-width="2.5"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" class="three-line-outline" stroke-width="2.5"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="three-line-outline" stroke-width="2.5"></path>
         </g>
       </svg>
     </div>
@@ -857,9 +855,14 @@
   const pts      = {{ score_progression_json | safe }};
   const roadAbbr = {{ road_abbr | tojson }};
   const homeAbbr = {{ home_abbr | tojson }};
+  const root = document.documentElement;
 
   const maxT = pts.length ? pts[pts.length - 1].t : 48;
   const axisMax = maxT <= 48 ? 48 : Math.ceil((maxT - 48) / 5) * 5 + 48;
+
+  function themeVar(name) {
+    return getComputedStyle(root).getPropertyValue(name).trim();
+  }
 
   const periodLinesPlugin = {
     id: 'periodLines',
@@ -875,9 +878,9 @@
       }
       ctx.save();
       ctx.setLineDash([3, 5]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.strokeStyle = themeVar('--chart-period-line');
       ctx.lineWidth = 1;
-      ctx.fillStyle  = 'rgba(255,255,255,0.18)';
+      ctx.fillStyle  = themeVar('--chart-period-label');
       ctx.font       = '10px Inter, sans-serif';
       ctx.textAlign  = 'center';
       boundaries.forEach(({ t, label }) => {
@@ -893,7 +896,7 @@
     }
   };
 
-  new Chart(document.getElementById('score-chart'), {
+  const scoreChart = new Chart(document.getElementById('score-chart'), {
     type: 'line',
     plugins: [periodLinesPlugin],
     data: {
@@ -914,13 +917,13 @@
         {
           label: homeAbbr + ' (Home)',
           data: pts.map(d => ({ x: d.t, y: d.home })),
-          borderColor: '#f97316',
-          backgroundColor: 'rgba(249,115,22,0.07)',
+          borderColor: themeVar('--accent'),
+          backgroundColor: themeVar('--accent-dim'),
           borderWidth: 2,
           stepped: 'before',
           pointRadius: 0,
           pointHoverRadius: 5,
-          pointHoverBackgroundColor: '#f97316',
+          pointHoverBackgroundColor: themeVar('--accent'),
           fill: true,
           tension: 0,
         },
@@ -937,10 +940,10 @@
           type: 'linear',
           min: 0,
           max: axisMax,
-          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
-          border: { color: 'rgba(255,255,255,0.06)' },
+          grid: { color: themeVar('--chart-grid'), drawBorder: false },
+          border: { color: themeVar('--chart-border') },
           ticks: {
-            color: 'rgba(255,255,255,0.28)',
+            color: themeVar('--chart-tick'),
             font: { size: 11 },
             callback(v) {
               if (v === 0)  return 'Tip-off';
@@ -956,10 +959,10 @@
         },
         y: {
           min: 0,
-          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
-          border: { color: 'rgba(255,255,255,0.06)' },
+          grid: { color: themeVar('--chart-grid'), drawBorder: false },
+          border: { color: themeVar('--chart-border') },
           ticks: {
-            color: 'rgba(255,255,255,0.28)',
+            color: themeVar('--chart-tick'),
             font: { size: 11 },
             maxTicksLimit: 8,
           },
@@ -970,7 +973,7 @@
           position: 'top',
           align: 'end',
           labels: {
-            color: 'rgba(255,255,255,0.6)',
+            color: themeVar('--chart-legend'),
             font: { size: 12, weight: '600' },
             padding: 16,
             usePointStyle: true,
@@ -978,10 +981,10 @@
           },
         },
         tooltip: {
-          backgroundColor: 'rgba(8,15,26,0.95)',
-          titleColor: 'rgba(255,255,255,0.5)',
-          bodyColor: '#fff',
-          borderColor: 'rgba(255,255,255,0.1)',
+          backgroundColor: themeVar('--chart-tooltip-bg'),
+          titleColor: themeVar('--chart-tooltip-title'),
+          bodyColor: themeVar('--chart-tooltip-body'),
+          borderColor: themeVar('--chart-tooltip-border'),
           borderWidth: 1,
           padding: 10,
           callbacks: {
@@ -1026,6 +1029,26 @@
       }
     }
   });
+
+  function applyChartTheme() {
+    scoreChart.data.datasets[1].borderColor = themeVar('--accent');
+    scoreChart.data.datasets[1].backgroundColor = themeVar('--accent-dim');
+    scoreChart.data.datasets[1].pointHoverBackgroundColor = themeVar('--accent');
+    scoreChart.options.scales.x.grid.color = themeVar('--chart-grid');
+    scoreChart.options.scales.x.border.color = themeVar('--chart-border');
+    scoreChart.options.scales.x.ticks.color = themeVar('--chart-tick');
+    scoreChart.options.scales.y.grid.color = themeVar('--chart-grid');
+    scoreChart.options.scales.y.border.color = themeVar('--chart-border');
+    scoreChart.options.scales.y.ticks.color = themeVar('--chart-tick');
+    scoreChart.options.plugins.legend.labels.color = themeVar('--chart-legend');
+    scoreChart.options.plugins.tooltip.backgroundColor = themeVar('--chart-tooltip-bg');
+    scoreChart.options.plugins.tooltip.titleColor = themeVar('--chart-tooltip-title');
+    scoreChart.options.plugins.tooltip.bodyColor = themeVar('--chart-tooltip-body');
+    scoreChart.options.plugins.tooltip.borderColor = themeVar('--chart-tooltip-border');
+    scoreChart.update('none');
+  }
+
+  document.addEventListener('funba:themechange', applyChartTheme);
 })();
 </script>
 {% endif %}

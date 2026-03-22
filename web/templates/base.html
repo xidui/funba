@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title or "FUNBA" }}</title>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('theme') === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (_) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -29,6 +38,74 @@
         --win-bg:     rgba(74, 222, 128, 0.1);
         --loss-bg:    rgba(248, 113, 113, 0.1);
         --ring:       rgba(249, 115, 22, 0.35);
+        --heading:    #ffffff;
+        --topbar-bg:  rgba(8, 15, 26, 0.96);
+        --dropdown-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+        --brand-glow: rgba(249, 115, 22, 0.4);
+        --tooltip-bg: #0d1c2e;
+        --tooltip-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+        --overlay-scrim: rgba(0, 0, 0, 0.6);
+        --court-floor: #f4e9d0;
+        --court-lines: #b09060;
+        --shot-made: #1a8f45;
+        --shot-made-stroke: #0e5c2a;
+        --shot-missed: #cf2f2f;
+        --shot-missed-stroke: #8a1f1f;
+        --heat-stroke: #3d5a70;
+        --three-line-glow: #ffffff;
+        --three-line-outline: #3a4f62;
+        --chart-grid: rgba(255, 255, 255, 0.04);
+        --chart-border: rgba(255, 255, 255, 0.06);
+        --chart-tick: rgba(255, 255, 255, 0.28);
+        --chart-legend: rgba(255, 255, 255, 0.6);
+        --chart-period-line: rgba(255, 255, 255, 0.1);
+        --chart-period-label: rgba(255, 255, 255, 0.18);
+        --chart-tooltip-bg: rgba(8, 15, 26, 0.95);
+        --chart-tooltip-title: rgba(255, 255, 255, 0.5);
+        --chart-tooltip-body: #ffffff;
+        --chart-tooltip-border: rgba(255, 255, 255, 0.1);
+      }
+
+      html[data-theme='light'] {
+        color-scheme: light;
+        --bg:         #f5f6fa;
+        --surface:    #ffffff;
+        --surface-2:  #eef1f6;
+        --surface-3:  #e4e8ef;
+        --border:     rgba(30, 55, 90, 0.08);
+        --border-2:   rgba(30, 55, 90, 0.15);
+        --text:       #1e293b;
+        --muted:      #94a3b8;
+        --muted-2:    #64748b;
+        --accent:     #ea580c;
+        --accent-dim: rgba(234, 88, 12, 0.08);
+        --win:        #16a34a;
+        --loss:       #dc2626;
+        --win-bg:     rgba(22, 163, 74, 0.08);
+        --loss-bg:    rgba(220, 38, 38, 0.08);
+        --ring:       rgba(234, 88, 12, 0.2);
+        --heading:    #0f172a;
+        --topbar-bg:  rgba(255, 255, 255, 0.92);
+        --dropdown-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+        --brand-glow: rgba(234, 88, 12, 0.25);
+        --tooltip-bg: #ffffff;
+        --tooltip-shadow: 0 12px 32px rgba(30, 55, 90, 0.14);
+        --overlay-scrim: rgba(15, 23, 42, 0.28);
+        --shot-made: #16a34a;
+        --shot-made-stroke: #166534;
+        --shot-missed: #dc2626;
+        --shot-missed-stroke: #991b1b;
+        --heat-stroke: #94a3b8;
+        --chart-grid: rgba(0, 0, 0, 0.06);
+        --chart-border: rgba(15, 23, 42, 0.08);
+        --chart-tick: rgba(30, 41, 59, 0.48);
+        --chart-legend: rgba(30, 41, 59, 0.7);
+        --chart-period-line: rgba(15, 23, 42, 0.1);
+        --chart-period-label: rgba(30, 41, 59, 0.55);
+        --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
+        --chart-tooltip-title: rgba(30, 41, 59, 0.55);
+        --chart-tooltip-body: #0f172a;
+        --chart-tooltip-border: rgba(15, 23, 42, 0.08);
       }
 
       /* ── Reset ─────────────────────────────────────────────────── */
@@ -48,10 +125,14 @@
         position: sticky;
         top: 0;
         z-index: 100;
-        background: rgba(8, 15, 26, 0.96);
+        background: var(--topbar-bg);
         border-bottom: 1px solid var(--border);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
+      }
+
+      html[data-theme='light'] .topbar {
+        box-shadow: 0 10px 28px rgba(148, 163, 184, 0.12);
       }
 
       .topbar-inner {
@@ -86,14 +167,14 @@
         font-size: 13px;
         color: #fff;
         letter-spacing: -0.02em;
-        box-shadow: 0 0 14px rgba(249, 115, 22, 0.4);
+        box-shadow: 0 0 14px var(--brand-glow);
       }
 
       .brand-name {
         font-family: 'Outfit', sans-serif;
         font-weight: 700;
         font-size: 17px;
-        color: #fff;
+        color: var(--heading);
         letter-spacing: 0.01em;
       }
 
@@ -144,7 +225,7 @@
         border-radius: 10px;
         overflow: hidden;
         z-index: 200;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+        box-shadow: var(--dropdown-shadow);
       }
 
       .gs-dropdown.open { display: block; }
@@ -164,7 +245,7 @@
       .topbar-nav {
         display: flex;
         align-items: center;
-        gap: 2px;
+        gap: 6px;
         margin-left: auto;
         flex-shrink: 0;
       }
@@ -195,6 +276,37 @@
         user-select: none;
       }
 
+      .theme-toggle {
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted-2);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+
+      .theme-toggle:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--accent-dim);
+      }
+
+      .theme-toggle svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+      }
+
+      .theme-toggle .theme-icon-moon { display: none; }
+      html[data-theme='light'] .theme-toggle .theme-icon-sun { display: none; }
+      html[data-theme='light'] .theme-toggle .theme-icon-moon { display: block; }
+
       /* ── Layout ─────────────────────────────────────────────────── */
       .container {
         max-width: 1300px;
@@ -222,7 +334,7 @@
         font-family: 'Outfit', sans-serif;
         font-size: clamp(1.6rem, 2.4vw, 2.1rem);
         font-weight: 800;
-        color: #fff;
+        color: var(--heading);
         letter-spacing: -0.02em;
         line-height: 1.15;
         margin-bottom: 6px;
@@ -358,7 +470,7 @@
 
       .tab-btn.active {
         background: var(--surface-3);
-        color: #fff;
+        color: var(--heading);
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
       }
 
@@ -383,7 +495,7 @@
         font-family: 'Outfit', sans-serif;
         font-size: 1.55rem;
         font-weight: 700;
-        color: #fff;
+        color: var(--heading);
         line-height: 1.1;
         display: block;
       }
@@ -433,7 +545,7 @@
         width: 100%;
         border: 1px solid var(--border);
         border-radius: 12px;
-        background: #f4e9d0;
+        background: var(--court-floor);
       }
 
       .shot-court  { height: 540px; max-width: 660px; }
@@ -444,7 +556,7 @@
         position: fixed;
         display: none;
         pointer-events: none;
-        background: #0d1c2e;
+        background: var(--tooltip-bg);
         border: 1px solid var(--border-2);
         color: var(--text);
         font-size: 12px;
@@ -453,7 +565,7 @@
         border-radius: 9px;
         z-index: 300;
         max-width: 230px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+        box-shadow: var(--tooltip-shadow);
       }
 
       /* ── Shot dots ──────────────────────────────────────────────── */
@@ -462,15 +574,30 @@
         transition: opacity 100ms ease;
       }
 
+      .shot-dot.is-made {
+        fill: var(--shot-made);
+        stroke: var(--shot-made-stroke);
+      }
+
+      .shot-dot.is-missed {
+        fill: var(--shot-missed);
+        stroke: var(--shot-missed-stroke);
+      }
+
       .shot-dot:hover { opacity: 1 !important; stroke-width: 1.5; }
 
       /* ── Heatmap zone ───────────────────────────────────────────── */
       .player-heat-zone {
         cursor: pointer;
         transition: opacity 100ms ease, stroke-width 100ms ease;
+        stroke: var(--heat-stroke);
       }
 
       .player-heat-zone:hover { stroke-width: 2.5; }
+
+      .court-line { stroke: var(--court-lines); }
+      .three-line-glow { stroke: var(--three-line-glow); }
+      .three-line-outline { stroke: var(--three-line-outline); }
 
       /* ── Grids ──────────────────────────────────────────────────── */
       .grid-2 {
@@ -534,7 +661,7 @@
         display: none; position: absolute; right: 0; top: calc(100% + 8px);
         background: var(--surface-2); border: 1px solid var(--border-2);
         border-radius: 10px; min-width: 200px; z-index: 200;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); overflow: hidden;
+        box-shadow: var(--dropdown-shadow); overflow: hidden;
       }
       .user-dropdown.open { display: block; }
       .user-dropdown-info { padding: 12px 14px; border-bottom: 1px solid var(--border); }
@@ -794,6 +921,22 @@
           <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>
           <span class="admin-badge" title="Admin mode (localhost)">&#9737;</span>
           {% endif %}
+          <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Switch to light mode">
+            <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2.5"></path>
+              <path d="M12 19.5V22"></path>
+              <path d="m4.93 4.93 1.77 1.77"></path>
+              <path d="m17.3 17.3 1.77 1.77"></path>
+              <path d="M2 12h2.5"></path>
+              <path d="M19.5 12H22"></path>
+              <path d="m4.93 19.07 1.77-1.77"></path>
+              <path d="m17.3 6.7 1.77-1.77"></path>
+            </svg>
+            <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path>
+            </svg>
+          </button>
           {% if current_user %}
           <div class="user-menu-wrap" id="user-menu-wrap">
             {% if current_user.avatar_url %}
@@ -887,6 +1030,59 @@
     </footer>
 
     <script>
+      (function () {
+        const root = document.documentElement;
+        const toggle = document.getElementById('theme-toggle');
+
+        function currentTheme() {
+          return root.dataset.theme === 'light' ? 'light' : 'dark';
+        }
+
+        function syncToggle() {
+          if (!toggle) return;
+          const nextTheme = currentTheme() === 'light' ? 'dark' : 'light';
+          const label = nextTheme === 'light' ? 'Switch to light mode' : 'Switch to dark mode';
+          toggle.setAttribute('aria-label', label);
+          toggle.setAttribute('title', label);
+        }
+
+        function applyTheme(theme, options) {
+          const persist = Boolean(options && options.persist);
+          const announce = Boolean(options && options.announce);
+          if (theme === 'light') root.setAttribute('data-theme', 'light');
+          else root.removeAttribute('data-theme');
+          if (persist) {
+            try {
+              localStorage.setItem('theme', theme);
+            } catch (_) {}
+          }
+          syncToggle();
+          if (announce) {
+            document.dispatchEvent(new CustomEvent('funba:themechange', { detail: { theme } }));
+          }
+        }
+
+        if (toggle) {
+          toggle.addEventListener('click', () => {
+            const nextTheme = currentTheme() === 'light' ? 'dark' : 'light';
+            applyTheme(nextTheme, { persist: true, announce: true });
+          });
+        }
+
+        window.addEventListener('storage', (event) => {
+          if (event.key === 'theme') {
+            applyTheme(event.newValue === 'light' ? 'light' : 'dark', { announce: true });
+          }
+        });
+
+        window.funbaTheme = {
+          apply: applyTheme,
+          current: currentTheme,
+        };
+
+        syncToggle();
+      })();
+
       (function () {
         const input    = document.getElementById('gs-input');
         const dropdown = document.getElementById('gs-dropdown');
@@ -985,10 +1181,10 @@
       })();
     </script>
     <!-- ── Feedback modal ──────────────────────────────────────────── -->
-    <div id="feedback-modal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);">
+    <div id="feedback-modal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:var(--overlay-scrim);backdrop-filter:blur(4px);">
       <div style="background:var(--surface);border:1px solid var(--border-2);border-radius:16px;padding:28px 28px 24px;width:min(480px,90vw);box-shadow:0 20px 60px rgba(0,0,0,0.7);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
-          <h2 style="margin:0;font-size:16px;color:#fff;">Leave Feedback</h2>
+          <h2 style="margin:0;font-size:16px;color:var(--heading);">Leave Feedback</h2>
           <button id="feedback-close" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1;padding:0;">&times;</button>
         </div>
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Thoughts, suggestions, or bugs — all welcome.</p>
