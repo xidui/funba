@@ -137,7 +137,7 @@ def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
     return team.abbr or team.full_name or team_id
 
 
-def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None, created_by: str | None = None):
+def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
     """Normalize runtime and DB metric objects for template rendering."""
     return SimpleNamespace(
         key=metric_def.key,
@@ -151,7 +151,6 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         group_key=getattr(metric_def, "group_key", None),
         career=bool(getattr(metric_def, "career", False)),
         supports_career=bool(getattr(metric_def, "supports_career", False)),
-        created_by=created_by,
     )
 
 
@@ -594,7 +593,7 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
     return links if len(links) > 1 else []
 
 
-def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -> list[dict]:
+def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", current_user_id: str | None = None) -> list[dict]:
     counts = {
         row.metric_key: row.count
         for row in session.query(
@@ -614,18 +613,13 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
     if status_filter:
         db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
 
-    # Batch-fetch creator display names
     all_defs = db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
-    creator_ids = {m.created_by_user_id for m in all_defs if m.created_by_user_id}
-    creator_names: dict[str, str] = {}
-    if creator_ids:
-        for u in session.query(User).filter(User.id.in_(creator_ids)).all():
-            creator_names[u.id] = u.display_name
 
     db_metrics = []
     for m in all_defs:
         code_metadata = _safe_code_metric_metadata(m)
         search_fields = _db_metric_search_fields(m, code_metadata=code_metadata)
+        is_mine = bool(current_user_id and m.created_by_user_id == current_user_id)
         db_metrics.append(
             {
                 "key": m.key,
@@ -636,10 +630,12 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "") -
                 "status": m.status,
                 "source_type": m.source_type,
                 "result_count": counts.get(m.key, 0),
-                "created_by": creator_names.get(m.created_by_user_id) if m.created_by_user_id else None,
+                "is_mine": is_mine,
                 **search_fields,
             }
         )
+    # Own metrics first, then by original order
+    db_metrics.sort(key=lambda d: (not d["is_mine"],))
     return db_metrics
 
 
@@ -2652,8 +2648,9 @@ def metrics_browse():
     status_filter = request.args.get("status", "")  # draft | published | ""
     search_query = request.args.get("q", "").strip()
 
+    cur_user = _current_user()
     with SessionLocal() as session:
-        metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
+        metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
 
     return render_template(
         "metrics.html",
@@ -3368,17 +3365,9 @@ def metric_detail(metric_key: str):
         if db_metric is None and runtime_metric is None:
             abort(404, description=f"Metric '{metric_key}' not found.")
 
-        # Resolve creator display name
-        _creator_name = None
-        if db_metric and db_metric.created_by_user_id:
-            _creator_user = session.get(User, db_metric.created_by_user_id)
-            if _creator_user:
-                _creator_name = _creator_user.display_name
-
         metric_def = _metric_def_view(
             runtime_metric or db_metric,
             source_type=getattr(db_metric, "source_type", None),
-            created_by=_creator_name,
         )
         is_career_metric = bool(getattr(runtime_metric, "career", False))
         related_metrics = _related_metric_links(session, metric_key, runtime_metric, db_metric)

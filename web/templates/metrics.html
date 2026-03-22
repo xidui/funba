@@ -249,6 +249,9 @@
     <div class="catalog-card-header">
       <div class="catalog-name">{{ m.name }}</div>
       <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">
+        {% if m.is_mine %}
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);">mine</span>
+        {% endif %}
         {% if m.status == 'draft' %}
         <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;">draft</span>
         {% endif %}
@@ -257,12 +260,7 @@
     </div>
     <div class="catalog-desc">{{ m.description }}</div>
     <div class="catalog-footer">
-      <div class="catalog-category">
-        {{ m.category }}
-        {% if m.created_by %}
-        <span style="font-size:10px;color:var(--accent);font-weight:600;margin-left:6px;">by {{ m.created_by }}</span>
-        {% endif %}
-      </div>
+      <div class="catalog-category">{{ m.category }}</div>
       <div class="catalog-count">
         {% if m.result_count > 0 %}
           <span>{{ m.result_count }}</span> result{{ 's' if m.result_count != 1 }}
