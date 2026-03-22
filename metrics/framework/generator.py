@@ -147,6 +147,7 @@ Reply with ONLY a JSON object (no markdown fences):
 IMPORTANT:
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
 - Include all necessary imports at the top of the code.
+- Only these top-level modules are allowed: __future__, datetime, db, math, metrics, numpy, pandas, sqlalchemy, statistics. Any other import will be rejected.
 - Import MetricDefinition and MetricResult from metrics.framework.base.
 - Import DB models from db.models.
 - Do NOT include register() call — the system handles registration.
