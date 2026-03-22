@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import BLOB, DATE, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, create_engine
+from sqlalchemy import BLOB, DATE, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import declarative_base
 
 from db.config import get_database_url
@@ -69,8 +69,19 @@ class Award(Base):
     player_id = Column(String(50), ForeignKey('Player.player_id'), nullable=True)
     team_id = Column(String(50), ForeignKey('Team.team_id'), nullable=True)
     notes = Column(Text, nullable=True)
+    entity_key = Column(
+        String(64),
+        Computed(
+            "CASE WHEN player_id IS NOT NULL THEN CONCAT('P:', player_id) "
+            "WHEN team_id IS NOT NULL THEN CONCAT('T:', team_id) "
+            "ELSE NULL END",
+            persisted=True,
+        ),
+        nullable=True,
+    )
 
     __table_args__ = (
+        UniqueConstraint('award_type', 'season', 'entity_key', name='uq_Award_type_season_entity'),
         Index('ix_Award_type_season', 'award_type', 'season'),
         Index('ix_Award_player_type', 'player_id', 'award_type'),
         Index('ix_Award_team_type', 'team_id', 'award_type'),

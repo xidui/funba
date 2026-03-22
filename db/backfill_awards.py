@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from requests.exceptions import ConnectionError, Timeout
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import sessionmaker
 from tenacity import (
     RetryError,
@@ -329,20 +329,28 @@ def _scoring_champion_seeds(target_seasons: list[int]) -> list[AwardSeed]:
 
 
 def _upsert_award(session, seed: AwardSeed, dry_run: bool = False) -> str:
-    existing = (
-        session.query(Award)
-        .filter(
-            Award.award_type == seed.award_type,
-            Award.season == seed.season,
-            Award.player_id.is_(seed.player_id) if seed.player_id is None else Award.player_id == seed.player_id,
-            Award.team_id.is_(seed.team_id) if seed.team_id is None else Award.team_id == seed.team_id,
-        )
-        .first()
-    )
+    filters = [
+        Award.award_type == seed.award_type,
+        Award.season == seed.season,
+    ]
+    if seed.player_id is not None:
+        filters.append(Award.player_id == seed.player_id)
+    else:
+        filters.append(Award.player_id.is_(None))
+        filters.append(Award.team_id.is_(seed.team_id) if seed.team_id is None else Award.team_id == seed.team_id)
+
+    existing = session.query(Award).filter(*filters).first()
     if existing:
-        if seed.notes and existing.notes != seed.notes:
+        updated = False
+        if seed.team_id is not None and existing.team_id != seed.team_id:
+            if not dry_run:
+                existing.team_id = seed.team_id
+            updated = True
+        if seed.notes is not None and existing.notes != seed.notes:
             if not dry_run:
                 existing.notes = seed.notes
+            updated = True
+        if updated:
             return "updated"
         return "skipped"
 
@@ -357,6 +365,12 @@ def _upsert_award(session, seed: AwardSeed, dry_run: bool = False) -> str:
             )
         )
     return "inserted"
+
+
+def _award_identity(seed: AwardSeed) -> tuple[str, int, str | None, str | None]:
+    if seed.player_id is not None:
+        return (seed.award_type, seed.season, seed.player_id, None)
+    return (seed.award_type, seed.season, None, seed.team_id)
 
 
 def _parse_season_arg(value: str | None) -> int | None:
@@ -388,10 +402,7 @@ def run(*, dry_run: bool = False, only_season: int | None = None) -> dict[str, i
         logger.info("Fetching scoring champions for %s seasons", len(target_seasons))
         seeds.extend(_scoring_champion_seeds(target_seasons))
 
-        deduped = {
-            (seed.award_type, seed.season, seed.player_id, seed.team_id): seed
-            for seed in seeds
-        }
+        deduped = {_award_identity(seed): seed for seed in seeds}
         ordered = sorted(
             deduped.values(),
             key=lambda seed: (

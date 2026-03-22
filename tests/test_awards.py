@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -64,6 +66,14 @@ def _import_web_helpers():
 
 
 class TestAwardsBackfillHelpers(unittest.TestCase):
+    def _make_session(self):
+        from db.models import Base
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        SessionLocal = sessionmaker(bind=engine)
+        return SessionLocal()
+
     def test_season_text_to_award_season_supports_api_and_db_formats(self):
         from db.backfill_awards import _season_text_to_award_season
 
@@ -114,6 +124,65 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
         self.assertEqual(all_nba_seed.season, 22020)
         self.assertEqual(mvp_seed.award_type, "mvp")
         self.assertEqual(mvp_seed.season, 22015)
+
+    def test_upsert_award_matches_player_awards_by_player_key(self):
+        from db.backfill_awards import AwardSeed, _upsert_award
+        from db.models import Award
+
+        with self._make_session() as session:
+            session.add(Award(award_type="mvp", season=22015, player_id="201939", team_id=None, notes=None))
+            session.commit()
+
+            action = _upsert_award(
+                session,
+                AwardSeed(
+                    award_type="mvp",
+                    season=22015,
+                    player_id="201939",
+                    team_id="1610612744",
+                    notes="Unanimous MVP",
+                ),
+            )
+            session.flush()
+
+            stored = session.query(Award).filter_by(award_type="mvp", season=22015, player_id="201939").one()
+            self.assertEqual(action, "updated")
+            self.assertEqual(session.query(Award).count(), 1)
+            self.assertEqual(stored.team_id, "1610612744")
+            self.assertEqual(stored.notes, "Unanimous MVP")
+
+    def test_upsert_award_matches_team_awards_by_team_key(self):
+        from db.backfill_awards import AwardSeed, _upsert_award
+        from db.models import Award
+
+        with self._make_session() as session:
+            session.add(
+                Award(
+                    award_type="champion",
+                    season=22022,
+                    player_id=None,
+                    team_id="1610612744",
+                    notes="Final game: 0042200610",
+                )
+            )
+            session.commit()
+
+            action = _upsert_award(
+                session,
+                AwardSeed(
+                    award_type="champion",
+                    season=22022,
+                    player_id=None,
+                    team_id="1610612744",
+                    notes="Final game: 0042200611",
+                ),
+            )
+            session.flush()
+
+            stored = session.query(Award).filter_by(award_type="champion", season=22022, team_id="1610612744").one()
+            self.assertEqual(action, "updated")
+            self.assertEqual(session.query(Award).count(), 1)
+            self.assertEqual(stored.notes, "Final game: 0042200611")
 
 
 class TestAwardsDisplayHelpers(unittest.TestCase):
