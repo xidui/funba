@@ -257,7 +257,12 @@
     </div>
     <div class="catalog-desc">{{ m.description }}</div>
     <div class="catalog-footer">
-      <div class="catalog-category">{{ m.category }}</div>
+      <div class="catalog-category">
+        {{ m.category }}
+        {% if m.created_by %}
+        <span style="font-size:10px;color:var(--accent);font-weight:600;margin-left:6px;">by {{ m.created_by }}</span>
+        {% endif %}
+      </div>
       <div class="catalog-count">
         {% if m.result_count > 0 %}
           <span>{{ m.result_count }}</span> result{{ 's' if m.result_count != 1 }}
