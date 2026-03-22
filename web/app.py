@@ -2128,14 +2128,25 @@ def games_list():
             key=_season_sort_key, reverse=True,
         )
         selected_season = request.args.get("season") or (all_season_ids[0] if all_season_ids else None)
+        selected_team = (request.args.get("team") or "").strip() or None
         try:
             page = max(1, int(request.args.get("page", 1)))
         except ValueError:
             page = 1
 
+        all_teams = (
+            session.query(Team)
+            .filter(Team.active.is_(True))
+            .order_by(Team.full_name.asc(), Team.abbr.asc())
+            .all()
+        )
         games_q = session.query(Game).filter(Game.game_date.isnot(None))
         if selected_season:
             games_q = games_q.filter(Game.season == selected_season)
+        if selected_team:
+            games_q = games_q.filter(
+                or_(Game.home_team_id == selected_team, Game.road_team_id == selected_team)
+            )
         games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
 
         total = games_q.count()
@@ -2144,13 +2155,19 @@ def games_list():
         games = games_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
         team_lookup = _team_map(session)
+        selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
+        if selected_team_obj is None and selected_team:
+            selected_team_obj = team_lookup.get(selected_team)
 
     return render_template(
         "games_list.html",
         games=games,
         team_lookup=team_lookup,
+        all_teams=all_teams,
         all_season_ids=all_season_ids,
         selected_season=selected_season,
+        selected_team=selected_team,
+        selected_team_obj=selected_team_obj,
         fmt_date=_fmt_date,
         fmt_season=_season_label,
         page=page,

@@ -10,6 +10,13 @@
     margin-bottom: 18px;
   }
 
+  .games-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
   .season-select {
     appearance: none;
     background: var(--surface-2);
@@ -51,12 +58,42 @@
   }
 
   .game-team {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-weight: 600;
     font-size: 13px;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .game-team.right {
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .game-team-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .game-team-logo {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    flex-shrink: 0;
+    vertical-align: middle;
+  }
+
+  .game-team-note {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
   .game-team.winner { color: var(--heading); }
   .game-team.loser  { color: var(--muted-2); }
 
@@ -120,15 +157,37 @@
   .page-ellipsis { color: var(--muted); font-size: 13px; padding: 0 4px; }
 </style>
 
+<script>
+  function applyGamesFilters() {
+    const params = new URLSearchParams();
+    const season = document.getElementById('games-season-select').value;
+    const team = document.getElementById('games-team-select').value;
+    if (season) params.set('season', season);
+    if (team) params.set('team', team);
+    const query = params.toString();
+    window.location.href = '/games' + (query ? '?' + query : '');
+  }
+</script>
+
 <div class="games-header">
   <h1 style="margin:0;">Games</h1>
-  <select class="season-select" onchange="location.href='/games?season='+this.value">
-    {% for sid in all_season_ids %}
-    <option value="{{ sid }}" {% if sid == selected_season %}selected{% endif %}>
-      {{ fmt_season(sid) }}
-    </option>
-    {% endfor %}
-  </select>
+  <div class="games-filters">
+    <select id="games-team-select" class="season-select" onchange="applyGamesFilters()">
+      <option value="">All Teams</option>
+      {% for team in all_teams %}
+      <option value="{{ team.team_id }}" {% if team.team_id == selected_team %}selected{% endif %}>
+        {{ team.abbr }} — {{ team.full_name }}
+      </option>
+      {% endfor %}
+    </select>
+    <select id="games-season-select" class="season-select" onchange="applyGamesFilters()">
+      {% for sid in all_season_ids %}
+      <option value="{{ sid }}" {% if sid == selected_season %}selected{% endif %}>
+        {{ fmt_season(sid) }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
 </div>
 
 <div class="card">
@@ -144,8 +203,18 @@
     <a class="game-row" href="{{ url_for('game_page', game_id=game.game_id) }}">
       <span class="game-row-date">{{ fmt_date(game.game_date) }}</span>
       <span class="game-team {{ 'winner' if road_won else ('loser' if home_won else '') }}">
-        {{ road.abbr if road else (game.road_team_id or '-') }}
-        <span style="font-weight:400;color:var(--muted);font-size:11px;"> Away</span>
+        {% if road and road.team_id %}
+        <img
+          class="game-team-logo"
+          src="https://cdn.nba.com/logos/nba/{{ road.team_id }}/global/L/logo.svg"
+          alt="{{ road.full_name }} logo"
+          loading="lazy"
+          onerror="this.style.display='none'">
+        {% endif %}
+        <span class="game-team-main">
+          {{ road.abbr if road else (game.road_team_id or '-') }}
+          <span class="game-team-note">Away</span>
+        </span>
       </span>
       <span class="game-score-block">
         <span class="game-score {{ 'winner' if road_won else ('loser' if home_won else '') }}">
@@ -156,21 +225,37 @@
           {{ home_score if home_score is not none else '—' }}
         </span>
       </span>
-      <span class="game-team {{ 'winner' if home_won else ('loser' if road_won else '') }}" style="text-align:right;">
-        <span style="font-weight:400;color:var(--muted);font-size:11px;">Home </span>
-        {{ home.abbr if home else (game.home_team_id or '-') }}
+      <span class="game-team right {{ 'winner' if home_won else ('loser' if road_won else '') }}">
+        <span class="game-team-main">
+          {{ home.abbr if home else (game.home_team_id or '-') }}
+          <span class="game-team-note">Home</span>
+        </span>
+        {% if home and home.team_id %}
+        <img
+          class="game-team-logo"
+          src="https://cdn.nba.com/logos/nba/{{ home.team_id }}/global/L/logo.svg"
+          alt="{{ home.full_name }} logo"
+          loading="lazy"
+          onerror="this.style.display='none'">
+        {% endif %}
       </span>
       <span class="game-row-type">{{ season_label(game.season) }}</span>
     </a>
     {% endfor %}
   </div>
   {% else %}
-  <p class="meta">No games found for this season.</p>
+  <p class="meta">
+    {% if selected_team_obj %}
+    No games found for {{ selected_team_obj.full_name }} in this season.
+    {% else %}
+    No games found for this season.
+    {% endif %}
+  </p>
   {% endif %}
 </div>
 
 {% if total_pages > 1 %}
-{% macro page_url(p) %}{{ url_for('games_list', season=selected_season, page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('games_list', season=selected_season, team=selected_team, page=p) }}{% endmacro %}
 <div class="pagination">
   <a class="page-btn {{ 'disabled' if page == 1 }}" href="{{ page_url(page - 1) }}">&#8592;</a>
 
