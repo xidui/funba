@@ -1049,7 +1049,9 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     """
     import json
     from sqlalchemy import func
-    from metrics.framework.base import CAREER_SEASON
+    from metrics.framework.base import CAREER_SEASON, CAREER_SEASON_PREFIX, is_career_season, SEASON_TYPE_TO_CAREER
+
+    _CAREER_TYPE_LABEL = {"all_regular": "Regular Season", "all_playoffs": "Playoffs", "all_playin": "Play-In"}
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
     _asc_keys = _asc_metric_keys(session)
@@ -1058,7 +1060,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     # Inner subquery: compute rank and total over the full population for
     # each (metric_key, season) group, filtered to this entity_type.
     season_filter = (
-        (MetricResultModel.season == season) | (MetricResultModel.season == CAREER_SEASON)
+        (MetricResultModel.season == season) | (MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
         if season
         else None
     )
@@ -1139,15 +1141,22 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "career_total": None,
             "career_is_notable": False,
         }
-        if r.metric_key.endswith("_career") or r.season == CAREER_SEASON:
+        if r.metric_key.endswith("_career") or is_career_season(r.season):
+            entry["career_type"] = r.season
+            entry["career_type_label"] = _CAREER_TYPE_LABEL.get(r.season, "Career")
             alltime_metrics.append(entry)
         else:
             season_metrics.append(entry)
 
-    # Attach career rank to each season entry so cards can show both at once
-    career_by_base = {
-        e["metric_key"].removesuffix("_career"): e for e in alltime_metrics
-    }
+    # Attach career rank to each season entry so cards can show both at once.
+    # Match career bucket to the current season's type.
+    current_type = season[0] if season and len(season) == 5 and season.isdigit() else None
+    matching_career_season = SEASON_TYPE_TO_CAREER.get(current_type) if current_type else None
+    career_by_base = {}
+    for e in alltime_metrics:
+        if matching_career_season and e.get("career_type") != matching_career_season:
+            continue
+        career_by_base[e["metric_key"].removesuffix("_career")] = e
     for entry in season_metrics:
         entry["all_games_rank"] = None
         entry["all_games_total"] = None
@@ -3664,6 +3673,42 @@ def api_metric_publish(metric_key: str):
     return jsonify({"ok": True, "key": dispatch_key, "status": "published"})
 
 
+@app.get("/api/metrics/<metric_key>/qualifying-games")
+@limiter.limit("30 per minute")
+def api_qualifying_games(metric_key: str):
+    """List games where an entity met the qualifying criteria for a metric."""
+    entity_id = request.args.get("entity_id")
+    season = request.args.get("season")
+    if not entity_id:
+        return jsonify({"ok": False, "error": "entity_id is required"}), 400
+    page = max(1, int(request.args.get("page", 1) or 1))
+    page_size = 50
+    with SessionLocal() as session:
+        q = session.query(MetricRunLog, Game).join(
+            Game, MetricRunLog.game_id == Game.game_id,
+        ).filter(
+            MetricRunLog.metric_key == metric_key,
+            MetricRunLog.entity_id == entity_id,
+            MetricRunLog.qualified == True,
+        )
+        if season:
+            q = q.filter(MetricRunLog.season == season)
+        total = q.count()
+        rows = q.order_by(Game.game_date.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        team_map = _team_map(session)
+        games = []
+        for log, game in rows:
+            games.append({
+                "game_id": game.game_id,
+                "game_date": game.game_date.isoformat() if game.game_date else None,
+                "season": game.season,
+                "home_team": _team_abbr(team_map, game.home_team_id),
+                "road_team": _team_abbr(team_map, game.road_team_id),
+                "delta": json.loads(log.delta_json) if log.delta_json else None,
+            })
+        return jsonify({"ok": True, "total": total, "page": page, "games": games})
+
+
 @app.get("/api/metrics/<metric_key>/backfill-status")
 def api_metric_backfill_status(metric_key: str):
     with SessionLocal() as session:
@@ -3833,7 +3878,9 @@ def _resolve_entity_labels(session, rows):
 @app.route("/metrics/<metric_key>")
 def metric_detail(metric_key: str):
     import json
-    from metrics.framework.base import CAREER_SEASON
+    from metrics.framework.base import CAREER_SEASON, is_career_season
+
+    _CAREER_SEASON_LABELS = {"all_regular": "Regular Season", "all_playoffs": "Playoffs", "all_playin": "Play-In"}
 
     # Season filter — "all_X" for type-specific cross-season, "all" legacy → regular season
     selected_season = request.args.get("season", "")
@@ -3883,12 +3930,20 @@ def metric_detail(metric_key: str):
         season_values = [r.season for r in season_rows]
         if is_career_metric:
             show_all_seasons = False
-            selected_season = CAREER_SEASON
-            season_options = []
-            season_groups = []
+            career_season_options = sorted([s for s in season_values if is_career_season(s)])
+            if not selected_season or selected_season not in career_season_options:
+                selected_season = "all_regular" if "all_regular" in career_season_options else (career_season_options[0] if career_season_options else "all_regular")
+            season_options = career_season_options
+            season_groups = [{
+                "type_code": "career",
+                "type_name": "Career",
+                "type_name_plural": "Career",
+                "all_value": None,
+                "seasons": [{"value": s, "label": _CAREER_SEASON_LABELS.get(s, s)} for s in career_season_options],
+            }]
         else:
             season_options = sorted(
-                [s for s in season_values if s != CAREER_SEASON],
+                [s for s in season_values if not is_career_season(s) and s != CAREER_SEASON],
                 key=_season_sort_key,
                 reverse=True,
             )

@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
-from metrics.framework.base import CAREER_SEASON, MetricResult, merge_totals, subtract_delta
+from metrics.framework.base import CAREER_SEASON, MetricResult, career_season_for, merge_totals, subtract_delta
 from metrics.framework.runtime import get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def _log_run(
     season: str,
     delta: dict | None,
     produced: bool,
+    qualified: bool | None = None,
 ) -> None:
     from sqlalchemy.dialects.mysql import insert
 
@@ -92,11 +93,13 @@ def _log_run(
         computed_at=datetime.utcnow(),
         produced_result=produced,
         delta_json=json.dumps(delta) if delta is not None else None,
+        qualified=qualified,
     )
     stmt = stmt.on_duplicate_key_update(
         computed_at=stmt.inserted.computed_at,
         produced_result=stmt.inserted.produced_result,
         delta_json=stmt.inserted.delta_json,
+        qualified=stmt.inserted.qualified,
     )
     session.execute(stmt)
 
@@ -206,8 +209,13 @@ def run_for_game(
                          entity_id or "", season, None, bool(result_list))
             continue
 
-        # Incremental path — career metrics accumulate in CAREER_SEASON bucket
-        bucket_season = CAREER_SEASON if metric_def.career else season
+        # Incremental path — career metrics accumulate per season type
+        if metric_def.career:
+            bucket_season = career_season_for(season)
+            if bucket_season is None:
+                continue  # skip preseason / all-star for career
+        else:
+            bucket_season = season
 
         for entity_type, entity_id in targets:
             try:
@@ -250,7 +258,8 @@ def run_for_game(
                 ))
 
             _log_run(session, game_id, metric_def.key, entity_type,
-                     entity_id or "", bucket_season, delta, result is not None)
+                     entity_id or "", bucket_season, delta, result is not None,
+                     qualified=metric_def.is_qualifying(delta))
 
     if commit:
         session.commit()
@@ -316,7 +325,15 @@ def run_for_game_single_metric(
             _log_run(session, game_id, metric_def.key, entity_type,
                      entity_id or "", season, None, bool(result_list))
     else:
-        bucket_season = CAREER_SEASON if metric_def.career else season
+        if metric_def.career:
+            bucket_season = career_season_for(season)
+            if bucket_season is None:
+                # skip preseason / all-star for career
+                if commit:
+                    session.commit()
+                return results
+        else:
+            bucket_season = season
 
         for entity_type, entity_id in targets:
             try:
@@ -372,7 +389,8 @@ def run_for_game_single_metric(
                 ))
 
             _log_run(session, game_id, metric_def.key, entity_type,
-                     entity_id or "", bucket_season, delta, result is not None)
+                     entity_id or "", bucket_season, delta, result is not None,
+                     qualified=metric_def.is_qualifying(delta))
 
     if commit:
         session.commit()

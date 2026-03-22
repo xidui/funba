@@ -28,7 +28,7 @@ def derive_career_name(name: str, suffix: str = " (Career)") -> str:
 
 def derive_career_description(description: str) -> str:
     base_description = (description or "").strip()
-    suffix = "Computed across all seasons."
+    suffix = "Computed across seasons of the same type (regular season, playoffs, or play-in)."
     return f"{base_description} {suffix}".strip() if base_description else suffix
 
 

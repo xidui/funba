@@ -418,6 +418,17 @@
     </optgroup>
     {% endfor %}
   </select>
+  {% elif season_groups and is_career_metric %}
+  <select class="season-select" onchange="location.href=this.value">
+    {% for group in season_groups %}
+    {% for s in group.seasons %}
+    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}"
+            {% if s.value == selected_season %}selected{% endif %}>
+      {{ s.label }}
+    </option>
+    {% endfor %}
+    {% endfor %}
+  </select>
   {% endif %}
 </div>
 

@@ -169,11 +169,16 @@
   {% endif %}
 
   {% if alltime_metrics %}
-  <h3 class="metrics-sub-title" style="margin-top:20px;">All-Time</h3>
-  <div class="metrics-grid">
-    {% for m in alltime_metrics %}
+  {% set ns = namespace(last_type="") %}
+  {% for m in alltime_metrics|sort(attribute='career_type_label') %}
+    {% if m.career_type_label != ns.last_type %}
+      {% if ns.last_type %}</div>{% endif %}
+      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }} Career</h3>
+      <div class="metrics-grid">
+      {% set ns.last_type = m.career_type_label %}
+    {% endif %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
+       href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
       <div class="metric-key">{{ m.metric_key | replace('_career','') | replace('_', ' ') | title }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
@@ -181,8 +186,8 @@
         <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Career</span>
       </div>
     </a>
-    {% endfor %}
-  </div>
+  {% endfor %}
+  {% if ns.last_type %}</div>{% endif %}
   {% endif %}
 </section>
 {% endif %}

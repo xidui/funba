@@ -6,7 +6,33 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Sentinel season value for career / cross-season aggregation
-CAREER_SEASON = "all"
+CAREER_SEASON = "all"  # deprecated — kept for backward compat
+
+# Career season split by type
+CAREER_SEASON_PREFIX = "all_"
+SEASON_TYPE_TO_CAREER = {"2": "all_regular", "4": "all_playoffs", "5": "all_playin"}
+CAREER_SEASONS = set(SEASON_TYPE_TO_CAREER.values())
+_CAREER_TO_TYPE = {v: k for k, v in SEASON_TYPE_TO_CAREER.items()}
+
+
+def career_season_for(season: str) -> str | None:
+    """Map a 5-digit season ID to its career bucket, e.g. '22025' → 'all_regular'.
+
+    Returns None for preseason (1) and all-star (3) — skip career accumulation.
+    """
+    if season and len(season) == 5 and season.isdigit():
+        return SEASON_TYPE_TO_CAREER.get(season[0])
+    return None
+
+
+def is_career_season(season: str | None) -> bool:
+    """Check if a season value is any career bucket (all_regular, all_playoffs, etc.)."""
+    return bool(season and season.startswith(CAREER_SEASON_PREFIX))
+
+
+def career_season_type_code(career_season: str) -> str | None:
+    """Reverse-map career season to type code, e.g. 'all_regular' → '2'."""
+    return _CAREER_TO_TYPE.get(career_season)
 
 
 @dataclass
@@ -49,9 +75,9 @@ class MetricDefinition(ABC):
 
     Career variants:
         Set supports_career=True on a season metric to auto-register a career
-        sibling (key + "_career") that accumulates across all seasons
-        (season=CAREER_SEASON="all"). The sibling inherits compute_delta /
-        compute_value with a higher min_sample threshold.
+        sibling (key + "_career") that accumulates per season type
+        (all_regular, all_playoffs, all_playin). The sibling inherits
+        compute_delta / compute_value with a higher min_sample threshold.
     """
     key: str
     name: str
@@ -75,6 +101,19 @@ class MetricDefinition(ABC):
     # Optional format string for context label display, e.g. "{b2b_wins}/{b2b_games} B2B".
     # Keys are interpolated from the context dict via str.format_map().
     context_label_template: str | None = None
+
+    # Qualifying drill-down: field name in delta dict to check.
+    # When set, is_qualifying(delta) returns True if delta[field] > 0.
+    qualifying_field: str | None = None
+
+    def is_qualifying(self, delta: dict | None) -> bool | None:
+        """Return True if this game's delta represents a qualifying event.
+
+        Returns None if qualifying_field is not set (drill-down not applicable).
+        """
+        if self.qualifying_field is None or delta is None:
+            return None
+        return (delta.get(self.qualifying_field, 0) or 0) > 0
 
     def compute_delta(self, session: Any, entity_id: str | None, game_id: str) -> dict | None:
         """Return this game's additive contribution to running totals.

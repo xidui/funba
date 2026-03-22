@@ -266,7 +266,7 @@ class MetricResult(Base):
     metric_key = Column(String(64), nullable=False, index=True)
     entity_type = Column(String(16), nullable=False)   # player | team | game | league
     entity_id = Column(String(50), nullable=True)      # player_id or team_id
-    season = Column(String(10), nullable=True)
+    season = Column(String(16), nullable=True)
     rank_group = Column(String(64), nullable=True)
     game_id = Column(String(20), nullable=True)
     value_num = Column(Float, nullable=True)
@@ -320,13 +320,15 @@ class MetricRunLog(Base):
     metric_key    = Column(String(64), primary_key=True)
     entity_type   = Column(String(16), primary_key=True)   # player | team | game | league
     entity_id     = Column(String(50), primary_key=True)   # player_id / team_id / game_id
-    season        = Column(String(10), primary_key=True)   # e.g. "22025" or "all" for career
+    season        = Column(String(16), primary_key=True)   # e.g. "22025" or "all_regular" for career
     computed_at   = Column(DateTime, nullable=False)
     produced_result = Column(Boolean, nullable=False, default=True)
     delta_json    = Column(Text, nullable=True)             # per-game delta for reprocessing
+    qualified     = Column(Boolean, nullable=True)          # True if entity met qualifying criteria
 
     __table_args__ = (
         Index('ix_MetricRunLog_metric_key_computed_at', 'metric_key', 'computed_at'),
+        Index('ix_MetricRunLog_qualifying', 'metric_key', 'entity_id', 'qualified'),
     )
 
 

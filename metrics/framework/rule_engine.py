@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
 from db.models import Game, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
-from metrics.framework.base import CAREER_SEASON
+from metrics.framework.base import CAREER_SEASON, is_career_season, career_season_type_code
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +260,12 @@ def _season_type_codes(season_types: list[str] | None) -> set[str] | None:
 
 
 def _apply_season_scope(q, season: str, definition: dict):
-    if season != CAREER_SEASON:
+    if is_career_season(season):
+        # Career bucket like "all_regular" — filter to that season type
+        type_code = career_season_type_code(season)
+        if type_code:
+            q = q.filter(Game.season.like(f"{type_code}%"))
+    elif season != CAREER_SEASON:
         q = q.filter(Game.season == season)
     season_codes = _season_type_codes(definition.get("season_types"))
     if season_codes:
@@ -551,7 +556,11 @@ def preview(
     team_join_col = source_spec.get("team_join_col")
     if team_join_col is not None:
         entity_q = entity_q.outerjoin(Team, team_join_col == Team.team_id)
-    preview_season = CAREER_SEASON if str(definition.get("time_scope") or "").lower() == "career" else season
+    if str(definition.get("time_scope") or "").lower() == "career":
+        from metrics.framework.base import career_season_for
+        preview_season = career_season_for(season) or "all_regular"
+    else:
+        preview_season = season
     entity_q = _apply_season_scope(entity_q, preview_season, definition)
     if scope == "player_franchise":
         entity_ids = [
