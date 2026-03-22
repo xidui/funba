@@ -1663,9 +1663,40 @@ def auth_logout():
 
 # ── Subscription routes ──────────────────────────────────────────────────────
 
+_stripe_price_cache: dict = {}  # {"amount": 900, "currency": "usd", "interval": "month", "fetched_at": ...}
+
+
+def _get_stripe_price() -> dict | None:
+    """Fetch Pro price from Stripe, cached for 1 hour."""
+    import time
+    cached = _stripe_price_cache.get("data")
+    if cached and time.time() - _stripe_price_cache.get("fetched_at", 0) < 3600:
+        return cached
+    price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
+    secret_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    if not price_id or not secret_key:
+        return None
+    try:
+        import stripe
+        stripe.api_key = secret_key
+        price = stripe.Price.retrieve(price_id)
+        data = {
+            "amount": price.unit_amount,  # cents
+            "currency": (price.currency or "usd").upper(),
+            "interval": price.recurring.interval if price.recurring else "month",
+        }
+        _stripe_price_cache["data"] = data
+        _stripe_price_cache["fetched_at"] = time.time()
+        return data
+    except Exception:
+        logger.exception("Failed to fetch Stripe price")
+        return cached  # return stale cache if available
+
+
 @app.route("/pricing")
 def pricing():
-    return render_template("pricing.html")
+    price_info = _get_stripe_price()
+    return render_template("pricing.html", price_info=price_info)
 
 
 @app.route("/account")

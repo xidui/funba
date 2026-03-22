@@ -96,7 +96,11 @@
     <div class="plan-card featured">
       <span class="plan-badge plan-badge-pro">Pro</span>
       <div class="plan-name">Analyst</div>
-      <div class="plan-price">$9<span> / month</span></div>
+      {% if price_info %}
+      <div class="plan-price">${{ (price_info.amount / 100)|int if price_info.amount % 100 == 0 else "%.2f"|format(price_info.amount / 100) }}<span> / {{ price_info.interval }}</span></div>
+      {% else %}
+      <div class="plan-price">Pro<span> / month</span></div>
+      {% endif %}
       <div class="plan-desc">Full access to every feature and all historical data.</div>
       <ul class="plan-features">
         <li>Everything in Free</li>
