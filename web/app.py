@@ -2153,7 +2153,7 @@ def games_list():
 
         all_teams = (
             session.query(Team)
-            .filter(Team.active.is_(True))
+            .filter(Team.is_legacy.is_(False))
             .order_by(Team.full_name.asc(), Team.abbr.asc())
             .all()
         )

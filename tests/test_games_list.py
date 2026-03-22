@@ -64,7 +64,7 @@ class TestGamesList(unittest.TestCase):
             road_team_id=column("road_team_id"),
         )
         self.web_app.Team = SimpleNamespace(
-            active=column("active"),
+            is_legacy=column("is_legacy"),
             full_name=column("full_name"),
             abbr=column("abbr"),
             team_id=column("team_id"),
@@ -118,6 +118,10 @@ class TestGamesList(unittest.TestCase):
         self.assertEqual(kwargs["games"], [game])
         self.assertEqual(kwargs["page"], 1)
         self.assertEqual(kwargs["total_pages"], 1)
+
+        teams_filter = teams_query.filter.call_args.args[0]
+        self.assertIn("is_legacy", str(teams_filter))
+        self.assertIn("false", str(teams_filter).lower())
 
         self.assertEqual(games_query.filter.call_count, 3)
         season_filter, team_filter = [call.args[0] for call in games_query.filter.call_args_list[1:]]
