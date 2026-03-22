@@ -225,7 +225,7 @@
     <a id="metric-create-cta-inline" class="create-cta" href="{{ url_for('pricing') }}" style="color:var(--muted-2);">Create Metric <span style="font-size:10px;color:var(--accent);">PRO</span></a>
     {% endif %}
   </div>
-  <div id="metric-search-status" class="search-status">Use plain English. If nothing fits, create a new metric from the same query.</div>
+  <div id="metric-search-status" class="search-status">Search in any language. If nothing fits, create a new metric from the same query.</div>
 </div>
 
 <div id="metric-search-results" class="search-results" style="display:none;">
@@ -331,7 +331,7 @@
     {% endif %}
     if (!query) {
       resultsWrap.style.display = 'none';
-      status.textContent = 'Use plain English. If nothing fits, create a new metric from the same query.';
+      status.textContent = 'Search in any language. If nothing fits, create a new metric from the same query.';
       return;
     }
 
