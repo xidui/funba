@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .magic-container {
+    max-width: 400px;
+    margin: 60px auto;
+    text-align: center;
+  }
+  .magic-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 32px;
+  }
+  .magic-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+  }
+  .magic-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 12px;
+  }
+  .magic-email {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .magic-hint {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 16px;
+    line-height: 1.5;
+  }
+</style>
+
+<div class="magic-container">
+  <div class="magic-card">
+    <div class="magic-icon">&#9993;</div>
+    <div class="magic-title">Check your email</div>
+    <p>We sent a login link to <span class="magic-email">{{ email }}</span></p>
+    <p class="magic-hint">Click the link in the email to sign in. The link expires in 15 minutes.<br>Don't see it? Check your spam folder.</p>
+  </div>
+</div>
+{% endblock %}
