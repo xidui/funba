@@ -211,11 +211,6 @@
       <a href="{{ url_for('metrics_browse', scope='team') }}" class="filter-chip{% if scope_filter == 'team' %} active{% endif %}">Team</a>
       <a href="{{ url_for('metrics_browse', scope='game') }}" class="filter-chip{% if scope_filter == 'game' %} active{% endif %}">Game</a>
     </div>
-    {% if is_admin or is_pro %}
-    <a href="{{ url_for('metric_new') }}" style="padding:7px 16px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700;text-decoration:none;">+ New Metric</a>
-    {% else %}
-    <a href="{{ url_for('pricing') }}" style="padding:7px 16px;border-radius:8px;background:var(--surface-3);border:1px solid var(--border-2);color:var(--muted-2);font-size:13px;font-weight:700;text-decoration:none;">+ New Metric <span style="font-size:10px;color:var(--accent);margin-left:4px;">PRO</span></a>
-    {% endif %}
   </div>
 </div>
 
