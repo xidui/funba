@@ -47,3 +47,44 @@ def test_generate_edit_mode_includes_key_and_preserves_existing_metadata():
     assert spec["scope"] == "game"
     assert spec["category"] == "record"
     assert spec["rank_order"] == "asc"
+    assert spec["responseType"] == "code"
+
+
+def test_generate_returns_clarification_payload_without_code_validation():
+    with patch.object(
+        generator,
+        "_call_llm",
+        return_value=json.dumps(
+            {
+                "responseType": "clarification",
+                "message": "min_sample is the minimum number of games required before the metric appears.",
+            }
+        ),
+    ):
+        response = generator.generate("What does min_sample do?")
+
+    assert response == {
+        "responseType": "clarification",
+        "message": "min_sample is the minimum number of games required before the metric appears.",
+    }
+
+
+def test_generate_defaults_missing_response_type_to_code():
+    with patch.object(
+        generator,
+        "_call_llm",
+        return_value=json.dumps(
+            {
+                "name": "Demo Metric",
+                "description": "Demo description.",
+                "scope": "player",
+                "category": "scoring",
+                "rank_order": "desc",
+                "code": "class Demo:\n    pass\n",
+            }
+        ),
+    ):
+        spec = generator.generate("Generate a demo metric")
+
+    assert spec["responseType"] == "code"
+    assert spec["name"] == "Demo Metric"
