@@ -24,7 +24,7 @@ def _make_app():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim", "MetricDefinition",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
         "GameLineScore",

@@ -1,3 +1,4 @@
+import importlib
 import sys
 import types
 import unittest
@@ -14,6 +15,10 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def _import_web_helpers():
+    original_db = sys.modules.get("db")
+    original_db_models = sys.modules.get("db.models")
+    original_backfill = sys.modules.get("db.backfill_nba_player_shot_detail")
+    original_line = sys.modules.get("db.backfill_nba_game_line_score")
     fake_engine = MagicMock()
 
     fake_models = types.ModuleType("db.models")
@@ -22,6 +27,7 @@ def _import_web_helpers():
         "Feedback",
         "Game",
         "GamePlayByPlay",
+        "MetricComputeRun",
         "MetricJobClaim",
         "MetricDefinition",
         "MetricResult",
@@ -62,12 +68,47 @@ def _import_web_helpers():
             del sys.modules[key]
 
     from web.app import _award_badge_label, _group_award_entries
+
+    if original_db is not None:
+        sys.modules["db"] = original_db
+    else:
+        sys.modules.pop("db", None)
+
+    if original_db_models is not None:
+        sys.modules["db.models"] = original_db_models
+    else:
+        sys.modules.pop("db.models", None)
+
+    if original_backfill is not None:
+        sys.modules["db.backfill_nba_player_shot_detail"] = original_backfill
+    else:
+        sys.modules.pop("db.backfill_nba_player_shot_detail", None)
+
+    if original_line is not None:
+        sys.modules["db.backfill_nba_game_line_score"] = original_line
+    else:
+        sys.modules.pop("db.backfill_nba_game_line_score", None)
+
     return _award_badge_label, _group_award_entries
+
+
+def _load_real_db_models():
+    sys.modules.pop("db.models", None)
+    real_models = importlib.import_module("db.models")
+    if "db" in sys.modules:
+        sys.modules["db"].models = real_models
+    return real_models
+
+
+def _load_real_backfill_awards():
+    _load_real_db_models()
+    sys.modules.pop("db.backfill_awards", None)
+    return importlib.import_module("db.backfill_awards")
 
 
 class TestAwardsBackfillHelpers(unittest.TestCase):
     def _make_session(self):
-        from db.models import Base
+        Base = _load_real_db_models().Base
 
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
@@ -126,8 +167,10 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
         self.assertEqual(mvp_seed.season, 22015)
 
     def test_upsert_award_matches_player_awards_by_player_key(self):
-        from db.backfill_awards import AwardSeed, _upsert_award
-        from db.models import Award
+        backfill_awards = _load_real_backfill_awards()
+        AwardSeed = backfill_awards.AwardSeed
+        _upsert_award = backfill_awards._upsert_award
+        Award = _load_real_db_models().Award
 
         with self._make_session() as session:
             session.add(Award(award_type="mvp", season=22015, player_id="201939", team_id=None, notes=None))
@@ -152,8 +195,10 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
             self.assertEqual(stored.notes, "Unanimous MVP")
 
     def test_upsert_award_matches_team_awards_by_team_key(self):
-        from db.backfill_awards import AwardSeed, _upsert_award
-        from db.models import Award
+        backfill_awards = _load_real_backfill_awards()
+        AwardSeed = backfill_awards.AwardSeed
+        _upsert_award = backfill_awards._upsert_award
+        Award = _load_real_db_models().Award
 
         with self._make_session() as session:
             session.add(
