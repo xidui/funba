@@ -4418,21 +4418,21 @@ def _load_admin_recent_runs_panel(session, *, recent_page: int, recent_page_size
         .filter(MetricRunLog.computed_at >= func.date_sub(func.now(), text("INTERVAL 3 DAY")))
         .order_by(MetricRunLog.computed_at.desc())
     )
-    recent_total = recent_runs_q.count()
-    recent_total_pages = max(1, (recent_total + recent_page_size - 1) // recent_page_size)
-    recent_page = min(recent_page, recent_total_pages)
     recent_runs = (
         recent_runs_q
         .offset((recent_page - 1) * recent_page_size)
-        .limit(recent_page_size)
+        .limit(recent_page_size + 1)
         .all()
     )
+    has_next = len(recent_runs) > recent_page_size
+    recent_runs = recent_runs[:recent_page_size]
     recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
 
     return {
         "recent": recent,
         "recent_page": recent_page,
-        "recent_total_pages": recent_total_pages,
+        "recent_has_prev": recent_page > 1,
+        "recent_has_next": has_next,
     }
 
 

@@ -13,12 +13,12 @@
       {% endfor %}
     </tbody>
   </table>
-  {% if recent_total_pages > 1 %}
+  {% if recent_has_prev or recent_has_next %}
   <div class="pager">
-    <span>Page {{ recent_page }} / {{ recent_total_pages }}</span>
+    <span>Page {{ recent_page }}</span>
     <div class="pager-links">
-      <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == 1 }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page - 1) }}" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
-      <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == recent_total_pages }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page + 1) }}" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
+      <a class="pager-link js-admin-pager {{ 'disabled' if not recent_has_prev }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page - 1) }}" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
+      <a class="pager-link js-admin-pager {{ 'disabled' if not recent_has_next }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page + 1) }}" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
     </div>
   </div>
   {% endif %}
