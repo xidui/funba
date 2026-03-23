@@ -4,7 +4,7 @@ Flow per task:
   ingest_game(game_id)
     1. Check what data is already present (game detail, PBP, shot records)
     2. Fetch only what's missing from NBA API
-    3. On success → fan out compute_game_metrics for every registered metric key
+    3. On success → fan out compute_game_delta for every registered metric key
 """
 from __future__ import annotations
 
@@ -218,7 +218,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 )
 
     # Step 4: fan out — only reached after all ingestion steps succeed
-    from tasks.metrics import compute_game_metrics  # local import avoids circular at module load
+    from tasks.metrics import compute_game_delta  # local import avoids circular at module load
 
     keys_to_run = (
         expand_metric_keys(metric_keys)
@@ -226,7 +226,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         else [m.key for m in get_all_metrics()]
     )
     for key in keys_to_run:
-        compute_game_metrics.apply_async(args=[game_id, key], kwargs={"force": force}, queue="metrics")
+        compute_game_delta.apply_async(args=[game_id, key], queue="metrics")
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d) → %d metric tasks enqueued.",

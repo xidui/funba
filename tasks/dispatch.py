@@ -278,6 +278,13 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_metric_backfill(args: argparse.Namespace) -> None:
+    """Enqueue Phase 1 (map) delta tasks directly to the metrics queue.
+
+    Skips the ingest queue since artifacts should already exist for backfill.
+    Use 'backfill' or 'discover' commands first if data is missing.
+    Reduce (Phase 2) is auto-triggered when the last map task completes.
+    """
+    from tasks.metrics import compute_game_delta
     from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
     if args.metric:
@@ -305,19 +312,44 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids, metric_keys)
         print(f"--force: cleared {deleted} claim(s).")
 
-    # Route through the ingest queue so artifact presence (PBP, shot detail)
-    # is verified (and fetched if missing) before metric computation runs.
+    # Enqueue delta-only tasks directly to metrics queue
+    task_count = 0
     for gid in game_ids:
-        ingest_game.apply_async(
-            args=[gid],
-            kwargs={"metric_keys": metric_keys, "force": args.force},
-            queue="ingest",
-        )
+        for key in metric_keys:
+            compute_game_delta.apply_async(args=[gid, key], queue="metrics")
+            task_count += 1
 
     print(
-        f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest "
-        f"(each will fan out {len(metric_keys)} metric(s) after artifact check)."
+        f"Enqueued {task_count} delta task(s) → Queue: metrics "
+        f"({len(game_ids)} games × {len(metric_keys)} metrics). "
+        f"Reduce will auto-trigger when each metric completes."
     )
+
+
+def cmd_metric_reduce(args: argparse.Namespace) -> None:
+    """Manually trigger Phase 2 (reduce) for metrics that have delta data."""
+    from db.models import MetricRunLog
+    from tasks.metrics import reduce_metric_season_task
+
+    sess = _session()
+    try:
+        q = sess.query(MetricRunLog.metric_key, MetricRunLog.season).distinct()
+        if args.metric:
+            q = q.filter(MetricRunLog.metric_key == args.metric)
+        if args.season:
+            q = q.filter(MetricRunLog.season.like(f"{args.season}%"))
+        pairs = q.all()
+    finally:
+        sess.close()
+
+    if not pairs:
+        print("No MetricRunLog data found for the given filters.")
+        return
+
+    for metric_key, season in pairs:
+        reduce_metric_season_task.delay(metric_key, season)
+
+    print(f"Enqueued {len(pairs)} reduce task(s) → Queue: reduce.")
 
 
 def cmd_line_backfill(args: argparse.Namespace) -> None:
@@ -383,7 +415,7 @@ def main() -> None:
     # --- metric-backfill ---
     p_mb = sub.add_parser(
         "metric-backfill",
-        help="Enqueue metric compute tasks (verifies artifacts via ingest queue first).",
+        help="Enqueue Phase 1 (map) delta tasks. Reduce auto-triggers on completion.",
     )
     p_mb.add_argument("--metric", default=None, help="Single metric key, or omit for all.")
     p_mb.add_argument("--season", help="Limit to a season prefix, e.g. 22025")
@@ -392,6 +424,15 @@ def main() -> None:
     p_mb.add_argument("--force", action="store_true",
                       help="Clear existing claims so workers recompute even completed games.")
     p_mb.set_defaults(func=cmd_metric_backfill)
+
+    # --- metric-reduce ---
+    p_mr = sub.add_parser(
+        "metric-reduce",
+        help="Manually trigger Phase 2 (reduce) for metrics with delta data.",
+    )
+    p_mr.add_argument("--metric", default=None, help="Single metric key, or omit for all.")
+    p_mr.add_argument("--season", default=None, help="Season filter, e.g. 22025 or all_regular")
+    p_mr.set_defaults(func=cmd_metric_reduce)
 
     # --- line-backfill ---
     p_lb = sub.add_parser(

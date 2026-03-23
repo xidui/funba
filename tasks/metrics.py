@@ -1,7 +1,11 @@
-"""Celery tasks for metric computation (Queue: metrics).
+"""Celery tasks for metric computation.
 
-Claim lifecycle
----------------
+Two-phase MapReduce pipeline:
+  Phase 1 (metrics queue): compute_game_delta — compute delta, write MetricRunLog only.
+  Phase 2 (reduce queue):  reduce_metric_season — aggregate deltas, write MetricResult.
+
+Claim lifecycle (Phase 1)
+-------------------------
 1. INSERT IGNORE into MetricJobClaim with status='in_progress'.
    - rowcount=1  → this worker owns the job, proceed.
    - rowcount=0  → another row exists; check its status:
@@ -10,35 +14,30 @@ Claim lifecycle
          Crashed 'in_progress' rows are cleared via --force in dispatch.
 
 2. Computation succeeds → UPDATE status='done'.
-   Future deliveries of the same task see status='done' and skip.
+   Check if all claims for this metric_key are done → auto-trigger reduce.
 
-3. Computation fails (caught exception) → DELETE claim row.
-   Celery retries the task; the retry can INSERT and claim afresh.
+3. Computation fails → DELETE claim row. Celery retries.
 
-4. Worker crash (process killed mid-task) → claim row stays 'in_progress'.
-   After _LEASE_SECONDS the next delivery auto-recovers:
-     - If MetricRunLog rows exist, work already committed → promote to done, skip.
-     - If no MetricRunLog rows, work was lost → reclaim and recompute.
+4. Worker crash → claim stays 'in_progress'.
+   After _LEASE_SECONDS the next delivery auto-recovers.
 """
 from __future__ import annotations
 
 import logging
-import random
-import time
 from datetime import datetime
 
 from celery import shared_task
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
 from db.models import MetricJobClaim, MetricRunLog, engine
-from metrics.framework.runner import run_for_game_single_metric
+from metrics.framework.runner import run_delta_only, reduce_metric
 
 logger = logging.getLogger(__name__)
 
 _STATUS_IN_PROGRESS = "in_progress"
 _STATUS_DONE = "done"
-_LEASE_SECONDS = 600  # treat in_progress claims older than 10 min as abandoned
+_LEASE_SECONDS = 600
 
 
 def _session_factory():
@@ -52,11 +51,6 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
       (True,  None)          — successfully claimed, proceed
       (False, 'done')        — already computed, skip
       (False, 'in_progress') — another worker owns it and lease is still fresh, skip
-
-    Lease timeout: if an in_progress claim is older than _LEASE_SECONDS, first
-    check whether the metric already committed its MetricRunLog rows. If so,
-    promote the stale claim to 'done' and skip safely. Otherwise reclaim it via
-    a conditional UPDATE so only one concurrent recovery worker wins.
     """
     from sqlalchemy.dialects.mysql import insert as mysql_insert
 
@@ -71,9 +65,8 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
     session.commit()
 
     if result.rowcount == 1:
-        return True, None  # we own it
+        return True, None
 
-    # Row already exists — check its status and age
     row = (
         session.query(MetricJobClaim)
         .filter(
@@ -83,20 +76,16 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
         .first()
     )
     if row is None:
-        # Race: row disappeared between INSERT and SELECT (very unlikely) — retry claim
         return _try_claim(session, game_id, metric_key, worker_id)
 
     if row.status == _STATUS_DONE:
         return False, _STATUS_DONE
 
-    # status == in_progress — check lease age
     age = (datetime.utcnow() - row.claimed_at).total_seconds()
     if age < _LEASE_SECONDS:
         return False, _STATUS_IN_PROGRESS
 
-    # Lease expired. If MetricRunLog rows already exist for this (game, metric),
-    # the prior worker committed successfully but crashed before marking the
-    # claim done. Convert the stale claim to done and skip recomputation.
+    # Lease expired — check if MetricRunLog rows exist (work committed before crash)
     existing_run = (
         session.query(MetricRunLog.game_id)
         .filter(
@@ -114,29 +103,25 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
                 MetricJobClaim.status == _STATUS_IN_PROGRESS,
                 MetricJobClaim.claimed_at == row.claimed_at,
             )
-            .update(
-                {"status": _STATUS_DONE},
-                synchronize_session=False,
-            )
+            .update({"status": _STATUS_DONE}, synchronize_session=False)
         )
         session.commit()
         if updated_done == 1:
             logger.warning(
-                "_try_claim: promoted stale in_progress claim to done for game=%s metric=%s after finding MetricRunLog rows",
+                "promoted stale claim to done: game=%s metric=%s",
                 game_id, metric_key,
             )
             return False, _STATUS_DONE
         return False, _STATUS_IN_PROGRESS
 
-    # Lease expired and no MetricRunLog rows exist — reclaim via conditional
-    # UPDATE so only one concurrent recovery worker wins.
+    # Lease expired, no MetricRunLog → reclaim
     updated = (
         session.query(MetricJobClaim)
         .filter(
             MetricJobClaim.game_id == game_id,
             MetricJobClaim.metric_key == metric_key,
             MetricJobClaim.status == _STATUS_IN_PROGRESS,
-            MetricJobClaim.claimed_at == row.claimed_at,  # exact match prevents double-reclaim
+            MetricJobClaim.claimed_at == row.claimed_at,
         )
         .update(
             {"claimed_at": datetime.utcnow(), "worker_id": worker_id},
@@ -147,11 +132,10 @@ def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[
 
     if updated == 1:
         logger.warning(
-            "_try_claim: reclaimed expired in_progress claim for game=%s metric=%s (age=%.0fs)",
+            "reclaimed expired claim: game=%s metric=%s (age=%.0fs)",
             game_id, metric_key, age,
         )
         return True, None
-    # Another worker beat us to the reclaim
     return False, _STATUS_IN_PROGRESS
 
 
@@ -164,7 +148,6 @@ def _mark_done(session, game_id: str, metric_key: str) -> None:
 
 
 def _release_claim(session, game_id: str, metric_key: str) -> None:
-    """Delete claim on failure so the next retry can reclaim."""
     session.query(MetricJobClaim).filter(
         MetricJobClaim.game_id == game_id,
         MetricJobClaim.metric_key == metric_key,
@@ -172,78 +155,119 @@ def _release_claim(session, game_id: str, metric_key: str) -> None:
     session.commit()
 
 
+def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
+    """If all claims for this metric are done, enqueue reduce tasks.
+
+    Returns list of seasons for which reduce was triggered.
+    """
+    total = (
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(MetricJobClaim.metric_key == metric_key)
+        .scalar()
+    )
+    done = (
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(
+            MetricJobClaim.metric_key == metric_key,
+            MetricJobClaim.status == _STATUS_DONE,
+        )
+        .scalar()
+    )
+    if total == 0 or done < total:
+        return []
+
+    # All done — find distinct seasons and enqueue reduce
+    seasons = [
+        r.season
+        for r in session.query(MetricRunLog.season)
+        .filter(MetricRunLog.metric_key == metric_key)
+        .distinct()
+        .all()
+    ]
+    for season in seasons:
+        reduce_metric_season_task.delay(metric_key, season)
+    logger.info(
+        "auto-triggered reduce for metric=%s (%d seasons): %s",
+        metric_key, len(seasons), seasons,
+    )
+    return seasons
+
+
+# ── Phase 1: Map (metrics queue) ─────────────────────────────────────────────
+
 @shared_task(
     bind=True,
-    name="tasks.metrics.compute_game_metrics",
+    name="tasks.metrics.compute_game_delta",
     max_retries=3,
     default_retry_delay=10,
     queue="metrics",
 )
-def compute_game_metrics(self, game_id: str, metric_key: str, force: bool = False) -> dict:
-    """Compute one metric for one game and persist MetricResult + MetricRunLog."""
+def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
+    """Phase 1: compute delta for one (game, metric) and write MetricRunLog only."""
     SessionLocal = _session_factory()
 
     with SessionLocal() as session:
         owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
 
     if not owned:
-        logger.info(
-            "compute_game_metrics: game=%s metric=%s status=%s — skipping.",
-            game_id, metric_key, existing_status,
-        )
         return {
             "game_id": game_id,
             "metric_key": metric_key,
-            "results_written": 0,
             "skipped": True,
             "reason": existing_status,
         }
 
-    # We own the claim — compute, then update status or release on failure
     try:
-        results = _compute_with_deadlock_retry(SessionLocal, game_id, metric_key, force=force)
+        with SessionLocal() as session:
+            produced = run_delta_only(session, game_id, metric_key, commit=True)
     except Exception as exc:
-        # Release claim so retry (or future dispatch) can reclaim
         with SessionLocal() as session:
             _release_claim(session, game_id, metric_key)
         logger.error(
-            "compute_game_metrics: game=%s metric=%s failed, claim released: %s",
+            "compute_game_delta: game=%s metric=%s failed: %s",
             game_id, metric_key, exc, exc_info=True,
         )
         raise self.retry(exc=exc, countdown=10)
 
-    # Mark done — future duplicate deliveries will skip
     with SessionLocal() as session:
         _mark_done(session, game_id, metric_key)
+        triggered_seasons = _maybe_trigger_reduce(session, metric_key)
 
-    logger.info(
-        "compute_game_metrics: game=%s metric=%s produced %d results.",
-        game_id, metric_key, len(results),
-    )
     return {
         "game_id": game_id,
         "metric_key": metric_key,
-        "results_written": len(results),
+        "produced": produced,
+        "reduce_triggered": triggered_seasons,
     }
 
 
-def _compute_with_deadlock_retry(SessionLocal, game_id: str, metric_key: str, force: bool = False) -> list:
-    for attempt in range(3):
-        try:
-            with SessionLocal() as session:
-                # READ COMMITTED prevents gap locks on MetricResult, eliminating the
-                # supremum-lock deadlock caused by concurrent SELECT FOR UPDATE on
-                # non-existent rows followed by INSERT.
-                session.execute(__import__("sqlalchemy").text("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED"))
-                return run_for_game_single_metric(session, game_id, metric_key, commit=True, force=force)
-        except OperationalError as exc:
-            if "1213" in str(exc) and attempt < 2:
-                wait = 0.5 * (attempt + 1) + random.random()
-                logger.warning(
-                    "compute_game_metrics: deadlock on %s/%s, retrying in %.1fs (attempt %d)…",
-                    game_id, metric_key, wait, attempt + 1,
-                )
-                time.sleep(wait)
-            else:
-                raise
-    return []  # unreachable, but satisfies type checker
+# ── Phase 2: Reduce (reduce queue) ───────────────────────────────────────────
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.reduce_metric_season",
+    max_retries=2,
+    default_retry_delay=30,
+    queue="reduce",
+)
+def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
+    """Phase 2: aggregate all deltas for (metric_key, season) → write MetricResults."""
+    SessionLocal = _session_factory()
+
+    try:
+        with SessionLocal() as session:
+            count = reduce_metric(session, metric_key, season, commit=True)
+    except Exception as exc:
+        logger.error(
+            "reduce_metric_season: metric=%s season=%s failed: %s",
+            metric_key, season, exc, exc_info=True,
+        )
+        raise self.retry(exc=exc, countdown=30)
+
+    return {
+        "metric_key": metric_key,
+        "season": season,
+        "results_written": count,
+    }

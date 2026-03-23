@@ -329,6 +329,7 @@ class MetricRunLog(Base):
     __table_args__ = (
         Index('ix_MetricRunLog_metric_key_computed_at', 'metric_key', 'computed_at'),
         Index('ix_MetricRunLog_qualifying', 'metric_key', 'entity_id', 'qualified'),
+        Index('ix_MetricRunLog_reduce', 'metric_key', 'season', 'entity_type', 'entity_id'),
     )
 
 
