@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-from db.models import Setting
-
 AVAILABLE_LLM_MODELS = ("gpt-5.4", "claude-sonnet-4-6")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
 
@@ -22,6 +20,12 @@ _PROVIDER_LABEL = {
     "openai": "OpenAI",
     "anthropic": "Anthropic",
 }
+
+
+def _setting_model():
+    from db import models as db_models
+
+    return getattr(db_models, "Setting", None)
 
 
 def available_llm_models() -> list[str]:
@@ -63,7 +67,11 @@ def env_default_llm_model() -> str | None:
 
 
 def get_stored_default_llm_model(session) -> str | None:
-    row = session.get(Setting, DEFAULT_LLM_MODEL_SETTING_KEY)
+    setting_model = _setting_model()
+    if setting_model is None:
+        return None
+
+    row = session.get(setting_model, DEFAULT_LLM_MODEL_SETTING_KEY)
     if row is None:
         return None
     value = str(row.value or "").strip()
@@ -96,9 +104,13 @@ def resolve_llm_model(session, requested_model: str | None = None) -> str:
 
 def set_default_llm_model(session, model: str) -> str:
     normalized = ensure_model_available(model)
-    row = session.get(Setting, DEFAULT_LLM_MODEL_SETTING_KEY)
+    setting_model = _setting_model()
+    if setting_model is None:
+        raise RuntimeError("Setting model is unavailable")
+
+    row = session.get(setting_model, DEFAULT_LLM_MODEL_SETTING_KEY)
     if row is None:
-        row = Setting(
+        row = setting_model(
             key=DEFAULT_LLM_MODEL_SETTING_KEY,
             value=normalized,
             updated_at=datetime.utcnow(),
