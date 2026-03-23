@@ -6,10 +6,15 @@ metric code can call them instead of reimplementing the logic each time.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from db.models import Game, GameLineScore, GamePlayByPlay, Team
+from db.models import Game, GameLineScore, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
+
+
+def _metric_helper_cache(session: Session) -> dict:
+    return session.info.setdefault("_metric_helper_cache", {})
 
 
 def _game_line_score_rows(session: Session, game_id: str) -> list[GameLineScore]:
@@ -18,6 +23,142 @@ def _game_line_score_rows(session: Session, game_id: str) -> list[GameLineScore]
         .filter(GameLineScore.game_id == game_id)
         .all()
     )
+
+
+def game_row(session: Session, game_id: str) -> Game | None:
+    """Return the Game row for one game, cached per Session/game."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("game_row", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    row = session.query(Game).filter(Game.game_id == game_id).one_or_none()
+    cache[cache_key] = row
+    return row
+
+
+def _player_game_stats_by_game(session: Session, game_id: str) -> dict[str, PlayerGameStats]:
+    cache = _metric_helper_cache(session)
+    cache_key = ("player_game_stats_by_game", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = (
+        session.query(PlayerGameStats)
+        .filter(
+            PlayerGameStats.game_id == game_id,
+            PlayerGameStats.player_id.isnot(None),
+        )
+        .all()
+    )
+    result = {str(row.player_id): row for row in rows if row.player_id is not None}
+    cache[cache_key] = result
+    return result
+
+
+def player_game_stat(session: Session, game_id: str, player_id: str) -> PlayerGameStats | None:
+    """Return the PlayerGameStats row for one player in a game, cached per Session/game."""
+    return _player_game_stats_by_game(session, game_id).get(str(player_id))
+
+
+def team_player_stats(session: Session, game_id: str, team_id: str) -> list[PlayerGameStats]:
+    """Return PlayerGameStats rows for one team in a game, cached per Session/game."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("team_player_stats", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is None:
+        grouped: dict[str, list[PlayerGameStats]] = defaultdict(list)
+        for row in _player_game_stats_by_game(session, game_id).values():
+            if row.team_id is not None:
+                grouped[str(row.team_id)].append(row)
+        cached = dict(grouped)
+        cache[cache_key] = cached
+    return cached.get(str(team_id), [])
+
+
+def _team_game_stats_by_game(session: Session, game_id: str) -> dict[str, TeamGameStats]:
+    cache = _metric_helper_cache(session)
+    cache_key = ("team_game_stats_by_game", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = (
+        session.query(TeamGameStats)
+        .filter(
+            TeamGameStats.game_id == game_id,
+            TeamGameStats.team_id.isnot(None),
+        )
+        .all()
+    )
+    result = {str(row.team_id): row for row in rows if row.team_id is not None}
+    cache[cache_key] = result
+    return result
+
+
+def team_game_stat(session: Session, game_id: str, team_id: str) -> TeamGameStats | None:
+    """Return the TeamGameStats row for one team in a game, cached per Session/game."""
+    return _team_game_stats_by_game(session, game_id).get(str(team_id))
+
+
+def _attempted_shots_by_game(session: Session, game_id: str) -> dict[str, list[ShotRecord]]:
+    cache = _metric_helper_cache(session)
+    cache_key = ("attempted_shots_by_game", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = (
+        session.query(ShotRecord)
+        .filter(
+            ShotRecord.game_id == game_id,
+            ShotRecord.player_id.isnot(None),
+            ShotRecord.shot_attempted.is_(True),
+        )
+        .order_by(
+            ShotRecord.player_id.asc(),
+            ShotRecord.period.asc(),
+            ShotRecord.min.desc(),
+            ShotRecord.sec.desc(),
+            ShotRecord.id.asc(),
+        )
+        .all()
+    )
+    grouped: dict[str, list[ShotRecord]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row.player_id)].append(row)
+    result = dict(grouped)
+    cache[cache_key] = result
+    return result
+
+
+def player_attempted_shots(session: Session, game_id: str, player_id: str) -> list[ShotRecord]:
+    """Return attempted shots for one player in a game, cached per Session/game."""
+    return _attempted_shots_by_game(session, game_id).get(str(player_id), [])
+
+
+def game_pbp_rows(session: Session, game_id: str) -> list[GamePlayByPlay]:
+    """Return all play-by-play rows for a game, cached per Session/game."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("game_pbp_rows", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = (
+        session.query(GamePlayByPlay)
+        .filter(GamePlayByPlay.game_id == game_id)
+        .order_by(
+            GamePlayByPlay.period.asc(),
+            GamePlayByPlay.event_num.asc(),
+            GamePlayByPlay.id.asc(),
+        )
+        .all()
+    )
+    cache[cache_key] = rows
+    return rows
 
 
 def _line_score_period_map(row: GameLineScore) -> dict[int, int]:

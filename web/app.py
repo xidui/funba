@@ -519,10 +519,12 @@ def _code_metric_metadata_from_code(
     expected_key: str | None = None,
     rank_order_override: str | None = None,
 ) -> dict:
+    from metrics.framework.code_optimizer import optimize_metric_code
     from metrics.framework.runtime import load_code_metric
 
     normalized_code = _normalize_code_metric_key(code_python, expected_key)
     normalized_code = _normalize_code_metric_rank_order(normalized_code, rank_order_override)
+    normalized_code = optimize_metric_code(normalized_code)
     metric = load_code_metric(normalized_code)
     metadata = {
         "key": metric.key,

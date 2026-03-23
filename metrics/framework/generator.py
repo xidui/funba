@@ -104,10 +104,40 @@ MetricResult(
 
 ## Helper functions (import from metrics.helpers)
 
-These are available for use — especially recommended for PBP score parsing:
+These are available for use and are preferred over direct per-entity `session.query(...)`
+calls inside `compute_delta()`. They cache per-game data on the SQLAlchemy Session so a
+single game's source rows are loaded once and reused across entities/metrics.
 
 ```python
-from metrics.helpers import get_quarter_scores, get_half_scores, team_abbr
+from metrics.helpers import (
+    game_pbp_rows,
+    game_row,
+    get_half_scores,
+    get_quarter_scores,
+    player_attempted_shots,
+    player_game_stat,
+    team_abbr,
+    team_game_stat,
+    team_player_stats,
+)
+
+# game_row(session, game_id) -> Game | None
+# Use this instead of session.query(Game)...filter(Game.game_id == game_id)
+
+# player_game_stat(session, game_id, player_id) -> PlayerGameStats | None
+# Use this instead of querying PlayerGameStats per player/game inside compute_delta().
+
+# team_player_stats(session, game_id, team_id) -> list[PlayerGameStats]
+# Use this for team metrics that need all player rows from one team's game.
+
+# team_game_stat(session, game_id, team_id) -> TeamGameStats | None
+# Use this instead of querying TeamGameStats per team/game inside compute_delta().
+
+# player_attempted_shots(session, game_id, player_id) -> list[ShotRecord]
+# Returns all attempted shots for one player in one game, cached per game.
+
+# game_pbp_rows(session, game_id) -> list[GamePlayByPlay]
+# Returns all PBP rows for one game, cached per game.
 
 # get_quarter_scores(session, game_id) -> list[dict]
 # Returns per-quarter per-team points:
@@ -162,6 +192,10 @@ CRITICAL — PBP score parsing:
 - To get single-quarter points, you MUST subtract the previous quarter's end score.
 - The score field is the SAME regardless of which team scored — do NOT filter by home_description or visitor_description to get per-team scores.
 - Always parse ALL periods' last score row, then compute per-period deltas.
+
+CRITICAL — performance:
+- In `compute_delta()`, avoid per-entity/per-game direct queries like `session.query(PlayerGameStats)...filter(player_id == entity_id, game_id == game_id)` or the analogous ShotRecord / TeamGameStats patterns.
+- Prefer the cached helpers above so a game's source rows are loaded once and reused.
 """
 
 

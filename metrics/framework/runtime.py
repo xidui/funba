@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import MetricDefinition as MetricDefinitionModel, engine
 from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult, career_season_for
+from metrics.framework.code_optimizer import optimize_metric_code
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
@@ -247,7 +248,7 @@ class RuleMetricDefinition(MetricDefinition):
 
 def load_code_metric(code: str) -> MetricDefinition:
     """Return a fresh MetricDefinition instance for a generated code metric."""
-    metric_cls = _load_code_metric_class(code)
+    metric_cls = _load_code_metric_class(optimize_metric_code(code))
     metric = metric_cls()
     _validate_metric_instance(metric)
     return metric
