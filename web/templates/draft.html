@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}{{ year }} NBA Draft — FUNBA{% endblock %}
+{% block meta_description %}{{ year }} NBA Draft picks and player links on FUNBA.{% endblock %}
+{% block og_title %}{{ year }} NBA Draft — FUNBA{% endblock %}
+{% block og_description %}Browse the full {{ year }} NBA Draft class on FUNBA.{% endblock %}
+{% block tw_title %}{{ year }} NBA Draft — FUNBA{% endblock %}
+{% block tw_description %}Browse the full {{ year }} NBA Draft class on FUNBA.{% endblock %}
+{% block content %}
+<style>
+  .draft-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .draft-hero h1 {
+    margin-bottom: 6px;
+  }
+
+  .draft-subtitle {
+    color: var(--muted-2);
+    font-size: 14px;
+    margin: 0;
+  }
+
+  .draft-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .draft-nav-link,
+  .draft-nav-disabled {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .draft-nav-link {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+  }
+
+  .draft-nav-link:hover {
+    text-decoration: none;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .draft-nav-disabled {
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    color: var(--muted);
+    cursor: default;
+  }
+
+  .draft-table td,
+  .draft-table th {
+    white-space: nowrap;
+  }
+
+  .draft-table .player-cell,
+  .draft-table .player-cell a {
+    white-space: normal;
+  }
+
+  .draft-table tbody tr:hover td {
+    background: var(--surface-2);
+  }
+
+  .draft-round-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .draft-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 28px 16px;
+  }
+</style>
+
+<div class="card">
+  <div class="draft-hero">
+    <div>
+      <h1>{{ year }} NBA Draft</h1>
+      <p class="draft-subtitle">{{ draft_count }} picks</p>
+    </div>
+    <div class="draft-nav" aria-label="Draft year navigation">
+      {% if prev_year %}
+      <a class="draft-nav-link" href="{{ url_for('draft_page', year=prev_year) }}" aria-label="Previous draft year">←</a>
+      {% else %}
+      <span class="draft-nav-disabled" aria-hidden="true">←</span>
+      {% endif %}
+      {% if next_year %}
+      <a class="draft-nav-link" href="{{ url_for('draft_page', year=next_year) }}" aria-label="Next draft year">→</a>
+      {% else %}
+      <span class="draft-nav-disabled" aria-hidden="true">→</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if draft_players %}
+  <div class="table-wrap">
+    <table class="draft-table">
+      <thead>
+        <tr>
+          <th style="width: 60px;">Round</th>
+          <th style="width: 60px;">Pick</th>
+          <th>Player</th>
+          {% if show_position_column %}
+          <th style="width: 80px;">Position</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(last_round=None) %}
+        {% for player in draft_players %}
+        {% if player.draft_round != ns.last_round %}
+        <tr class="row-overall">
+          <td colspan="{{ 4 if show_position_column else 3 }}">
+            <span class="draft-round-label">Round {{ player.draft_round or "?" }}</span>
+          </td>
+        </tr>
+        {% set ns.last_round = player.draft_round %}
+        {% endif %}
+        <tr>
+          <td>{{ player.draft_round or "—" }}</td>
+          <td>{{ player.draft_number or "—" }}</td>
+          <td class="player-cell">
+            <a href="/players/{{ player.player_id }}">{{ player.full_name or player.player_id }}</a>
+          </td>
+          {% if show_position_column %}
+          <td>{{ player.position or "—" }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="draft-empty">No draft data available for {{ year }}</p>
+  {% endif %}
+</div>
+{% endblock %}

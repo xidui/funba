@@ -120,6 +120,16 @@
     white-space: nowrap;
   }
 
+  .draft-link {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .draft-link:hover {
+    text-decoration: underline;
+    opacity: 0.85;
+  }
+
   .player-awards {
     display: flex;
     flex-wrap: wrap;
@@ -246,7 +256,9 @@
         {% if player.draft_year %}
         <div class="bio-item">
           <span class="bio-label">Draft</span>
-          <span class="bio-value">{{ player.draft_year }} R{{ player.draft_round }} Pick {{ player.draft_number }}</span>
+          <a href="/draft/{{ player.draft_year }}" class="bio-value draft-link">
+            {{ player.draft_year }} R{{ player.draft_round }} Pick {{ player.draft_number }}
+          </a>
         </div>
         {% endif %}
         {% if player.from_year and player.to_year %}

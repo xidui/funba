@@ -2581,6 +2581,48 @@ def player_hints_api():
     return jsonify({"items": items})
 
 
+@app.route("/draft/<int:year>")
+def draft_page(year: int):
+    current_year = date.today().year
+    if year < 1947 or year > current_year:
+        abort(404)
+
+    with SessionLocal() as session:
+        min_year, max_year = (
+            session.query(
+                func.min(Player.draft_year),
+                func.max(Player.draft_year),
+            )
+            .filter(Player.draft_year.isnot(None))
+            .one()
+        )
+
+        draft_players = (
+            session.query(Player)
+            .filter(Player.draft_year == year)
+            .order_by(
+                func.coalesce(Player.draft_round, 99).asc(),
+                func.coalesce(Player.draft_number, 99).asc(),
+                Player.full_name.asc(),
+            )
+            .all()
+        )
+
+    prev_year = year - 1 if min_year is not None and year > min_year else None
+    next_year = year + 1 if max_year is not None and year < max_year else None
+    show_position_column = any(player.position for player in draft_players)
+
+    return render_template(
+        "draft.html",
+        year=year,
+        draft_players=draft_players,
+        draft_count=len(draft_players),
+        prev_year=prev_year,
+        next_year=next_year,
+        show_position_column=show_position_column,
+    )
+
+
 @app.route("/players/<player_id>")
 def player_page(player_id: str):
     with SessionLocal() as session:
