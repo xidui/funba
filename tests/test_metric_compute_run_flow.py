@@ -71,18 +71,114 @@ def test_compute_game_delta_skips_inline_reduce_when_mapping_run_exists():
 
 def test_sweeper_promotes_completed_mapping_run_once():
     run = SimpleNamespace(id="run-1", target_game_count=3)
-    query = MagicMock()
-    query.filter.return_value.order_by.return_value.all.return_value = [run]
+    mapping_query = MagicMock()
+    mapping_query.filter.return_value.order_by.return_value.all.return_value = [run]
+    reducing_query = MagicMock()
+    reducing_query.filter.return_value.order_by.return_value.all.return_value = []
+    reducing_exists_query = MagicMock()
+    reducing_exists_query.filter.return_value.first.return_value = None
     session = _ctx(MagicMock())
-    session.query.return_value = query
+    session.query.side_effect = [reducing_query, reducing_exists_query, mapping_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
          patch.object(metrics_tasks, "_done_claim_count_for_run", return_value=3), \
          patch.object(metrics_tasks, "_promote_run_to_reducing", return_value=True) as promote, \
+         patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
+         patch.object(metrics_tasks, "_requeue_stale_reducing_run", return_value=False) as requeue, \
          patch.object(metrics_tasks.sweep_metric_compute_runs_task, "retry", side_effect=AssertionError("retry not expected")), \
          patch.object(metrics_tasks.reduce_metric_compute_run_task, "delay") as delay:
         result = metrics_tasks.sweep_metric_compute_runs_task.run()
 
     promote.assert_called_once_with(session, "run-1")
+    finalize.assert_not_called()
+    requeue.assert_not_called()
     delay.assert_called_once_with("run-1")
-    assert result == {"checked_runs": 1, "promoted_runs": ["run-1"]}
+    assert result == {
+        "checked_runs": 1,
+        "promoted_runs": ["run-1"],
+        "finalized_runs": [],
+        "requeued_runs": [],
+    }
+
+
+def test_sweeper_finalizes_completed_reducing_run():
+    run = SimpleNamespace(id="run-1", target_game_count=3)
+    mapping_query = MagicMock()
+    mapping_query.filter.return_value.order_by.return_value.all.return_value = []
+    reducing_query = MagicMock()
+    reducing_query.filter.return_value.order_by.return_value.all.return_value = [run]
+    reducing_exists_query = MagicMock()
+    reducing_exists_query.filter.return_value.first.return_value = None
+    session = _ctx(MagicMock())
+    session.query.side_effect = [reducing_query, reducing_exists_query, mapping_query]
+
+    with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
+         patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=True) as finalize, \
+         patch.object(metrics_tasks, "_requeue_stale_reducing_run", return_value=False) as requeue, \
+         patch.object(metrics_tasks.sweep_metric_compute_runs_task, "retry", side_effect=AssertionError("retry not expected")), \
+         patch.object(metrics_tasks.reduce_metric_compute_run_task, "delay") as delay:
+        result = metrics_tasks.sweep_metric_compute_runs_task.run()
+
+    finalize.assert_called_once_with(session, run)
+    requeue.assert_not_called()
+    delay.assert_not_called()
+    assert result == {
+        "checked_runs": 0,
+        "promoted_runs": [],
+        "finalized_runs": ["run-1"],
+        "requeued_runs": [],
+    }
+
+
+def test_sweeper_requeues_stale_reducing_run():
+    run = SimpleNamespace(id="run-1", target_game_count=3)
+    reducing_query = MagicMock()
+    reducing_query.filter.return_value.order_by.return_value.all.return_value = [run]
+    reducing_exists_query = MagicMock()
+    reducing_exists_query.filter.return_value.first.return_value = object()
+    session = _ctx(MagicMock())
+    session.query.side_effect = [reducing_query, reducing_exists_query]
+
+    with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
+         patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
+         patch.object(metrics_tasks, "_requeue_stale_reducing_run", return_value=True) as requeue, \
+         patch.object(metrics_tasks.sweep_metric_compute_runs_task, "retry", side_effect=AssertionError("retry not expected")), \
+         patch.object(metrics_tasks.reduce_metric_compute_run_task, "delay") as delay:
+        result = metrics_tasks.sweep_metric_compute_runs_task.run()
+
+    finalize.assert_called_once_with(session, run)
+    requeue.assert_called_once()
+    delay.assert_not_called()
+    assert result == {
+        "checked_runs": 0,
+        "promoted_runs": [],
+        "finalized_runs": [],
+        "requeued_runs": ["run-1"],
+    }
+
+
+def test_sweeper_does_not_promote_mapping_runs_while_reducing_backlog_exists():
+    reducing_run = SimpleNamespace(id="run-r", target_game_count=3)
+    reducing_query = MagicMock()
+    reducing_query.filter.return_value.order_by.return_value.all.return_value = [reducing_run]
+    reducing_exists_query = MagicMock()
+    reducing_exists_query.filter.return_value.first.return_value = object()
+    session = _ctx(MagicMock())
+    session.query.side_effect = [reducing_query, reducing_exists_query]
+
+    with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
+         patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
+         patch.object(metrics_tasks, "_requeue_stale_reducing_run", return_value=False) as requeue, \
+         patch.object(metrics_tasks.sweep_metric_compute_runs_task, "retry", side_effect=AssertionError("retry not expected")), \
+         patch.object(metrics_tasks.reduce_metric_compute_run_task, "delay") as delay:
+        result = metrics_tasks.sweep_metric_compute_runs_task.run()
+
+    finalize.assert_called_once_with(session, reducing_run)
+    requeue.assert_called_once()
+    delay.assert_not_called()
+    assert result == {
+        "checked_runs": 0,
+        "promoted_runs": [],
+        "finalized_runs": [],
+        "requeued_runs": [],
+    }

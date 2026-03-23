@@ -32,7 +32,7 @@ from celery import shared_task
 from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import MetricComputeRun, MetricJobClaim, MetricRunLog, engine
+from db.models import MetricComputeRun, MetricJobClaim, MetricResult, MetricRunLog, engine
 from metrics.framework.runner import run_delta_only, reduce_metric
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
 _RUN_STATUS_FAILED = "failed"
 _REDUCE_LOCK_NAME = "metric_reduce_global"
+_REDUCE_STALE_REQUEUE_SECONDS = 1800
 
 
 class ReduceLockUnavailable(RuntimeError):
@@ -57,20 +58,26 @@ def _session_factory():
 
 @contextmanager
 def _reduce_locked_session_factory(lock_name: str = _REDUCE_LOCK_NAME, timeout_seconds: int = 30):
-    """Hold a MySQL advisory lock while yielding Session factories bound to one Connection."""
-    with engine.connect() as conn:
-        acquired = conn.execute(
+    """Hold a MySQL advisory lock while yielding normal Session factories.
+
+    The lock itself is connection-scoped in MySQL, so keep a dedicated lock
+    connection open for the duration of the context. The ORM sessions then use
+    normal pooled engine connections, which avoids binding write transactions to
+    the advisory-lock connection.
+    """
+    with engine.connect() as lock_conn:
+        acquired = lock_conn.execute(
             text("SELECT GET_LOCK(:name, :timeout_seconds)"),
             {"name": lock_name, "timeout_seconds": int(timeout_seconds)},
         ).scalar()
         if acquired != 1:
             raise ReduceLockUnavailable(f"Failed to acquire reduce lock {lock_name!r}")
-        SessionLocked = sessionmaker(bind=conn)
+        SessionLocked = _session_factory()
         try:
             yield SessionLocked
         finally:
             try:
-                conn.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": lock_name})
+                lock_conn.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": lock_name})
             except Exception:
                 logger.exception("Failed to release reduce lock %s", lock_name)
 
@@ -282,6 +289,92 @@ def _done_claim_count_for_run(session, run: MetricComputeRun) -> int:
     )
 
 
+def _active_claim_count_for_run(session, run: MetricComputeRun) -> int:
+    game_ids = _run_game_ids_query(session, run).subquery()
+    return int(
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(
+            MetricJobClaim.metric_key == run.metric_key,
+            MetricJobClaim.status == _STATUS_IN_PROGRESS,
+            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _fresh_result_season_count_for_run(session, run: MetricComputeRun, seasons: list[str]) -> int:
+    if not run.reduce_enqueued_at or not seasons:
+        return 0
+    return int(
+        session.query(func.count(func.distinct(MetricResult.season)))
+        .filter(
+            MetricResult.metric_key == run.metric_key,
+            MetricResult.season.in_(seasons),
+            MetricResult.computed_at >= run.reduce_enqueued_at,
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _finalize_reducing_run_if_complete(session, run: MetricComputeRun) -> bool:
+    seasons = _metric_seasons(session, run.metric_key)
+    if not seasons:
+        return False
+    if _done_claim_count_for_run(session, run) < int(run.target_game_count or 0):
+        return False
+    if _active_claim_count_for_run(session, run) > 0:
+        return False
+    if _fresh_result_season_count_for_run(session, run, seasons) < len(seasons):
+        return False
+    _mark_run_complete(session, run.id)
+    logger.info("finalized reducing run run_id=%s metric=%s from persisted reduce output", run.id, run.metric_key)
+    return True
+
+
+def _requeue_stale_reducing_run(session, run: MetricComputeRun, *, now: datetime | None = None) -> bool:
+    now = now or datetime.utcnow()
+    seasons = _metric_seasons(session, run.metric_key)
+    if not seasons:
+        return False
+    if _done_claim_count_for_run(session, run) < int(run.target_game_count or 0):
+        return False
+    if _active_claim_count_for_run(session, run) > 0:
+        return False
+    if not run.reduce_enqueued_at:
+        age_seconds = _REDUCE_STALE_REQUEUE_SECONDS
+    else:
+        age_seconds = int((now - run.reduce_enqueued_at).total_seconds())
+    if age_seconds < _REDUCE_STALE_REQUEUE_SECONDS:
+        return False
+    if _fresh_result_season_count_for_run(session, run, seasons) >= len(seasons):
+        return False
+
+    updated = (
+        session.query(MetricComputeRun)
+        .filter(
+            MetricComputeRun.id == run.id,
+            MetricComputeRun.status == _RUN_STATUS_REDUCING,
+        )
+        .update(
+            {
+                "reduce_enqueued_at": now,
+                "error_text": "re-enqueued stale reducing run",
+            },
+            synchronize_session=False,
+        )
+    )
+    session.commit()
+    if updated != 1:
+        return False
+
+    reduce_metric_compute_run_task.delay(run.id)
+    logger.warning("re-enqueued stale reducing run run_id=%s metric=%s", run.id, run.metric_key)
+    return True
+
+
 def _promote_run_to_reducing(session, run_id: str) -> bool:
     updated = (
         session.query(MetricComputeRun)
@@ -388,13 +481,49 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
     queue="reduce",
 )
 def sweep_metric_compute_runs_task(self) -> dict:
-    """Promote completed mapping runs into the reduce queue exactly once."""
+    """Promote completed mapping runs into the reduce queue exactly once.
+
+    Reduce work is globally serialized by an advisory lock, so keep at most one
+    active backlog of reducing runs at a time. Existing reducing runs are
+    repaired first; only when none remain do we promote the next completed
+    mapping run.
+    """
     SessionLocal = _session_factory()
     promoted: list[str] = []
+    finalized: list[str] = []
+    requeued: list[str] = []
     checked = 0
 
     try:
         with SessionLocal() as session:
+            reducing_runs = (
+                session.query(MetricComputeRun)
+                .filter(MetricComputeRun.status == _RUN_STATUS_REDUCING)
+                .order_by(MetricComputeRun.reduce_enqueued_at.asc(), MetricComputeRun.created_at.asc())
+                .all()
+            )
+            now = datetime.utcnow()
+            for run in reducing_runs:
+                if _finalize_reducing_run_if_complete(session, run):
+                    finalized.append(run.id)
+                    continue
+                if _requeue_stale_reducing_run(session, run, now=now):
+                    requeued.append(run.id)
+                    break
+
+            if (
+                session.query(MetricComputeRun.id)
+                .filter(MetricComputeRun.status == _RUN_STATUS_REDUCING)
+                .first()
+                is not None
+            ):
+                return {
+                    "checked_runs": checked,
+                    "promoted_runs": promoted,
+                    "finalized_runs": finalized,
+                    "requeued_runs": requeued,
+                }
+
             runs = (
                 session.query(MetricComputeRun)
                 .filter(MetricComputeRun.status == _RUN_STATUS_MAPPING)
@@ -426,11 +555,17 @@ def sweep_metric_compute_runs_task(self) -> dict:
                         revert_session.commit()
                     raise
                 promoted.append(run.id)
+                break
     except Exception as exc:
         logger.error("sweep_metric_compute_runs failed: %s", exc, exc_info=True)
         raise self.retry(exc=exc, countdown=30)
 
-    return {"checked_runs": checked, "promoted_runs": promoted}
+    return {
+        "checked_runs": checked,
+        "promoted_runs": promoted,
+        "finalized_runs": finalized,
+        "requeued_runs": requeued,
+    }
 
 
 # ── Phase 2: Reduce (reduce queue) ───────────────────────────────────────────
