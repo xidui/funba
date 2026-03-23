@@ -28,7 +28,7 @@ from db.llm_models import (
     resolve_llm_model,
     set_default_llm_model,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -4376,6 +4376,12 @@ def admin_pipeline():
             .all()
         )
 
+        compute_run_counts = dict(
+            session.query(MetricComputeRun.status, func.count())
+            .group_by(MetricComputeRun.status)
+            .all()
+        )
+
         # --- Currently in-progress claims (active workers) ---
         active_claims = (
             session.query(MetricJobClaim)
@@ -4393,6 +4399,27 @@ def admin_pipeline():
                 "age_s": int((datetime.utcnow() - c.claimed_at).total_seconds()) if c.claimed_at else None,
             }
             for c in active_claims
+        ]
+
+        active_compute_runs = (
+            session.query(MetricComputeRun)
+            .filter(MetricComputeRun.status.in_(("mapping", "reducing", "failed")))
+            .order_by(MetricComputeRun.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        compute_runs = [
+            {
+                "id": r.id,
+                "metric_key": r.metric_key,
+                "status": r.status,
+                "target_game_count": r.target_game_count,
+                "created_at": r.created_at,
+                "completed_at": r.completed_at,
+                "failed_at": r.failed_at,
+                "age_s": int((datetime.utcnow() - r.created_at).total_seconds()) if r.created_at else None,
+            }
+            for r in active_compute_runs
         ]
 
         # --- Stuck claims (in_progress older than 10 min) ---
@@ -4463,7 +4490,9 @@ def admin_pipeline():
         "admin.html",
         coverage=coverage,
         claim_counts=claim_counts,
+        compute_run_counts=compute_run_counts,
         active=active,
+        compute_runs=compute_runs,
         stuck_count=stuck_count,
         missing_detail=missing_detail,
         missing_shot=missing_shot,
