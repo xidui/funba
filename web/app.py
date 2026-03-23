@@ -238,9 +238,65 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
         "badge_label": "3rd Team",
         "entity": "player",
     },
+    "dpoy": {
+        "label": "DPOY",
+        "short_label": "DPOY",
+        "badge_label": "DPOY",
+        "entity": "player",
+    },
+    "roy": {
+        "label": "ROY",
+        "short_label": "ROY",
+        "badge_label": "ROY",
+        "entity": "player",
+    },
+    "mip": {
+        "label": "MIP",
+        "short_label": "MIP",
+        "badge_label": "MIP",
+        "entity": "player",
+    },
+    "sixth_man": {
+        "label": "Sixth Man",
+        "short_label": "6th Man",
+        "badge_label": "6th Man",
+        "entity": "player",
+    },
+    "all_defensive_first": {
+        "label": "All-Def 1st",
+        "short_label": "All-Def 1st",
+        "badge_label": "1st Team",
+        "entity": "player",
+    },
+    "all_defensive_second": {
+        "label": "All-Def 2nd",
+        "short_label": "All-Def 2nd",
+        "badge_label": "2nd Team",
+        "entity": "player",
+    },
+    "all_rookie_first": {
+        "label": "All-Rookie 1st",
+        "short_label": "All-Rk 1st",
+        "badge_label": "1st Team",
+        "entity": "player",
+    },
+    "all_rookie_second": {
+        "label": "All-Rookie 2nd",
+        "short_label": "All-Rk 2nd",
+        "badge_label": "2nd Team",
+        "entity": "player",
+    },
 }
 _AWARD_TYPE_ORDER = list(_AWARD_TYPE_META.keys())
 _AWARD_SORT_INDEX = {award_type: idx for idx, award_type in enumerate(_AWARD_TYPE_ORDER)}
+_AWARD_TAB_GROUPS = [
+    {"label": None, "types": ["champion"]},
+    {"label": "Individual", "types": ["mvp", "finals_mvp", "dpoy", "roy", "mip", "sixth_man", "scoring_champion"]},
+    {"label": "All-NBA", "types": ["all_nba_first", "all_nba_second", "all_nba_third"]},
+    {"label": "All-Defensive", "types": ["all_defensive_first", "all_defensive_second"]},
+    {"label": "All-Rookie", "types": ["all_rookie_first", "all_rookie_second"]},
+]
+_GRID_AWARD_PREFIXES = ("all_nba_", "all_defensive_", "all_rookie_")
 
 
 def _award_type_label(award_type: str, *, short: bool = False) -> str:
@@ -256,6 +312,10 @@ def _award_badge_label(award_type: str) -> str:
 
 def _award_order_case(column):
     return case(_AWARD_SORT_INDEX, value=column, else_=len(_AWARD_TYPE_ORDER) + 1)
+
+
+def _is_grid_award_type(award_type: str) -> bool:
+    return award_type.startswith(_GRID_AWARD_PREFIXES)
 
 
 def _coerce_award_season(value: str | int | None) -> int | None:
@@ -335,7 +395,7 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
                 "is_dynasty": False,
             }
 
-            if award_type.startswith("all_nba_"):
+            if _is_grid_award_type(award_type):
                 for entry in season_entries:
                     winner_key = str(entry.get("winner_key") or "")
                     streak = 1
@@ -362,7 +422,7 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
                 "label": _award_type_label(award_type),
                 "short_label": _award_type_label(award_type, short=True),
                 "is_team_award": _AWARD_TYPE_META[award_type]["entity"] == "team",
-                "is_all_nba": award_type.startswith("all_nba_"),
+                "is_grid_award": _is_grid_award_type(award_type),
                 "groups": groups,
             }
         )
@@ -2487,7 +2547,13 @@ def awards_page():
     return render_template(
         "awards.html",
         title="Awards • FUNBA",
-        award_tabs=[{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in _AWARD_TYPE_ORDER],
+        award_tab_groups=[
+            {
+                "label": group["label"],
+                "tabs": [{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in group["types"] if award_type in _AWARD_TYPE_META],
+            }
+            for group in _AWARD_TAB_GROUPS
+        ],
         award_sections=award_sections,
         selected_award_type=selected_award_type,
         season_options=season_options,
