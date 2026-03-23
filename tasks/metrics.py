@@ -24,11 +24,12 @@ Claim lifecycle (Phase 1)
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 from datetime import datetime
 
 from celery import shared_task
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
 from db.models import MetricComputeRun, MetricJobClaim, MetricRunLog, engine
@@ -43,10 +44,31 @@ _RUN_STATUS_MAPPING = "mapping"
 _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
 _RUN_STATUS_FAILED = "failed"
+_REDUCE_LOCK_NAME = "metric_reduce_global"
 
 
 def _session_factory():
     return sessionmaker(bind=engine)
+
+
+@contextmanager
+def _reduce_locked_session_factory(lock_name: str = _REDUCE_LOCK_NAME, timeout_seconds: int = 30):
+    """Hold a MySQL advisory lock while yielding Session factories bound to one Connection."""
+    with engine.connect() as conn:
+        acquired = conn.execute(
+            text("SELECT GET_LOCK(:name, :timeout_seconds)"),
+            {"name": lock_name, "timeout_seconds": int(timeout_seconds)},
+        ).scalar()
+        if acquired != 1:
+            raise RuntimeError(f"Failed to acquire reduce lock {lock_name!r}")
+        SessionLocked = sessionmaker(bind=conn)
+        try:
+            yield SessionLocked
+        finally:
+            try:
+                conn.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": lock_name})
+            except Exception:
+                logger.exception("Failed to release reduce lock %s", lock_name)
 
 
 def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[bool, str | None]:
@@ -419,36 +441,36 @@ def sweep_metric_compute_runs_task(self) -> dict:
 )
 def reduce_metric_compute_run_task(self, run_id: str) -> dict:
     """Reduce all seasons for one MetricComputeRun and mark the run complete."""
-    SessionLocal = _session_factory()
     metric_key = ""
     seasons: list[str] = []
 
     try:
-        with SessionLocal() as session:
-            run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
-            if run is None:
-                return {"run_id": run_id, "skipped": True, "reason": "missing"}
-            if run.status == _RUN_STATUS_COMPLETE:
-                return {"run_id": run_id, "skipped": True, "reason": _RUN_STATUS_COMPLETE}
-            if run.status != _RUN_STATUS_REDUCING:
-                return {"run_id": run_id, "skipped": True, "reason": run.status}
-            metric_key = run.metric_key
-            seasons = _metric_seasons(session, metric_key)
+        with _reduce_locked_session_factory() as SessionLocked:
+            with SessionLocked() as session:
+                run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
+                if run is None:
+                    return {"run_id": run_id, "skipped": True, "reason": "missing"}
+                if run.status == _RUN_STATUS_COMPLETE:
+                    return {"run_id": run_id, "skipped": True, "reason": _RUN_STATUS_COMPLETE}
+                if run.status != _RUN_STATUS_REDUCING:
+                    return {"run_id": run_id, "skipped": True, "reason": run.status}
+                metric_key = run.metric_key
+                seasons = _metric_seasons(session, metric_key)
 
-        results_written = 0
-        for season in seasons:
-            with SessionLocal() as session:
-                results_written += reduce_metric(session, metric_key, season, commit=True)
+            results_written = 0
+            for season in seasons:
+                with SessionLocked() as session:
+                    results_written += reduce_metric(session, metric_key, season, commit=True)
 
-        with SessionLocal() as session:
-            _mark_run_complete(session, run_id)
+            with SessionLocked() as session:
+                _mark_run_complete(session, run_id)
     except Exception as exc:
         logger.error(
             "reduce_metric_compute_run: run_id=%s failed: %s",
             run_id, exc, exc_info=True,
         )
         if self.request.retries >= self.max_retries:
-            with SessionLocal() as session:
+            with _session_factory()() as session:
                 _mark_run_failed(session, run_id, str(exc))
             raise
         raise self.retry(exc=exc, countdown=30)
@@ -469,11 +491,10 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 )
 def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
     """Phase 2: aggregate all deltas for (metric_key, season) → write MetricResults."""
-    SessionLocal = _session_factory()
-
     try:
-        with SessionLocal() as session:
-            count = reduce_metric(session, metric_key, season, commit=True)
+        with _reduce_locked_session_factory() as SessionLocked:
+            with SessionLocked() as session:
+                count = reduce_metric(session, metric_key, season, commit=True)
     except Exception as exc:
         logger.error(
             "reduce_metric_season: metric=%s season=%s failed: %s",

@@ -418,6 +418,40 @@ def cmd_metric_reduce(args: argparse.Namespace) -> None:
     print(f"Enqueued {len(pairs)} reduce task(s) → Queue: reduce.")
 
 
+def cmd_metric_retry_failed(args: argparse.Namespace) -> None:
+    """Re-enqueue reduce for failed MetricComputeRun rows after resetting status."""
+    from tasks.metrics import reduce_metric_compute_run_task
+
+    sess = _session()
+    try:
+        q = sess.query(MetricComputeRun).filter(MetricComputeRun.status == "failed")
+        if args.metric:
+            q = q.filter(MetricComputeRun.metric_key == args.metric)
+        runs = q.order_by(MetricComputeRun.created_at.asc()).all()
+
+        if not runs:
+            print("No failed MetricComputeRun rows found for the given filters.")
+            return
+
+        run_ids = [run.id for run in runs]
+        q.update(
+            {
+                "status": "reducing",
+                "failed_at": None,
+                "error_text": None,
+            },
+            synchronize_session=False,
+        )
+        sess.commit()
+    finally:
+        sess.close()
+
+    for run_id in run_ids:
+        reduce_metric_compute_run_task.delay(run_id)
+
+    print(f"Re-enqueued {len(run_ids)} failed compute run(s) → Queue: reduce.")
+
+
 def cmd_line_backfill(args: argparse.Namespace) -> None:
     game_ids = _query_games_missing_line_score(
         season=args.season,
@@ -499,6 +533,14 @@ def main() -> None:
     p_mr.add_argument("--metric", default=None, help="Single metric key, or omit for all.")
     p_mr.add_argument("--season", default=None, help="Season filter, e.g. 22025 or all_regular")
     p_mr.set_defaults(func=cmd_metric_reduce)
+
+    # --- metric-retry-failed ---
+    p_mrf = sub.add_parser(
+        "metric-retry-failed",
+        help="Re-enqueue failed MetricComputeRun reduce tasks.",
+    )
+    p_mrf.add_argument("--metric", default=None, help="Single metric key, or omit for all failed runs.")
+    p_mrf.set_defaults(func=cmd_metric_retry_failed)
 
     # --- line-backfill ---
     p_lb = sub.add_parser(
