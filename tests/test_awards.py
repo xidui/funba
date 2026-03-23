@@ -1,3 +1,4 @@
+import importlib
 import sys
 import types
 import unittest
@@ -14,6 +15,10 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def _import_web_helpers():
+    original_db = sys.modules.get("db")
+    original_db_models = sys.modules.get("db.models")
+    original_backfill = sys.modules.get("db.backfill_nba_player_shot_detail")
+    original_line = sys.modules.get("db.backfill_nba_game_line_score")
     fake_engine = MagicMock()
 
     fake_models = types.ModuleType("db.models")
@@ -22,6 +27,7 @@ def _import_web_helpers():
         "Feedback",
         "Game",
         "GamePlayByPlay",
+        "MetricComputeRun",
         "MetricJobClaim",
         "MetricDefinition",
         "MetricResult",
@@ -62,12 +68,47 @@ def _import_web_helpers():
             del sys.modules[key]
 
     from web.app import _award_badge_label, _group_award_entries
+
+    if original_db is not None:
+        sys.modules["db"] = original_db
+    else:
+        sys.modules.pop("db", None)
+
+    if original_db_models is not None:
+        sys.modules["db.models"] = original_db_models
+    else:
+        sys.modules.pop("db.models", None)
+
+    if original_backfill is not None:
+        sys.modules["db.backfill_nba_player_shot_detail"] = original_backfill
+    else:
+        sys.modules.pop("db.backfill_nba_player_shot_detail", None)
+
+    if original_line is not None:
+        sys.modules["db.backfill_nba_game_line_score"] = original_line
+    else:
+        sys.modules.pop("db.backfill_nba_game_line_score", None)
+
     return _award_badge_label, _group_award_entries
+
+
+def _load_real_db_models():
+    sys.modules.pop("db.models", None)
+    real_models = importlib.import_module("db.models")
+    if "db" in sys.modules:
+        sys.modules["db"].models = real_models
+    return real_models
+
+
+def _load_real_backfill_awards():
+    _load_real_db_models()
+    sys.modules.pop("db.backfill_awards", None)
+    return importlib.import_module("db.backfill_awards")
 
 
 class TestAwardsBackfillHelpers(unittest.TestCase):
     def _make_session(self):
-        from db.models import Base
+        Base = _load_real_db_models().Base
 
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
@@ -81,7 +122,7 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
         self.assertEqual(_season_text_to_award_season("22024"), 22024)
         self.assertIsNone(_season_text_to_award_season("202425"))
 
-    def test_player_award_row_maps_all_nba_and_mvp_variants(self):
+    def test_player_award_row_maps_supported_award_variants(self):
         from db.backfill_awards import _player_award_seed_from_row
 
         team_lookup = {
@@ -93,7 +134,16 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
                     start_season="1946",
                     end_season=None,
                 )
-            ]
+            ],
+            "torontoraptors": [
+                SimpleNamespace(
+                    team_id="1610612761",
+                    full_name="Toronto Raptors",
+                    is_legacy=False,
+                    start_season="1995",
+                    end_season=None,
+                )
+            ],
         }
 
         all_nba_seed = _player_award_seed_from_row(
@@ -104,6 +154,28 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
                 "ALL_NBA_TEAM_NUMBER": "1",
                 "SEASON": "2020-21",
                 "SUBTYPE2": "KIANT",
+            },
+            team_lookup,
+        )
+        all_defensive_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 203110,
+                "TEAM": "Golden State Warriors",
+                "DESCRIPTION": "All-Defensive Team",
+                "ALL_NBA_TEAM_NUMBER": "1",
+                "SEASON": "2016-17",
+                "SUBTYPE2": "KIADT",
+            },
+            team_lookup,
+        )
+        all_rookie_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 1630567,
+                "TEAM": "Toronto Raptors",
+                "DESCRIPTION": "All-Rookie Team",
+                "ALL_NBA_TEAM_NUMBER": "1",
+                "SEASON": "2021-22",
+                "SUBTYPE2": "KIART",
             },
             team_lookup,
         )
@@ -118,16 +190,68 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
             },
             team_lookup,
         )
+        dpoy_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 203110,
+                "TEAM": "Golden State Warriors",
+                "DESCRIPTION": "NBA Defensive Player of the Year",
+                "ALL_NBA_TEAM_NUMBER": None,
+                "SEASON": "2016-17",
+                "SUBTYPE2": "KDPYR",
+            },
+            team_lookup,
+        )
+        roy_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 1630567,
+                "TEAM": "Toronto Raptors",
+                "DESCRIPTION": "NBA Rookie of the Year",
+                "ALL_NBA_TEAM_NUMBER": None,
+                "SEASON": "2021-22",
+                "SUBTYPE2": "KIROY",
+            },
+            team_lookup,
+        )
+        mip_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 1628374,
+                "TEAM": "Golden State Warriors",
+                "DESCRIPTION": "NBA Most Improved Player",
+                "ALL_NBA_TEAM_NUMBER": None,
+                "SEASON": "2022-23",
+                "SUBTYPE2": "KIMIP",
+            },
+            team_lookup,
+        )
+        sixth_man_seed = _player_award_seed_from_row(
+            {
+                "PERSON_ID": 2037,
+                "TEAM": "Golden State Warriors",
+                "DESCRIPTION": "NBA Sixth Man of the Year",
+                "ALL_NBA_TEAM_NUMBER": None,
+                "SEASON": "2015-16",
+                "SUBTYPE2": "KISMY",
+            },
+            team_lookup,
+        )
 
         self.assertEqual(all_nba_seed.award_type, "all_nba_first")
         self.assertEqual(all_nba_seed.team_id, "1610612744")
         self.assertEqual(all_nba_seed.season, 22020)
+        self.assertEqual(all_defensive_seed.award_type, "all_defensive_first")
+        self.assertEqual(all_rookie_seed.award_type, "all_rookie_first")
         self.assertEqual(mvp_seed.award_type, "mvp")
         self.assertEqual(mvp_seed.season, 22015)
+        self.assertEqual(dpoy_seed.award_type, "dpoy")
+        self.assertEqual(roy_seed.award_type, "roy")
+        self.assertEqual(mip_seed.award_type, "mip")
+        self.assertEqual(sixth_man_seed.award_type, "sixth_man")
 
     def test_upsert_award_matches_player_awards_by_player_key(self):
-        from db.backfill_awards import AwardSeed, _upsert_award
-        from db.models import Award
+        backfill_awards = _load_real_backfill_awards()
+        AwardSeed = backfill_awards.AwardSeed
+        _upsert_award = backfill_awards._upsert_award
+        Award = _load_real_db_models().Award
 
         with self._make_session() as session:
             session.add(Award(award_type="mvp", season=22015, player_id="201939", team_id=None, notes=None))
@@ -152,8 +276,10 @@ class TestAwardsBackfillHelpers(unittest.TestCase):
             self.assertEqual(stored.notes, "Unanimous MVP")
 
     def test_upsert_award_matches_team_awards_by_team_key(self):
-        from db.backfill_awards import AwardSeed, _upsert_award
-        from db.models import Award
+        backfill_awards = _load_real_backfill_awards()
+        AwardSeed = backfill_awards.AwardSeed
+        _upsert_award = backfill_awards._upsert_award
+        Award = _load_real_db_models().Award
 
         with self._make_session() as session:
             session.add(
@@ -191,6 +317,7 @@ class TestAwardsDisplayHelpers(unittest.TestCase):
 
     def test_badge_labels_match_player_profile_copy(self):
         self.assertEqual(self.award_badge_label("all_nba_first"), "1st Team")
+        self.assertEqual(self.award_badge_label("all_rookie_second"), "2nd Team")
         self.assertEqual(self.award_badge_label("champion"), "Champion")
 
     def test_group_award_entries_marks_dynasties_and_repeat_streaks(self):
@@ -279,17 +406,49 @@ class TestAwardsDisplayHelpers(unittest.TestCase):
                 "winner_key": "201939",
                 "streak": None,
             },
+            {
+                "award_type": "all_rookie_first",
+                "season": 22023,
+                "season_label": "2023-24",
+                "player_id": "1641705",
+                "player_name": "Victor Wembanyama",
+                "player_headshot_url": None,
+                "team_id": "1610612759",
+                "team_abbr": "SAS",
+                "team_name": "San Antonio Spurs",
+                "notes": None,
+                "winner_key": "1641705",
+                "streak": None,
+            },
+            {
+                "award_type": "all_rookie_first",
+                "season": 22022,
+                "season_label": "2022-23",
+                "player_id": "1641705",
+                "player_name": "Victor Wembanyama",
+                "player_headshot_url": None,
+                "team_id": "1610612759",
+                "team_abbr": "SAS",
+                "team_name": "San Antonio Spurs",
+                "notes": None,
+                "winner_key": "1641705",
+                "streak": None,
+            },
         ]
 
         sections = self.group_award_entries(entries)
         champion_section = next(section for section in sections if section["award_type"] == "champion")
         mvp_section = next(section for section in sections if section["award_type"] == "mvp")
         all_nba_section = next(section for section in sections if section["award_type"] == "all_nba_first")
+        all_rookie_section = next(section for section in sections if section["award_type"] == "all_rookie_first")
 
         self.assertTrue(champion_section["groups"][0]["is_dynasty"])
         self.assertEqual(champion_section["groups"][0]["streak"], 2)
         self.assertEqual(mvp_section["groups"][0]["streak"], 2)
+        self.assertTrue(all_nba_section["is_grid_award"])
         self.assertEqual(all_nba_section["groups"][0]["entries"][0]["streak"], 2)
+        self.assertTrue(all_rookie_section["is_grid_award"])
+        self.assertEqual(all_rookie_section["groups"][0]["entries"][0]["streak"], 2)
 
 
 if __name__ == "__main__":

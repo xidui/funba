@@ -15,6 +15,40 @@ def _make_app():
     """Import the Flask app with DB operations patched out."""
     import types
 
+    fake_limiter_mod = types.ModuleType("flask_limiter")
+
+    class FakeLimiter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def limit(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    fake_limiter_mod.Limiter = FakeLimiter
+    sys.modules["flask_limiter"] = fake_limiter_mod
+
+    fake_limiter_util = types.ModuleType("flask_limiter.util")
+    fake_limiter_util.get_remote_address = MagicMock(return_value="127.0.0.1")
+    sys.modules["flask_limiter.util"] = fake_limiter_util
+
+    fake_authlib = types.ModuleType("authlib")
+    fake_authlib_integrations = types.ModuleType("authlib.integrations")
+    fake_authlib_flask = types.ModuleType("authlib.integrations.flask_client")
+
+    class FakeOAuth:
+        def __init__(self, *args, **kwargs):
+            self.google = MagicMock()
+
+        def register(self, *args, **kwargs):
+            return self.google
+
+    fake_authlib_flask.OAuth = FakeOAuth
+    sys.modules["authlib"] = fake_authlib
+    sys.modules["authlib.integrations"] = fake_authlib_integrations
+    sys.modules["authlib.integrations.flask_client"] = fake_authlib_flask
+
     # Stub out DB-heavy modules so we don't need a live MySQL connection.
     fake_engine = MagicMock()
 
@@ -24,10 +58,10 @@ def _make_app():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim", "MetricDefinition",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
-        "GameLineScore",
+        "GameLineScore", "Setting",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.User = fake_user_cls
@@ -458,6 +492,8 @@ class TestMetricSearchAuth(unittest.TestCase):
 
         with patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._current_user", return_value=None), \
+             patch("web.app.get_default_llm_model_for_ui", return_value="gpt-5.4"), \
+             patch("web.app.available_llm_models", return_value=["gpt-5.4", "claude-sonnet-4-6"]), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring"}]) as mock_catalog, \
              patch("web.app.render_template", return_value="<html></html>") as mock_render:
             response = self.client.get(
@@ -478,6 +514,8 @@ class TestMetricSearchAuth(unittest.TestCase):
             scope_filter="player",
             status_filter="published",
             search_query="late",
+            llm_default_model="gpt-5.4",
+            llm_available_models=["gpt-5.4", "claude-sonnet-4-6"],
         )
 
     def test_metric_search_api_requires_login_for_external_visitors(self):
@@ -498,7 +536,8 @@ class TestMetricSearchAuth(unittest.TestCase):
         with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
-             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]):
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]) as mock_rank:
             response = self.client.post(
                 "/api/metrics/search",
                 json={"query": "late game scoring"},
@@ -509,6 +548,112 @@ class TestMetricSearchAuth(unittest.TestCase):
         body = response.get_json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["matches"][0]["key"], "late_game_scoring")
+        mock_rank.assert_called_once_with(
+            "late game scoring",
+            [{"key": "late_game_scoring", "name": "Late Game Scoring"}],
+            limit=8,
+            model="gpt-5.4",
+        )
+
+    def test_metric_search_api_passes_admin_model_override(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
+             patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6") as mock_resolve, \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]) as mock_rank:
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring", "model": "claude-sonnet-4-6"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6")
+        mock_rank.assert_called_once_with(
+            "late game scoring",
+            [{"key": "late_game_scoring", "name": "Late Game Scoring"}],
+            limit=8,
+            model="claude-sonnet-4-6",
+        )
+
+    def test_metric_generate_api_passes_admin_model_override(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6") as mock_resolve, \
+             patch("metrics.framework.generator.generate", return_value={"name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}) as mock_generate:
+            response = self.client.post(
+                "/api/metrics/generate",
+                json={"expression": "clutch scoring", "model": "claude-sonnet-4-6"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6")
+        mock_generate.assert_called_once_with(
+            "clutch scoring",
+            history=None,
+            existing=None,
+            model="claude-sonnet-4-6",
+        )
+
+    def test_admin_model_config_endpoints_require_admin(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-1", is_admin=False, subscription_tier="free")):
+            get_response = self.client.get("/api/admin/model-config", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+            post_response = self.client.post(
+                "/api/admin/model-config",
+                json={"default_model": "gpt-5.4"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(get_response.status_code, 403)
+        self.assertEqual(get_response.get_json(), {"error": "admin_only"})
+        self.assertEqual(post_response.status_code, 403)
+        self.assertEqual(post_response.get_json(), {"error": "admin_only"})
+
+    def test_admin_model_config_endpoints_round_trip(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.get_default_llm_model_for_ui", return_value="gpt-5.4"), \
+             patch("web.app.available_llm_models", return_value=["gpt-5.4", "claude-sonnet-4-6"]), \
+             patch("web.app.set_default_llm_model", return_value="claude-sonnet-4-6") as mock_set:
+            get_response = self.client.get("/api/admin/model-config", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+            post_response = self.client.post(
+                "/api/admin/model-config",
+                json={"default_model": "claude-sonnet-4-6"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(
+            get_response.get_json(),
+            {
+                "default_model": "gpt-5.4",
+                "available_models": ["gpt-5.4", "claude-sonnet-4-6"],
+            },
+        )
+        self.assertEqual(post_response.status_code, 200)
+        self.assertEqual(
+            post_response.get_json(),
+            {
+                "ok": True,
+                "default_model": "claude-sonnet-4-6",
+                "available_models": ["gpt-5.4", "claude-sonnet-4-6"],
+            },
+        )
+        mock_set.assert_called_once_with(session, "claude-sonnet-4-6")
+        session.commit.assert_called_once()
 
 
 if __name__ == "__main__":

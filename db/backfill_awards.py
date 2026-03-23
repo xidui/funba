@@ -47,12 +47,30 @@ AWARD_TYPE_ORDER = [
     "all_nba_first",
     "all_nba_second",
     "all_nba_third",
+    "dpoy",
+    "roy",
+    "mip",
+    "sixth_man",
+    "all_defensive_first",
+    "all_defensive_second",
+    "all_rookie_first",
+    "all_rookie_second",
 ]
 
 ALL_NBA_TYPE_BY_TEAM_NUMBER = {
     "1": "all_nba_first",
     "2": "all_nba_second",
     "3": "all_nba_third",
+}
+
+ALL_DEFENSIVE_TYPE_BY_TEAM_NUMBER = {
+    "1": "all_defensive_first",
+    "2": "all_defensive_second",
+}
+
+ALL_ROOKIE_TYPE_BY_TEAM_NUMBER = {
+    "1": "all_rookie_first",
+    "2": "all_rookie_second",
 }
 
 TEAM_NAME_ALIASES = {
@@ -216,10 +234,22 @@ def _player_award_seed_from_row(row: dict[str, object], team_lookup: dict[str, l
     award_type = None
     if subtype == "KIANT" and description == "All-NBA":
         award_type = ALL_NBA_TYPE_BY_TEAM_NUMBER.get(str(row.get("ALL_NBA_TEAM_NUMBER") or "").strip())
+    elif subtype == "KIADT" and description == "All-Defensive Team":
+        award_type = ALL_DEFENSIVE_TYPE_BY_TEAM_NUMBER.get(str(row.get("ALL_NBA_TEAM_NUMBER") or "").strip())
+    elif subtype == "KIART" and description == "All-Rookie Team":
+        award_type = ALL_ROOKIE_TYPE_BY_TEAM_NUMBER.get(str(row.get("ALL_NBA_TEAM_NUMBER") or "").strip())
     elif subtype == "KIMVP" and description == "NBA Most Valuable Player":
         award_type = "mvp"
     elif subtype == "KFMVP" and description == "NBA Finals Most Valuable Player":
         award_type = "finals_mvp"
+    elif subtype == "KDPYR" and description == "NBA Defensive Player of the Year":
+        award_type = "dpoy"
+    elif subtype == "KIROY" and description == "NBA Rookie of the Year":
+        award_type = "roy"
+    elif subtype == "KIMIP" and description == "NBA Most Improved Player":
+        award_type = "mip"
+    elif subtype == "KISMY" and description == "NBA Sixth Man of the Year":
+        award_type = "sixth_man"
 
     if not award_type:
         return None

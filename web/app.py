@@ -22,6 +22,12 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
+from db.llm_models import (
+    available_llm_models,
+    get_default_llm_model_for_ui,
+    resolve_llm_model,
+    set_default_llm_model,
+)
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
@@ -238,9 +244,65 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
         "badge_label": "3rd Team",
         "entity": "player",
     },
+    "dpoy": {
+        "label": "DPOY",
+        "short_label": "DPOY",
+        "badge_label": "DPOY",
+        "entity": "player",
+    },
+    "roy": {
+        "label": "ROY",
+        "short_label": "ROY",
+        "badge_label": "ROY",
+        "entity": "player",
+    },
+    "mip": {
+        "label": "MIP",
+        "short_label": "MIP",
+        "badge_label": "MIP",
+        "entity": "player",
+    },
+    "sixth_man": {
+        "label": "Sixth Man",
+        "short_label": "6th Man",
+        "badge_label": "6th Man",
+        "entity": "player",
+    },
+    "all_defensive_first": {
+        "label": "All-Def 1st",
+        "short_label": "All-Def 1st",
+        "badge_label": "1st Team",
+        "entity": "player",
+    },
+    "all_defensive_second": {
+        "label": "All-Def 2nd",
+        "short_label": "All-Def 2nd",
+        "badge_label": "2nd Team",
+        "entity": "player",
+    },
+    "all_rookie_first": {
+        "label": "All-Rookie 1st",
+        "short_label": "All-Rk 1st",
+        "badge_label": "1st Team",
+        "entity": "player",
+    },
+    "all_rookie_second": {
+        "label": "All-Rookie 2nd",
+        "short_label": "All-Rk 2nd",
+        "badge_label": "2nd Team",
+        "entity": "player",
+    },
 }
 _AWARD_TYPE_ORDER = list(_AWARD_TYPE_META.keys())
 _AWARD_SORT_INDEX = {award_type: idx for idx, award_type in enumerate(_AWARD_TYPE_ORDER)}
+_AWARD_TAB_GROUPS = [
+    {"label": None, "types": ["champion"]},
+    {"label": "Individual", "types": ["mvp", "finals_mvp", "dpoy", "roy", "mip", "sixth_man", "scoring_champion"]},
+    {"label": "All-NBA", "types": ["all_nba_first", "all_nba_second", "all_nba_third"]},
+    {"label": "All-Defensive", "types": ["all_defensive_first", "all_defensive_second"]},
+    {"label": "All-Rookie", "types": ["all_rookie_first", "all_rookie_second"]},
+]
+_GRID_AWARD_PREFIXES = ("all_nba_", "all_defensive_", "all_rookie_")
 
 
 def _award_type_label(award_type: str, *, short: bool = False) -> str:
@@ -256,6 +318,10 @@ def _award_badge_label(award_type: str) -> str:
 
 def _award_order_case(column):
     return case(_AWARD_SORT_INDEX, value=column, else_=len(_AWARD_TYPE_ORDER) + 1)
+
+
+def _is_grid_award_type(award_type: str) -> bool:
+    return award_type.startswith(_GRID_AWARD_PREFIXES)
 
 
 def _coerce_award_season(value: str | int | None) -> int | None:
@@ -335,7 +401,7 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
                 "is_dynasty": False,
             }
 
-            if award_type.startswith("all_nba_"):
+            if _is_grid_award_type(award_type):
                 for entry in season_entries:
                     winner_key = str(entry.get("winner_key") or "")
                     streak = 1
@@ -362,7 +428,7 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
                 "label": _award_type_label(award_type),
                 "short_label": _award_type_label(award_type, short=True),
                 "is_team_award": _AWARD_TYPE_META[award_type]["entity"] == "team",
-                "is_all_nba": award_type.startswith("all_nba_"),
+                "is_grid_award": _is_grid_award_type(award_type),
                 "groups": groups,
             }
         )
@@ -2487,7 +2553,13 @@ def awards_page():
     return render_template(
         "awards.html",
         title="Awards • FUNBA",
-        award_tabs=[{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in _AWARD_TYPE_ORDER],
+        award_tab_groups=[
+            {
+                "label": group["label"],
+                "tabs": [{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in group["types"] if award_type in _AWARD_TYPE_META],
+            }
+            for group in _AWARD_TAB_GROUPS
+        ],
         award_sections=award_sections,
         selected_award_type=selected_award_type,
         season_options=season_options,
@@ -2513,6 +2585,48 @@ def player_hints_api():
 
     items = [{"player_id": p.player_id, "full_name": p.full_name} for p in players if p.player_id and p.full_name]
     return jsonify({"items": items})
+
+
+@app.route("/draft/<int:year>")
+def draft_page(year: int):
+    current_year = date.today().year
+    if year < 1947 or year > current_year:
+        abort(404)
+
+    with SessionLocal() as session:
+        min_year, max_year = (
+            session.query(
+                func.min(Player.draft_year),
+                func.max(Player.draft_year),
+            )
+            .filter(Player.draft_year.isnot(None))
+            .one()
+        )
+
+        draft_players = (
+            session.query(Player)
+            .filter(Player.draft_year == year)
+            .order_by(
+                func.coalesce(Player.draft_round, 99).asc(),
+                func.coalesce(Player.draft_number, 99).asc(),
+                Player.full_name.asc(),
+            )
+            .all()
+        )
+
+    prev_year = year - 1 if min_year is not None and year > min_year else None
+    next_year = year + 1 if max_year is not None and year < max_year else None
+    show_position_column = any(player.position for player in draft_players)
+
+    return render_template(
+        "draft.html",
+        year=year,
+        draft_players=draft_players,
+        draft_count=len(draft_players),
+        prev_year=prev_year,
+        next_year=next_year,
+        show_position_column=show_position_column,
+    )
 
 
 @app.route("/players/<player_id>")
@@ -3151,6 +3265,7 @@ def metrics_browse():
     cur_user = _current_user()
     with SessionLocal() as session:
         metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
+        llm_default_model = get_default_llm_model_for_ui(session)
 
     return render_template(
         "metrics.html",
@@ -3158,6 +3273,8 @@ def metrics_browse():
         scope_filter=scope_filter,
         status_filter=status_filter,
         search_query=search_query,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3166,18 +3283,22 @@ def metric_new():
     denied = _require_metric_creator_page()
     if denied:
         return denied
-    all_seasons = sorted(
-        [r[0] for r in SessionLocal().query(Game.season).distinct().all()],
-        reverse=True,
-    )
-    current_season = _pick_current_season(all_seasons)
     initial_expression = request.args.get("expression", "").strip()
+    with SessionLocal() as session:
+        all_seasons = sorted(
+            [r[0] for r in session.query(Game.season).distinct().all()],
+            reverse=True,
+        )
+        current_season = _pick_current_season(all_seasons)
+        llm_default_model = get_default_llm_model_for_ui(session)
     return render_template(
         "metric_new.html",
         current_season=current_season,
         all_seasons=all_seasons,
         initial_expression=initial_expression,
         edit_metric=None,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3216,6 +3337,7 @@ def metric_edit(metric_key: str):
             "rank_order": getattr(runtime_metric, "rank_order", "desc"),
             "status": m.status,
         }
+        llm_default_model = get_default_llm_model_for_ui(session)
 
     return render_template(
         "metric_new.html",
@@ -3223,6 +3345,8 @@ def metric_edit(metric_key: str):
         all_seasons=all_seasons,
         initial_expression="",
         edit_metric=edit_data,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3238,14 +3362,21 @@ def api_metric_search():
     query = (body.get("query") or "").strip()
     scope_filter = (body.get("scope") or "").strip()
     status_filter = (body.get("status") or "").strip()
+    requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400
 
     with SessionLocal() as session:
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
+        try:
+            llm_model = resolve_llm_model(session, requested_model=requested_model)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     try:
-        ranked = rank_metrics(query, catalog, limit=8)
+        ranked = rank_metrics(query, catalog, limit=8, model=llm_model)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric search failed")
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -3272,11 +3403,19 @@ def api_metric_generate():
     expression = body.get("expression", "").strip()
     history = body.get("history")  # list of {"role", "content"} or None
     existing = body.get("existing")  # dict with current metric info for edit mode
+    requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
+    with SessionLocal() as session:
+        try:
+            llm_model = resolve_llm_model(session, requested_model=requested_model)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
     try:
-        spec = generate(expression, history=history, existing=existing)
+        spec = generate(expression, history=history, existing=existing, model=llm_model)
         return jsonify({"ok": True, "spec": spec})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric generate failed")
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -4320,6 +4459,48 @@ def admin_pipeline():
         missing_metrics=missing_metrics,
         recent=recent,
         visitor_stats=visitor_stats,
+        llm_available_models=available_llm_models(),
+    )
+
+
+@app.get("/api/admin/model-config")
+def api_admin_model_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as session:
+        return jsonify(
+            {
+                "default_model": get_default_llm_model_for_ui(session),
+                "available_models": available_llm_models(),
+            }
+        )
+
+
+@app.post("/api/admin/model-config")
+def api_admin_update_model_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    body = request.get_json(force=True) or {}
+    default_model = (body.get("default_model") or "").strip()
+    if not default_model:
+        return jsonify({"ok": False, "error": "default_model is required"}), 400
+    try:
+        with SessionLocal() as session:
+            saved_model = set_default_llm_model(session, default_model)
+            session.commit()
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("failed to save admin model config")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "default_model": saved_model,
+            "available_models": available_llm_models(),
+        }
     )
 
 

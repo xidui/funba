@@ -31,25 +31,81 @@
     transition: fill 0.15s, stroke 0.15s;
   }
 
-  .map-label {
+  .map-logo-image {
+    pointer-events: none;
+  }
+
+  .map-logo-frame,
+  .map-logo-ring {
+    fill: none;
+    pointer-events: none;
+  }
+
+  .map-logo-frame {
+    stroke: var(--border-2);
+    stroke-width: 1.5;
+  }
+
+  .map-logo-ring {
+    stroke: var(--accent);
+    stroke-width: 2;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .map-label,
+  .map-label-sub {
     font-family: 'Outfit', sans-serif;
-    font-weight: 700;
-    font-size: 7.5px;
-    fill: var(--accent);
     text-anchor: middle;
-    dominant-baseline: middle;
     pointer-events: none;
     transition: fill 0.15s;
     user-select: none;
   }
 
-  .map-marker:hover .map-dot {
-    fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
-    stroke: var(--accent);
+  .map-label {
+    font-weight: 700;
+    font-size: 7.5px;
+    fill: var(--accent);
+    dominant-baseline: middle;
   }
 
-  .map-marker:hover .map-label {
-    fill: #fff;
+  .map-label-sub {
+    font-size: 6px;
+    fill: var(--muted);
+  }
+
+  .map-logo-image,
+  .map-logo-frame,
+  .map-label-sub {
+    display: none;
+  }
+
+  .map-marker:hover .map-logo-ring {
+    opacity: 1;
+  }
+
+  .map-marker.logo-ready .map-logo-image,
+  .map-marker.logo-ready .map-logo-frame,
+  .map-marker.logo-ready .map-label-sub {
+    display: block;
+  }
+
+  .map-marker.logo-ready .map-dot,
+  .map-marker.logo-ready .map-label {
+    display: none;
+  }
+
+  .map-marker.logo-ready:hover .map-label-sub {
+    fill: var(--text);
+  }
+
+  .map-marker.logo-failed .map-label-sub {
+    display: none;
+  }
+
+  .map-marker:not(.logo-ready):hover .map-dot {
+    fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+    stroke: var(--accent);
   }
 
   /* Standings */
@@ -115,6 +171,31 @@
   }
   .rank-num.top3 { color: var(--accent); }
 
+  .standings-team-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .standings-team-logo {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    margin-right: 6px;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+
+  .standings-team-abbr {
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+
   .standings-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -150,6 +231,7 @@
 <script>
 (function () {
   const teams = {{ team_map_data | tojson }};
+  const logoUrl = teamId => `https://cdn.nba.com/logos/nba/${teamId}/global/L/logo.svg`;
   const teamUrls = {
     {% for t in team_map_data %}
     "{{ t.abbr }}": "{{ url_for('team_page', team_id=t.team_id) }}",
@@ -164,6 +246,7 @@
     .translate([width / 2, height / 2]);
 
   const path = d3.geoPath().projection(projection);
+  const defs = svg.append("defs");
 
   fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json")
     .then(r => r.json())
@@ -190,12 +273,36 @@
         const coords = projection([t.lon, t.lat]);
         if (!coords) return;  // outside projection (shouldn't happen)
         const [x, y] = coords;
+        const markerLogoUrl = logoUrl(t.team_id);
+        const clipId = `team-logo-clip-${t.team_id}`;
+
+        defs.append("clipPath")
+          .attr("id", clipId)
+          .append("circle")
+          .attr("cx", x)
+          .attr("cy", y)
+          .attr("r", R);
 
         const g = svg.append("a")
           .attr("href", teamUrls[t.abbr])
           .attr("class", "map-marker");
 
         g.append("title").text(t.full_name);
+
+        g.append("circle")
+          .attr("class", "map-logo-ring")
+          .attr("cx", x).attr("cy", y).attr("r", R);
+
+        const logoImage = g.append("image")
+          .attr("class", "map-logo-image")
+          .attr("x", x - R).attr("y", y - R)
+          .attr("width", R * 2).attr("height", R * 2)
+          .attr("preserveAspectRatio", "xMidYMid slice")
+          .attr("clip-path", `url(#${clipId})`);
+
+        g.append("circle")
+          .attr("class", "map-logo-frame")
+          .attr("cx", x).attr("cy", y).attr("r", R);
 
         g.append("circle")
           .attr("class", "map-dot")
@@ -205,6 +312,19 @@
           .attr("class", "map-label")
           .attr("x", x).attr("y", y)
           .text(t.abbr);
+
+        g.append("text")
+          .attr("class", "map-label-sub")
+          .attr("x", x).attr("y", y + 20)
+          .text(t.abbr);
+
+        const probe = new Image();
+        probe.onload = () => {
+          logoImage.attr("href", markerLogoUrl);
+          g.classed("logo-ready", true);
+        };
+        probe.onerror = () => g.classed("logo-failed", true);
+        probe.src = markerLogoUrl;
       });
     });
 })();
@@ -242,9 +362,16 @@
             <tr>
               <td><span class="rank-num{% if loop.index <= 3 %} top3{% endif %}">{{ loop.index }}</span></td>
               <td>
-                <a href="{{ url_for('team_page', team_id=t.team_id) }}"
-                   style="font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap;">
-                  <span style="color:var(--accent);font-family:'Outfit',sans-serif;font-weight:700;margin-right:6px;">{{ t.abbr }}</span>{{ t.full_name }}
+                <a href="{{ url_for('team_page', team_id=t.team_id) }}" class="standings-team-link">
+                  <img
+                    src="https://cdn.nba.com/logos/nba/{{ t.team_id }}/global/L/logo.svg"
+                    alt=""
+                    width="20"
+                    height="20"
+                    class="standings-team-logo"
+                    loading="lazy"
+                    onerror="this.style.display='none'">
+                  <span class="standings-team-abbr">{{ t.abbr }}</span>{{ t.full_name }}
                 </a>
               </td>
               <td class="right" style="font-weight:700;color:var(--win);">{{ t.wins }}</td>

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
+
+from db.llm_models import ensure_model_available, env_default_llm_model
 
 logger = logging.getLogger(__name__)
 
@@ -273,24 +274,23 @@ def _build_system_prompt() -> str:
     return _SYSTEM_PROMPT_TEMPLATE.replace("{EXAMPLES_PLACEHOLDER}", examples)
 
 
-def _call_llm(messages: list[dict]) -> str:
+def _call_llm(messages: list[dict], model: str | None = None) -> str:
     """Call OpenAI (preferred) or Anthropic and return the raw text response.
 
     messages: list of {"role": "user"|"assistant", "content": "..."}
     """
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
-
-    if not anthropic_key and not openai_key:
+    selected_model = model or env_default_llm_model()
+    if not selected_model:
         raise ValueError("No AI API key set — set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
 
+    selected_model = ensure_model_available(selected_model)
     system_prompt = _build_system_prompt()
 
-    if openai_key:
+    if selected_model == "gpt-5.4":
         import openai
-        client = openai.OpenAI(api_key=openai_key)
+        client = openai.OpenAI()
         response = client.chat.completions.create(
-            model="gpt-5.4",
+            model=selected_model,
             max_completion_tokens=4096,
             temperature=0,
             messages=[
@@ -301,9 +301,9 @@ def _call_llm(messages: list[dict]) -> str:
         return response.choices[0].message.content.strip()
     else:
         import anthropic
-        client = anthropic.Anthropic(api_key=anthropic_key)
+        client = anthropic.Anthropic()
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=selected_model,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
@@ -312,7 +312,8 @@ def _call_llm(messages: list[dict]) -> str:
 
 
 def generate(expression: str, history: list[dict] | None = None,
-             existing: dict | None = None) -> dict:
+             existing: dict | None = None,
+             model: str | None = None) -> dict:
     """Convert a plain-English expression into a metric spec with Python code.
 
     Args:
@@ -357,7 +358,7 @@ def generate(expression: str, history: list[dict] | None = None,
                 f"\"{expression}\""
             )}]
 
-    raw = _call_llm(messages)
+    raw = _call_llm(messages, model=model)
 
     # Strip markdown code fences if the model wrapped the response
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
