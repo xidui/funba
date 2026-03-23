@@ -2,7 +2,7 @@
 
 Two-phase MapReduce pipeline:
   Phase 1 (metrics queue): compute_game_delta — compute delta, write MetricRunLog only.
-  Phase 2 (reduce queue):  reduce_metric_season — aggregate deltas, write MetricResult.
+  Phase 2 (reduce queue):  reduce_metric_season / reduce_metric_compute_run — aggregate deltas, write MetricResult.
 
 Claim lifecycle (Phase 1)
 -------------------------
@@ -14,7 +14,8 @@ Claim lifecycle (Phase 1)
          Crashed 'in_progress' rows are cleared via --force in dispatch.
 
 2. Computation succeeds → UPDATE status='done'.
-   Check if all claims for this metric_key are done → auto-trigger reduce.
+   Legacy/daily paths still auto-trigger reduce inline. Bulk backfill paths
+   register a MetricComputeRun and let the sweeper trigger reduce off the hot path.
 
 3. Computation fails → DELETE claim row. Celery retries.
 
@@ -30,7 +31,7 @@ from celery import shared_task
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import MetricJobClaim, MetricRunLog, engine
+from db.models import MetricComputeRun, MetricJobClaim, MetricRunLog, engine
 from metrics.framework.runner import run_delta_only, reduce_metric
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,10 @@ logger = logging.getLogger(__name__)
 _STATUS_IN_PROGRESS = "in_progress"
 _STATUS_DONE = "done"
 _LEASE_SECONDS = 600
+_RUN_STATUS_MAPPING = "mapping"
+_RUN_STATUS_REDUCING = "reducing"
+_RUN_STATUS_COMPLETE = "complete"
+_RUN_STATUS_FAILED = "failed"
 
 
 def _session_factory():
@@ -155,6 +160,18 @@ def _release_claim(session, game_id: str, metric_key: str) -> None:
     session.commit()
 
 
+def _has_mapping_compute_run(session, metric_key: str) -> bool:
+    return (
+        session.query(MetricComputeRun.id)
+        .filter(
+            MetricComputeRun.metric_key == metric_key,
+            MetricComputeRun.status == _RUN_STATUS_MAPPING,
+        )
+        .first()
+        is not None
+    )
+
+
 def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
     """If all games have been processed for this metric, enqueue reduce tasks.
 
@@ -201,6 +218,91 @@ def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
     return seasons
 
 
+def _metric_seasons(session, metric_key: str) -> list[str]:
+    return [
+        r.season
+        for r in session.query(MetricRunLog.season)
+        .filter(MetricRunLog.metric_key == metric_key)
+        .distinct()
+        .all()
+    ]
+
+
+def _run_game_ids_query(session, run: MetricComputeRun):
+    from db.models import Game
+
+    q = session.query(Game.game_id).filter(Game.game_date.isnot(None))
+    if run.target_season:
+        q = q.filter(Game.season.like(f"{run.target_season}%"))
+    if run.target_date_from:
+        q = q.filter(Game.game_date >= run.target_date_from)
+    if run.target_date_to:
+        q = q.filter(Game.game_date <= run.target_date_to)
+    return q
+
+
+def _done_claim_count_for_run(session, run: MetricComputeRun) -> int:
+    game_ids = _run_game_ids_query(session, run).subquery()
+    return int(
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(
+            MetricJobClaim.metric_key == run.metric_key,
+            MetricJobClaim.status == _STATUS_DONE,
+            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _promote_run_to_reducing(session, run_id: str) -> bool:
+    updated = (
+        session.query(MetricComputeRun)
+        .filter(
+            MetricComputeRun.id == run_id,
+            MetricComputeRun.status == _RUN_STATUS_MAPPING,
+        )
+        .update(
+            {
+                "status": _RUN_STATUS_REDUCING,
+                "reduce_enqueued_at": datetime.utcnow(),
+            },
+            synchronize_session=False,
+        )
+    )
+    session.commit()
+    return updated == 1
+
+
+def _mark_run_complete(session, run_id: str) -> None:
+    session.query(MetricComputeRun).filter(
+        MetricComputeRun.id == run_id,
+    ).update(
+        {
+            "status": _RUN_STATUS_COMPLETE,
+            "completed_at": datetime.utcnow(),
+            "error_text": None,
+        },
+        synchronize_session=False,
+    )
+    session.commit()
+
+
+def _mark_run_failed(session, run_id: str, error_text: str) -> None:
+    session.query(MetricComputeRun).filter(
+        MetricComputeRun.id == run_id,
+    ).update(
+        {
+            "status": _RUN_STATUS_FAILED,
+            "failed_at": datetime.utcnow(),
+            "error_text": error_text[:4000],
+        },
+        synchronize_session=False,
+    )
+    session.commit()
+
+
 # ── Phase 1: Map (metrics queue) ─────────────────────────────────────────────
 
 @shared_task(
@@ -239,7 +341,10 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
 
     with SessionLocal() as session:
         _mark_done(session, game_id, metric_key)
-        triggered_seasons = _maybe_trigger_reduce(session, metric_key)
+        if _has_mapping_compute_run(session, metric_key):
+            triggered_seasons = []
+        else:
+            triggered_seasons = _maybe_trigger_reduce(session, metric_key)
 
     return {
         "game_id": game_id,
@@ -249,7 +354,111 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
     }
 
 
+@shared_task(
+    bind=True,
+    name="tasks.metrics.sweep_metric_compute_runs",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="reduce",
+)
+def sweep_metric_compute_runs_task(self) -> dict:
+    """Promote completed mapping runs into the reduce queue exactly once."""
+    SessionLocal = _session_factory()
+    promoted: list[str] = []
+    checked = 0
+
+    try:
+        with SessionLocal() as session:
+            runs = (
+                session.query(MetricComputeRun)
+                .filter(MetricComputeRun.status == _RUN_STATUS_MAPPING)
+                .order_by(MetricComputeRun.created_at.asc())
+                .all()
+            )
+
+            for run in runs:
+                checked += 1
+                if _done_claim_count_for_run(session, run) < int(run.target_game_count):
+                    continue
+                if not _promote_run_to_reducing(session, run.id):
+                    continue
+                try:
+                    reduce_metric_compute_run_task.delay(run.id)
+                except Exception as exc:
+                    with SessionLocal() as revert_session:
+                        revert_session.query(MetricComputeRun).filter(
+                            MetricComputeRun.id == run.id,
+                            MetricComputeRun.status == _RUN_STATUS_REDUCING,
+                        ).update(
+                            {
+                                "status": _RUN_STATUS_MAPPING,
+                                "reduce_enqueued_at": None,
+                                "error_text": f"enqueue reduce failed: {exc}"[:4000],
+                            },
+                            synchronize_session=False,
+                        )
+                        revert_session.commit()
+                    raise
+                promoted.append(run.id)
+    except Exception as exc:
+        logger.error("sweep_metric_compute_runs failed: %s", exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=30)
+
+    return {"checked_runs": checked, "promoted_runs": promoted}
+
+
 # ── Phase 2: Reduce (reduce queue) ───────────────────────────────────────────
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.reduce_metric_compute_run",
+    max_retries=2,
+    default_retry_delay=30,
+    queue="reduce",
+)
+def reduce_metric_compute_run_task(self, run_id: str) -> dict:
+    """Reduce all seasons for one MetricComputeRun and mark the run complete."""
+    SessionLocal = _session_factory()
+    metric_key = ""
+    seasons: list[str] = []
+
+    try:
+        with SessionLocal() as session:
+            run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
+            if run is None:
+                return {"run_id": run_id, "skipped": True, "reason": "missing"}
+            if run.status == _RUN_STATUS_COMPLETE:
+                return {"run_id": run_id, "skipped": True, "reason": _RUN_STATUS_COMPLETE}
+            if run.status != _RUN_STATUS_REDUCING:
+                return {"run_id": run_id, "skipped": True, "reason": run.status}
+            metric_key = run.metric_key
+            seasons = _metric_seasons(session, metric_key)
+
+        results_written = 0
+        for season in seasons:
+            with SessionLocal() as session:
+                results_written += reduce_metric(session, metric_key, season, commit=True)
+
+        with SessionLocal() as session:
+            _mark_run_complete(session, run_id)
+    except Exception as exc:
+        logger.error(
+            "reduce_metric_compute_run: run_id=%s failed: %s",
+            run_id, exc, exc_info=True,
+        )
+        if self.request.retries >= self.max_retries:
+            with SessionLocal() as session:
+                _mark_run_failed(session, run_id, str(exc))
+            raise
+        raise self.retry(exc=exc, countdown=30)
+
+    return {
+        "run_id": run_id,
+        "metric_key": metric_key,
+        "seasons_reduced": seasons,
+        "results_written": results_written,
+    }
 
 @shared_task(
     bind=True,

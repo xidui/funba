@@ -48,6 +48,8 @@ app.conf.update(
     task_routes={
         "tasks.ingest.ingest_game": {"queue": "ingest"},
         "tasks.metrics.compute_game_delta": {"queue": "metrics"},
+        "tasks.metrics.sweep_metric_compute_runs": {"queue": "reduce"},
+        "tasks.metrics.reduce_metric_compute_run": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_season": {"queue": "reduce"},
     },
 
@@ -66,6 +68,10 @@ app.conf.update(
         "ingest-yesterday-games": {
             "task": "tasks.ingest.ingest_yesterday",
             "schedule": 60 * 60,  # every hour — task itself skips already-ingested games
+        },
+        "sweep-metric-compute-runs": {
+            "task": "tasks.metrics.sweep_metric_compute_runs",
+            "schedule": 60,  # every minute — promotes completed backfill runs to reduce
         },
     },
 

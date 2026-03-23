@@ -361,6 +361,30 @@ class MetricJobClaim(Base):
     )
 
 
+class MetricComputeRun(Base):
+    """Coarse-grained orchestration state for one metric compute/backfill run."""
+    __tablename__ = "MetricComputeRun"
+
+    id = Column(String(36), primary_key=True)
+    metric_key = Column(String(64), nullable=False)
+    status = Column(String(16), nullable=False, default="mapping")  # mapping | reducing | complete | failed
+    target_season = Column(String(16), nullable=True)
+    target_date_from = Column(DATE, nullable=True)
+    target_date_to = Column(DATE, nullable=True)
+    target_game_count = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    reduce_enqueued_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
+    error_text = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('ix_MetricComputeRun_metric_status', 'metric_key', 'status'),
+        Index('ix_MetricComputeRun_status_created', 'status', 'created_at'),
+    )
+
+
 class User(Base):
     """User account (Google OAuth or email magic-link)."""
     __tablename__ = 'User'

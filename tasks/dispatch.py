@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
+from datetime import date as _date, datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GameLineScore, MetricJobClaim, engine
+from db.models import Game, GameLineScore, MetricComputeRun, MetricJobClaim, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
@@ -120,6 +122,52 @@ def _clear_claims(game_ids: list[str], metric_keys: list[str] | None = None) -> 
         count = q.delete(synchronize_session=False)
         sess.commit()
         return count
+    finally:
+        sess.close()
+
+
+def _parse_optional_date(value: str | None):
+    return _date.fromisoformat(value) if value else None
+
+
+def _create_metric_compute_run(
+    metric_key: str,
+    target_game_count: int,
+    *,
+    season: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> tuple[MetricComputeRun, bool]:
+    """Create a new MetricComputeRun unless one is already active for this metric."""
+    sess = _session()
+    try:
+        existing = (
+            sess.query(MetricComputeRun)
+            .filter(
+                MetricComputeRun.metric_key == metric_key,
+                MetricComputeRun.status.in_(("mapping", "reducing")),
+            )
+            .order_by(MetricComputeRun.created_at.desc())
+            .first()
+        )
+        if existing is not None:
+            return existing, False
+
+        now = datetime.utcnow()
+        run = MetricComputeRun(
+            id=str(uuid.uuid4()),
+            metric_key=metric_key,
+            status="mapping",
+            target_season=season,
+            target_date_from=_parse_optional_date(date_from),
+            target_date_to=_parse_optional_date(date_to),
+            target_game_count=int(target_game_count),
+            created_at=now,
+            started_at=now,
+        )
+        sess.add(run)
+        sess.commit()
+        return run, True
     finally:
         sess.close()
 
@@ -282,7 +330,8 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
 
     Skips the ingest queue since artifacts should already exist for backfill.
     Use 'backfill' or 'discover' commands first if data is missing.
-    Reduce (Phase 2) is auto-triggered when the last map task completes.
+    Reduce (Phase 2) is promoted by the sweeper once the MetricComputeRun
+    reaches its target done-claim count.
     """
     from tasks.metrics import compute_game_delta
     from metrics.framework.runtime import expand_metric_keys, get_all_metrics
@@ -312,18 +361,35 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids, metric_keys)
         print(f"--force: cleared {deleted} claim(s).")
 
-    # Enqueue delta-only tasks directly to metrics queue
+    # Register one MetricComputeRun per concrete metric key, then enqueue map tasks.
     task_count = 0
-    for gid in game_ids:
-        for key in metric_keys:
+    run_count = 0
+    skipped_active: list[str] = []
+    for key in metric_keys:
+        run, created = _create_metric_compute_run(
+            key,
+            len(game_ids),
+            season=args.season,
+            date_from=args.date_from,
+            date_to=args.date_to,
+        )
+        if not created:
+            skipped_active.append(f"{key} ({run.id})")
+            continue
+        run_count += 1
+        for gid in game_ids:
             compute_game_delta.apply_async(args=[gid, key], queue="metrics")
             task_count += 1
 
     print(
         f"Enqueued {task_count} delta task(s) → Queue: metrics "
-        f"({len(game_ids)} games × {len(metric_keys)} metrics). "
-        f"Reduce will auto-trigger when each metric completes."
+        f"for {run_count} compute run(s). "
+        f"Reduce will be enqueued by the sweeper after mapping completes."
     )
+    if skipped_active:
+        print("Skipped metrics with an active compute run:")
+        for item in skipped_active:
+            print(f"  {item}")
 
 
 def cmd_metric_reduce(args: argparse.Namespace) -> None:
@@ -415,7 +481,7 @@ def main() -> None:
     # --- metric-backfill ---
     p_mb = sub.add_parser(
         "metric-backfill",
-        help="Enqueue Phase 1 (map) delta tasks. Reduce auto-triggers on completion.",
+        help="Enqueue Phase 1 (map) delta tasks. Reduce is promoted by the sweeper on completion.",
     )
     p_mb.add_argument("--metric", default=None, help="Single metric key, or omit for all.")
     p_mb.add_argument("--season", help="Limit to a season prefix, e.g. 22025")
