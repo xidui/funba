@@ -100,7 +100,7 @@
   }
   .status-pill.complete { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
   .status-pill.running  { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
-  .status-pill.reducing { background: color-mix(in srgb, #c084fc 15%, transparent); color: #c084fc; }
+  .status-pill.finalizing { background: color-mix(in srgb, #c084fc 15%, transparent); color: #c084fc; }
   .status-pill.queued   { background: color-mix(in srgb, #facc15 15%, transparent); color: #facc15; }
   .status-pill.failed   { background: color-mix(in srgb, #f87171 15%, transparent); color: #f87171; }
   .status-pill.draft    { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
@@ -439,7 +439,7 @@
   class="backfill-panel"
   data-status="{{ backfill.status }}"
   data-status-url="{{ url_for('api_metric_backfill_status', metric_key=metric_def.key) }}"
-  {% if backfill.status in ['queued', 'running', 'reducing'] %}open{% endif %}
+  {% if backfill.status in ['queued', 'running', 'finalizing'] %}open{% endif %}
 >
   <summary class="backfill-summary">
     <div class="backfill-summary-main">
@@ -453,8 +453,8 @@
           {% endif %}
         {% elif backfill.status == 'draft' %}
           Publish this metric to start backfilling it across games.
-        {% elif backfill.status == 'reducing' %}
-          All games computed. Aggregating results…
+        {% elif backfill.status == 'finalizing' %}
+          All games processed. Finalizing results…
         {% elif backfill.status == 'failed' %}
           Compute run failed. Check admin for details.
         {% elif backfill.status == 'queued' %}
@@ -662,7 +662,7 @@
   let timerId = null;
 
   function shouldPoll(status) {
-    return status === 'queued' || status === 'running' || status === 'reducing';
+    return status === 'queued' || status === 'running' || status === 'finalizing';
   }
 
   function syncPolling(status) {
@@ -689,7 +689,7 @@
         : `Last compute activity: ${backfill.latest_run_at}`;
     }
     if (backfill.status === 'draft') return 'Publish this metric to start backfilling it across games.';
-    if (backfill.status === 'reducing') return 'All games computed. Aggregating results\u2026';
+    if (backfill.status === 'finalizing') return 'All games processed. Finalizing results\u2026';
     if (backfill.status === 'failed') return 'Compute run failed. Check admin for details.';
     if (backfill.status === 'queued') return 'Publish succeeded. Workers have not claimed jobs yet.';
     if (backfill.status === 'not_started') return 'No backfill has run for this metric yet.';
