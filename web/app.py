@@ -1316,10 +1316,24 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .scalar()
     )
 
+    # Check MetricComputeRun to reflect map/reduce pipeline status accurately.
+    latest_compute_run = (
+        session.query(MetricComputeRun)
+        .filter(MetricComputeRun.metric_key == metric_key)
+        .order_by(desc(MetricComputeRun.created_at))
+        .first()
+    )
+
     if total_games and done_games >= total_games:
-        status = "complete"
+        # All claims done — but reduce may still be pending/running.
+        if latest_compute_run and latest_compute_run.status in ("mapping", "reducing"):
+            status = "reducing"
+        else:
+            status = "complete"
     elif active_games > 0 or done_games > 0:
         status = "running"
+    elif latest_compute_run and latest_compute_run.status == "failed":
+        status = "failed"
     else:
         status = "not_started"
 
@@ -1345,8 +1359,12 @@ def _combine_backfill_components(
         status = "draft"
     elif components and all(c["status"] == "complete" for c in components):
         status = "complete"
+    elif any(c["status"] == "reducing" for c in components):
+        status = "reducing"
     elif any(c["status"] == "running" for c in components):
         status = "running"
+    elif any(c["status"] == "failed" for c in components):
+        status = "failed"
     elif getattr(metric_def, "source_type", None) == "rule" and getattr(metric_def, "status", None) == "published":
         if any(c["status"] in {"not_started"} for c in components):
             status = "queued"
