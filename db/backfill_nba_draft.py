@@ -111,7 +111,7 @@ def _apply_draft_fields(player: Player, row: dict) -> bool:
 
 def upsert_draft_row(session, row: dict) -> str:
     """Create or update a Player row from a draft history row."""
-    player_id = str(row.get("PLAYER_ID") or "").strip()
+    player_id = str(row.get("PERSON_ID") or "").strip()
     full_name = str(row.get("PLAYER_NAME") or "").strip() or None
     draft_year = _int_or_none(row.get("SEASON"))
     draft_round = _int_or_none(row.get("ROUND_NUMBER"))

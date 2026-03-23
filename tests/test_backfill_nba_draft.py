@@ -52,14 +52,14 @@ class TestBackfillNbaDraft(unittest.TestCase):
                 "SEASON": "2009",
                 "ROUND_NUMBER": "1",
                 "ROUND_PICK": "7",
-                "PLAYER_ID": "201935",
+                "PERSON_ID": "201935",
                 "PLAYER_NAME": "Player One",
             },
             {
                 "SEASON": "2009",
                 "ROUND_NUMBER": "1",
                 "ROUND_PICK": "8",
-                "PLAYER_ID": "201939",
+                "PERSON_ID": "201939",
                 "PLAYER_NAME": "Player Two",
             },
         ]
@@ -102,14 +102,14 @@ class TestBackfillNbaDraft(unittest.TestCase):
                 "SEASON": "2009",
                 "ROUND_NUMBER": "1",
                 "ROUND_PICK": "7",
-                "PLAYER_ID": "201935",
+                "PERSON_ID": "201935",
                 "PLAYER_NAME": "James Harden",
             },
             {
                 "SEASON": "2009",
                 "ROUND_NUMBER": "1",
                 "ROUND_PICK": "8",
-                "PLAYER_ID": "201939",
+                "PERSON_ID": "201939",
                 "PLAYER_NAME": "Stephen Curry",
             },
         ]
@@ -139,7 +139,7 @@ class TestBackfillNbaDraft(unittest.TestCase):
                 "SEASON": "1996",
                 "ROUND_NUMBER": "1",
                 "ROUND_PICK": "13",
-                "PLAYER_ID": "2544",
+                "PERSON_ID": "2544",
                 "PLAYER_NAME": "Kobe Bryant",
             }
         ]
