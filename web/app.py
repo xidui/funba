@@ -2671,18 +2671,16 @@ def draft_page(year: int):
             .all()
         )
 
-    prev_year = year - 1 if min_year is not None and year > min_year else None
-    next_year = year + 1 if max_year is not None and year < max_year else None
-    show_position_column = any(player.position for player in draft_players)
+    min_year = min_year or year
+    max_year = max_year or year
 
     return render_template(
         "draft.html",
         year=year,
         draft_players=draft_players,
         draft_count=len(draft_players),
-        prev_year=prev_year,
-        next_year=next_year,
-        show_position_column=show_position_column,
+        min_year=min_year,
+        max_year=max_year,
     )
 
 
