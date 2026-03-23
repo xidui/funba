@@ -440,6 +440,8 @@ class LowestQuarterScore(MetricDefinition):
                 "pending_games": 65,
                 "total_games": 100,
                 "progress_pct": 30.0,
+                "reduce_done_seasons": 0,
+                "reduce_total_seasons": 0,
                 "latest_run_at": datetime(2026, 3, 19, 12, 34, 56),
             },
             {
@@ -450,6 +452,8 @@ class LowestQuarterScore(MetricDefinition):
                 "pending_games": 0,
                 "total_games": 100,
                 "progress_pct": 100.0,
+                "reduce_done_seasons": 0,
+                "reduce_total_seasons": 0,
                 "latest_run_at": datetime(2026, 3, 19, 13, 0, 0),
             },
         ]

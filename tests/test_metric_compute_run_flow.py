@@ -70,15 +70,15 @@ def test_compute_game_delta_skips_inline_reduce_when_mapping_run_exists():
 
 
 def test_sweeper_promotes_completed_mapping_run_once():
-    run = SimpleNamespace(id="run-1", target_game_count=3)
+    run = SimpleNamespace(id="run-1", metric_key="metric-a", target_game_count=3)
     mapping_query = MagicMock()
     mapping_query.filter.return_value.order_by.return_value.all.return_value = [run]
     reducing_query = MagicMock()
     reducing_query.filter.return_value.order_by.return_value.all.return_value = []
-    reducing_exists_query = MagicMock()
-    reducing_exists_query.filter.return_value.first.return_value = None
+    active_reducing_keys_query = MagicMock()
+    active_reducing_keys_query.filter.return_value.all.return_value = []
     session = _ctx(MagicMock())
-    session.query.side_effect = [reducing_query, reducing_exists_query, mapping_query]
+    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
          patch.object(metrics_tasks, "_done_claim_count_for_run", return_value=3), \
@@ -102,15 +102,15 @@ def test_sweeper_promotes_completed_mapping_run_once():
 
 
 def test_sweeper_finalizes_completed_reducing_run():
-    run = SimpleNamespace(id="run-1", target_game_count=3)
+    run = SimpleNamespace(id="run-1", metric_key="metric-a", target_game_count=3)
     mapping_query = MagicMock()
     mapping_query.filter.return_value.order_by.return_value.all.return_value = []
     reducing_query = MagicMock()
     reducing_query.filter.return_value.order_by.return_value.all.return_value = [run]
-    reducing_exists_query = MagicMock()
-    reducing_exists_query.filter.return_value.first.return_value = None
+    active_reducing_keys_query = MagicMock()
+    active_reducing_keys_query.filter.return_value.all.return_value = []
     session = _ctx(MagicMock())
-    session.query.side_effect = [reducing_query, reducing_exists_query, mapping_query]
+    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
          patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=True) as finalize, \
@@ -131,13 +131,15 @@ def test_sweeper_finalizes_completed_reducing_run():
 
 
 def test_sweeper_requeues_stale_reducing_run():
-    run = SimpleNamespace(id="run-1", target_game_count=3)
+    run = SimpleNamespace(id="run-1", metric_key="metric-a", target_game_count=3)
     reducing_query = MagicMock()
     reducing_query.filter.return_value.order_by.return_value.all.return_value = [run]
-    reducing_exists_query = MagicMock()
-    reducing_exists_query.filter.return_value.first.return_value = object()
+    active_reducing_keys_query = MagicMock()
+    active_reducing_keys_query.filter.return_value.all.return_value = []
+    mapping_query = MagicMock()
+    mapping_query.filter.return_value.order_by.return_value.all.return_value = []
     session = _ctx(MagicMock())
-    session.query.side_effect = [reducing_query, reducing_exists_query]
+    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
          patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
@@ -158,13 +160,16 @@ def test_sweeper_requeues_stale_reducing_run():
 
 
 def test_sweeper_does_not_promote_mapping_runs_while_reducing_backlog_exists():
-    reducing_run = SimpleNamespace(id="run-r", target_game_count=3)
+    reducing_run = SimpleNamespace(id="run-r", metric_key="metric-a", target_game_count=3)
+    mapping_run = SimpleNamespace(id="run-m", metric_key="metric-a", target_game_count=3)
     reducing_query = MagicMock()
     reducing_query.filter.return_value.order_by.return_value.all.return_value = [reducing_run]
-    reducing_exists_query = MagicMock()
-    reducing_exists_query.filter.return_value.first.return_value = object()
+    active_reducing_keys_query = MagicMock()
+    active_reducing_keys_query.filter.return_value.all.return_value = [("metric-a",)]
+    mapping_query = MagicMock()
+    mapping_query.filter.return_value.order_by.return_value.all.return_value = [mapping_run]
     session = _ctx(MagicMock())
-    session.query.side_effect = [reducing_query, reducing_exists_query]
+    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
          patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
@@ -177,7 +182,7 @@ def test_sweeper_does_not_promote_mapping_runs_while_reducing_backlog_exists():
     requeue.assert_called_once()
     delay.assert_not_called()
     assert result == {
-        "checked_runs": 0,
+        "checked_runs": 1,
         "promoted_runs": [],
         "finalized_runs": [],
         "requeued_runs": [],

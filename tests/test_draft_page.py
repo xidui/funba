@@ -56,7 +56,7 @@ def _make_app_module():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricJobClaim",
         "MetricDefinition", "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "GameLineScore",
     ):
@@ -124,9 +124,11 @@ class TestDraftPage(unittest.TestCase):
         _, kwargs = render_template.call_args
         self.assertEqual(kwargs["year"], 2009)
         self.assertEqual(kwargs["draft_count"], 2)
-        self.assertEqual(kwargs["prev_year"], 2008)
-        self.assertEqual(kwargs["next_year"], 2010)
-        self.assertTrue(kwargs["show_position_column"])
+        self.assertEqual(kwargs["min_year"], 2008)
+        self.assertEqual(kwargs["max_year"], 2010)
+        self.assertNotIn("prev_year", kwargs)
+        self.assertNotIn("next_year", kwargs)
+        self.assertNotIn("show_position_column", kwargs)
         self.assertEqual([player.player_id for player in kwargs["draft_players"]], ["1", "2"])
 
     def test_draft_page_handles_empty_year_without_position_column(self):
@@ -148,9 +150,11 @@ class TestDraftPage(unittest.TestCase):
         _, kwargs = render_template.call_args
         self.assertEqual(kwargs["draft_players"], [])
         self.assertEqual(kwargs["draft_count"], 0)
-        self.assertIsNone(kwargs["prev_year"])
-        self.assertIsNone(kwargs["next_year"])
-        self.assertFalse(kwargs["show_position_column"])
+        self.assertEqual(kwargs["min_year"], 2003)
+        self.assertEqual(kwargs["max_year"], 2003)
+        self.assertNotIn("prev_year", kwargs)
+        self.assertNotIn("next_year", kwargs)
+        self.assertNotIn("show_position_column", kwargs)
 
     def test_draft_page_rejects_years_outside_valid_range(self):
         with self.web_app.app.test_request_context("/draft/1946"):
