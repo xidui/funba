@@ -156,14 +156,20 @@ def _release_claim(session, game_id: str, metric_key: str) -> None:
 
 
 def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
-    """If all claims for this metric are done, enqueue reduce tasks.
+    """If all games have been processed for this metric, enqueue reduce tasks.
+
+    Compares done claims against the total number of games in the DB
+    (not just the number of claims), so it won't fire prematurely during
+    backfill when claims are being created incrementally.
 
     Returns list of seasons for which reduce was triggered.
     """
-    total = (
+    from db.models import Game
+
+    total_games = (
         session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(MetricJobClaim.metric_key == metric_key)
+        .select_from(Game)
+        .filter(Game.game_date.isnot(None))
         .scalar()
     )
     done = (
@@ -175,7 +181,7 @@ def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
         )
         .scalar()
     )
-    if total == 0 or done < total:
+    if total_games == 0 or done < total_games:
         return []
 
     # All done — find distinct seasons and enqueue reduce
