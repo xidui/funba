@@ -32,6 +32,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
   }
 
   .chat-header-title {
@@ -54,6 +56,27 @@
     transition: color 0.15s, border-color 0.15s;
   }
   .chat-start-over:hover { color: var(--accent); border-color: var(--accent); }
+
+  .chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .admin-model-select {
+    height: 36px;
+    min-width: 170px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+    outline: none;
+  }
+  .admin-model-select:focus { border-color: var(--accent); }
 
   .chat-messages {
     flex: 1;
@@ -469,7 +492,16 @@
   <div class="chat-panel">
     <div class="chat-header">
       <span class="chat-header-title">Metric Builder</span>
-      <button id="start-over-btn" class="chat-start-over">Start over</button>
+      <div class="chat-header-actions">
+        {% if is_admin %}
+        <select id="metric-generate-model" class="admin-model-select" aria-label="Select LLM model">
+          {% for model_name in llm_available_models %}
+          <option value="{{ model_name }}" {% if model_name == llm_default_model %}selected{% endif %}>{{ model_name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        <button id="start-over-btn" class="chat-start-over">Start over</button>
+      </div>
     </div>
 
     <div id="chat-messages" class="chat-messages">
@@ -653,6 +685,7 @@
   const chatInput    = document.getElementById('chat-input');
   const chatSend     = document.getElementById('chat-send');
   const chatStatus   = document.getElementById('chat-status');
+  const modelSelect  = document.getElementById('metric-generate-model');
   const startOverBtn = document.getElementById('start-over-btn');
   const codeViewer   = document.getElementById('code-viewer');
   const keyInput     = document.getElementById('f-key');
@@ -856,6 +889,7 @@
 
     try {
       const payload = { expression: expr };
+      if (modelSelect) payload.model = modelSelect.value;
       if (isFollowup) payload.history = chatHistory;
       if (EDIT_MODE && currentSpec) {
         payload.existing = {

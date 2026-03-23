@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
-import os
 import re
+
+from db.llm_models import ensure_model_available, env_default_llm_model
 
 _FIELD_ORDER = (
     "key",
@@ -78,15 +79,13 @@ def _candidate_search_document(candidate: dict) -> str:
     return _truncate_text(document, _MAX_DOCUMENT_CHARS)
 
 
-def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dict]:
+def rank_metrics(query: str, candidates: list[dict], limit: int = 8, model: str | None = None) -> list[dict]:
     """Return ranked metric keys + reasons using an LLM."""
-    openai_key = os.getenv("OPENAI_API_KEY")
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-
     if not query.strip():
         return []
 
-    if not openai_key and not anthropic_key:
+    selected_model = model or env_default_llm_model()
+    if not selected_model:
         raise ValueError("Metric search requires OPENAI_API_KEY or ANTHROPIC_API_KEY.")
 
     candidate_docs = [
@@ -110,12 +109,14 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
         f"{json.dumps(candidate_docs, ensure_ascii=True)}"
     )
 
-    if openai_key:
+    selected_model = ensure_model_available(selected_model)
+
+    if selected_model == "gpt-5.4":
         import openai
 
-        client = openai.OpenAI(api_key=openai_key)
+        client = openai.OpenAI()
         response = client.chat.completions.create(
-            model="gpt-5.4",
+            model=selected_model,
             max_completion_tokens=1200,
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
@@ -124,9 +125,9 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8) -> list[dic
     else:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=anthropic_key)
+        client = anthropic.Anthropic()
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=selected_model,
             max_tokens=1200,
             messages=[{"role": "user", "content": prompt}],
         )
