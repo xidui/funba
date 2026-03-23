@@ -110,12 +110,16 @@ single game's source rows are loaded once and reused across entities/metrics.
 
 ```python
 from metrics.helpers import (
+    game_score_margin_rows,
     game_pbp_rows,
     game_row,
     get_half_scores,
     get_quarter_scores,
+    late_final_score_margin_rows,
+    pbp_clock_seconds_left,
     player_attempted_shots,
     player_game_stat,
+    period_ending_pbp_row,
     team_abbr,
     team_game_stat,
     team_player_stats,
@@ -138,6 +142,18 @@ from metrics.helpers import (
 
 # game_pbp_rows(session, game_id) -> list[GamePlayByPlay]
 # Returns all PBP rows for one game, cached per game.
+
+# game_score_margin_rows(session, game_id) -> list[GamePlayByPlay]
+# Returns PBP rows with non-null score_margin, cached and sorted by period/event.
+
+# period_ending_pbp_row(session, game_id, period) -> GamePlayByPlay | None
+# Returns the latest score_margin row in a period (useful for halftime state).
+
+# late_final_score_margin_rows(session, game_id, seconds_left=10) -> list[GamePlayByPlay]
+# Returns final-period score_margin rows in the last N seconds.
+
+# pbp_clock_seconds_left(pc_time) -> int | None
+# Parses a PBP clock string like "1:23" into seconds remaining.
 
 # get_quarter_scores(session, game_id) -> list[dict]
 # Returns per-quarter per-team points:

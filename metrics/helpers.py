@@ -161,6 +161,56 @@ def game_pbp_rows(session: Session, game_id: str) -> list[GamePlayByPlay]:
     return rows
 
 
+def pbp_clock_seconds_left(pc_time: str | None) -> int | None:
+    """Parse a PBP clock string like '1:23' into seconds remaining."""
+    if not pc_time:
+        return None
+    try:
+        mm, ss = pc_time.split(":")
+        return int(mm) * 60 + int(ss)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def game_score_margin_rows(session: Session, game_id: str) -> list[GamePlayByPlay]:
+    """Return PBP rows with score_margin for a game, cached and sorted by period/event."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("game_score_margin_rows", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = [
+        row
+        for row in game_pbp_rows(session, game_id)
+        if row.score_margin not in (None, "", "null")
+    ]
+    cache[cache_key] = rows
+    return rows
+
+
+def period_ending_pbp_row(session: Session, game_id: str, period: int) -> GamePlayByPlay | None:
+    """Return the latest score_margin row in a period, if available."""
+    rows = [row for row in game_score_margin_rows(session, game_id) if (row.period or 0) == int(period)]
+    if not rows:
+        return None
+    rows.sort(key=lambda row: ((row.event_num or 0), pbp_clock_seconds_left(row.pc_time) or -1), reverse=True)
+    return rows[0]
+
+
+def late_final_score_margin_rows(session: Session, game_id: str, seconds_left: int = 10) -> list[GamePlayByPlay]:
+    """Return score_margin rows from the final period within the last N seconds."""
+    rows = game_score_margin_rows(session, game_id)
+    max_period = max(((row.period or 0) for row in rows), default=0)
+    if max_period <= 0:
+        return []
+    return [
+        row
+        for row in rows
+        if (row.period or 0) == max_period and (pbp_clock_seconds_left(row.pc_time) or 10**9) <= seconds_left
+    ]
+
+
 def _line_score_period_map(row: GameLineScore) -> dict[int, int]:
     period_map: dict[int, int] = {}
     for period, value in (
