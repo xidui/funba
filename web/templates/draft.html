@@ -29,42 +29,25 @@
   .draft-nav {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .draft-nav-link,
-  .draft-nav-disabled {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 10px 14px;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     font-family: 'Outfit', sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
-    letter-spacing: 0.04em;
   }
 
-  .draft-nav-link {
-    background: var(--surface-2);
+  .draft-year-select {
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 8px;
     border: 1px solid var(--border-2);
+    background: var(--surface-2);
     color: var(--text);
+    font: inherit;
   }
 
-  .draft-nav-link:hover {
-    text-decoration: none;
+  .draft-year-select:hover,
+  .draft-year-select:focus {
     border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .draft-nav-disabled {
-    background: var(--surface);
-    border: 1px dashed var(--border);
-    color: var(--muted);
-    cursor: default;
+    outline: none;
   }
 
   .draft-table td,
@@ -73,8 +56,28 @@
   }
 
   .draft-table .player-cell,
-  .draft-table .player-cell a {
+  .draft-table .player-cell a,
+  .draft-table .player-name {
     white-space: normal;
+  }
+
+  .draft-player-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .draft-player-link:hover {
+    text-decoration: none;
+  }
+
+  .draft-player-headshot {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--surface-2);
+    flex: 0 0 40px;
   }
 
   .draft-table tbody tr:hover td {
@@ -95,6 +98,8 @@
   }
 </style>
 
+{% set placeholder_headshot = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Ccircle cx=%2220%22 cy=%2220%22 r=%2220%22 fill=%22%23333b4f%22/%3E%3Ccircle cx=%2220%22 cy=%2215%22 r=%227%22 fill=%22%23868fa3%22/%3E%3Cpath d=%22M8 34c2.7-6.9 8.2-10.3 12-10.3S29.3 27.1 32 34%22 fill=%22%23868fa3%22/%3E%3C/svg%3E' %}
+
 <div class="card">
   <div class="draft-hero">
     <div>
@@ -102,16 +107,16 @@
       <p class="draft-subtitle">{{ draft_count }} picks</p>
     </div>
     <div class="draft-nav" aria-label="Draft year navigation">
-      {% if prev_year %}
-      <a class="draft-nav-link" href="{{ url_for('draft_page', year=prev_year) }}" aria-label="Previous draft year">←</a>
-      {% else %}
-      <span class="draft-nav-disabled" aria-hidden="true">←</span>
-      {% endif %}
-      {% if next_year %}
-      <a class="draft-nav-link" href="{{ url_for('draft_page', year=next_year) }}" aria-label="Next draft year">→</a>
-      {% else %}
-      <span class="draft-nav-disabled" aria-hidden="true">→</span>
-      {% endif %}
+      <select
+        id="draft-year-select"
+        class="draft-year-select"
+        aria-label="Select draft year"
+        onchange="window.location.href='/draft/' + this.value"
+      >
+        {% for draft_year in range(max_year, min_year - 1, -1) %}
+        <option value="{{ draft_year }}" {% if draft_year == year %}selected{% endif %}>{{ draft_year }}</option>
+        {% endfor %}
+      </select>
     </div>
   </div>
 
@@ -123,9 +128,7 @@
           <th style="width: 60px;">Round</th>
           <th style="width: 60px;">Pick</th>
           <th>Player</th>
-          {% if show_position_column %}
           <th style="width: 80px;">Position</th>
-          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -133,7 +136,7 @@
         {% for player in draft_players %}
         {% if player.draft_round != ns.last_round %}
         <tr class="row-overall">
-          <td colspan="{{ 4 if show_position_column else 3 }}">
+          <td colspan="4">
             <span class="draft-round-label">Round {{ player.draft_round or "?" }}</span>
           </td>
         </tr>
@@ -143,11 +146,18 @@
           <td>{{ player.draft_round or "—" }}</td>
           <td>{{ player.draft_number or "—" }}</td>
           <td class="player-cell">
-            <a href="/players/{{ player.player_id }}">{{ player.full_name or player.player_id }}</a>
+            <a class="draft-player-link" href="/players/{{ player.player_id }}">
+              <img
+                class="draft-player-headshot"
+                src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ player.player_id }}.png"
+                alt="{{ player.full_name or player.player_id }}"
+                loading="lazy"
+                onerror="this.onerror=null;this.src='{{ placeholder_headshot }}';"
+              >
+              <span class="player-name">{{ player.full_name or player.player_id }}</span>
+            </a>
           </td>
-          {% if show_position_column %}
           <td>{{ player.position or "—" }}</td>
-          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
