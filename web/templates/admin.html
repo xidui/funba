@@ -187,6 +187,11 @@
     pointer-events: none;
     cursor: default;
   }
+  .card.is-loading {
+    opacity: 0.55;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
 </style>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
@@ -370,7 +375,7 @@
   </div>
 
   <!-- Claim status -->
-  <div class="card">
+  <div id="claims-card" class="card">
     <h2>Job Claims</h2>
     <div class="claim-pills">
       <div class="claim-pill done">
@@ -409,8 +414,8 @@
       <div class="pager">
         <span>Page {{ claims_page }} / {{ claims_total_pages }}</span>
         <div class="pager-links">
-          <a class="pager-link {{ 'disabled' if claims_page == 1 }}" href="{{ admin_page_url('claims_page', claims_page - 1) }}">Prev</a>
-          <a class="pager-link {{ 'disabled' if claims_page == claims_total_pages }}" href="{{ admin_page_url('claims_page', claims_page + 1) }}">Next</a>
+          <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == 1 }}" data-target-card="claims-card" href="{{ admin_page_url('claims_page', claims_page - 1) }}">Prev</a>
+          <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == claims_total_pages }}" data-target-card="claims-card" href="{{ admin_page_url('claims_page', claims_page + 1) }}">Next</a>
         </div>
       </div>
       {% endif %}
@@ -421,7 +426,7 @@
   </div>
 
   <!-- Compute runs -->
-  <div class="card">
+  <div id="compute-runs-card" class="card">
     <h2>Compute Runs</h2>
     <div class="claim-pills">
       <div class="claim-pill mapping">
@@ -465,8 +470,8 @@
       <div class="pager">
         <span>Page {{ runs_page }} / {{ runs_total_pages }}</span>
         <div class="pager-links">
-          <a class="pager-link {{ 'disabled' if runs_page == 1 }}" href="{{ admin_page_url('runs_page', runs_page - 1) }}">Prev</a>
-          <a class="pager-link {{ 'disabled' if runs_page == runs_total_pages }}" href="{{ admin_page_url('runs_page', runs_page + 1) }}">Next</a>
+          <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == 1 }}" data-target-card="compute-runs-card" href="{{ admin_page_url('runs_page', runs_page - 1) }}">Prev</a>
+          <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == runs_total_pages }}" data-target-card="compute-runs-card" href="{{ admin_page_url('runs_page', runs_page + 1) }}">Next</a>
         </div>
       </div>
       {% endif %}
@@ -477,7 +482,7 @@
   </div>
 
   <!-- Recent runs -->
-  <div class="card">
+  <div id="recent-runs-card" class="card">
     <h2>Recent Metric Runs</h2>
     {% if recent %}
     <table>
@@ -496,8 +501,8 @@
     <div class="pager">
       <span>Page {{ recent_page }} / {{ recent_total_pages }}</span>
       <div class="pager-links">
-        <a class="pager-link {{ 'disabled' if recent_page == 1 }}" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
-        <a class="pager-link {{ 'disabled' if recent_page == recent_total_pages }}" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
+        <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == 1 }}" data-target-card="recent-runs-card" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
+        <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == recent_total_pages }}" data-target-card="recent-runs-card" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
       </div>
     </div>
     {% endif %}
@@ -636,6 +641,41 @@
 
     saveBtn.addEventListener('click', saveConfig);
     loadConfig();
+  })();
+
+  (function () {
+    async function swapAdminCard(link) {
+      const cardId = link.dataset.targetCard;
+      const currentCard = document.getElementById(cardId);
+      if (!currentCard) {
+        window.location.href = link.href;
+        return;
+      }
+
+      currentCard.classList.add('is-loading');
+      try {
+        const response = await fetch(link.href, {
+          headers: {'X-Requested-With': 'fetch'},
+          credentials: 'same-origin',
+        });
+        if (!response.ok) throw new Error('Request failed');
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const nextCard = doc.getElementById(cardId);
+        if (!nextCard) throw new Error('Missing card');
+        currentCard.replaceWith(nextCard);
+        window.history.replaceState({}, '', link.href);
+      } catch (error) {
+        window.location.href = link.href;
+      }
+    }
+
+    document.addEventListener('click', function (event) {
+      const link = event.target.closest('.js-admin-pager');
+      if (!link || link.classList.contains('disabled')) return;
+      event.preventDefault();
+      swapAdminCard(link);
+    });
   })();
 </script>
 {% endblock %}
