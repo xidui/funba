@@ -5,6 +5,7 @@ import ast
 import builtins as py_builtins
 import json
 import logging
+from functools import lru_cache
 from typing import Iterable
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ from metrics.framework.family import (
     derive_career_description,
     derive_career_min_sample,
     derive_career_name,
+    family_base_key,
     family_career_key,
     rule_supports_career,
 )
@@ -244,11 +246,16 @@ class RuleMetricDefinition(MetricDefinition):
 
 
 def load_code_metric(code: str) -> MetricDefinition:
-    """Execute generated Python code and return the MetricDefinition instance.
+    """Return a fresh MetricDefinition instance for a generated code metric."""
+    metric_cls = _load_code_metric_class(code)
+    metric = metric_cls()
+    _validate_metric_instance(metric)
+    return metric
 
-    The code must define exactly one MetricDefinition subclass.
-    Raises ValueError if the code is invalid or defines no/multiple classes.
-    """
+
+@lru_cache(maxsize=256)
+def _load_code_metric_class(code: str) -> type[MetricDefinition]:
+    """Compile generated code once and return its MetricDefinition subclass."""
     _validate_code_metric_ast(code)
 
     # Defense-in-depth namespace restriction — not a full sandbox (seccomp follow-on).
@@ -272,9 +279,7 @@ def load_code_metric(code: str) -> MetricDefinition:
     if len(metric_classes) > 1:
         raise ValueError("Generated code must define exactly one MetricDefinition subclass")
 
-    metric = metric_classes[0]()
-    _validate_metric_instance(metric)
-    return metric
+    return metric_classes[0]
 
 
 class CodeMetricDefinition(MetricDefinition):
@@ -397,6 +402,50 @@ def _load_all_db_metrics(session: Session) -> list[MetricDefinition]:
     return [*_load_published_rule_metrics(session), *_load_published_code_metrics(session)]
 
 
+def _build_runtime_metric(
+    row: MetricDefinitionModel,
+    *,
+    career: bool | None = None,
+) -> MetricDefinition:
+    if row.source_type == "code":
+        return CodeMetricDefinition(row, career=career)
+    return RuleMetricDefinition(row, career=career)
+
+
+def _lookup_published_metric_row(session: Session, key: str) -> MetricDefinitionModel | None:
+    return (
+        session.query(MetricDefinitionModel)
+        .filter(
+            MetricDefinitionModel.status == "published",
+            MetricDefinitionModel.key == key,
+        )
+        .first()
+    )
+
+
+def _load_metric_by_key(session: Session, key: str) -> MetricDefinition | None:
+    row = _lookup_published_metric_row(session, key)
+    if row is not None:
+        return _build_runtime_metric(row)
+
+    if not key.endswith("_career"):
+        return None
+
+    base_key = family_base_key(key)
+    if base_key == key:
+        return None
+
+    base_row = _lookup_published_metric_row(session, base_key)
+    if base_row is None:
+        return None
+
+    base_metric = _build_runtime_metric(base_row)
+    if base_metric.career or not getattr(base_metric, "supports_career", False):
+        return None
+
+    return _build_runtime_metric(base_row, career=True)
+
+
 def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
     if session is not None:
         return _dedupe_by_key(_load_all_db_metrics(session))
@@ -406,17 +455,11 @@ def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
 
 
 def get_metric(key: str, session: Session | None = None) -> MetricDefinition | None:
-    def _load(sess: Session) -> MetricDefinition | None:
-        for metric in _load_all_db_metrics(sess):
-            if metric.key == key:
-                return metric
-        return None
-
     if session is not None:
-        return _load(session)
+        return _load_metric_by_key(session, key)
 
     with SessionLocal() as owned:
-        return _load(owned)
+        return _load_metric_by_key(owned, key)
 
 
 def expand_metric_keys(metric_keys: Iterable[str], session: Session | None = None) -> list[str]:

@@ -5,7 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -291,6 +291,74 @@ class BadMetric(MetricDefinition):
 
         with self.assertRaisesRegex(ValueError, "Import of 'os' is not allowed"):
             metric.compute(None, "player-1", "2025-26")
+
+    def test_load_code_metric_reuses_compiled_class_cache(self):
+        runtime = self._load_runtime()
+        code = """
+from metrics.framework.base import MetricDefinition
+
+
+class CachedMetric(MetricDefinition):
+    key = "cached_metric"
+    name = "Cached Metric"
+    description = "Uses the compiled class cache."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+"""
+        runtime._load_code_metric_class.cache_clear()
+
+        first = runtime.load_code_metric(code)
+        second = runtime.load_code_metric(code)
+        info = runtime._load_code_metric_class.cache_info()
+
+        self.assertIsNot(first, second)
+        self.assertEqual(info.misses, 1)
+        self.assertGreaterEqual(info.hits, 1)
+
+    def test_get_metric_uses_exact_key_lookup(self):
+        runtime = self._load_runtime()
+        session = MagicMock()
+        row = types.SimpleNamespace(source_type="code")
+        metric = object()
+
+        with patch.object(runtime, "_lookup_published_metric_row", return_value=row) as lookup, \
+             patch.object(runtime, "_build_runtime_metric", return_value=metric) as build:
+            result = runtime.get_metric("custom_metric", session=session)
+
+        self.assertIs(result, metric)
+        lookup.assert_called_once_with(session, "custom_metric")
+        build.assert_called_once_with(row)
+
+    def test_get_metric_builds_dynamic_career_metric_from_base_row(self):
+        runtime = self._load_runtime()
+        session = MagicMock()
+        base_row = types.SimpleNamespace(source_type="code")
+        base_metric = types.SimpleNamespace(career=False, supports_career=True)
+        career_metric = object()
+
+        with patch.object(runtime, "_lookup_published_metric_row", side_effect=[None, base_row]) as lookup, \
+             patch.object(runtime, "_build_runtime_metric", side_effect=[base_metric, career_metric]) as build:
+            result = runtime.get_metric("custom_metric_career", session=session)
+
+        self.assertIs(result, career_metric)
+        self.assertEqual(
+            lookup.call_args_list,
+            [
+                unittest.mock.call(session, "custom_metric_career"),
+                unittest.mock.call(session, "custom_metric"),
+            ],
+        )
+        self.assertEqual(
+            build.call_args_list,
+            [
+                unittest.mock.call(base_row),
+                unittest.mock.call(base_row, career=True),
+            ],
+        )
 
 
 if __name__ == "__main__":
