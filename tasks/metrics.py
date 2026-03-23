@@ -47,6 +47,10 @@ _RUN_STATUS_FAILED = "failed"
 _REDUCE_LOCK_NAME = "metric_reduce_global"
 
 
+class ReduceLockUnavailable(RuntimeError):
+    """Raised when the global MetricResult reduce lock is already held."""
+
+
 def _session_factory():
     return sessionmaker(bind=engine)
 
@@ -60,7 +64,7 @@ def _reduce_locked_session_factory(lock_name: str = _REDUCE_LOCK_NAME, timeout_s
             {"name": lock_name, "timeout_seconds": int(timeout_seconds)},
         ).scalar()
         if acquired != 1:
-            raise RuntimeError(f"Failed to acquire reduce lock {lock_name!r}")
+            raise ReduceLockUnavailable(f"Failed to acquire reduce lock {lock_name!r}")
         SessionLocked = sessionmaker(bind=conn)
         try:
             yield SessionLocked
@@ -445,7 +449,7 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
     seasons: list[str] = []
 
     try:
-        with _reduce_locked_session_factory() as SessionLocked:
+        with _reduce_locked_session_factory(timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
                 if run is None:
@@ -464,6 +468,12 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 
             with SessionLocked() as session:
                 _mark_run_complete(session, run_id)
+    except ReduceLockUnavailable as exc:
+        logger.info(
+            "reduce_metric_compute_run: run_id=%s waiting for reduce lock",
+            run_id,
+        )
+        raise self.retry(exc=exc, countdown=5, max_retries=1000)
     except Exception as exc:
         logger.error(
             "reduce_metric_compute_run: run_id=%s failed: %s",
@@ -492,9 +502,15 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
     """Phase 2: aggregate all deltas for (metric_key, season) → write MetricResults."""
     try:
-        with _reduce_locked_session_factory() as SessionLocked:
+        with _reduce_locked_session_factory(timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 count = reduce_metric(session, metric_key, season, commit=True)
+    except ReduceLockUnavailable as exc:
+        logger.info(
+            "reduce_metric_season: metric=%s season=%s waiting for reduce lock",
+            metric_key, season,
+        )
+        raise self.retry(exc=exc, countdown=5, max_retries=1000)
     except Exception as exc:
         logger.error(
             "reduce_metric_season: metric=%s season=%s failed: %s",
