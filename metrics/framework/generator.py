@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 # ── Prompt template fed to the LLM ──────────────────────────────────────────
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-You are an NBA analytics metric generator. Given a plain-English description,
-you produce a Python class that extends MetricDefinition and a JSON metadata block.
+You are an NBA analytics metric generator embedded in a chat-based metric builder.
+For each user message, first determine whether they are asking you to create/modify
+a metric or asking a clarification question about the metric builder, metric settings,
+or the current metric conversation.
 
 ## Database Schema (SQLAlchemy models you can import from db.models)
 
@@ -178,8 +180,18 @@ to understand the patterns, coding style, and data access conventions.
 
 ## Your output format
 
-Reply with ONLY a JSON object (no markdown fences):
+Reply with ONLY a JSON object (no markdown fences).
+
+If the user is asking a clarification question, explanation request, or anything
+that should be answered conversationally instead of generating code, reply with:
 {
+  "responseType": "clarification",
+  "message": "Concise helpful answer in natural language."
+}
+
+If the user is asking you to create or modify a metric, reply with:
+{
+  "responseType": "code",
   "name": "Short display name",
   "description": "One sentence describing what this measures.",
   "scope": "player | team | game",
@@ -192,6 +204,10 @@ Reply with ONLY a JSON object (no markdown fences):
 }
 
 IMPORTANT:
+- For "clarification" responses, do NOT include code, metric spec fields, or any
+  extra keys besides responseType/message.
+- For "clarification" responses, answer the user's question directly and keep the
+  message concise and practical.
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
 - Include all necessary imports at the top of the code.
 - Only these top-level modules are allowed: __future__, datetime, db, math, metrics, numpy, pandas, sqlalchemy, statistics. Any other import will be rejected.
@@ -274,6 +290,15 @@ def _build_system_prompt() -> str:
     return _SYSTEM_PROMPT_TEMPLATE.replace("{EXAMPLES_PLACEHOLDER}", examples)
 
 
+def _initial_user_message(expression: str) -> str:
+    return (
+        "Handle this metric-builder chat message. "
+        "If it is a metric creation/modification request, return the metric-spec JSON. "
+        "If it is a clarification question, return the clarification JSON.\n\n"
+        f"{expression}"
+    )
+
+
 def _call_llm(messages: list[dict], model: str | None = None) -> str:
     """Call OpenAI (preferred) or Anthropic and return the raw text response.
 
@@ -323,8 +348,9 @@ def generate(expression: str, history: list[dict] | None = None,
         existing: Current metric info (key, name, description, scope, category, rank_order, code) for edit mode.
                   When provided, the AI should only modify the code and keep metadata unchanged.
 
-    Returns a dict with keys: name, description, scope, category, min_sample,
-    incremental, supports_career, rank_order, code.
+    Returns either:
+    - {"responseType": "code", ...metric spec fields...}
+    - {"responseType": "clarification", "message": "..."}
 
     Raises ValueError if generation fails or output is unparseable.
     """
@@ -353,10 +379,7 @@ def generate(expression: str, history: list[dict] | None = None,
         if existing:
             messages = [{"role": "user", "content": edit_prefix + expression}]
         else:
-            messages = [{"role": "user", "content": (
-                f"Convert this NBA metric description into a MetricDefinition Python class:\n\n"
-                f"\"{expression}\""
-            )}]
+            messages = [{"role": "user", "content": _initial_user_message(expression)}]
 
     raw = _call_llm(messages, model=model)
 
@@ -370,12 +393,28 @@ def generate(expression: str, history: list[dict] | None = None,
         logger.error("Generator returned invalid JSON: %s\nRaw: %s", exc, raw)
         raise ValueError(f"AI returned invalid JSON: {exc}") from exc
 
+    response_type = str(spec.get("responseType") or "code").strip().lower()
+
+    if response_type == "clarification":
+        message = str(spec.get("message") or "").strip()
+        if not message:
+            raise ValueError("AI clarification response missing 'message'")
+        return {
+            "responseType": "clarification",
+            "message": message,
+        }
+
+    if response_type != "code":
+        raise ValueError(f"AI returned unsupported responseType: {response_type!r}")
+
+    spec["responseType"] = "code"
+
     # Validate required keys
     for key in ("name", "description", "scope", "code"):
         if key not in spec:
             raise ValueError(f"AI response missing required key: {key!r}")
 
-    if not spec["code"].strip():
+    if not str(spec["code"]).strip():
         raise ValueError("AI returned empty code")
 
     # In edit mode, override metadata with the existing values

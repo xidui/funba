@@ -206,6 +206,30 @@
   }
   .msg-code.open { display: block; }
 
+  .msg-clarification-body p {
+    margin: 0 0 8px;
+    line-height: 1.55;
+  }
+  .msg-clarification-body p:last-child { margin-bottom: 0; }
+  .msg-clarification-body ul,
+  .msg-clarification-body ol {
+    margin: 0 0 8px 18px;
+    padding: 0;
+  }
+  .msg-clarification-body li {
+    margin: 0 0 4px;
+    line-height: 1.5;
+  }
+  .msg-clarification-body code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted-2);
+  }
+
   .msg-thinking {
     display: flex;
     align-items: center;
@@ -266,6 +290,32 @@
   }
   .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .chat-send-btn svg { width: 16px; height: 16px; }
+
+  .chat-turn-counter {
+    display: none;
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .chat-turn-counter.limit-reached { color: var(--loss); }
+
+  .chat-limit-notice {
+    display: none;
+    padding: 0 16px 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .chat-limit-reset {
+    background: none;
+    border: none;
+    padding: 0;
+    margin-left: 4px;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+  }
 
   .chat-status {
     min-height: 18px;
@@ -524,12 +574,17 @@
         placeholder="Describe a metric or tell the AI what to change…"
         value="{{ initial_expression or '' }}"
         autocomplete="off" spellcheck="false" />
+      <span id="turn-counter" class="chat-turn-counter" aria-live="polite"></span>
       <button id="chat-send" class="chat-send-btn" type="submit" title="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
     </form>
+    <div id="chat-limit-notice" class="chat-limit-notice">
+      You've used all 10 turns. Start a new conversation to continue.
+      <button id="chat-limit-reset" class="chat-limit-reset" type="button">Start over</button>
+    </div>
     <div id="chat-status" class="chat-status"></div>
   </div>
 
@@ -663,8 +718,13 @@
 (function () {
   const EDIT_MODE = {{ 'true' if edit_metric else 'false' }};
   const EDIT_KEY = {{ edit_metric.key | tojson if edit_metric else 'null' }};
+  const TURN_LIMIT = 10;
+  const DEFAULT_CHAT_PLACEHOLDER = 'Describe a metric or tell the AI what to change…';
   let currentSpec = null;
   let chatHistory = [];
+  let turnCount = 0;
+  let isSubmitting = false;
+  let limitLocked = false;
 
   // Pre-populate in edit mode
   if (EDIT_MODE) {
@@ -684,6 +744,9 @@
   const chatForm     = document.getElementById('chat-form');
   const chatInput    = document.getElementById('chat-input');
   const chatSend     = document.getElementById('chat-send');
+  const turnCounter  = document.getElementById('turn-counter');
+  const limitNotice  = document.getElementById('chat-limit-notice');
+  const limitResetBtn = document.getElementById('chat-limit-reset');
   const chatStatus   = document.getElementById('chat-status');
   const modelSelect  = document.getElementById('metric-generate-model');
   const startOverBtn = document.getElementById('start-over-btn');
@@ -796,6 +859,105 @@
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 
+  function renderInlineMarkdown(text) {
+    return escHtml(text)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/_([^_]+)_/g, '<em>$1</em>');
+  }
+
+  function renderBasicMarkdown(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const chunks = [];
+    const paragraph = [];
+    let listType = null;
+    let listItems = [];
+
+    function flushParagraph() {
+      if (!paragraph.length) return;
+      chunks.push(`<p>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>`);
+      paragraph.length = 0;
+    }
+
+    function flushList() {
+      if (!listType || !listItems.length) return;
+      chunks.push(`<${listType}>${listItems.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</${listType}>`);
+      listType = null;
+      listItems = [];
+    }
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const listMatch = trimmed.match(/^([-*]|\d+\.)\s+(.+)$/);
+      if (!trimmed) {
+        flushParagraph();
+        flushList();
+        continue;
+      }
+      if (listMatch) {
+        flushParagraph();
+        const nextListType = /^\d+\./.test(listMatch[1]) ? 'ol' : 'ul';
+        if (listType && listType !== nextListType) flushList();
+        listType = nextListType;
+        listItems.push(listMatch[2]);
+        continue;
+      }
+      flushList();
+      paragraph.push(trimmed);
+    }
+
+    flushParagraph();
+    flushList();
+    return chunks.length ? chunks.join('') : `<p>${renderInlineMarkdown(String(text || ''))}</p>`;
+  }
+
+  function syncChatControls() {
+    const showCounter = turnCount > 0;
+    turnCounter.style.display = showCounter ? 'inline' : 'none';
+    turnCounter.textContent = `${turnCount} / ${TURN_LIMIT}`;
+    turnCounter.classList.toggle('limit-reached', limitLocked);
+    limitNotice.style.display = limitLocked ? 'block' : 'none';
+    chatInput.disabled = limitLocked;
+    chatInput.placeholder = limitLocked ? 'Turn limit reached' : DEFAULT_CHAT_PLACEHOLDER;
+    chatSend.disabled = isSubmitting || limitLocked;
+  }
+
+  function lockConversationIfNeeded() {
+    if (!limitLocked && turnCount >= TURN_LIMIT) {
+      limitLocked = true;
+    }
+    syncChatControls();
+  }
+
+  function resetConversation() {
+    chatHistory = [];
+    currentSpec = null;
+    turnCount = 0;
+    isSubmitting = false;
+    limitLocked = false;
+    chatInput.value = '';
+    chatMessages.querySelectorAll('.msg').forEach(el => el.remove());
+    if (chatEmpty) chatEmpty.style.display = 'flex';
+    settingsPanel.style.display = 'none';
+    previewWrap.style.display = 'none';
+    previewPH.style.display = 'block';
+    startOverBtn.style.display = 'none';
+    codeViewer.textContent = '';
+    lastAutoKey = '';
+    setChatStatus('');
+    if (!EDIT_MODE) {
+      keyInput.value = '';
+      document.getElementById('f-name').value = '';
+      document.getElementById('f-desc').value = '';
+      document.getElementById('f-scope').value = 'player';
+      document.getElementById('f-category').value = 'scoring';
+      rankOrderInput.value = 'desc';
+    }
+    syncChatControls();
+    chatInput.focus();
+  }
+
   // ── Edit mode init ────────────────────────────────────────────────
   if (EDIT_MODE && currentSpec) {
     originalCode = currentSpec.code || '';
@@ -844,6 +1006,14 @@
     scrollChat();
   }
 
+  function addAiClarification(message) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-ai';
+    div.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble msg-clarification-body">${renderBasicMarkdown(message)}</div>`;
+    chatMessages.appendChild(div);
+    scrollChat();
+  }
+
   function addThinking() {
     const div = document.createElement('div');
     div.className = 'msg msg-ai';
@@ -872,17 +1042,21 @@
   // ── Generate / Refine ────────────────────────────────────────────
   async function handleSend(event) {
     if (event) event.preventDefault();
+    if (isSubmitting || limitLocked) return;
     const expr = chatInput.value.trim();
     if (!expr) return;
 
     const isFollowup = chatHistory.length > 0;
 
+    turnCount += 1;
+    syncChatControls();
+
     // Hide empty state, show user message
-    const empty = document.getElementById('chat-empty');
-    if (empty) empty.style.display = 'none';
+    if (chatEmpty) chatEmpty.style.display = 'none';
     addUserMsg(expr);
     chatInput.value = '';
-    chatSend.disabled = true;
+    isSubmitting = true;
+    syncChatControls();
     setChatStatus('');
 
     const thinking = addThinking();
@@ -918,18 +1092,30 @@
         chatMessages.appendChild(errDiv);
         setChatStatus(data.error || 'Generation failed.');
         scrollChat();
+        lockConversationIfNeeded();
         return;
       }
 
-      // Update history
+      const responseType = data.responseType || 'code';
+      const assistantContent = responseType === 'clarification'
+        ? JSON.stringify({responseType: 'clarification', message: data.message || ''})
+        : JSON.stringify(data.spec || {});
+
       if (!isFollowup) {
         chatHistory = [
-          {role: 'user', content: 'Convert this NBA metric description into a MetricDefinition Python class:\n\n"' + expr + '"'},
-          {role: 'assistant', content: JSON.stringify(data.spec)},
+          {role: 'user', content: expr},
+          {role: 'assistant', content: assistantContent},
         ];
       } else {
         chatHistory.push({role: 'user', content: expr});
-        chatHistory.push({role: 'assistant', content: JSON.stringify(data.spec)});
+        chatHistory.push({role: 'assistant', content: assistantContent});
+      }
+
+      startOverBtn.style.display = 'inline-flex';
+      if (responseType === 'clarification') {
+        addAiClarification(data.message || '');
+        lockConversationIfNeeded();
+        return;
       }
 
       currentSpec = data.spec;
@@ -956,9 +1142,9 @@
       applyRankOrderToCode(rankOrderInput.value);
       if (EDIT_MODE && originalCode) renderDiff(originalCode, currentSpec.code || '');
       settingsPanel.style.display = 'block';
-      startOverBtn.style.display = 'inline-flex';
 
       await runPreview();
+      lockConversationIfNeeded();
 
     } catch (e) {
       removeThinking();
@@ -968,9 +1154,13 @@
       chatMessages.appendChild(errDiv);
       setChatStatus(`Network error: ${e.message}`);
       scrollChat();
+      lockConversationIfNeeded();
     } finally {
-      chatSend.disabled = false;
-      chatInput.focus();
+      isSubmitting = false;
+      syncChatControls();
+      if (!limitLocked) {
+        chatInput.focus();
+      }
     }
   }
 
@@ -985,31 +1175,9 @@
   });
 
   // ── Start over ──────────────────────────────────────────────────
-  startOverBtn.addEventListener('click', () => {
-    chatHistory = [];
-    currentSpec = null;
-    chatInput.value = '';
-    // Remove all messages but keep chatEmpty
-    chatMessages.querySelectorAll('.msg').forEach(el => el.remove());
-    const empty = document.getElementById('chat-empty');
-    if (empty) {
-      empty.style.display = 'flex';
-    }
-    settingsPanel.style.display = 'none';
-    previewWrap.style.display = 'none';
-    previewPH.style.display = 'block';
-    startOverBtn.style.display = 'none';
-    codeViewer.textContent = '';
-    lastAutoKey = '';
-    if (!EDIT_MODE) {
-      keyInput.value = '';
-      document.getElementById('f-name').value = '';
-      document.getElementById('f-desc').value = '';
-      document.getElementById('f-scope').value = 'player';
-      document.getElementById('f-category').value = 'scoring';
-      rankOrderInput.value = 'desc';
-    }
-  });
+  startOverBtn.addEventListener('click', resetConversation);
+  limitResetBtn.addEventListener('click', resetConversation);
+  syncChatControls();
 
   // ── Preview ─────────────────────────────────────────────────────
   async function runPreview() {

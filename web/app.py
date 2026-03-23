@@ -3413,7 +3413,18 @@ def api_metric_generate():
             return jsonify({"ok": False, "error": str(exc)}), 400
     try:
         spec = generate(expression, history=history, existing=existing, model=llm_model)
-        return jsonify({"ok": True, "spec": spec})
+        response_type = (spec.get("responseType") or "code") if isinstance(spec, dict) else "code"
+        if response_type == "clarification":
+            return jsonify({
+                "ok": True,
+                "responseType": "clarification",
+                "message": spec.get("message", ""),
+            })
+        return jsonify({
+            "ok": True,
+            "responseType": "code",
+            "spec": spec,
+        })
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:

@@ -588,7 +588,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6") as mock_resolve, \
-             patch("metrics.framework.generator.generate", return_value={"name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}) as mock_generate:
+             patch("metrics.framework.generator.generate", return_value={"responseType": "code", "name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}) as mock_generate:
             response = self.client.post(
                 "/api/metrics/generate",
                 json={"expression": "clutch scoring", "model": "claude-sonnet-4-6"},
@@ -596,12 +596,81 @@ class TestMetricSearchAuth(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "ok": True,
+                "responseType": "code",
+                "spec": {
+                    "responseType": "code",
+                    "name": "Demo",
+                    "description": "Demo",
+                    "scope": "player",
+                    "code": "class Demo: pass",
+                },
+            },
+        )
         mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6")
         mock_generate.assert_called_once_with(
             "clutch scoring",
             history=None,
             existing=None,
             model="claude-sonnet-4-6",
+        )
+
+    def test_metric_generate_api_returns_clarification_payload(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6"), \
+             patch("metrics.framework.generator.generate", return_value={"responseType": "clarification", "message": "rank_order controls how results are sorted."}):
+            response = self.client.post(
+                "/api/metrics/generate",
+                json={"expression": "What does rank_order do?"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "ok": True,
+                "responseType": "clarification",
+                "message": "rank_order controls how results are sorted.",
+            },
+        )
+
+    def test_metric_generate_api_defaults_missing_response_type_to_code(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6"), \
+             patch("metrics.framework.generator.generate", return_value={"name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}):
+            response = self.client.post(
+                "/api/metrics/generate",
+                json={"expression": "clutch scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "ok": True,
+                "responseType": "code",
+                "spec": {
+                    "name": "Demo",
+                    "description": "Demo",
+                    "scope": "player",
+                    "code": "class Demo: pass",
+                },
+            },
         )
 
     def test_admin_model_config_endpoints_require_admin(self):
