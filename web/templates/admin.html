@@ -152,6 +152,41 @@
   }
   .llm-settings-status.success { color: var(--win); }
   .llm-settings-status.error { color: var(--loss); }
+
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .pager-links {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .pager-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-2);
+    background: var(--surface-3);
+    color: var(--text);
+    text-decoration: none;
+    font-family: Outfit, sans-serif;
+    font-weight: 700;
+  }
+  .pager-link.disabled {
+    opacity: 0.45;
+    pointer-events: none;
+    cursor: default;
+  }
 </style>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
@@ -370,6 +405,15 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if claims_total_pages > 1 %}
+      <div class="pager">
+        <span>Page {{ claims_page }} / {{ claims_total_pages }}</span>
+        <div class="pager-links">
+          <a class="pager-link {{ 'disabled' if claims_page == 1 }}" href="{{ admin_page_url('claims_page', claims_page - 1) }}">Prev</a>
+          <a class="pager-link {{ 'disabled' if claims_page == claims_total_pages }}" href="{{ admin_page_url('claims_page', claims_page + 1) }}">Next</a>
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% else %}
     <div style="margin-top:16px" class="empty-state">No active jobs right now</div>
@@ -417,6 +461,15 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if runs_total_pages > 1 %}
+      <div class="pager">
+        <span>Page {{ runs_page }} / {{ runs_total_pages }}</span>
+        <div class="pager-links">
+          <a class="pager-link {{ 'disabled' if runs_page == 1 }}" href="{{ admin_page_url('runs_page', runs_page - 1) }}">Prev</a>
+          <a class="pager-link {{ 'disabled' if runs_page == runs_total_pages }}" href="{{ admin_page_url('runs_page', runs_page + 1) }}">Next</a>
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% else %}
     <div style="margin-top:16px" class="empty-state">No active or failed compute runs right now</div>
@@ -439,6 +492,15 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if recent_total_pages > 1 %}
+    <div class="pager">
+      <span>Page {{ recent_page }} / {{ recent_total_pages }}</span>
+      <div class="pager-links">
+        <a class="pager-link {{ 'disabled' if recent_page == 1 }}" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
+        <a class="pager-link {{ 'disabled' if recent_page == recent_total_pages }}" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
+      </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="empty-state">No metric runs recorded yet</div>
     {% endif %}

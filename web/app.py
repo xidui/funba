@@ -4317,6 +4317,27 @@ def admin_pipeline():
         return denied
     from datetime import datetime, timedelta
 
+    def _page_arg(name: str, default: int = 1) -> int:
+        try:
+            return max(1, int(request.args.get(name, default) or default))
+        except (TypeError, ValueError):
+            return default
+
+    claims_page = _page_arg("claims_page")
+    runs_page = _page_arg("runs_page")
+    recent_page = _page_arg("recent_page")
+    claims_page_size = 25
+    runs_page_size = 25
+    recent_page_size = 25
+
+    def _admin_page_url(param_name: str, page: int) -> str:
+        args = dict(request.args)
+        if page <= 1:
+            args.pop(param_name, None)
+        else:
+            args[param_name] = str(page)
+        return url_for("admin_pipeline", **args)
+
     with SessionLocal() as session:
         # --- Coverage per season — cached to avoid 6s query on every load ---
         now = time.time()
@@ -4383,11 +4404,18 @@ def admin_pipeline():
         )
 
         # --- Currently in-progress claims (active workers) ---
-        active_claims = (
+        active_claims_q = (
             session.query(MetricJobClaim)
             .filter(MetricJobClaim.status == "in_progress")
             .order_by(MetricJobClaim.claimed_at)
-            .limit(50)
+        )
+        active_claim_total = active_claims_q.count()
+        active_claim_total_pages = max(1, (active_claim_total + claims_page_size - 1) // claims_page_size)
+        claims_page = min(claims_page, active_claim_total_pages)
+        active_claims = (
+            active_claims_q
+            .offset((claims_page - 1) * claims_page_size)
+            .limit(claims_page_size)
             .all()
         )
         active = [
@@ -4401,11 +4429,18 @@ def admin_pipeline():
             for c in active_claims
         ]
 
-        active_compute_runs = (
+        active_compute_runs_q = (
             session.query(MetricComputeRun)
             .filter(MetricComputeRun.status.in_(("mapping", "reducing", "failed")))
             .order_by(MetricComputeRun.created_at.desc())
-            .limit(50)
+        )
+        compute_run_total = active_compute_runs_q.count()
+        compute_run_total_pages = max(1, (compute_run_total + runs_page_size - 1) // runs_page_size)
+        runs_page = min(runs_page, compute_run_total_pages)
+        active_compute_runs = (
+            active_compute_runs_q
+            .offset((runs_page - 1) * runs_page_size)
+            .limit(runs_page_size)
             .all()
         )
         compute_runs = [
@@ -4461,11 +4496,18 @@ def admin_pipeline():
         missing_metrics = _missing(MetricRunLog, MetricRunLog.game_id)
 
         # --- Recent metric runs (last 20) — filter to recent days to avoid full table scan ---
-        recent_runs = (
+        recent_runs_q = (
             session.query(MetricRunLog.game_id, MetricRunLog.metric_key, MetricRunLog.computed_at)
             .filter(MetricRunLog.computed_at >= func.date_sub(func.now(), text("INTERVAL 3 DAY")))
             .order_by(MetricRunLog.computed_at.desc())
-            .limit(20)
+        )
+        recent_total = recent_runs_q.count()
+        recent_total_pages = max(1, (recent_total + recent_page_size - 1) // recent_page_size)
+        recent_page = min(recent_page, recent_total_pages)
+        recent_runs = (
+            recent_runs_q
+            .offset((recent_page - 1) * recent_page_size)
+            .limit(recent_page_size)
             .all()
         )
         recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
@@ -4492,12 +4534,19 @@ def admin_pipeline():
         claim_counts=claim_counts,
         compute_run_counts=compute_run_counts,
         active=active,
+        claims_page=claims_page,
+        claims_total_pages=active_claim_total_pages,
+        admin_page_url=_admin_page_url,
         compute_runs=compute_runs,
+        runs_page=runs_page,
+        runs_total_pages=compute_run_total_pages,
         stuck_count=stuck_count,
         missing_detail=missing_detail,
         missing_shot=missing_shot,
         missing_metrics=missing_metrics,
         recent=recent,
+        recent_page=recent_page,
+        recent_total_pages=recent_total_pages,
         visitor_stats=visitor_stats,
         llm_available_models=available_llm_models(),
     )
