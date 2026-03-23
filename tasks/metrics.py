@@ -210,36 +210,44 @@ def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
     default_retry_delay=10,
     queue="metrics",
 )
-def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
-    """Phase 1: compute delta for one (game, metric) and write MetricRunLog only."""
+def compute_game_delta(self, game_id: str, metric_key: str, skip_claim: bool = False) -> dict:
+    """Phase 1: compute delta for one (game, metric) and write MetricRunLog only.
+
+    skip_claim=True skips MetricJobClaim dedup and reduce trigger — used by
+    backfill for maximum throughput. Daily ingestion keeps skip_claim=False.
+    """
     SessionLocal = _session_factory()
 
-    with SessionLocal() as session:
-        owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
-
-    if not owned:
-        return {
-            "game_id": game_id,
-            "metric_key": metric_key,
-            "skipped": True,
-            "reason": existing_status,
-        }
+    if not skip_claim:
+        with SessionLocal() as session:
+            owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
+        if not owned:
+            return {
+                "game_id": game_id,
+                "metric_key": metric_key,
+                "skipped": True,
+                "reason": existing_status,
+            }
 
     try:
         with SessionLocal() as session:
             produced = run_delta_only(session, game_id, metric_key, commit=True)
     except Exception as exc:
-        with SessionLocal() as session:
-            _release_claim(session, game_id, metric_key)
+        if not skip_claim:
+            with SessionLocal() as session:
+                _release_claim(session, game_id, metric_key)
         logger.error(
             "compute_game_delta: game=%s metric=%s failed: %s",
             game_id, metric_key, exc, exc_info=True,
         )
         raise self.retry(exc=exc, countdown=10)
 
-    with SessionLocal() as session:
-        _mark_done(session, game_id, metric_key)
-        triggered_seasons = _maybe_trigger_reduce(session, metric_key)
+    if not skip_claim:
+        with SessionLocal() as session:
+            _mark_done(session, game_id, metric_key)
+            triggered_seasons = _maybe_trigger_reduce(session, metric_key)
+    else:
+        triggered_seasons = []
 
     return {
         "game_id": game_id,

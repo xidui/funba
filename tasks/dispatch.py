@@ -312,17 +312,21 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids, metric_keys)
         print(f"--force: cleared {deleted} claim(s).")
 
-    # Enqueue delta-only tasks directly to metrics queue
+    # Enqueue delta-only tasks directly to metrics queue.
+    # skip_claim=True for backfill: skips MetricJobClaim overhead (~3x faster).
+    # Reduce must be triggered manually via `metric-reduce` after completion.
     task_count = 0
     for gid in game_ids:
         for key in metric_keys:
-            compute_game_delta.apply_async(args=[gid, key], queue="metrics")
+            compute_game_delta.apply_async(
+                args=[gid, key], kwargs={"skip_claim": True}, queue="metrics",
+            )
             task_count += 1
 
     print(
         f"Enqueued {task_count} delta task(s) → Queue: metrics "
         f"({len(game_ids)} games × {len(metric_keys)} metrics). "
-        f"Reduce will auto-trigger when each metric completes."
+        f"Run `metric-reduce` after completion to aggregate results."
     )
 
 
