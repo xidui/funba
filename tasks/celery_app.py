@@ -71,7 +71,7 @@ app.conf.update(
         },
         "sweep-metric-compute-runs": {
             "task": "tasks.metrics.sweep_metric_compute_runs",
-            "schedule": 60,  # every minute — promotes completed backfill runs to reduce
+            "schedule": 10,  # every 10s — promotes completed backfill runs to reduce
         },
     },
 
