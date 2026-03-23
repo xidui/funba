@@ -1,0 +1,28 @@
+<div id="recent-runs-card" class="card">
+  <h2>Recent Metric Runs</h2>
+  {% if recent %}
+  <table>
+    <thead><tr><th>Game</th><th>Metric</th><th>Computed at</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr class="recent-row">
+        <td><a href="{{ url_for('game_page', game_id=r.game_id) }}" class="mono">{{ r.game_id }}</a></td>
+        <td class="mono">{{ r.metric_key }}</td>
+        <td>{{ r.computed_at.strftime('%m/%d %H:%M:%S') if r.computed_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if recent_total_pages > 1 %}
+  <div class="pager">
+    <span>Page {{ recent_page }} / {{ recent_total_pages }}</span>
+    <div class="pager-links">
+      <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == 1 }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page - 1) }}" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
+      <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == recent_total_pages }}" data-target-card="recent-runs-card" data-fragment-url="{{ admin_fragment_url('recent-runs', 'recent_page', recent_page + 1) }}" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">No metric runs recorded yet</div>
+  {% endif %}
+</div>

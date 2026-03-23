@@ -1,0 +1,49 @@
+<div id="claims-card" class="card">
+  <h2>Job Claims</h2>
+  <div class="claim-pills">
+    <div class="claim-pill done">
+      <span class="pill-val">{{ "{:,}".format(claim_counts.get('done', 0)) }}</span>
+      <span class="pill-label">Done</span>
+    </div>
+    <div class="claim-pill in-progress">
+      <span class="pill-val">{{ claim_counts.get('in_progress', 0) }}</span>
+      <span class="pill-label">In Progress</span>
+    </div>
+    <div class="claim-pill stuck">
+      <span class="pill-val">{{ stuck_count }}</span>
+      <span class="pill-label">Stuck (&gt;10m)</span>
+    </div>
+  </div>
+  {% if active %}
+  <div style="margin-top:16px">
+    <div class="section-label">Active workers</div>
+    <table>
+      <thead><tr><th>Game</th><th>Metric</th><th>Age</th></tr></thead>
+      <tbody>
+        {% for a in active %}
+        <tr>
+          <td class="mono">{{ a.game_id }}</td>
+          <td class="mono">{{ a.metric_key }}</td>
+          <td>
+            <span class="age-chip {{ 'warn' if a.age_s and a.age_s > 300 else '' }}">
+              {{ a.age_s }}s
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if claims_total_pages > 1 %}
+    <div class="pager">
+      <span>Page {{ claims_page }} / {{ claims_total_pages }}</span>
+      <div class="pager-links">
+        <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == 1 }}" data-target-card="claims-card" data-fragment-url="{{ admin_fragment_url('claims', 'claims_page', claims_page - 1) }}" href="{{ admin_page_url('claims_page', claims_page - 1) }}">Prev</a>
+        <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == claims_total_pages }}" data-target-card="claims-card" data-fragment-url="{{ admin_fragment_url('claims', 'claims_page', claims_page + 1) }}" href="{{ admin_page_url('claims_page', claims_page + 1) }}">Next</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div style="margin-top:16px" class="empty-state">No active jobs right now</div>
+  {% endif %}
+</div>

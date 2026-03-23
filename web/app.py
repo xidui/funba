@@ -4293,6 +4293,149 @@ _LINE_SCORE_ENQUEUE_CACHE: dict[str, float] = {}
 _LINE_SCORE_ENQUEUE_TTL = 300
 
 
+def _admin_page_arg(name: str, default: int = 1) -> int:
+    try:
+        return max(1, int(request.args.get(name, default) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _admin_page_url(param_name: str, page: int) -> str:
+    args = dict(request.args)
+    if page <= 1:
+        args.pop(param_name, None)
+    else:
+        args[param_name] = str(page)
+    return url_for("admin_pipeline", **args)
+
+
+def _admin_fragment_url(section: str, param_name: str, page: int) -> str:
+    args = dict(request.args)
+    if page <= 1:
+        args.pop(param_name, None)
+    else:
+        args[param_name] = str(page)
+    return url_for("admin_fragment", section=section, **args)
+
+
+def _load_admin_claims_panel(session, *, claims_page: int, claims_page_size: int) -> dict:
+    from datetime import datetime, timedelta
+
+    claim_counts = dict(
+        session.query(MetricJobClaim.status, func.count())
+        .group_by(MetricJobClaim.status)
+        .all()
+    )
+
+    active_claims_q = (
+        session.query(MetricJobClaim)
+        .filter(MetricJobClaim.status == "in_progress")
+        .order_by(MetricJobClaim.claimed_at)
+    )
+    active_claim_total = active_claims_q.count()
+    active_claim_total_pages = max(1, (active_claim_total + claims_page_size - 1) // claims_page_size)
+    claims_page = min(claims_page, active_claim_total_pages)
+    active_claims = (
+        active_claims_q
+        .offset((claims_page - 1) * claims_page_size)
+        .limit(claims_page_size)
+        .all()
+    )
+    active = [
+        {
+            "game_id": c.game_id,
+            "metric_key": c.metric_key,
+            "worker_id": c.worker_id,
+            "claimed_at": c.claimed_at,
+            "age_s": int((datetime.utcnow() - c.claimed_at).total_seconds()) if c.claimed_at else None,
+        }
+        for c in active_claims
+    ]
+
+    stuck_cutoff = datetime.utcnow() - timedelta(seconds=600)
+    stuck_count = (
+        session.query(func.count())
+        .filter(MetricJobClaim.status == "in_progress", MetricJobClaim.claimed_at < stuck_cutoff)
+        .scalar() or 0
+    )
+
+    return {
+        "claim_counts": claim_counts,
+        "active": active,
+        "claims_page": claims_page,
+        "claims_total_pages": active_claim_total_pages,
+        "stuck_count": stuck_count,
+    }
+
+
+def _load_admin_compute_runs_panel(session, *, runs_page: int, runs_page_size: int) -> dict:
+    from datetime import datetime
+
+    compute_run_counts = dict(
+        session.query(MetricComputeRun.status, func.count())
+        .group_by(MetricComputeRun.status)
+        .all()
+    )
+    active_compute_runs_q = (
+        session.query(MetricComputeRun)
+        .filter(MetricComputeRun.status.in_(("mapping", "reducing", "failed")))
+        .order_by(MetricComputeRun.created_at.desc())
+    )
+    compute_run_total = active_compute_runs_q.count()
+    compute_run_total_pages = max(1, (compute_run_total + runs_page_size - 1) // runs_page_size)
+    runs_page = min(runs_page, compute_run_total_pages)
+    active_compute_runs = (
+        active_compute_runs_q
+        .offset((runs_page - 1) * runs_page_size)
+        .limit(runs_page_size)
+        .all()
+    )
+    compute_runs = [
+        {
+            "id": r.id,
+            "metric_key": r.metric_key,
+            "status": r.status,
+            "target_game_count": r.target_game_count,
+            "created_at": r.created_at,
+            "completed_at": r.completed_at,
+            "failed_at": r.failed_at,
+            "age_s": int((datetime.utcnow() - r.created_at).total_seconds()) if r.created_at else None,
+        }
+        for r in active_compute_runs
+    ]
+
+    return {
+        "compute_run_counts": compute_run_counts,
+        "compute_runs": compute_runs,
+        "runs_page": runs_page,
+        "runs_total_pages": compute_run_total_pages,
+    }
+
+
+def _load_admin_recent_runs_panel(session, *, recent_page: int, recent_page_size: int) -> dict:
+    recent_runs_q = (
+        session.query(MetricRunLog.game_id, MetricRunLog.metric_key, MetricRunLog.computed_at)
+        .filter(MetricRunLog.computed_at >= func.date_sub(func.now(), text("INTERVAL 3 DAY")))
+        .order_by(MetricRunLog.computed_at.desc())
+    )
+    recent_total = recent_runs_q.count()
+    recent_total_pages = max(1, (recent_total + recent_page_size - 1) // recent_page_size)
+    recent_page = min(recent_page, recent_total_pages)
+    recent_runs = (
+        recent_runs_q
+        .offset((recent_page - 1) * recent_page_size)
+        .limit(recent_page_size)
+        .all()
+    )
+    recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
+
+    return {
+        "recent": recent,
+        "recent_page": recent_page,
+        "recent_total_pages": recent_total_pages,
+    }
+
+
 def _enqueue_line_score_backfill(game_id: str) -> bool:
     """Best-effort enqueue for missing line score data, throttled per web process."""
     now = time.time()
@@ -4317,26 +4460,12 @@ def admin_pipeline():
         return denied
     from datetime import datetime, timedelta
 
-    def _page_arg(name: str, default: int = 1) -> int:
-        try:
-            return max(1, int(request.args.get(name, default) or default))
-        except (TypeError, ValueError):
-            return default
-
-    claims_page = _page_arg("claims_page")
-    runs_page = _page_arg("runs_page")
-    recent_page = _page_arg("recent_page")
+    claims_page = _admin_page_arg("claims_page")
+    runs_page = _admin_page_arg("runs_page")
+    recent_page = _admin_page_arg("recent_page")
     claims_page_size = 25
     runs_page_size = 25
     recent_page_size = 25
-
-    def _admin_page_url(param_name: str, page: int) -> str:
-        args = dict(request.args)
-        if page <= 1:
-            args.pop(param_name, None)
-        else:
-            args[param_name] = str(page)
-        return url_for("admin_pipeline", **args)
 
     with SessionLocal() as session:
         # --- Coverage per season — cached to avoid 6s query on every load ---
@@ -4390,80 +4519,8 @@ def admin_pipeline():
             for row in coverage_rows
         ]
 
-        # --- Claim status summary ---
-        claim_counts = dict(
-            session.query(MetricJobClaim.status, func.count())
-            .group_by(MetricJobClaim.status)
-            .all()
-        )
-
-        compute_run_counts = dict(
-            session.query(MetricComputeRun.status, func.count())
-            .group_by(MetricComputeRun.status)
-            .all()
-        )
-
-        # --- Currently in-progress claims (active workers) ---
-        active_claims_q = (
-            session.query(MetricJobClaim)
-            .filter(MetricJobClaim.status == "in_progress")
-            .order_by(MetricJobClaim.claimed_at)
-        )
-        active_claim_total = active_claims_q.count()
-        active_claim_total_pages = max(1, (active_claim_total + claims_page_size - 1) // claims_page_size)
-        claims_page = min(claims_page, active_claim_total_pages)
-        active_claims = (
-            active_claims_q
-            .offset((claims_page - 1) * claims_page_size)
-            .limit(claims_page_size)
-            .all()
-        )
-        active = [
-            {
-                "game_id": c.game_id,
-                "metric_key": c.metric_key,
-                "worker_id": c.worker_id,
-                "claimed_at": c.claimed_at,
-                "age_s": int((datetime.utcnow() - c.claimed_at).total_seconds()) if c.claimed_at else None,
-            }
-            for c in active_claims
-        ]
-
-        active_compute_runs_q = (
-            session.query(MetricComputeRun)
-            .filter(MetricComputeRun.status.in_(("mapping", "reducing", "failed")))
-            .order_by(MetricComputeRun.created_at.desc())
-        )
-        compute_run_total = active_compute_runs_q.count()
-        compute_run_total_pages = max(1, (compute_run_total + runs_page_size - 1) // runs_page_size)
-        runs_page = min(runs_page, compute_run_total_pages)
-        active_compute_runs = (
-            active_compute_runs_q
-            .offset((runs_page - 1) * runs_page_size)
-            .limit(runs_page_size)
-            .all()
-        )
-        compute_runs = [
-            {
-                "id": r.id,
-                "metric_key": r.metric_key,
-                "status": r.status,
-                "target_game_count": r.target_game_count,
-                "created_at": r.created_at,
-                "completed_at": r.completed_at,
-                "failed_at": r.failed_at,
-                "age_s": int((datetime.utcnow() - r.created_at).total_seconds()) if r.created_at else None,
-            }
-            for r in active_compute_runs
-        ]
-
-        # --- Stuck claims (in_progress older than 10 min) ---
-        stuck_cutoff = datetime.utcnow() - timedelta(seconds=600)
-        stuck_count = (
-            session.query(func.count())
-            .filter(MetricJobClaim.status == "in_progress", MetricJobClaim.claimed_at < stuck_cutoff)
-            .scalar() or 0
-        )
+        claims_panel = _load_admin_claims_panel(session, claims_page=claims_page, claims_page_size=claims_page_size)
+        compute_runs_panel = _load_admin_compute_runs_panel(session, runs_page=runs_page, runs_page_size=runs_page_size)
 
         # --- Games missing any artifact (last 2 seasons) — all done in SQL ---
         season_filter = Game.season.like("22024%") | Game.season.like("22025%")
@@ -4495,22 +4552,7 @@ def admin_pipeline():
         missing_shot = _missing(ShotRecord, ShotRecord.game_id)
         missing_metrics = _missing(MetricRunLog, MetricRunLog.game_id)
 
-        # --- Recent metric runs (last 20) — filter to recent days to avoid full table scan ---
-        recent_runs_q = (
-            session.query(MetricRunLog.game_id, MetricRunLog.metric_key, MetricRunLog.computed_at)
-            .filter(MetricRunLog.computed_at >= func.date_sub(func.now(), text("INTERVAL 3 DAY")))
-            .order_by(MetricRunLog.computed_at.desc())
-        )
-        recent_total = recent_runs_q.count()
-        recent_total_pages = max(1, (recent_total + recent_page_size - 1) // recent_page_size)
-        recent_page = min(recent_page, recent_total_pages)
-        recent_runs = (
-            recent_runs_q
-            .offset((recent_page - 1) * recent_page_size)
-            .limit(recent_page_size)
-            .all()
-        )
-        recent = [{"game_id": r.game_id, "metric_key": r.metric_key, "computed_at": r.computed_at} for r in recent_runs]
+        recent_panel = _load_admin_recent_runs_panel(session, recent_page=recent_page, recent_page_size=recent_page_size)
 
         # --- Visitor stats ---
         now_dt = datetime.utcnow()
@@ -4531,25 +4573,77 @@ def admin_pipeline():
     return render_template(
         "admin.html",
         coverage=coverage,
-        claim_counts=claim_counts,
-        compute_run_counts=compute_run_counts,
-        active=active,
-        claims_page=claims_page,
-        claims_total_pages=active_claim_total_pages,
+        claim_counts=claims_panel["claim_counts"],
+        compute_run_counts=compute_runs_panel["compute_run_counts"],
+        active=claims_panel["active"],
+        claims_page=claims_panel["claims_page"],
+        claims_total_pages=claims_panel["claims_total_pages"],
         admin_page_url=_admin_page_url,
-        compute_runs=compute_runs,
-        runs_page=runs_page,
-        runs_total_pages=compute_run_total_pages,
-        stuck_count=stuck_count,
+        admin_fragment_url=_admin_fragment_url,
+        compute_runs=compute_runs_panel["compute_runs"],
+        runs_page=compute_runs_panel["runs_page"],
+        runs_total_pages=compute_runs_panel["runs_total_pages"],
+        stuck_count=claims_panel["stuck_count"],
         missing_detail=missing_detail,
         missing_shot=missing_shot,
         missing_metrics=missing_metrics,
-        recent=recent,
-        recent_page=recent_page,
-        recent_total_pages=recent_total_pages,
+        recent=recent_panel["recent"],
+        recent_page=recent_panel["recent_page"],
+        recent_total_pages=recent_panel["recent_total_pages"],
         visitor_stats=visitor_stats,
         llm_available_models=available_llm_models(),
     )
+
+
+@app.get("/admin/fragment/<section>")
+def admin_fragment(section: str):
+    denied = _require_admin_page()
+    if denied:
+        return denied
+
+    section = (section or "").strip().lower()
+    claims_page_size = 25
+    runs_page_size = 25
+    recent_page_size = 25
+
+    with SessionLocal() as session:
+        if section == "claims":
+            panel = _load_admin_claims_panel(session, claims_page=_admin_page_arg("claims_page"), claims_page_size=claims_page_size)
+            return render_template(
+                "_admin_claims_card.html",
+                claim_counts=panel["claim_counts"],
+                active=panel["active"],
+                claims_page=panel["claims_page"],
+                claims_total_pages=panel["claims_total_pages"],
+                stuck_count=panel["stuck_count"],
+                admin_page_url=_admin_page_url,
+                admin_fragment_url=_admin_fragment_url,
+            )
+
+        if section == "compute-runs":
+            panel = _load_admin_compute_runs_panel(session, runs_page=_admin_page_arg("runs_page"), runs_page_size=runs_page_size)
+            return render_template(
+                "_admin_compute_runs_card.html",
+                compute_run_counts=panel["compute_run_counts"],
+                compute_runs=panel["compute_runs"],
+                runs_page=panel["runs_page"],
+                runs_total_pages=panel["runs_total_pages"],
+                admin_page_url=_admin_page_url,
+                admin_fragment_url=_admin_fragment_url,
+            )
+
+        if section == "recent-runs":
+            panel = _load_admin_recent_runs_panel(session, recent_page=_admin_page_arg("recent_page"), recent_page_size=recent_page_size)
+            return render_template(
+                "_admin_recent_runs_card.html",
+                recent=panel["recent"],
+                recent_page=panel["recent_page"],
+                recent_total_pages=panel["recent_total_pages"],
+                admin_page_url=_admin_page_url,
+                admin_fragment_url=_admin_fragment_url,
+            )
+
+    abort(404)
 
 
 @app.get("/api/admin/model-config")

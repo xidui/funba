@@ -374,142 +374,11 @@
     </script>
   </div>
 
-  <!-- Claim status -->
-  <div id="claims-card" class="card">
-    <h2>Job Claims</h2>
-    <div class="claim-pills">
-      <div class="claim-pill done">
-        <span class="pill-val">{{ "{:,}".format(claim_counts.get('done', 0)) }}</span>
-        <span class="pill-label">Done</span>
-      </div>
-      <div class="claim-pill in-progress">
-        <span class="pill-val">{{ claim_counts.get('in_progress', 0) }}</span>
-        <span class="pill-label">In Progress</span>
-      </div>
-      <div class="claim-pill stuck">
-        <span class="pill-val">{{ stuck_count }}</span>
-        <span class="pill-label">Stuck (&gt;10m)</span>
-      </div>
-    </div>
-    {% if active %}
-    <div style="margin-top:16px">
-      <div class="section-label">Active workers</div>
-      <table>
-        <thead><tr><th>Game</th><th>Metric</th><th>Age</th></tr></thead>
-        <tbody>
-          {% for a in active %}
-          <tr>
-            <td class="mono">{{ a.game_id }}</td>
-            <td class="mono">{{ a.metric_key }}</td>
-            <td>
-              <span class="age-chip {{ 'warn' if a.age_s and a.age_s > 300 else '' }}">
-                {{ a.age_s }}s
-              </span>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if claims_total_pages > 1 %}
-      <div class="pager">
-        <span>Page {{ claims_page }} / {{ claims_total_pages }}</span>
-        <div class="pager-links">
-          <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == 1 }}" data-target-card="claims-card" href="{{ admin_page_url('claims_page', claims_page - 1) }}">Prev</a>
-          <a class="pager-link js-admin-pager {{ 'disabled' if claims_page == claims_total_pages }}" data-target-card="claims-card" href="{{ admin_page_url('claims_page', claims_page + 1) }}">Next</a>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-    {% else %}
-    <div style="margin-top:16px" class="empty-state">No active jobs right now</div>
-    {% endif %}
-  </div>
+  {% include "_admin_claims_card.html" %}
 
-  <!-- Compute runs -->
-  <div id="compute-runs-card" class="card">
-    <h2>Compute Runs</h2>
-    <div class="claim-pills">
-      <div class="claim-pill mapping">
-        <span class="pill-val">{{ compute_run_counts.get('mapping', 0) }}</span>
-        <span class="pill-label">Mapping</span>
-      </div>
-      <div class="claim-pill reducing">
-        <span class="pill-val">{{ compute_run_counts.get('reducing', 0) }}</span>
-        <span class="pill-label">Reducing</span>
-      </div>
-      <div class="claim-pill failed">
-        <span class="pill-val">{{ compute_run_counts.get('failed', 0) }}</span>
-        <span class="pill-label">Failed</span>
-      </div>
-      <div class="claim-pill complete">
-        <span class="pill-val">{{ compute_run_counts.get('complete', 0) }}</span>
-        <span class="pill-label">Complete</span>
-      </div>
-    </div>
-    {% if compute_runs %}
-    <div style="margin-top:16px">
-      <div class="section-label">Recent Active / Failed Runs</div>
-      <table>
-        <thead><tr><th>Metric</th><th>Status</th><th>Target Games</th><th>Age</th></tr></thead>
-        <tbody>
-          {% for r in compute_runs %}
-          <tr>
-            <td class="mono">{{ r.metric_key }}</td>
-            <td><span class="age-chip {{ 'warn' if r.status == 'reducing' else '' }}" style="{{ 'background:rgba(239,68,68,.12);color:var(--loss);' if r.status == 'failed' else '' }}">{{ r.status }}</span></td>
-            <td>{{ "{:,}".format(r.target_game_count or 0) }}</td>
-            <td>
-              <span class="age-chip {{ 'warn' if r.age_s and r.age_s > 300 else '' }}">
-                {{ r.age_s }}s
-              </span>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if runs_total_pages > 1 %}
-      <div class="pager">
-        <span>Page {{ runs_page }} / {{ runs_total_pages }}</span>
-        <div class="pager-links">
-          <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == 1 }}" data-target-card="compute-runs-card" href="{{ admin_page_url('runs_page', runs_page - 1) }}">Prev</a>
-          <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == runs_total_pages }}" data-target-card="compute-runs-card" href="{{ admin_page_url('runs_page', runs_page + 1) }}">Next</a>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-    {% else %}
-    <div style="margin-top:16px" class="empty-state">No active or failed compute runs right now</div>
-    {% endif %}
-  </div>
+  {% include "_admin_compute_runs_card.html" %}
 
-  <!-- Recent runs -->
-  <div id="recent-runs-card" class="card">
-    <h2>Recent Metric Runs</h2>
-    {% if recent %}
-    <table>
-      <thead><tr><th>Game</th><th>Metric</th><th>Computed at</th></tr></thead>
-      <tbody>
-        {% for r in recent %}
-        <tr class="recent-row">
-          <td><a href="{{ url_for('game_page', game_id=r.game_id) }}" class="mono">{{ r.game_id }}</a></td>
-          <td class="mono">{{ r.metric_key }}</td>
-          <td>{{ r.computed_at.strftime('%m/%d %H:%M:%S') if r.computed_at else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if recent_total_pages > 1 %}
-    <div class="pager">
-      <span>Page {{ recent_page }} / {{ recent_total_pages }}</span>
-      <div class="pager-links">
-        <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == 1 }}" data-target-card="recent-runs-card" href="{{ admin_page_url('recent_page', recent_page - 1) }}">Prev</a>
-        <a class="pager-link js-admin-pager {{ 'disabled' if recent_page == recent_total_pages }}" data-target-card="recent-runs-card" href="{{ admin_page_url('recent_page', recent_page + 1) }}">Next</a>
-      </div>
-    </div>
-    {% endif %}
-    {% else %}
-    <div class="empty-state">No metric runs recorded yet</div>
-    {% endif %}
-  </div>
+  {% include "_admin_recent_runs_card.html" %}
 
   <!-- Missing artifacts -->
   {% set any_missing = missing_detail.total or missing_shot.total or missing_metrics.total %}
@@ -654,14 +523,16 @@
 
       currentCard.classList.add('is-loading');
       try {
-        const response = await fetch(link.href, {
+        const fragmentUrl = link.dataset.fragmentUrl || link.href;
+        const response = await fetch(fragmentUrl, {
           headers: {'X-Requested-With': 'fetch'},
           credentials: 'same-origin',
         });
         if (!response.ok) throw new Error('Request failed');
         const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const nextCard = doc.getElementById(cardId);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = html.trim();
+        const nextCard = wrapper.querySelector('#' + cardId);
         if (!nextCard) throw new Error('Missing card');
         currentCard.replaceWith(nextCard);
         window.history.replaceState({}, '', link.href);

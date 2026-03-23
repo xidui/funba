@@ -1,0 +1,54 @@
+<div id="compute-runs-card" class="card">
+  <h2>Compute Runs</h2>
+  <div class="claim-pills">
+    <div class="claim-pill mapping">
+      <span class="pill-val">{{ compute_run_counts.get('mapping', 0) }}</span>
+      <span class="pill-label">Mapping</span>
+    </div>
+    <div class="claim-pill reducing">
+      <span class="pill-val">{{ compute_run_counts.get('reducing', 0) }}</span>
+      <span class="pill-label">Reducing</span>
+    </div>
+    <div class="claim-pill failed">
+      <span class="pill-val">{{ compute_run_counts.get('failed', 0) }}</span>
+      <span class="pill-label">Failed</span>
+    </div>
+    <div class="claim-pill complete">
+      <span class="pill-val">{{ compute_run_counts.get('complete', 0) }}</span>
+      <span class="pill-label">Complete</span>
+    </div>
+  </div>
+  {% if compute_runs %}
+  <div style="margin-top:16px">
+    <div class="section-label">Recent Active / Failed Runs</div>
+    <table>
+      <thead><tr><th>Metric</th><th>Status</th><th>Target Games</th><th>Age</th></tr></thead>
+      <tbody>
+        {% for r in compute_runs %}
+        <tr>
+          <td class="mono">{{ r.metric_key }}</td>
+          <td><span class="age-chip {{ 'warn' if r.status == 'reducing' else '' }}" style="{{ 'background:rgba(239,68,68,.12);color:var(--loss);' if r.status == 'failed' else '' }}">{{ r.status }}</span></td>
+          <td>{{ "{:,}".format(r.target_game_count or 0) }}</td>
+          <td>
+            <span class="age-chip {{ 'warn' if r.age_s and r.age_s > 300 else '' }}">
+              {{ r.age_s }}s
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if runs_total_pages > 1 %}
+    <div class="pager">
+      <span>Page {{ runs_page }} / {{ runs_total_pages }}</span>
+      <div class="pager-links">
+        <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == 1 }}" data-target-card="compute-runs-card" data-fragment-url="{{ admin_fragment_url('compute-runs', 'runs_page', runs_page - 1) }}" href="{{ admin_page_url('runs_page', runs_page - 1) }}">Prev</a>
+        <a class="pager-link js-admin-pager {{ 'disabled' if runs_page == runs_total_pages }}" data-target-card="compute-runs-card" data-fragment-url="{{ admin_fragment_url('compute-runs', 'runs_page', runs_page + 1) }}" href="{{ admin_page_url('runs_page', runs_page + 1) }}">Next</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div style="margin-top:16px" class="empty-state">No active or failed compute runs right now</div>
+  {% endif %}
+</div>
