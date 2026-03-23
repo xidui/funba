@@ -1324,12 +1324,32 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .first()
     )
 
+    reduce_done_seasons = None
+    reduce_total_seasons = None
+
     if latest_compute_run and latest_compute_run.status == "failed":
         status = "failed"
     elif total_games and done_games >= total_games:
         # All claims done — but reduce may still be pending/running.
         if latest_compute_run and latest_compute_run.status in ("mapping", "reducing"):
             status = "finalizing"
+            # Count reduce progress: seasons with fresh results vs total seasons with deltas.
+            reduce_total_seasons = (
+                session.query(func.count(func.distinct(MetricRunLog.season)))
+                .filter(MetricRunLog.metric_key == metric_key)
+                .scalar() or 0
+            )
+            if latest_compute_run.reduce_enqueued_at:
+                reduce_done_seasons = (
+                    session.query(func.count(func.distinct(MetricResultModel.season)))
+                    .filter(
+                        MetricResultModel.metric_key == metric_key,
+                        MetricResultModel.computed_at >= latest_compute_run.reduce_enqueued_at,
+                    )
+                    .scalar() or 0
+                )
+            else:
+                reduce_done_seasons = 0
         else:
             status = "complete"
     elif active_games > 0 or done_games > 0:
@@ -1345,6 +1365,8 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         "pending_games": max(int(total_games) - int(done_games) - int(active_games), 0),
         "total_games": int(total_games),
         "progress_pct": round((int(done_games) / int(total_games) * 100.0), 1) if total_games else 0.0,
+        "reduce_done_seasons": reduce_done_seasons,
+        "reduce_total_seasons": reduce_total_seasons,
         "latest_run_at": latest_run_at,
     }
 
@@ -1377,6 +1399,9 @@ def _combine_backfill_components(
     done_jobs = sum(c["done_games"] for c in components)
     active_jobs = sum(c["active_games"] for c in components)
 
+    reduce_done = sum(c["reduce_done_seasons"] or 0 for c in components)
+    reduce_total = sum(c["reduce_total_seasons"] or 0 for c in components)
+
     return {
         "status": status,
         "total_games": total_jobs,
@@ -1384,6 +1409,8 @@ def _combine_backfill_components(
         "active_games": active_jobs,
         "pending_games": max(total_jobs - done_jobs - active_jobs, 0),
         "progress_pct": round((done_jobs / total_jobs * 100.0), 1) if total_jobs else 0.0,
+        "reduce_done_seasons": reduce_done,
+        "reduce_total_seasons": reduce_total,
         "latest_run_at": latest_run_at,
         "components": components,
         "is_multi_component": len(components) > 1,
