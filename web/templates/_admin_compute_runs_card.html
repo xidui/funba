@@ -9,6 +9,18 @@
       <span class="pill-val">{{ compute_run_counts.get('reducing', 0) }}</span>
       <span class="pill-label">Reducing</span>
     </div>
+    {% if compute_run_counts.get('needs_finalize', 0) %}
+    <div class="claim-pill needs_finalize">
+      <span class="pill-val">{{ compute_run_counts.get('needs_finalize', 0) }}</span>
+      <span class="pill-label">Needs Finalize</span>
+    </div>
+    {% endif %}
+    {% if compute_run_counts.get('stalled', 0) %}
+    <div class="claim-pill stalled">
+      <span class="pill-val">{{ compute_run_counts.get('stalled', 0) }}</span>
+      <span class="pill-label">Stalled</span>
+    </div>
+    {% endif %}
     <div class="claim-pill failed">
       <span class="pill-val">{{ compute_run_counts.get('failed', 0) }}</span>
       <span class="pill-label">Failed</span>
@@ -20,14 +32,19 @@
   </div>
   {% if compute_runs %}
   <div style="margin-top:16px">
-    <div class="section-label">Recent Active / Failed Runs</div>
+    <div class="section-label">Recent Active / Attention / Failed Runs</div>
     <table>
       <thead><tr><th>Metric</th><th>Status</th><th>Target Games</th><th>Age</th></tr></thead>
       <tbody>
         {% for r in compute_runs %}
         <tr>
-          <td class="mono">{{ r.metric_key }}</td>
-          <td><span class="age-chip {{ 'warn' if r.status == 'reducing' else '' }}" style="{{ 'background:rgba(239,68,68,.12);color:var(--loss);' if r.status == 'failed' else '' }}">{{ r.status }}</span></td>
+          <td class="mono">
+            {{ r.metric_key }}
+            {% if r.status_detail %}
+            <div style="margin-top:4px;font-size:11px;color:var(--muted);font-family:system-ui,sans-serif;">{{ r.status_detail }}</div>
+            {% endif %}
+          </td>
+          <td><span class="age-chip {{ 'warn' if r.status == 'reducing' else r.status }}" title="{% if r.raw_status != r.status %}Raw status: {{ r.raw_status }}{% if r.status_detail %} — {{ r.status_detail }}{% endif %}{% elif r.status_detail %}{{ r.status_detail }}{% endif %}">{{ r.status_label | replace('_', ' ') | title }}</span></td>
           <td>{{ "{:,}".format(r.target_game_count or 0) }}</td>
           <td>
             <span class="age-chip {{ 'warn' if r.age_s and r.age_s > 300 else '' }}">

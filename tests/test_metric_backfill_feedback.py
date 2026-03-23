@@ -467,6 +467,91 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(backfill["components"][0]["latest_run_at"], "2026-03-19 12:34:56")
         self.assertEqual(backfill["components"][1]["label"], "Career")
 
+    def test_admin_compute_run_display_status_marks_stalled_when_reduce_never_started(self):
+        run = SimpleNamespace(
+            status="reducing",
+            reduce_enqueued_at=datetime(2026, 3, 23, 8, 14, 55),
+            target_game_count=102,
+        )
+
+        status, detail = self.web_app._admin_compute_run_display_status(
+            run,
+            scope_done_games=102,
+            scope_active_games=0,
+            metric_seasons=1,
+            fresh_result_seasons=0,
+            now=datetime(2026, 3, 23, 8, 25, 0),
+        )
+
+        self.assertEqual(status, "stalled")
+        self.assertIn("no reduce output", detail)
+
+    def test_admin_compute_run_display_status_marks_needs_finalize_when_reduce_output_is_fresh(self):
+        run = SimpleNamespace(
+            status="reducing",
+            reduce_enqueued_at=datetime(2026, 3, 23, 8, 14, 55),
+            target_game_count=102,
+        )
+
+        status, detail = self.web_app._admin_compute_run_display_status(
+            run,
+            scope_done_games=102,
+            scope_active_games=0,
+            metric_seasons=2,
+            fresh_result_seasons=2,
+            now=datetime(2026, 3, 23, 8, 16, 0),
+        )
+
+        self.assertEqual(status, "needs_finalize")
+        self.assertIn("never recorded completion", detail)
+
+    def test_load_admin_compute_runs_panel_reclassifies_stalled_reducing_runs(self):
+        run = SimpleNamespace(
+            id="run-1",
+            metric_key="forty_plus_scoring_games_career",
+            status="reducing",
+            target_game_count=102,
+            created_at=datetime(2026, 3, 23, 6, 7, 57),
+            completed_at=None,
+            failed_at=None,
+            reduce_enqueued_at=datetime(2026, 3, 23, 8, 14, 55),
+        )
+
+        counts_query = MagicMock()
+        counts_query.group_by.return_value.all.return_value = [
+            ("reducing", 1),
+            ("complete", 2),
+        ]
+
+        reducing_query = MagicMock()
+        reducing_query.filter.return_value.all.return_value = [run]
+
+        active_query = MagicMock()
+        ordered_active_query = active_query.filter.return_value.order_by.return_value
+        ordered_active_query.count.return_value = 1
+        ordered_active_query.offset.return_value.limit.return_value.all.return_value = [run]
+
+        session = MagicMock()
+        session.query.side_effect = [counts_query, reducing_query, active_query]
+
+        with patch.object(
+            self.web_app,
+            "_admin_compute_run_activity",
+            return_value={
+                "scope_done_games": 102,
+                "scope_active_games": 0,
+                "metric_seasons": 1,
+                "fresh_result_seasons": 0,
+            },
+        ):
+            panel = self.web_app._load_admin_compute_runs_panel(session, runs_page=1, runs_page_size=25)
+
+        self.assertEqual(panel["compute_run_counts"]["reducing"], 0)
+        self.assertEqual(panel["compute_run_counts"]["stalled"], 1)
+        self.assertEqual(panel["compute_run_counts"]["complete"], 2)
+        self.assertEqual(panel["compute_runs"][0]["status"], "stalled")
+        self.assertEqual(panel["compute_runs"][0]["raw_status"], "reducing")
+
 
 if __name__ == "__main__":
     unittest.main()

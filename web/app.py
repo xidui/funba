@@ -4289,6 +4289,7 @@ def metric_detail(metric_key: str):
 
 _admin_cache: dict = {}
 _ADMIN_CACHE_TTL = 30  # seconds
+_ADMIN_STALE_REDUCE_GRACE_SECONDS = 300
 _LINE_SCORE_ENQUEUE_CACHE: dict[str, float] = {}
 _LINE_SCORE_ENQUEUE_TTL = 300
 
@@ -4368,6 +4369,106 @@ def _load_admin_claims_panel(session, *, claims_page: int, claims_page_size: int
     }
 
 
+def _admin_compute_run_activity(session, run) -> dict:
+    games_q = session.query(Game.game_id).filter(Game.game_date.isnot(None))
+    if run.target_season:
+        games_q = games_q.filter(Game.season.like(f"{run.target_season}%"))
+    if run.target_date_from:
+        games_q = games_q.filter(Game.game_date >= run.target_date_from)
+    if run.target_date_to:
+        games_q = games_q.filter(Game.game_date <= run.target_date_to)
+    game_ids = games_q.subquery()
+
+    scope_done_games = (
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(
+            MetricJobClaim.metric_key == run.metric_key,
+            MetricJobClaim.status == "done",
+            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
+        )
+        .scalar()
+        or 0
+    )
+    scope_active_games = (
+        session.query(func.count())
+        .select_from(MetricJobClaim)
+        .filter(
+            MetricJobClaim.metric_key == run.metric_key,
+            MetricJobClaim.status == "in_progress",
+            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
+        )
+        .scalar()
+        or 0
+    )
+
+    metric_seasons = 0
+    fresh_result_seasons = 0
+    if getattr(run, "reduce_enqueued_at", None) is not None:
+        season_subquery = (
+            session.query(MetricRunLog.season.label("season"))
+            .filter(MetricRunLog.metric_key == run.metric_key)
+            .distinct()
+            .subquery()
+        )
+        metric_seasons = (
+            session.query(func.count())
+            .select_from(season_subquery)
+            .scalar()
+            or 0
+        )
+        if metric_seasons:
+            fresh_result_seasons = (
+                session.query(func.count(func.distinct(MetricResultModel.season)))
+                .filter(
+                    MetricResultModel.metric_key == run.metric_key,
+                    MetricResultModel.season.in_(session.query(season_subquery.c.season)),
+                    MetricResultModel.computed_at >= run.reduce_enqueued_at,
+                )
+                .scalar()
+                or 0
+            )
+
+    return {
+        "scope_done_games": int(scope_done_games),
+        "scope_active_games": int(scope_active_games),
+        "metric_seasons": int(metric_seasons),
+        "fresh_result_seasons": int(fresh_result_seasons),
+    }
+
+
+def _admin_compute_run_display_status(
+    run,
+    *,
+    scope_done_games: int,
+    scope_active_games: int,
+    metric_seasons: int,
+    fresh_result_seasons: int,
+    now=None,
+) -> tuple[str, str | None]:
+    from datetime import datetime
+
+    raw_status = getattr(run, "status", "")
+    if raw_status != "reducing":
+        return raw_status, None
+
+    if getattr(run, "reduce_enqueued_at", None) is None:
+        return raw_status, None
+
+    now = now or datetime.utcnow()
+    age_s = max(int((now - run.reduce_enqueued_at).total_seconds()), 0)
+    mapping_complete = int(scope_done_games) >= int(getattr(run, "target_game_count", 0) or 0)
+    no_active_claims = int(scope_active_games) == 0
+
+    if mapping_complete and no_active_claims and metric_seasons > 0 and fresh_result_seasons >= metric_seasons:
+        return "needs_finalize", "Reduce output is current, but this run never recorded completion."
+
+    if mapping_complete and no_active_claims and age_s >= _ADMIN_STALE_REDUCE_GRACE_SECONDS and fresh_result_seasons == 0:
+        return "stalled", "Mapping finished, but no reduce output landed after this run was enqueued."
+
+    return raw_status, None
+
+
 def _load_admin_compute_runs_panel(session, *, runs_page: int, runs_page_size: int) -> dict:
     from datetime import datetime
 
@@ -4376,6 +4477,24 @@ def _load_admin_compute_runs_panel(session, *, runs_page: int, runs_page_size: i
         .group_by(MetricComputeRun.status)
         .all()
     )
+    derived_run_state: dict[str, dict] = {}
+    reducing_runs = (
+        session.query(MetricComputeRun)
+        .filter(MetricComputeRun.status == "reducing")
+        .all()
+    )
+    for run in reducing_runs:
+        activity = _admin_compute_run_activity(session, run)
+        display_status, status_detail = _admin_compute_run_display_status(run, **activity)
+        derived_run_state[run.id] = {
+            **activity,
+            "status": display_status,
+            "status_detail": status_detail,
+        }
+        if display_status != "reducing":
+            compute_run_counts["reducing"] = max(compute_run_counts.get("reducing", 0) - 1, 0)
+            compute_run_counts[display_status] = compute_run_counts.get(display_status, 0) + 1
+
     active_compute_runs_q = (
         session.query(MetricComputeRun)
         .filter(MetricComputeRun.status.in_(("mapping", "reducing", "failed")))
@@ -4394,7 +4513,10 @@ def _load_admin_compute_runs_panel(session, *, runs_page: int, runs_page_size: i
         {
             "id": r.id,
             "metric_key": r.metric_key,
-            "status": r.status,
+            "status": derived_run_state.get(r.id, {}).get("status", r.status),
+            "raw_status": r.status,
+            "status_label": derived_run_state.get(r.id, {}).get("status", r.status).replace("_", " "),
+            "status_detail": derived_run_state.get(r.id, {}).get("status_detail"),
             "target_game_count": r.target_game_count,
             "created_at": r.created_at,
             "completed_at": r.completed_at,
@@ -4589,7 +4711,8 @@ def admin_pipeline():
         missing_metrics=missing_metrics,
         recent=recent_panel["recent"],
         recent_page=recent_panel["recent_page"],
-        recent_total_pages=recent_panel["recent_total_pages"],
+        recent_has_prev=recent_panel["recent_has_prev"],
+        recent_has_next=recent_panel["recent_has_next"],
         visitor_stats=visitor_stats,
         llm_available_models=available_llm_models(),
     )
@@ -4638,7 +4761,8 @@ def admin_fragment(section: str):
                 "_admin_recent_runs_card.html",
                 recent=panel["recent"],
                 recent_page=panel["recent_page"],
-                recent_total_pages=panel["recent_total_pages"],
+                recent_has_prev=panel["recent_has_prev"],
+                recent_has_next=panel["recent_has_next"],
                 admin_page_url=_admin_page_url,
                 admin_fragment_url=_admin_fragment_url,
             )

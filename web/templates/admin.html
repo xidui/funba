@@ -44,6 +44,8 @@
   .claim-pill.stuck .pill-val { color: var(--loss); }
   .claim-pill.mapping .pill-val { color: #64aaee; }
   .claim-pill.reducing .pill-val { color: var(--accent); }
+  .claim-pill.needs_finalize .pill-val { color: #facc15; }
+  .claim-pill.stalled .pill-val { color: var(--loss); }
   .claim-pill.failed .pill-val { color: var(--loss); }
   .claim-pill.complete .pill-val { color: var(--win); }
 
@@ -53,6 +55,11 @@
     background: var(--surface-3); color: var(--muted-2);
   }
   .age-chip.warn { background: rgba(250,204,21,.15); color: #facc15; }
+  .age-chip.needs_finalize { background: rgba(250,204,21,.15); color: #facc15; }
+  .age-chip.stalled { background: rgba(239,68,68,.12); color: var(--loss); }
+  .age-chip.failed { background: rgba(239,68,68,.12); color: var(--loss); }
+  .age-chip.mapping { background: rgba(100,170,238,.16); color: #64aaee; }
+  .age-chip.complete { background: rgba(74,222,128,.15); color: var(--win); }
 
   .section-label {
     font-size: 10px; font-family: Outfit, sans-serif; font-weight: 700;
