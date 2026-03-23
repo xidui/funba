@@ -1324,7 +1324,9 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .first()
     )
 
-    if total_games and done_games >= total_games:
+    if latest_compute_run and latest_compute_run.status == "failed":
+        status = "failed"
+    elif total_games and done_games >= total_games:
         # All claims done — but reduce may still be pending/running.
         if latest_compute_run and latest_compute_run.status in ("mapping", "reducing"):
             status = "finalizing"
@@ -1332,8 +1334,6 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
             status = "complete"
     elif active_games > 0 or done_games > 0:
         status = "running"
-    elif latest_compute_run and latest_compute_run.status == "failed":
-        status = "failed"
     else:
         status = "not_started"
 

@@ -25,6 +25,7 @@ Claim lifecycle (Phase 1)
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import logging
 from datetime import datetime
 
@@ -44,7 +45,18 @@ _RUN_STATUS_MAPPING = "mapping"
 _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
 _RUN_STATUS_FAILED = "failed"
-_REDUCE_LOCK_PREFIX = "metric_reduce_"
+_REDUCE_LOCK_PREFIX = "mr_"
+
+
+def _reduce_lock_name(metric_key: str) -> str:
+    """Build a per-metric advisory lock name that fits MySQL's 64-char limit."""
+    name = _REDUCE_LOCK_PREFIX + metric_key
+    if len(name) <= 64:
+        return name
+    # Hash to stay within limit while keeping prefix readable
+    h = hashlib.md5(metric_key.encode()).hexdigest()[:16]
+    return _REDUCE_LOCK_PREFIX + h
+
 _REDUCE_STALE_REQUEUE_SECONDS = 1800
 
 
@@ -483,12 +495,11 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
     queue="reduce",
 )
 def sweep_metric_compute_runs_task(self) -> dict:
-    """Promote completed mapping runs into the reduce queue exactly once.
+    """Promote completed mapping runs into the reduce queue.
 
-    Reduce work is globally serialized by an advisory lock, so keep at most one
-    active backlog of reducing runs at a time. Existing reducing runs are
-    repaired first; only when none remain do we promote the next completed
-    mapping run.
+    Reduce uses per-metric advisory locks, so different metrics can reduce in
+    parallel. The sweeper repairs stale reducing runs first, then promotes any
+    mapping run whose claims are all done.
     """
     SessionLocal = _session_factory()
     promoted: list[str] = []
@@ -511,20 +522,14 @@ def sweep_metric_compute_runs_task(self) -> dict:
                     continue
                 if _requeue_stale_reducing_run(session, run, now=now):
                     requeued.append(run.id)
-                    break
 
-            if (
-                session.query(MetricComputeRun.id)
+            # Collect metric_keys that already have an active reducing run.
+            active_reducing_keys = set(
+                row[0] for row in
+                session.query(MetricComputeRun.metric_key)
                 .filter(MetricComputeRun.status == _RUN_STATUS_REDUCING)
-                .first()
-                is not None
-            ):
-                return {
-                    "checked_runs": checked,
-                    "promoted_runs": promoted,
-                    "finalized_runs": finalized,
-                    "requeued_runs": requeued,
-                }
+                .all()
+            )
 
             runs = (
                 session.query(MetricComputeRun)
@@ -535,6 +540,9 @@ def sweep_metric_compute_runs_task(self) -> dict:
 
             for run in runs:
                 checked += 1
+                # Skip if this metric already has a reducing run in flight.
+                if run.metric_key in active_reducing_keys:
+                    continue
                 if _done_claim_count_for_run(session, run) < int(run.target_game_count):
                     continue
                 if not _promote_run_to_reducing(session, run.id):
@@ -557,7 +565,7 @@ def sweep_metric_compute_runs_task(self) -> dict:
                         revert_session.commit()
                     raise
                 promoted.append(run.id)
-                break
+                active_reducing_keys.add(run.metric_key)
     except Exception as exc:
         logger.error("sweep_metric_compute_runs failed: %s", exc, exc_info=True)
         raise self.retry(exc=exc, countdown=30)
@@ -597,7 +605,7 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
                 return {"run_id": run_id, "skipped": True, "reason": run.status}
             metric_key = run.metric_key
 
-        lock_name = _REDUCE_LOCK_PREFIX + metric_key
+        lock_name = _reduce_lock_name(metric_key)
         with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 seasons = _metric_seasons(session, metric_key)
@@ -643,7 +651,7 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
     """Phase 2: aggregate all deltas for (metric_key, season) → write MetricResults."""
     try:
-        lock_name = _REDUCE_LOCK_PREFIX + metric_key
+        lock_name = _reduce_lock_name(metric_key)
         with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 count = reduce_metric(session, metric_key, season, commit=True)
