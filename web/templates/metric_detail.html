@@ -469,6 +469,7 @@
     <span class="backfill-caret" aria-hidden="true"></span>
   </summary>
   <div class="backfill-body">
+  <div id="backfill-details" {% if backfill.status in ['finalizing', 'complete', 'failed'] %}style="display:none"{% endif %}>
   <div id="backfill-components" class="backfill-components"{% if not backfill.is_multi_component %} style="display:none"{% endif %}>
     {% for component in backfill.components %}
     <div class="backfill-component">
@@ -499,6 +500,7 @@
       <div id="backfill-total-games" class="backfill-stat-value">{{ backfill.total_games }}</div>
     </div>
   </div>
+  </div>{# backfill-details #}
   </div>
 </details>
 
@@ -653,6 +655,7 @@
   const pagePill = document.getElementById('metric-status-pill');
   const panelPill = document.getElementById('backfill-panel-status-pill');
   const meta = document.getElementById('backfill-summary-meta');
+  const details = document.getElementById('backfill-details');
   const components = document.getElementById('backfill-components');
   const progressFill = document.getElementById('backfill-progress-fill');
   const doneValue = document.getElementById('backfill-done-games');
@@ -719,6 +722,8 @@
     setStatusPill(pagePill, backfill.status);
     setStatusPill(panelPill, backfill.status);
     if (meta) meta.textContent = summaryMetaText(backfill);
+    const hideDetails = ['finalizing', 'complete', 'failed'].includes(backfill.status);
+    if (details) details.style.display = hideDetails ? 'none' : '';
     if (progressFill) progressFill.style.width = `${backfill.progress_pct}%`;
     if (doneValue) doneValue.textContent = backfill.done_games;
     if (activeValue) activeValue.textContent = backfill.active_games;
