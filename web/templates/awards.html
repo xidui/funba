@@ -61,8 +61,37 @@
 
   .awards-tabs {
     display: flex;
+    align-items: flex-start;
     gap: 8px;
     flex-wrap: wrap;
+  }
+
+  .tab-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tab-group-label {
+    min-height: 13px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .tab-group-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .tab-group-divider {
+    align-self: stretch;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 2px 4px;
   }
 
   .awards-tab {
@@ -291,6 +320,10 @@
   }
 
   @media (max-width: 700px) {
+    .tab-group-divider {
+      display: none;
+    }
+
     .award-row,
     .all-nba-row {
       flex-direction: column;
@@ -329,13 +362,23 @@
 
 <div class="card awards-controls">
   <div class="awards-tabs">
-    {% for tab in award_tabs %}
-    <a
-      class="awards-tab {{ 'active' if tab.award_type == selected_award_type }}"
-      href="{{ url_for('awards_page', type=tab.award_type, season=selected_season) if selected_season else url_for('awards_page', type=tab.award_type) }}"
-    >
-      {{ tab.label }}
-    </a>
+    {% for group in award_tab_groups %}
+    <div class="tab-group">
+      <div class="tab-group-label">{{ group.label or '&nbsp;'|safe }}</div>
+      <div class="tab-group-tabs">
+        {% for tab in group.tabs %}
+        <a
+          class="awards-tab {{ 'active' if tab.award_type == selected_award_type }}"
+          href="{{ url_for('awards_page', type=tab.award_type, season=selected_season) if selected_season else url_for('awards_page', type=tab.award_type) }}"
+        >
+          {{ tab.label }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% if not loop.last %}
+    <div class="tab-group-divider" aria-hidden="true"></div>
+    {% endif %}
     {% endfor %}
   </div>
 
@@ -366,7 +409,7 @@
 
     <div class="awards-list">
       {% for group in section.groups %}
-        {% if section.is_all_nba %}
+        {% if section.is_grid_award %}
         <div class="award-row all-nba-row">
           <div class="award-season">{{ group.season_label }}</div>
           <div class="all-nba-grid">
