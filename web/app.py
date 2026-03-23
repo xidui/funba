@@ -1357,6 +1357,17 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
     else:
         status = "not_started"
 
+    # Extract compute run timeline for the UI.
+    run_info = None
+    if latest_compute_run:
+        run_info = {
+            "started_at": _format_backfill_timestamp(latest_compute_run.started_at),
+            "reduce_enqueued_at": _format_backfill_timestamp(latest_compute_run.reduce_enqueued_at),
+            "completed_at": _format_backfill_timestamp(latest_compute_run.completed_at),
+            "failed_at": _format_backfill_timestamp(latest_compute_run.failed_at),
+            "run_status": latest_compute_run.status,
+        }
+
     return {
         "metric_key": metric_key,
         "status": status,
@@ -1367,6 +1378,7 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         "progress_pct": round((int(done_games) / int(total_games) * 100.0), 1) if total_games else 0.0,
         "reduce_done_seasons": reduce_done_seasons,
         "reduce_total_seasons": reduce_total_seasons,
+        "run_info": run_info,
         "latest_run_at": latest_run_at,
     }
 

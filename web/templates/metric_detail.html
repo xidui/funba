@@ -106,6 +106,52 @@
   .status-pill.draft    { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
   .status-pill.not_started { background: color-mix(in srgb, #94a3b8 15%, transparent); color: #94a3b8; }
 
+  .run-timeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+    padding: 0 4px;
+  }
+  .run-timeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+  .run-timeline-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+  .run-timeline-dot.done { background: #34d399; }
+  .run-timeline-dot.active { background: #c084fc; animation: pulse-dot 1.5s infinite; }
+  .run-timeline-dot.failed { background: #f87171; }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .run-timeline-line {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    min-width: 20px;
+  }
+  .run-timeline-line.done { background: #34d399; }
+  .run-timeline-label {
+    font-size: 11px;
+    margin-top: 4px;
+    white-space: nowrap;
+  }
+  .run-timeline-time {
+    font-size: 10px;
+    color: color-mix(in srgb, var(--muted) 70%, transparent);
+    margin-top: 1px;
+    white-space: nowrap;
+  }
+
   .backfill-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -469,7 +515,47 @@
     <span class="backfill-caret" aria-hidden="true"></span>
   </summary>
   <div class="backfill-body">
-  {# Reduce progress (finalizing phase) #}
+  {# Pipeline timeline #}
+  {% for component in backfill.components %}
+  {% if component.run_info %}
+  {% set ri = component.run_info %}
+  <div id="backfill-timeline" class="run-timeline-wrapper" style="{% if backfill.components|length > 1 %}margin-bottom:4px{% endif %}">
+    {% if backfill.is_multi_component %}<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">{{ component.label }}</div>{% endif %}
+    <div class="run-timeline">
+      {# Step 1: Map started #}
+      <div class="run-timeline-step">
+        <div class="run-timeline-dot {{ 'done' if ri.started_at else '' }}"></div>
+        <div class="run-timeline-label">Map</div>
+        {% if ri.started_at %}<div class="run-timeline-time">{{ ri.started_at[5:16] }}</div>{% endif %}
+      </div>
+      <div class="run-timeline-line {{ 'done' if ri.reduce_enqueued_at else '' }}"></div>
+      {# Step 2: Reduce enqueued #}
+      <div class="run-timeline-step">
+        <div class="run-timeline-dot {{ 'done' if ri.reduce_enqueued_at else ('active' if ri.run_status == 'mapping' else '') }}"></div>
+        <div class="run-timeline-label">Reduce</div>
+        {% if ri.reduce_enqueued_at %}<div class="run-timeline-time">{{ ri.reduce_enqueued_at[5:16] }}</div>{% endif %}
+      </div>
+      <div class="run-timeline-line {{ 'done' if ri.completed_at else '' }}"></div>
+      {# Step 3: Complete or Failed #}
+      {% if ri.failed_at %}
+      <div class="run-timeline-step">
+        <div class="run-timeline-dot failed"></div>
+        <div class="run-timeline-label">Failed</div>
+        <div class="run-timeline-time">{{ ri.failed_at[5:16] }}</div>
+      </div>
+      {% else %}
+      <div class="run-timeline-step">
+        <div class="run-timeline-dot {{ 'done' if ri.completed_at else ('active' if ri.run_status == 'reducing' else '') }}"></div>
+        <div class="run-timeline-label">Done</div>
+        {% if ri.completed_at %}<div class="run-timeline-time">{{ ri.completed_at[5:16] }}</div>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {# Reduce progress bar (finalizing phase) #}
   <div id="backfill-reduce" {% if backfill.status != 'finalizing' %}style="display:none"{% endif %}>
     {% set rp = (backfill.reduce_done_seasons / backfill.reduce_total_seasons * 100.0)|round(1) if backfill.reduce_total_seasons else 0 %}
     <div class="progress-track">
@@ -732,6 +818,45 @@
     `).join('');
   }
 
+  function renderTimeline(backfill) {
+    const container = document.getElementById('backfill-timeline');
+    if (!container) return;
+    // Re-render timeline from all components that have run_info
+    const comps = (backfill.components || []).filter(c => c.run_info);
+    if (!comps.length) { container.style.display = 'none'; return; }
+    container.style.display = '';
+
+    function dotClass(ri, step) {
+      if (step === 'map') return ri.started_at ? 'done' : '';
+      if (step === 'reduce') {
+        if (ri.reduce_enqueued_at) return 'done';
+        return ri.run_status === 'mapping' ? 'active' : '';
+      }
+      if (step === 'done') {
+        if (ri.failed_at) return 'failed';
+        if (ri.completed_at) return 'done';
+        return ri.run_status === 'reducing' ? 'active' : '';
+      }
+      return '';
+    }
+    function ts(v) { return v ? v.slice(5, 16) : ''; }
+
+    container.innerHTML = comps.map(c => {
+      const ri = c.run_info;
+      const label = backfill.is_multi_component ? `<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">${c.label}</div>` : '';
+      const lastStep = ri.failed_at
+        ? `<div class="run-timeline-step"><div class="run-timeline-dot failed"></div><div class="run-timeline-label">Failed</div><div class="run-timeline-time">${ts(ri.failed_at)}</div></div>`
+        : `<div class="run-timeline-step"><div class="run-timeline-dot ${dotClass(ri,'done')}"></div><div class="run-timeline-label">Done</div>${ri.completed_at ? `<div class="run-timeline-time">${ts(ri.completed_at)}</div>` : ''}</div>`;
+      return `${label}<div class="run-timeline">
+        <div class="run-timeline-step"><div class="run-timeline-dot ${dotClass(ri,'map')}"></div><div class="run-timeline-label">Map</div>${ri.started_at ? `<div class="run-timeline-time">${ts(ri.started_at)}</div>` : ''}</div>
+        <div class="run-timeline-line ${ri.reduce_enqueued_at ? 'done' : ''}"></div>
+        <div class="run-timeline-step"><div class="run-timeline-dot ${dotClass(ri,'reduce')}"></div><div class="run-timeline-label">Reduce</div>${ri.reduce_enqueued_at ? `<div class="run-timeline-time">${ts(ri.reduce_enqueued_at)}</div>` : ''}</div>
+        <div class="run-timeline-line ${ri.completed_at ? 'done' : ''}"></div>
+        ${lastStep}
+      </div>`;
+    }).join('');
+  }
+
   function renderBackfill(backfill) {
     panel.dataset.status = backfill.status;
     setStatusPill(pagePill, backfill.status);
@@ -753,6 +878,7 @@
     if (pendingValue) pendingValue.textContent = backfill.pending_games;
     if (totalValue) totalValue.textContent = backfill.total_games;
     renderComponents(backfill);
+    renderTimeline(backfill);
     if (shouldPoll(backfill.status)) {
       panel.open = true;
     }
