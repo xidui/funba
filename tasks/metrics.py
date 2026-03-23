@@ -44,12 +44,12 @@ _RUN_STATUS_MAPPING = "mapping"
 _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
 _RUN_STATUS_FAILED = "failed"
-_REDUCE_LOCK_NAME = "metric_reduce_global"
+_REDUCE_LOCK_PREFIX = "metric_reduce_"
 _REDUCE_STALE_REQUEUE_SECONDS = 1800
 
 
 class ReduceLockUnavailable(RuntimeError):
-    """Raised when the global MetricResult reduce lock is already held."""
+    """Raised when a per-metric reduce lock is already held."""
 
 
 def _session_factory():
@@ -57,13 +57,15 @@ def _session_factory():
 
 
 @contextmanager
-def _reduce_locked_session_factory(lock_name: str = _REDUCE_LOCK_NAME, timeout_seconds: int = 30):
-    """Hold a MySQL advisory lock while yielding normal Session factories.
+def _reduce_locked_session_factory(lock_name: str, timeout_seconds: int = 30):
+    """Hold a per-metric MySQL advisory lock while yielding normal Session factories.
 
     The lock itself is connection-scoped in MySQL, so keep a dedicated lock
     connection open for the duration of the context. The ORM sessions then use
     normal pooled engine connections, which avoids binding write transactions to
     the advisory-lock connection.
+
+    Different metrics use different lock names, allowing parallel reduce across metrics.
     """
     with engine.connect() as lock_conn:
         acquired = lock_conn.execute(
@@ -584,16 +586,20 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
     seasons: list[str] = []
 
     try:
-        with _reduce_locked_session_factory(timeout_seconds=0) as SessionLocked:
+        # Look up the run's metric_key before acquiring the per-metric lock.
+        with _session_factory()() as session:
+            run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
+            if run is None:
+                return {"run_id": run_id, "skipped": True, "reason": "missing"}
+            if run.status == _RUN_STATUS_COMPLETE:
+                return {"run_id": run_id, "skipped": True, "reason": _RUN_STATUS_COMPLETE}
+            if run.status != _RUN_STATUS_REDUCING:
+                return {"run_id": run_id, "skipped": True, "reason": run.status}
+            metric_key = run.metric_key
+
+        lock_name = _REDUCE_LOCK_PREFIX + metric_key
+        with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
-                run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
-                if run is None:
-                    return {"run_id": run_id, "skipped": True, "reason": "missing"}
-                if run.status == _RUN_STATUS_COMPLETE:
-                    return {"run_id": run_id, "skipped": True, "reason": _RUN_STATUS_COMPLETE}
-                if run.status != _RUN_STATUS_REDUCING:
-                    return {"run_id": run_id, "skipped": True, "reason": run.status}
-                metric_key = run.metric_key
                 seasons = _metric_seasons(session, metric_key)
 
             results_written = 0
@@ -605,8 +611,8 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
                 _mark_run_complete(session, run_id)
     except ReduceLockUnavailable as exc:
         logger.info(
-            "reduce_metric_compute_run: run_id=%s waiting for reduce lock",
-            run_id,
+            "reduce_metric_compute_run: run_id=%s metric=%s waiting for reduce lock",
+            run_id, metric_key,
         )
         raise self.retry(exc=exc, countdown=5, max_retries=1000)
     except Exception as exc:
@@ -637,7 +643,8 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
     """Phase 2: aggregate all deltas for (metric_key, season) → write MetricResults."""
     try:
-        with _reduce_locked_session_factory(timeout_seconds=0) as SessionLocked:
+        lock_name = _REDUCE_LOCK_PREFIX + metric_key
+        with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 count = reduce_metric(session, metric_key, season, commit=True)
     except ReduceLockUnavailable as exc:
