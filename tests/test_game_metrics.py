@@ -27,11 +27,15 @@ if str(REPO_ROOT) not in sys.path:
 
 def _import_helper():
     """Return the real game metric helpers from web.app."""
+    original_db = sys.modules.get("db")
+    original_db_models = sys.modules.get("db.models")
+    original_backfill = sys.modules.get("db.backfill_nba_player_shot_detail")
+    original_line = sys.modules.get("db.backfill_nba_game_line_score")
     fake_engine = MagicMock()
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricJobClaim", "MetricDefinition",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricJobClaim", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "User",
         "GameLineScore",
@@ -67,6 +71,27 @@ def _import_helper():
         _prepare_game_metric_cards,
         _season_type_prefix,
     )
+
+    if original_db is not None:
+        sys.modules["db"] = original_db
+    else:
+        sys.modules.pop("db", None)
+
+    if original_db_models is not None:
+        sys.modules["db.models"] = original_db_models
+    else:
+        sys.modules.pop("db.models", None)
+
+    if original_backfill is not None:
+        sys.modules["db.backfill_nba_player_shot_detail"] = original_backfill
+    else:
+        sys.modules.pop("db.backfill_nba_player_shot_detail", None)
+
+    if original_line is not None:
+        sys.modules["db.backfill_nba_game_line_score"] = original_line
+    else:
+        sys.modules.pop("db.backfill_nba_game_line_score", None)
+
     return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
 
 
