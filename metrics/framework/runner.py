@@ -49,7 +49,6 @@ def _upsert_result(session: Session, result: MetricResult) -> None:
 
 
 def _log_run(
-    session: Session,
     game_id: str,
     metric_key: str,
     entity_type: str,
@@ -58,20 +57,28 @@ def _log_run(
     delta: dict | None,
     produced: bool,
     qualified: bool | None = None,
-) -> None:
+) -> dict:
+    return {
+        "game_id": game_id,
+        "metric_key": metric_key,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "season": season,
+        "computed_at": datetime.utcnow(),
+        "produced_result": produced,
+        "delta_json": json.dumps(delta) if delta is not None else None,
+        "qualified": qualified,
+    }
+
+
+def _flush_run_logs(session: Session, rows: list[dict]) -> None:
+    """Bulk INSERT ... ON DUPLICATE KEY UPDATE for MetricRunLog rows."""
+    if not rows:
+        return
+
     from sqlalchemy.dialects.mysql import insert
 
-    stmt = insert(MetricRunLog).values(
-        game_id=game_id,
-        metric_key=metric_key,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        season=season,
-        computed_at=datetime.utcnow(),
-        produced_result=produced,
-        delta_json=json.dumps(delta) if delta is not None else None,
-        qualified=qualified,
-    )
+    stmt = insert(MetricRunLog).values(rows)
     stmt = stmt.on_duplicate_key_update(
         computed_at=stmt.inserted.computed_at,
         produced_result=stmt.inserted.produced_result,
@@ -149,6 +156,7 @@ def run_delta_only(
 
     targets = _get_targets(session, metric_def.scope, game, player_ids, team_ids)
     produced_any = False
+    run_log_rows: list[dict] = []
 
     if not metric_def.incremental:
         # Non-incremental metrics (game-scope, rank-based) do a full recompute.
@@ -163,8 +171,17 @@ def run_delta_only(
             result_list = result if isinstance(result, list) else [result] if result else []
             for r in result_list:
                 _upsert_result(session, r)
-            _log_run(session, game_id, metric_def.key, entity_type,
-                     entity_id or "", season, None, bool(result_list))
+            run_log_rows.append(
+                _log_run(
+                    game_id,
+                    metric_def.key,
+                    entity_type,
+                    entity_id or "",
+                    season,
+                    None,
+                    bool(result_list),
+                )
+            )
             if result_list:
                 produced_any = True
     else:
@@ -190,9 +207,20 @@ def run_delta_only(
                 continue
 
             produced_any = True
-            _log_run(session, game_id, metric_def.key, entity_type,
-                     entity_id or "", bucket_season, delta, True,
-                     qualified=metric_def.is_qualifying(delta))
+            run_log_rows.append(
+                _log_run(
+                    game_id,
+                    metric_def.key,
+                    entity_type,
+                    entity_id or "",
+                    bucket_season,
+                    delta,
+                    True,
+                    qualified=metric_def.is_qualifying(delta),
+                )
+            )
+
+    _flush_run_logs(session, run_log_rows)
 
     if commit:
         session.commit()
