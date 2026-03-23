@@ -403,6 +403,14 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=False)
 
 
+class Setting(Base):
+    __tablename__ = 'Setting'
+
+    key = Column(String(64), primary_key=True)
+    value = Column(String(255), nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+
 class MagicToken(Base):
     """Passwordless email login tokens."""
     __tablename__ = 'MagicToken'

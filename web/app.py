@@ -22,6 +22,12 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 
+from db.llm_models import (
+    available_llm_models,
+    get_default_llm_model_for_ui,
+    resolve_llm_model,
+    set_default_llm_model,
+)
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
@@ -3259,6 +3265,7 @@ def metrics_browse():
     cur_user = _current_user()
     with SessionLocal() as session:
         metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
+        llm_default_model = get_default_llm_model_for_ui(session)
 
     return render_template(
         "metrics.html",
@@ -3266,6 +3273,8 @@ def metrics_browse():
         scope_filter=scope_filter,
         status_filter=status_filter,
         search_query=search_query,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3274,18 +3283,22 @@ def metric_new():
     denied = _require_metric_creator_page()
     if denied:
         return denied
-    all_seasons = sorted(
-        [r[0] for r in SessionLocal().query(Game.season).distinct().all()],
-        reverse=True,
-    )
-    current_season = _pick_current_season(all_seasons)
     initial_expression = request.args.get("expression", "").strip()
+    with SessionLocal() as session:
+        all_seasons = sorted(
+            [r[0] for r in session.query(Game.season).distinct().all()],
+            reverse=True,
+        )
+        current_season = _pick_current_season(all_seasons)
+        llm_default_model = get_default_llm_model_for_ui(session)
     return render_template(
         "metric_new.html",
         current_season=current_season,
         all_seasons=all_seasons,
         initial_expression=initial_expression,
         edit_metric=None,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3324,6 +3337,7 @@ def metric_edit(metric_key: str):
             "rank_order": getattr(runtime_metric, "rank_order", "desc"),
             "status": m.status,
         }
+        llm_default_model = get_default_llm_model_for_ui(session)
 
     return render_template(
         "metric_new.html",
@@ -3331,6 +3345,8 @@ def metric_edit(metric_key: str):
         all_seasons=all_seasons,
         initial_expression="",
         edit_metric=edit_data,
+        llm_default_model=llm_default_model,
+        llm_available_models=available_llm_models(),
     )
 
 
@@ -3346,14 +3362,21 @@ def api_metric_search():
     query = (body.get("query") or "").strip()
     scope_filter = (body.get("scope") or "").strip()
     status_filter = (body.get("status") or "").strip()
+    requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400
 
     with SessionLocal() as session:
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
+        try:
+            llm_model = resolve_llm_model(session, requested_model=requested_model)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     try:
-        ranked = rank_metrics(query, catalog, limit=8)
+        ranked = rank_metrics(query, catalog, limit=8, model=llm_model)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric search failed")
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -3380,11 +3403,19 @@ def api_metric_generate():
     expression = body.get("expression", "").strip()
     history = body.get("history")  # list of {"role", "content"} or None
     existing = body.get("existing")  # dict with current metric info for edit mode
+    requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
+    with SessionLocal() as session:
+        try:
+            llm_model = resolve_llm_model(session, requested_model=requested_model)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
     try:
-        spec = generate(expression, history=history, existing=existing)
+        spec = generate(expression, history=history, existing=existing, model=llm_model)
         return jsonify({"ok": True, "spec": spec})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric generate failed")
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -4428,6 +4459,48 @@ def admin_pipeline():
         missing_metrics=missing_metrics,
         recent=recent,
         visitor_stats=visitor_stats,
+        llm_available_models=available_llm_models(),
+    )
+
+
+@app.get("/api/admin/model-config")
+def api_admin_model_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as session:
+        return jsonify(
+            {
+                "default_model": get_default_llm_model_for_ui(session),
+                "available_models": available_llm_models(),
+            }
+        )
+
+
+@app.post("/api/admin/model-config")
+def api_admin_update_model_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    body = request.get_json(force=True) or {}
+    default_model = (body.get("default_model") or "").strip()
+    if not default_model:
+        return jsonify({"ok": False, "error": "default_model is required"}), 400
+    try:
+        with SessionLocal() as session:
+            saved_model = set_default_llm_model(session, default_model)
+            session.commit()
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("failed to save admin model config")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "default_model": saved_model,
+            "available_models": available_llm_models(),
+        }
     )
 
 

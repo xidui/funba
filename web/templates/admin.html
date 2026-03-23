@@ -98,6 +98,56 @@
   }
   .backfill-btn:hover { background: rgba(249,115,22,.25); }
   .backfill-btn:disabled { cursor: default; opacity: 0.4; border-color: var(--border-2); color: var(--muted); background: var(--surface-3); }
+
+  .llm-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .llm-settings-label {
+    min-width: 180px;
+    font-size: 13px;
+    color: var(--muted-2);
+  }
+
+  .llm-settings-select {
+    min-width: 220px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+  }
+
+  .llm-settings-save {
+    height: 36px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .llm-settings-save:disabled,
+  .llm-settings-select:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+
+  .llm-settings-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .llm-settings-status.success { color: var(--win); }
+  .llm-settings-status.error { color: var(--loss); }
 </style>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
@@ -386,5 +436,93 @@
   </div>
   {% endif %}
 
+  <div class="card full-width">
+    <h2 style="margin-bottom:14px;">LLM Model Settings</h2>
+    <div class="llm-settings-row">
+      <label class="llm-settings-label" for="llm-default-model">Default model for users</label>
+      <select id="llm-default-model" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+      <button id="llm-default-model-save" class="llm-settings-save" aria-label="Save default model setting">Save</button>
+    </div>
+    <div id="llm-default-model-status" class="llm-settings-status" role="status"></div>
+  </div>
+
 </div>
+<script>
+  (function () {
+    const select = document.getElementById('llm-default-model');
+    const saveBtn = document.getElementById('llm-default-model-save');
+    const status = document.getElementById('llm-default-model-status');
+    let clearTimer = null;
+
+    function renderOptions(models, selected) {
+      select.innerHTML = '';
+      models.forEach((model) => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        option.selected = model === selected;
+        select.appendChild(option);
+      });
+    }
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'llm-settings-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => {
+          status.textContent = '';
+          status.className = 'llm-settings-status';
+        }, 2000);
+      }
+    }
+
+    async function loadConfig() {
+      select.disabled = true;
+      saveBtn.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/model-config');
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error((data && data.error) || 'Failed to load model settings.');
+        }
+        renderOptions(data.available_models || {{ llm_available_models | tojson }}, data.default_model);
+        select.disabled = false;
+        saveBtn.disabled = false;
+      } catch (err) {
+        setStatus(err.message || 'Failed to load model settings.', 'error');
+      }
+    }
+
+    async function saveConfig() {
+      select.disabled = true;
+      saveBtn.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/model-config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({default_model: select.value}),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+          throw new Error((data && data.error) || 'Failed to save. Please try again.');
+        }
+        renderOptions(data.available_models || {{ llm_available_models | tojson }}, data.default_model);
+        setStatus('✓ Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save. Please try again.', 'error');
+      } finally {
+        select.disabled = false;
+        saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveConfig);
+    loadConfig();
+  })();
+</script>
 {% endblock %}
