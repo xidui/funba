@@ -24,6 +24,11 @@
     cursor: pointer;
   }
 
+  .map-hit-area {
+    fill: transparent;
+    pointer-events: all;
+  }
+
   .map-dot {
     fill: var(--surface-2);
     stroke: var(--border-2);
@@ -288,6 +293,10 @@
           .attr("class", "map-marker");
 
         g.append("title").text(t.full_name);
+
+        g.append("circle")
+          .attr("class", "map-hit-area")
+          .attr("cx", x).attr("cy", y).attr("r", R + 7);
 
         g.append("circle")
           .attr("class", "map-logo-ring")
