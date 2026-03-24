@@ -40,7 +40,7 @@ services:
 
   worker-reduce:
     build: .
-    command: celery -A tasks.celery_app worker -Q reduce -c 8 --loglevel=info
+    command: celery -A tasks.celery_app worker -Q reduce -c 32 --loglevel=info
     env_file: .env
     environment:
       DB_POOL_SIZE: "4"
