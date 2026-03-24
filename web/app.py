@@ -3910,13 +3910,7 @@ def api_qualifying_games(metric_key: str):
             MetricRunLog.qualified == True,
         )
         if season:
-            if season.startswith("all_"):
-                from metrics.framework.base import SEASON_TYPE_TO_CAREER
-                prefix = next((k for k, v in SEASON_TYPE_TO_CAREER.items() if v == season), None)
-                if prefix:
-                    base_q = base_q.filter(MetricRunLog.season.like(f"{prefix}%"))
-            else:
-                base_q = base_q.filter(MetricRunLog.season == season)
+            base_q = base_q.filter(MetricRunLog.season == season)
         total = base_q.count()
         rows = base_q.order_by(Game.game_date.desc()).offset((page - 1) * page_size).limit(page_size).all()
         team_map = _team_map(session)
