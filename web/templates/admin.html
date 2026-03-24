@@ -351,31 +351,40 @@
   <div class="card full-width">
     <h2 style="margin-bottom:14px;">LLM Model Settings</h2>
     <div class="llm-settings-row">
-      <label class="llm-settings-label" for="llm-default-model">Default model for users</label>
-      <select id="llm-default-model" class="llm-settings-select" disabled>
+      <label class="llm-settings-label" for="llm-search-model">Find Metric</label>
+      <select id="llm-search-model" class="llm-settings-select" disabled>
         <option>Loading...</option>
       </select>
-      <button id="llm-default-model-save" class="llm-settings-save" aria-label="Save default model setting">Save</button>
     </div>
-    <div id="llm-default-model-status" class="llm-settings-status" role="status"></div>
+    <div class="llm-settings-row" style="margin-top:8px;">
+      <label class="llm-settings-label" for="llm-generate-model">Create / Edit Metric</label>
+      <select id="llm-generate-model" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="llm-model-save" class="llm-settings-save" aria-label="Save model settings">Save</button>
+    </div>
+    <div id="llm-model-status" class="llm-settings-status" role="status"></div>
   </div>
 
 </div>
 <script>
   (function () {
-    const select = document.getElementById('llm-default-model');
-    const saveBtn = document.getElementById('llm-default-model-save');
-    const status = document.getElementById('llm-default-model-status');
+    const searchSelect = document.getElementById('llm-search-model');
+    const generateSelect = document.getElementById('llm-generate-model');
+    const saveBtn = document.getElementById('llm-model-save');
+    const status = document.getElementById('llm-model-status');
     let clearTimer = null;
 
-    function renderOptions(models, selected) {
-      select.innerHTML = '';
+    function renderOptions(selectEl, models, selected) {
+      selectEl.innerHTML = '';
       models.forEach((model) => {
         const option = document.createElement('option');
         option.value = model;
         option.textContent = model;
         option.selected = model === selected;
-        select.appendChild(option);
+        selectEl.appendChild(option);
       });
     }
 
@@ -392,43 +401,43 @@
     }
 
     async function loadConfig() {
-      select.disabled = true;
+      searchSelect.disabled = generateSelect.disabled = true;
       saveBtn.disabled = true;
       setStatus('');
       try {
         const res = await fetch('/api/admin/model-config');
         const data = await res.json();
-        if (!res.ok) {
-          throw new Error((data && data.error) || 'Failed to load model settings.');
-        }
-        renderOptions(data.available_models || {{ llm_available_models | tojson }}, data.default_model);
-        select.disabled = false;
+        if (!res.ok) throw new Error((data && data.error) || 'Failed to load.');
+        const models = data.available_models || {{ llm_available_models | tojson }};
+        renderOptions(searchSelect, models, data.search_model);
+        renderOptions(generateSelect, models, data.generate_model);
+        searchSelect.disabled = generateSelect.disabled = false;
         saveBtn.disabled = false;
       } catch (err) {
-        setStatus(err.message || 'Failed to load model settings.', 'error');
+        setStatus(err.message || 'Failed to load.', 'error');
       }
     }
 
     async function saveConfig() {
-      select.disabled = true;
+      searchSelect.disabled = generateSelect.disabled = true;
       saveBtn.disabled = true;
       setStatus('');
       try {
         const res = await fetch('/api/admin/model-config', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({default_model: select.value}),
+          body: JSON.stringify({search_model: searchSelect.value, generate_model: generateSelect.value}),
         });
         const data = await res.json().catch(() => null);
-        if (!res.ok || !data || !data.ok) {
-          throw new Error((data && data.error) || 'Failed to save. Please try again.');
-        }
-        renderOptions(data.available_models || {{ llm_available_models | tojson }}, data.default_model);
-        setStatus('✓ Saved', 'success');
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        const models = data.available_models || {{ llm_available_models | tojson }};
+        if (data.search_model) renderOptions(searchSelect, models, data.search_model);
+        if (data.generate_model) renderOptions(generateSelect, models, data.generate_model);
+        setStatus('Saved', 'success');
       } catch (err) {
-        setStatus(err.message || 'Failed to save. Please try again.', 'error');
+        setStatus(err.message || 'Failed to save.', 'error');
       } finally {
-        select.disabled = false;
+        searchSelect.disabled = generateSelect.disabled = false;
         saveBtn.disabled = false;
       }
     }

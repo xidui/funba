@@ -5,6 +5,8 @@ from datetime import datetime
 
 AVAILABLE_LLM_MODELS = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
+SEARCH_LLM_MODEL_SETTING_KEY = "llm_model_search"
+GENERATE_LLM_MODEL_SETTING_KEY = "llm_model_generate"
 
 _MODEL_PROVIDER = {
     "gpt-5.4": "openai",
@@ -65,18 +67,36 @@ def env_default_llm_model() -> str | None:
     return None
 
 
-def get_stored_default_llm_model(session) -> str | None:
+def _get_setting(session, key: str) -> str | None:
     setting_model = _setting_model()
     if setting_model is None:
         return None
-
-    row = session.get(setting_model, DEFAULT_LLM_MODEL_SETTING_KEY)
+    row = session.get(setting_model, key)
     if row is None:
         return None
     value = str(row.value or "").strip()
     if not value:
         return None
     return validate_llm_model(value)
+
+
+def _set_setting(session, key: str, model: str) -> str:
+    normalized = ensure_model_available(model)
+    setting_model = _setting_model()
+    if setting_model is None:
+        raise RuntimeError("Setting model is unavailable")
+    row = session.get(setting_model, key)
+    if row is None:
+        row = setting_model(key=key, value=normalized, updated_at=datetime.utcnow())
+        session.add(row)
+    else:
+        row.value = normalized
+        row.updated_at = datetime.utcnow()
+    return normalized
+
+
+def get_stored_default_llm_model(session) -> str | None:
+    return _get_setting(session, DEFAULT_LLM_MODEL_SETTING_KEY)
 
 
 def get_default_llm_model_for_ui(session) -> str:
@@ -86,9 +106,32 @@ def get_default_llm_model_for_ui(session) -> str:
     return env_default_llm_model() or AVAILABLE_LLM_MODELS[0]
 
 
-def resolve_llm_model(session, requested_model: str | None = None) -> str:
+def get_llm_model_for_purpose(session, purpose: str) -> str:
+    """Get the configured model for a specific purpose (search or generate).
+
+    Falls back to the global default if no purpose-specific setting exists.
+    """
+    key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
+    stored = _get_setting(session, key)
+    if stored:
+        return stored
+    return get_default_llm_model_for_ui(session)
+
+
+def set_llm_model_for_purpose(session, purpose: str, model: str) -> str:
+    key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
+    return _set_setting(session, key, model)
+
+
+def resolve_llm_model(session, requested_model: str | None = None, purpose: str | None = None) -> str:
     if requested_model:
         return ensure_model_available(requested_model)
+
+    if purpose:
+        key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
+        stored = _get_setting(session, key)
+        if stored:
+            return ensure_model_available(stored)
 
     stored = get_stored_default_llm_model(session)
     if stored:
@@ -98,24 +141,8 @@ def resolve_llm_model(session, requested_model: str | None = None) -> str:
     if fallback:
         return fallback
 
-    raise ValueError("No AI API key set — set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+    raise ValueError("No AI API key set — set OPENAI_API_KEY.")
 
 
 def set_default_llm_model(session, model: str) -> str:
-    normalized = ensure_model_available(model)
-    setting_model = _setting_model()
-    if setting_model is None:
-        raise RuntimeError("Setting model is unavailable")
-
-    row = session.get(setting_model, DEFAULT_LLM_MODEL_SETTING_KEY)
-    if row is None:
-        row = setting_model(
-            key=DEFAULT_LLM_MODEL_SETTING_KEY,
-            value=normalized,
-            updated_at=datetime.utcnow(),
-        )
-        session.add(row)
-    else:
-        row.value = normalized
-        row.updated_at = datetime.utcnow()
-    return normalized
+    return _set_setting(session, DEFAULT_LLM_MODEL_SETTING_KEY, model)

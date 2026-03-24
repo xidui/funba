@@ -25,8 +25,10 @@ from sqlalchemy.orm import sessionmaker
 from db.llm_models import (
     available_llm_models,
     get_default_llm_model_for_ui,
+    get_llm_model_for_purpose,
     resolve_llm_model,
     set_default_llm_model,
+    set_llm_model_for_purpose,
 )
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
@@ -3328,7 +3330,7 @@ def metrics_browse():
     cur_user = _current_user()
     with SessionLocal() as session:
         metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
-        llm_default_model = get_default_llm_model_for_ui(session)
+        llm_default_model = get_llm_model_for_purpose(session, "search")
 
     return render_template(
         "metrics.html",
@@ -3353,7 +3355,7 @@ def metric_new():
             reverse=True,
         )
         current_season = _pick_current_season(all_seasons)
-        llm_default_model = get_default_llm_model_for_ui(session)
+        llm_default_model = get_llm_model_for_purpose(session, "generate")
     return render_template(
         "metric_new.html",
         current_season=current_season,
@@ -3400,7 +3402,7 @@ def metric_edit(metric_key: str):
             "rank_order": getattr(runtime_metric, "rank_order", "desc"),
             "status": m.status,
         }
-        llm_default_model = get_default_llm_model_for_ui(session)
+        llm_default_model = get_llm_model_for_purpose(session, "generate")
 
     return render_template(
         "metric_new.html",
@@ -3432,7 +3434,7 @@ def api_metric_search():
     with SessionLocal() as session:
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
         try:
-            llm_model = resolve_llm_model(session, requested_model=requested_model)
+            llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="search")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -3471,7 +3473,7 @@ def api_metric_generate():
         return jsonify({"ok": False, "error": "expression is required"}), 400
     with SessionLocal() as session:
         try:
-            llm_model = resolve_llm_model(session, requested_model=requested_model)
+            llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="generate")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
     try:
@@ -4960,6 +4962,8 @@ def api_admin_model_config():
         return jsonify(
             {
                 "default_model": get_default_llm_model_for_ui(session),
+                "search_model": get_llm_model_for_purpose(session, "search"),
+                "generate_model": get_llm_model_for_purpose(session, "generate"),
                 "available_models": available_llm_models(),
             }
         )
@@ -4971,12 +4975,15 @@ def api_admin_update_model_config():
     if denied:
         return denied
     body = request.get_json(force=True) or {}
-    default_model = (body.get("default_model") or "").strip()
-    if not default_model:
-        return jsonify({"ok": False, "error": "default_model is required"}), 400
     try:
         with SessionLocal() as session:
-            saved_model = set_default_llm_model(session, default_model)
+            result = {}
+            if "search_model" in body:
+                result["search_model"] = set_llm_model_for_purpose(session, "search", body["search_model"])
+            if "generate_model" in body:
+                result["generate_model"] = set_llm_model_for_purpose(session, "generate", body["generate_model"])
+            if "default_model" in body:
+                result["default_model"] = set_default_llm_model(session, body["default_model"])
             session.commit()
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -4986,7 +4993,7 @@ def api_admin_update_model_config():
     return jsonify(
         {
             "ok": True,
-            "default_model": saved_model,
+            **result,
             "available_models": available_llm_models(),
         }
     )
