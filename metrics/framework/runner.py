@@ -216,7 +216,7 @@ def run_delta_only(
                     bucket_season,
                     delta,
                     True,
-                    qualified=metric_def.is_qualifying(delta),
+                    qualified=delta.pop("_qualified", None),
                 )
             )
 

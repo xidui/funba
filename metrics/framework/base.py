@@ -102,19 +102,6 @@ class MetricDefinition(ABC):
     # Keys are interpolated from the context dict via str.format_map().
     context_label_template: str | None = None
 
-    # Qualifying drill-down: field name in delta dict to check.
-    # When set, is_qualifying(delta) returns True if delta[field] > 0.
-    qualifying_field: str | None = None
-
-    def is_qualifying(self, delta: dict | None) -> bool | None:
-        """Return True if this game's delta represents a qualifying event.
-
-        Returns None if qualifying_field is not set (drill-down not applicable).
-        """
-        if self.qualifying_field is None or delta is None:
-            return None
-        return (delta.get(self.qualifying_field, 0) or 0) > 0
-
     def compute_delta(self, session: Any, entity_id: str | None, game_id: str) -> dict | None:
         """Return this game's additive contribution to running totals.
 

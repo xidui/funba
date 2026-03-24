@@ -182,7 +182,7 @@ class RuleMetricDefinition(MetricDefinition):
         self.career_name_suffix = str(self.definition.get("career_name_suffix") or " (Career)")
         career_min_sample = self.definition.get("career_min_sample")
         self.career_min_sample = int(career_min_sample) if career_min_sample is not None else None
-        self.qualifying_field = self.definition.get("qualifying_field")
+        self.qualifying_field = self.definition.get("qualifying_field")  # legacy, unused
         explicit_career = self.variant == FAMILY_VARIANT_CAREER
         self.career = explicit_career if career is None else career
 
@@ -310,7 +310,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
         self.context_label_template = getattr(self._inner, "context_label_template", None)
-        self.qualifying_field = getattr(self._inner, "qualifying_field", None)
+        self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
 
         if self.career:
             if not explicit_career:

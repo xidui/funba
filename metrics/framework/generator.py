@@ -67,6 +67,23 @@ class MetricDefinition(ABC):
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
 ```
 
+### _qualified convention (for drill-down into qualifying games)
+compute_delta() can include a special `"_qualified"` key in its return dict.
+This is a bool (True/False/None) that marks whether this game counts as a
+"qualifying event" for the metric. It is stored on MetricRunLog.qualified
+and powers the UI drill-down (users can click to see which specific games).
+The `_qualified` key is automatically removed from the delta before storage.
+
+- For count/event metrics (e.g., fifty_point_games, triple_doubles, buzzer_beater_wins):
+  set `"_qualified": True` when the event occurred, `False` otherwise.
+  Example: `return {"games_50_plus": 1 if hit else 0, "_qualified": hit}`
+
+- For rate/ratio metrics (FG%, win%, etc.) or any metric where drill-down is
+  not meaningful: omit `_qualified` or set it to `None`.
+
+Use your judgement: if listing the individual qualifying games would be useful
+to a user, include `_qualified`.
+
 ### Two execution modes:
 
 **Mode 1: incremental=True (for season/career aggregation)**
