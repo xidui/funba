@@ -420,6 +420,46 @@ def _mark_run_complete(session, run_id: str) -> None:
         synchronize_session=False,
     )
     session.commit()
+    _notify_owner_on_complete(session, run_id)
+
+
+def _notify_owner_on_complete(session, run_id: str) -> None:
+    """Send email to metric owner when backfill completes. Best-effort, never raises."""
+    import os
+    try:
+        from db.models import MetricDefinition, User
+        run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
+        if not run:
+            return
+        metric = session.query(MetricDefinition).filter(MetricDefinition.key == run.metric_key).first()
+        if not metric or not metric.created_by_user_id:
+            return
+        user = session.query(User).filter(User.id == metric.created_by_user_id).first()
+        if not user or not user.email:
+            return
+        resend_key = os.environ.get("RESEND_API_KEY")
+        if not resend_key:
+            return
+        import resend
+        resend.api_key = resend_key
+        metric_url = f"https://funba.app/metrics/{metric.key}"
+        resend.Emails.send({
+            "from": "Funba <noreply@funba.app>",
+            "to": [user.email],
+            "subject": f"Your metric \"{metric.name}\" is ready",
+            "html": (
+                f'<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:40px 20px;">'
+                f'<h2 style="color:#f97316;margin-bottom:24px;">Funba</h2>'
+                f'<p>Your metric <strong>{metric.name}</strong> has finished computing across all games.</p>'
+                f'<a href="{metric_url}" style="display:inline-block;margin:24px 0;padding:12px 32px;'
+                f'background:#f97316;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">'
+                f'View Results</a>'
+                f'</div>'
+            ),
+        })
+        logger.info("sent metric-ready email to %s for metric %s", user.email, metric.key)
+    except Exception:
+        logger.exception("failed to send metric-ready email for run %s", run_id)
 
 
 def _mark_run_failed(session, run_id: str, error_text: str) -> None:
