@@ -1068,6 +1068,7 @@
 
     html += games.map(g => {
       const url = `/games/${g.game_id}`;
+      const logo = id => `<img src="https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg" style="width:16px;height:16px;vertical-align:middle" onerror="this.style.display='none'">`;
       const score = (g.home_score != null && g.road_score != null)
         ? `<span class="drilldown-score">${g.road_score} - ${g.home_score}</span>` : '';
       const stat = g.player_line
@@ -1078,7 +1079,7 @@
       return `<div class="drilldown-game">
         <span class="drilldown-date">${g.game_date || ''}</span>
         <span class="drilldown-main">
-          <span class="drilldown-matchup"><a href="${url}">${g.road_team} @ ${g.home_team}</a></span>
+          <span class="drilldown-matchup"><a href="${url}">${logo(g.road_team_id)} ${g.road_team} @ ${logo(g.home_team_id)} ${g.home_team}</a></span>
           ${score} ${wl}
         </span>
         ${stat}

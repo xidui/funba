@@ -3945,6 +3945,8 @@ def api_qualifying_games(metric_key: str):
                 "season": game.season,
                 "home_team": _team_abbr(team_map, game.home_team_id),
                 "road_team": _team_abbr(team_map, game.road_team_id),
+                "home_team_id": str(game.home_team_id),
+                "road_team_id": str(game.road_team_id),
                 "home_score": home_score,
                 "road_score": road_score,
                 "delta": json.loads(log.delta_json) if log.delta_json else None,
