@@ -4276,6 +4276,7 @@ def metric_detail(metric_key: str):
             games_counted = (
                 ctx.get("games")
                 or ctx.get("total_games")
+                or ctx.get("games_played")
                 or ctx.get("games_leading_at_half")
                 or ctx.get("games_trailing_at_half")
                 or ctx.get("road_games")

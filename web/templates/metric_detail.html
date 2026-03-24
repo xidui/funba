@@ -743,13 +743,14 @@
         </td>
         {% if metric_def.scope != 'game' %}
         <td class="right" style="font-size:12px;">
-          {% if r.games_counted is not none and has_drilldown %}
+          {% set display_games = r.games_counted if r.games_counted is not none else (r.value_num | int if has_drilldown and r.value_num is not none else none) %}
+          {% if display_games is not none and has_drilldown %}
             <span class="games-drilldown"
                   data-entity-id="{{ r.entity_id }}"
                   data-season="{{ r.season_raw }}"
-                  data-row-idx="{{ loop.index }}">{{ r.games_counted }}</span>
-          {% elif r.games_counted is not none %}
-            <span style="color:var(--muted-2)">{{ r.games_counted }}</span>
+                  data-row-idx="{{ loop.index }}">{{ display_games }}</span>
+          {% elif display_games is not none %}
+            <span style="color:var(--muted-2)">{{ display_games }}</span>
           {% else %}
             <span style="color:var(--muted-2)">—</span>
           {% endif %}
