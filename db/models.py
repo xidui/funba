@@ -10,7 +10,7 @@ from db.config import get_database_url
 _pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
 _max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
 
-engine = create_engine(get_database_url(), pool_size=_pool_size, max_overflow=_max_overflow)
+engine = create_engine(get_database_url(), pool_size=_pool_size, max_overflow=_max_overflow, pool_pre_ping=True)
 
 # Create a base class for declarative class definitions
 Base = declarative_base()
