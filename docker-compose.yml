@@ -6,6 +6,8 @@ services:
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI (guest / guest)
+    volumes:
+      - ./.rabbitmq:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
