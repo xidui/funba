@@ -1129,9 +1129,9 @@
         currentSpec.category    = document.getElementById('f-category').value;
         currentSpec.rank_order  = rankOrderInput.value;
       } else {
+        document.getElementById('f-name').value     = currentSpec.name || '';
+        document.getElementById('f-desc').value     = currentSpec.description || '';
         if (!isFollowup) {
-          document.getElementById('f-name').value     = currentSpec.name || '';
-          document.getElementById('f-desc').value     = currentSpec.description || '';
           document.getElementById('f-scope').value    = currentSpec.scope || 'player';
           document.getElementById('f-category').value = currentSpec.category || 'scoring';
         }
