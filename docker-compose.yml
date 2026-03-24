@@ -8,6 +8,12 @@ services:
       - "15672:15672"  # Management UI (guest / guest)
     volumes:
       - ./.rabbitmq:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit vm_memory_high_watermark 0.4"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -40,7 +46,7 @@ services:
 
   worker-reduce:
     build: .
-    command: celery -A tasks.celery_app worker -Q reduce -c 32 --loglevel=info
+    command: celery -A tasks.celery_app worker -Q reduce -c 16 --loglevel=info
     env_file: .env
     environment:
       DB_POOL_SIZE: "4"
