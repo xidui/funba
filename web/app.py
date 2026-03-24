@@ -3952,10 +3952,13 @@ def api_qualifying_games(metric_key: str):
                 "delta": json.loads(log.delta_json) if log.delta_json else None,
             }
 
-            # Add player stat line if available
+            # Add player stat line and W/L if available
             ps = player_stats_map.get(gid)
             if ps:
                 entry["player_line"] = f"{int(ps.pts or 0)} PTS, {int(ps.reb or 0)} REB, {int(ps.ast or 0)} AST"
+                entity_team_id = str(ps.team_id) if ps.team_id else None
+                if entity_team_id and game.wining_team_id is not None:
+                    entry["win"] = str(game.wining_team_id) == entity_team_id
 
             # Add team stat line if available
             ts = team_stats_map.get(gid)
