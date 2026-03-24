@@ -4918,7 +4918,7 @@ def api_admin_infra_status():
             rmq_ok = True
             for q in rmq_data:
                 name = q.get("name", "")
-                if name.endswith(".dlq") or name.startswith("celeryev"):
+                if name.endswith(".dlq") or name.endswith(".pidbox") or name.startswith("celeryev"):
                     continue
                 queues.append({
                     "name": name,
@@ -4929,17 +4929,37 @@ def api_admin_infra_status():
     except Exception:
         pass
 
-    # Celery inspect — ping workers with short timeout
+    # Celery inspect — get worker queues, concurrency, and active task counts
     workers = []
     try:
         from tasks.celery_app import app as celery_app
+        inspector = celery_app.control.inspect(timeout=2)
         ping_result = celery_app.control.ping(timeout=2)
+        active_queues = inspector.active_queues() or {}
+        stats = inspector.stats() or {}
+        active_tasks = inspector.active() or {}
+
+        pinged = set()
         for entry in ping_result:
-            for worker_name, resp in entry.items():
-                workers.append({
-                    "name": worker_name,
-                    "ok": resp.get("ok") == "pong",
-                })
+            for worker_name in entry:
+                pinged.add(worker_name)
+
+        for worker_name in pinged:
+            wq = active_queues.get(worker_name, [])
+            queue_names = sorted(set(q["name"] for q in wq if not q["name"].endswith(".pidbox")))
+            ws = stats.get(worker_name, {})
+            pool = ws.get("pool", {})
+            concurrency = pool.get("max-concurrency", None)
+            active_count = len(active_tasks.get(worker_name, []))
+            role = ", ".join(queue_names) if queue_names else "unknown"
+            workers.append({
+                "name": worker_name,
+                "role": role,
+                "concurrency": concurrency,
+                "active": active_count,
+                "ok": True,
+            })
+        workers.sort(key=lambda w: w["role"])
     except Exception:
         pass
 

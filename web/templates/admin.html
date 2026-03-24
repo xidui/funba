@@ -270,15 +270,19 @@
       if (!data.ok) throw new Error();
 
       // Workers
+      const th = 'style="text-align:center;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);"';
+      const thL = th.replace('center', 'left');
+      const td = 'style="padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);text-align:center;"';
+      const tdL = td.replace('center', 'left');
       if (data.workers.length) {
-        workersEl.innerHTML = '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
-          '<thead><tr><th style="text-align:left;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);">Worker</th>' +
-          '<th style="text-align:center;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);">Status</th></tr></thead><tbody>' +
+        workersEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;">
+          <thead><tr><th ${thL}>Queue</th><th ${th}>Status</th><th ${th}>Concurrency</th><th ${th}>Active</th></tr></thead><tbody>` +
           data.workers.map(w => {
             const dot = w.ok
               ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--win);"></span>'
               : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--loss);"></span>';
-            return `<tr><td style="padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);font-family:monospace;font-size:11px;">${w.name}</td><td style="text-align:center;padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);">${dot}</td></tr>`;
+            const util = w.concurrency ? `${w.active}/${w.concurrency}` : `${w.active}`;
+            return `<tr><td ${tdL}><span style="font-weight:600;">${w.role}</span></td><td ${td}>${dot}</td><td ${td}>${w.concurrency ?? '?'}</td><td ${td}>${util}</td></tr>`;
           }).join('') + '</tbody></table>';
       } else {
         workersEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">No workers responding</div>';
