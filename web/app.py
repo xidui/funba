@@ -3095,6 +3095,13 @@ def game_page(game_id: str):
         if game is None:
             abort(404, description=f"Game {game_id} not found")
 
+        if not has_game_line_score(session, game_id):
+            try:
+                from db.backfill_nba_game_line_score import back_fill_game_line_score
+                back_fill_game_line_score(session, game_id, commit=True)
+            except Exception:
+                logger.exception("inline line-score fetch failed for game_id=%s", game_id)
+
         teams = _team_map(session)
         team_stats_rows = (
             session.query(TeamGameStats)
