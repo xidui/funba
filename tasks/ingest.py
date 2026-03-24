@@ -226,7 +226,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         else [m.key for m in get_all_metrics()]
     )
     for key in keys_to_run:
-        compute_game_delta.apply_async(args=[game_id, key], queue="metrics")
+        compute_game_delta.apply_async(args=[game_id, key])
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d) → %d metric tasks enqueued.",
@@ -290,7 +290,7 @@ def ingest_yesterday(self) -> dict:
         return {"date": str(yesterday), "enqueued": 0}
 
     for gid in game_ids:
-        ingest_game.apply_async(args=[gid], queue="ingest")
+        ingest_game.apply_async(args=[gid])
 
     logger.info("ingest_yesterday: enqueued %d games for %s.", len(game_ids), yesterday)
     return {"date": str(yesterday), "enqueued": len(game_ids)}

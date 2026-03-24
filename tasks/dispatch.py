@@ -294,7 +294,7 @@ def cmd_discover(args: argparse.Namespace) -> None:
         print(f"--force: cleared {deleted} claim(s).")
 
     for gid in sorted(game_ids):
-        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, queue="ingest")
+        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, )
 
     print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
 
@@ -304,7 +304,7 @@ def cmd_game(args: argparse.Namespace) -> None:
     if args.force:
         deleted = _clear_claims([game_id])
         print(f"--force: cleared {deleted} claim(s) for game {game_id}.")
-    ingest_game.apply_async(args=[game_id], kwargs={"force": args.force}, queue="ingest")
+    ingest_game.apply_async(args=[game_id], kwargs={"force": args.force}, )
     print(f"Enqueued 1 ingest task for game {game_id}.")
 
 
@@ -321,7 +321,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids)
         print(f"--force: cleared {deleted} claim(s) for {len(game_ids)} games.")
     for gid in game_ids:
-        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, queue="ingest")
+        ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, )
     print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
 
 
@@ -378,7 +378,7 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
             continue
         run_count += 1
         for gid in game_ids:
-            compute_game_delta.apply_async(args=[gid, key], queue="metrics")
+            compute_game_delta.apply_async(args=[gid, key])
             task_count += 1
 
     print(
