@@ -180,43 +180,51 @@
     color: var(--muted);
     margin-bottom: 8px;
   }
-  .drilldown-game {
-    display: grid;
-    grid-template-columns: 82px 1fr auto;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-  }
-  .drilldown-game:last-child { border-bottom: none; }
-  .drilldown-date {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
+  .drilldown-table {
+    width: 100%;
+    border-collapse: collapse;
     font-size: 12px;
   }
-  .drilldown-main {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .drilldown-table th {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    padding: 4px 8px 6px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
   }
-  .drilldown-matchup a {
+  .drilldown-table th:first-child { text-align: left; }
+  .drilldown-table td {
+    padding: 6px 8px;
+    text-align: center;
+    vertical-align: middle;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+  }
+  .drilldown-table td:first-child { text-align: left; }
+  .drilldown-table tr:last-child td { border-bottom: none; }
+  .drilldown-table .dd-date {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .drilldown-table .dd-matchup a {
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
   }
-  .drilldown-matchup a:hover { color: var(--accent); }
-  .drilldown-score {
+  .drilldown-table .dd-matchup a:hover { color: var(--accent); }
+  .drilldown-table .dd-score {
     font-variant-numeric: tabular-nums;
-    font-size: 12px;
-    color: var(--muted);
+    white-space: nowrap;
   }
-  .drilldown-stat {
-    font-size: 12px;
+  .drilldown-table .dd-stat {
     color: var(--muted-2);
     white-space: nowrap;
   }
-  .drilldown-win { color: var(--win); }
-  .drilldown-loss { color: var(--loss); }
+  .dd-win { color: var(--win); }
+  .dd-loss { color: var(--loss); }
   .drilldown-pager {
     display: flex;
     justify-content: center;
@@ -1059,7 +1067,7 @@
       return;
     }
 
-    if (panel.children.length && panel.querySelector('.drilldown-game')) {
+    if (panel.children.length && panel.querySelector('.drilldown-table')) {
       // Pagination: overlay on existing content
       const overlay = document.createElement('div');
       overlay.className = 'drilldown-overlay';
@@ -1085,27 +1093,31 @@
 
   function renderDrilldown(panel, data, entityId, season) {
     const {games, page, total, total_pages} = data;
+    const hasStat = games.some(g => g.player_line || g.team_line);
+    const logo = id => `<img src="https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg" style="width:16px;height:16px;vertical-align:middle" onerror="this.style.display='none'">`;
+
     let html = `<div class="drilldown-title">Qualifying games (${total})</div>`;
+    html += `<table class="drilldown-table"><thead><tr>
+      <th>Date</th><th>Matchup</th><th>Score</th><th>W/L</th>${hasStat ? '<th>Stats</th>' : ''}
+    </tr></thead><tbody>`;
 
     html += games.map(g => {
       const url = `/games/${g.game_id}`;
-      const logo = id => `<img src="https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg" style="width:16px;height:16px;vertical-align:middle" onerror="this.style.display='none'">`;
       const score = (g.home_score != null && g.road_score != null)
-        ? `<span class="drilldown-score">${g.road_score} - ${g.home_score}</span>` : '';
-      const stat = g.player_line
-        ? `<span class="drilldown-stat">${g.player_line}</span>`
-        : (g.team_line ? `<span class="drilldown-stat">${g.team_line}</span>` : '');
-      const wl = g.win === true ? '<span class="drilldown-win">W</span>'
-               : g.win === false ? '<span class="drilldown-loss">L</span>' : '';
-      return `<div class="drilldown-game">
-        <span class="drilldown-date">${g.game_date || ''}</span>
-        <span class="drilldown-main">
-          <span class="drilldown-matchup"><a href="${url}">${logo(g.road_team_id)} ${g.road_team} @ ${logo(g.home_team_id)} ${g.home_team}</a></span>
-          ${score} ${wl}
-        </span>
-        ${stat}
-      </div>`;
+        ? `${g.road_score} - ${g.home_score}` : '';
+      const stat = g.player_line || g.team_line || '';
+      const wl = g.win === true ? '<span class="dd-win">W</span>'
+               : g.win === false ? '<span class="dd-loss">L</span>' : '';
+      return `<tr>
+        <td class="dd-date">${g.game_date || ''}</td>
+        <td class="dd-matchup"><a href="${url}">${logo(g.road_team_id)} ${g.road_team} @ ${logo(g.home_team_id)} ${g.home_team}</a></td>
+        <td class="dd-score">${score}</td>
+        <td>${wl}</td>
+        ${hasStat ? `<td class="dd-stat">${stat}</td>` : ''}
+      </tr>`;
     }).join('');
+
+    html += '</tbody></table>';
 
     if (total_pages > 1) {
       html += `<div class="drilldown-pager">
