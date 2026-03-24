@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 
-from db.llm_models import ensure_model_available, env_default_llm_model
+from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
 _FIELD_ORDER = (
     "key",
@@ -111,7 +111,8 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8, model: str 
 
     selected_model = ensure_model_available(selected_model)
 
-    if selected_model == "gpt-5.4":
+    provider = provider_for_model(selected_model)
+    if provider == "openai":
         import openai
 
         client = openai.OpenAI()
