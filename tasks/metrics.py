@@ -464,8 +464,6 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
         with SessionLocal() as session:
             produced = run_delta_only(session, game_id, metric_key, commit=True)
     except Exception as exc:
-        with SessionLocal() as session:
-            _release_claim(session, game_id, metric_key)
         logger.error(
             "compute_game_delta: game=%s metric=%s failed: %s",
             game_id, metric_key, exc, exc_info=True,
