@@ -4707,140 +4707,10 @@ def admin_pipeline():
     denied = _require_admin_page()
     if denied:
         return denied
-    from datetime import datetime, timedelta
-
-    claims_page = _admin_page_arg("claims_page")
-    runs_page = _admin_page_arg("runs_page")
-    recent_page = _admin_page_arg("recent_page")
-    claims_page_size = 25
-    runs_page_size = 25
-    recent_page_size = 25
-
-    with SessionLocal() as session:
-        # --- Coverage per season — cached to avoid 6s query on every load ---
-        now = time.time()
-        if "coverage" not in _admin_cache or now - _admin_cache.get("ts", 0) > _ADMIN_CACHE_TTL:
-            from sqlalchemy import text as sa_text
-            coverage_rows = session.execute(sa_text("""
-                SELECT
-                    g.season,
-                    COUNT(DISTINCT g.game_id)   AS total,
-                    COUNT(DISTINCT pgs.game_id) AS has_detail,
-                    COUNT(DISTINCT pbp.game_id) AS has_pbp,
-                    COUNT(DISTINCT gls.game_id) AS has_line,
-                    COUNT(DISTINCT sr.game_id)  AS has_shot,
-                    COALESCE(SUM(mjc_agg.done_cnt > 0), 0)   AS has_metrics,
-                    COALESCE(SUM(mjc_agg.active_cnt), 0)     AS active_claims
-                FROM Game g
-                LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
-                LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
-                LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
-                LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
-                LEFT JOIN (
-                    SELECT game_id,
-                           SUM(status = 'done')        AS done_cnt,
-                           SUM(status = 'in_progress') AS active_cnt
-                    FROM MetricJobClaim
-                    GROUP BY game_id
-                ) mjc_agg ON mjc_agg.game_id = g.game_id
-                WHERE g.game_date IS NOT NULL
-                GROUP BY g.season
-                ORDER BY g.season DESC
-            """)).fetchall()
-            _admin_cache["coverage"] = coverage_rows
-            _admin_cache["ts"] = now
-        else:
-            coverage_rows = _admin_cache["coverage"]
-
-        coverage = [
-            {
-                "season": _season_label(row.season),
-                "season_raw": row.season,
-                "total": row.total,
-                "detail": row.has_detail,
-                "pbp": row.has_pbp,
-                "line": row.has_line,
-                "shot": row.has_shot,
-                "metrics": row.has_metrics,
-                "active_claims": row.active_claims,
-                "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
-            }
-            for row in coverage_rows
-        ]
-
-        claims_panel = _load_admin_claims_panel(session, claims_page=claims_page, claims_page_size=claims_page_size)
-        compute_runs_panel = _load_admin_compute_runs_panel(session, runs_page=runs_page, runs_page_size=runs_page_size)
-
-        # --- Games missing any artifact (last 2 seasons) — all done in SQL ---
-        season_filter = Game.season.like("22024%") | Game.season.like("22025%")
-
-        def _missing(joined_model, joined_col, limit=20):
-            """Games in the two target seasons with no row in joined_model.
-
-            Uses limit+1 trick to detect overflow without a separate COUNT query.
-            """
-            rows = (
-                session.query(Game.game_id, Game.game_date, Game.season)
-                .outerjoin(joined_model, joined_col == Game.game_id)
-                .filter(season_filter, Game.game_date.isnot(None), joined_col.is_(None))
-                .order_by(Game.game_date)
-                .limit(limit + 1)
-                .all()
-            )
-            overflow = len(rows) > limit
-            rows = rows[:limit]
-            # total is exact when small, otherwise ">limit" signal
-            total = len(rows) + (1 if overflow else 0)  # caller checks overflow via total > len(rows)
-            return {
-                "total": total,
-                "overflow": overflow,
-                "rows": [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows],
-            }
-
-        missing_detail = _missing(PlayerGameStats, PlayerGameStats.game_id)
-        missing_shot = _missing(ShotRecord, ShotRecord.game_id)
-        missing_metrics = _missing(MetricRunLog, MetricRunLog.game_id)
-
-        recent_panel = _load_admin_recent_runs_panel(session, recent_page=recent_page, recent_page_size=recent_page_size)
-
-        # --- Visitor stats ---
-        now_dt = datetime.utcnow()
-        cutoff_24h = now_dt - timedelta(hours=24)
-        cutoff_7d  = now_dt - timedelta(days=7)
-        cutoff_30d = now_dt - timedelta(days=30)
-
-        visitor_stats = {
-            "user_count":   session.query(func.count(User.id)).scalar() or 0,
-            "views_24h":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-            "views_7d":     session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-            "views_30d":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
-            "unique_24h":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-            "unique_7d":    session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-            "unique_30d":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
-        }
-
     return render_template(
         "admin.html",
-        coverage=coverage,
-        claim_counts=claims_panel["claim_counts"],
-        compute_run_counts=compute_runs_panel["compute_run_counts"],
-        active=claims_panel["active"],
-        claims_page=claims_panel["claims_page"],
-        claims_total_pages=claims_panel["claims_total_pages"],
         admin_page_url=_admin_page_url,
         admin_fragment_url=_admin_fragment_url,
-        compute_runs=compute_runs_panel["compute_runs"],
-        runs_page=compute_runs_panel["runs_page"],
-        runs_total_pages=compute_runs_panel["runs_total_pages"],
-        stuck_count=claims_panel["stuck_count"],
-        missing_detail=missing_detail,
-        missing_shot=missing_shot,
-        missing_metrics=missing_metrics,
-        recent=recent_panel["recent"],
-        recent_page=recent_panel["recent_page"],
-        recent_has_prev=recent_panel["recent_has_prev"],
-        recent_has_next=recent_panel["recent_has_next"],
-        visitor_stats=visitor_stats,
         llm_available_models=available_llm_models(),
     )
 
@@ -4857,6 +4727,74 @@ def admin_fragment(section: str):
     recent_page_size = 25
 
     with SessionLocal() as session:
+        if section == "visitor-stats":
+            from datetime import datetime, timedelta
+            now_dt = datetime.utcnow()
+            cutoff_24h = now_dt - timedelta(hours=24)
+            cutoff_7d  = now_dt - timedelta(days=7)
+            cutoff_30d = now_dt - timedelta(days=30)
+            visitor_stats = {
+                "user_count":   session.query(func.count(User.id)).scalar() or 0,
+                "views_24h":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
+                "views_7d":     session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
+                "views_30d":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
+                "unique_24h":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
+                "unique_7d":    session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
+                "unique_30d":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
+            }
+            return render_template("_admin_visitor_stats.html", visitor_stats=visitor_stats)
+
+        if section == "coverage":
+            now = time.time()
+            if "coverage" not in _admin_cache or now - _admin_cache.get("ts", 0) > _ADMIN_CACHE_TTL:
+                from sqlalchemy import text as sa_text
+                coverage_rows = session.execute(sa_text("""
+                    SELECT
+                        g.season,
+                        COUNT(DISTINCT g.game_id)   AS total,
+                        COUNT(DISTINCT pgs.game_id) AS has_detail,
+                        COUNT(DISTINCT pbp.game_id) AS has_pbp,
+                        COUNT(DISTINCT gls.game_id) AS has_line,
+                        COUNT(DISTINCT sr.game_id)  AS has_shot,
+                        COALESCE(SUM(mjc_agg.done_cnt > 0), 0)   AS has_metrics,
+                        COALESCE(SUM(mjc_agg.active_cnt), 0)     AS active_claims
+                    FROM Game g
+                    LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
+                    LEFT JOIN (
+                        SELECT game_id,
+                               SUM(status = 'done')        AS done_cnt,
+                               SUM(status = 'in_progress') AS active_cnt
+                        FROM MetricJobClaim
+                        GROUP BY game_id
+                    ) mjc_agg ON mjc_agg.game_id = g.game_id
+                    WHERE g.game_date IS NOT NULL
+                    GROUP BY g.season
+                    ORDER BY g.season DESC
+                """)).fetchall()
+                _admin_cache["coverage"] = coverage_rows
+                _admin_cache["ts"] = now
+            else:
+                coverage_rows = _admin_cache["coverage"]
+            coverage = [
+                {
+                    "season": _season_label(row.season),
+                    "season_raw": row.season,
+                    "total": row.total,
+                    "detail": row.has_detail,
+                    "pbp": row.has_pbp,
+                    "line": row.has_line,
+                    "shot": row.has_shot,
+                    "metrics": row.has_metrics,
+                    "active_claims": row.active_claims,
+                    "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
+                }
+                for row in coverage_rows
+            ]
+            return render_template("_admin_coverage.html", coverage=coverage)
+
         if section == "claims":
             panel = _load_admin_claims_panel(session, claims_page=_admin_page_arg("claims_page"), claims_page_size=claims_page_size)
             return render_template(
@@ -4892,6 +4830,32 @@ def admin_fragment(section: str):
                 recent_has_next=panel["recent_has_next"],
                 admin_page_url=_admin_page_url,
                 admin_fragment_url=_admin_fragment_url,
+            )
+
+        if section == "missing":
+            season_filter = Game.season.like("22024%") | Game.season.like("22025%")
+            def _missing(joined_model, joined_col, limit=20):
+                rows = (
+                    session.query(Game.game_id, Game.game_date, Game.season)
+                    .outerjoin(joined_model, joined_col == Game.game_id)
+                    .filter(season_filter, Game.game_date.isnot(None), joined_col.is_(None))
+                    .order_by(Game.game_date)
+                    .limit(limit + 1)
+                    .all()
+                )
+                overflow = len(rows) > limit
+                rows = rows[:limit]
+                total = len(rows) + (1 if overflow else 0)
+                return {
+                    "total": total,
+                    "overflow": overflow,
+                    "rows": [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows],
+                }
+            return render_template(
+                "_admin_missing.html",
+                missing_detail=_missing(PlayerGameStats, PlayerGameStats.game_id),
+                missing_shot=_missing(ShotRecord, ShotRecord.game_id),
+                missing_metrics=_missing(MetricRunLog, MetricRunLog.game_id),
             )
 
     abort(404)

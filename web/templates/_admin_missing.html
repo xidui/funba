@@ -1,0 +1,41 @@
+{% set any_missing = missing_detail.total or missing_shot.total or missing_metrics.total %}
+{% if any_missing %}
+
+{% for panel in [
+  ('Player Stats / Detail', missing_detail),
+  ('Shot Records',          missing_shot),
+  ('Metrics',               missing_metrics),
+] %}
+{% set label, m = panel %}
+{% if m.total %}
+<div class="card full-width">
+  <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:12px;">
+    <h2 style="margin:0; color:var(--loss)">Missing: {{ label }}</h2>
+    <span style="font-size:13px; color:var(--muted)">{{ m.total }} game{{ 's' if m.total != 1 else '' }}</span>
+  </div>
+  <table>
+    <thead><tr><th>Game ID</th><th>Date</th><th>Season</th></tr></thead>
+    <tbody>
+      {% for g in m.rows %}
+      <tr>
+        <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
+        <td>{{ g.game_date }}</td>
+        <td>{{ g.season }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if m.overflow %}
+  <div style="margin-top:10px; font-size:12px; color:var(--muted)">
+    Showing first {{ m.rows | length }} &mdash; see coverage table above for full breakdown.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+
+{% else %}
+<div class="card full-width">
+  <div class="empty-state">All games fully covered &mdash; no missing artifacts</div>
+</div>
+{% endif %}
