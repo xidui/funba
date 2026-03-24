@@ -738,22 +738,19 @@
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}
         <td class="right">
+          {% if has_drilldown and r.value_num is not none %}
+          <span class="value-cell games-drilldown"
+                data-entity-id="{{ r.entity_id }}"
+                data-season="{{ r.season_raw }}"
+                data-row-idx="{{ loop.index }}">{{ r.value_str or r.value_num }}</span>
+          {% else %}
           <span class="value-cell">{{ r.value_str or r.value_num }}</span>
+          {% endif %}
           {% if r.context_label %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;">{{ r.context_label }}</div>{% endif %}
         </td>
         {% if metric_def.scope != 'game' %}
-        <td class="right" style="font-size:12px;">
-          {% set display_games = r.games_counted if r.games_counted is not none else (r.value_num | int if has_drilldown and r.value_num is not none else none) %}
-          {% if display_games is not none and has_drilldown %}
-            <span class="games-drilldown"
-                  data-entity-id="{{ r.entity_id }}"
-                  data-season="{{ r.season_raw }}"
-                  data-row-idx="{{ loop.index }}">{{ display_games }}</span>
-          {% elif display_games is not none %}
-            <span style="color:var(--muted-2)">{{ display_games }}</span>
-          {% else %}
-            <span style="color:var(--muted-2)">—</span>
-          {% endif %}
+        <td class="right" style="color:var(--muted-2);font-size:12px;">
+          {% if r.games_counted is not none %}{{ r.games_counted }}{% else %}—{% endif %}
         </td>
         {% endif %}
         <td>
