@@ -4297,6 +4297,7 @@ def metric_detail(metric_key: str):
                 "entity_id": r.entity_id,
                 "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
                 "season": _season_label(r.season),
+                "season_raw": r.season,
                 "value_num": r.value_num,
                 "value_str": r.value_str,
                 "is_notable": is_notable,
@@ -4310,6 +4311,12 @@ def metric_detail(metric_key: str):
         show_rank_group = any(r["rank_group_label"] for r in result_rows)
 
         _, backfill = _build_metric_backfill_status(session, metric_key)
+        has_drilldown = (
+            session.query(MetricRunLog.game_id)
+            .filter(MetricRunLog.metric_key == metric_key, MetricRunLog.qualified == True)
+            .limit(1)
+            .first()
+        ) is not None
 
     if is_career_metric:
         display_season_label = "Career"
@@ -4338,6 +4345,7 @@ def metric_detail(metric_key: str):
         total=total,
         page_size=page_size,
         backfill=backfill,
+        has_drilldown=has_drilldown,
         search_q=search_q,
     )
 

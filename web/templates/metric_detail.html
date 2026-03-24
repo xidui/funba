@@ -152,6 +152,62 @@
     white-space: nowrap;
   }
 
+  .games-drilldown {
+    cursor: pointer;
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .games-drilldown:hover { text-decoration-style: solid; }
+
+  .drilldown-row td {
+    padding: 0 !important;
+    border-top: none !important;
+  }
+  .drilldown-panel {
+    background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+    border-radius: 8px;
+    margin: 4px 12px 10px;
+    padding: 10px 14px;
+    font-size: 12px;
+  }
+  .drilldown-panel .drilldown-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .drilldown-game {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  }
+  .drilldown-game:last-child { border-bottom: none; }
+  .drilldown-date {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 80px;
+  }
+  .drilldown-matchup {
+    font-weight: 600;
+  }
+  .drilldown-matchup a { color: var(--text); }
+  .drilldown-matchup a:hover { color: var(--accent); }
+  .drilldown-loading {
+    color: var(--muted);
+    padding: 8px 0;
+  }
+  .drilldown-empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: 8px 0;
+  }
+
   .backfill-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -686,8 +742,17 @@
           {% if r.context_label %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;">{{ r.context_label }}</div>{% endif %}
         </td>
         {% if metric_def.scope != 'game' %}
-        <td class="right" style="color:var(--muted-2);font-size:12px;">
-          {% if r.games_counted is not none %}{{ r.games_counted }}{% else %}—{% endif %}
+        <td class="right" style="font-size:12px;">
+          {% if r.games_counted is not none and has_drilldown %}
+            <span class="games-drilldown"
+                  data-entity-id="{{ r.entity_id }}"
+                  data-season="{{ r.season_raw }}"
+                  data-row-idx="{{ loop.index }}">{{ r.games_counted }}</span>
+          {% elif r.games_counted is not none %}
+            <span style="color:var(--muted-2)">{{ r.games_counted }}</span>
+          {% else %}
+            <span style="color:var(--muted-2)">—</span>
+          {% endif %}
         </td>
         {% endif %}
         <td>
@@ -701,6 +766,15 @@
         </td>
         <td class="reason-text">{{ r.notable_reason or '—' }}</td>
       </tr>
+      {% if has_drilldown %}
+      <tr class="drilldown-row" id="drilldown-{{ loop.index }}" style="display:none">
+        <td colspan="99">
+          <div class="drilldown-panel">
+            <div class="drilldown-loading">Loading games…</div>
+          </div>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
@@ -903,4 +977,66 @@
   syncPolling(panel.dataset.status);
 })();
 </script>
+{% if has_drilldown %}
+<script>
+(() => {
+  const metricKey = {{ metric_def.key | tojson }};
+  const cache = {};
+
+  document.querySelectorAll('.games-drilldown').forEach(el => {
+    el.addEventListener('click', async () => {
+      const idx = el.dataset.rowIdx;
+      const entityId = el.dataset.entityId;
+      const season = el.dataset.season;
+      const row = document.getElementById(`drilldown-${idx}`);
+      if (!row) return;
+
+      // Toggle
+      if (row.style.display !== 'none') {
+        row.style.display = 'none';
+        return;
+      }
+      row.style.display = '';
+
+      const cacheKey = `${entityId}:${season}`;
+      if (cache[cacheKey]) {
+        renderDrilldown(row, cache[cacheKey]);
+        return;
+      }
+
+      // Fetch
+      const panel = row.querySelector('.drilldown-panel');
+      panel.innerHTML = '<div class="drilldown-loading">Loading games\u2026</div>';
+      try {
+        const params = new URLSearchParams({entity_id: entityId, season: season});
+        const resp = await fetch(`/api/metrics/${encodeURIComponent(metricKey)}/qualifying-games?${params}`);
+        const data = await resp.json();
+        if (!data.ok || !data.games.length) {
+          panel.innerHTML = '<div class="drilldown-empty">No qualifying games found.</div>';
+          return;
+        }
+        cache[cacheKey] = data.games;
+        renderDrilldown(row, data.games);
+      } catch (e) {
+        panel.innerHTML = '<div class="drilldown-empty">Failed to load games.</div>';
+      }
+    });
+  });
+
+  function renderDrilldown(row, games) {
+    const panel = row.querySelector('.drilldown-panel');
+    const title = `<div class="drilldown-title">Qualifying games (${games.length})</div>`;
+    const items = games.map(g => {
+      const date = g.game_date || '';
+      const url = `/games/${g.game_id}`;
+      return `<div class="drilldown-game">
+        <span class="drilldown-date">${date}</span>
+        <span class="drilldown-matchup"><a href="${url}">${g.road_team} @ ${g.home_team}</a></span>
+      </div>`;
+    }).join('');
+    panel.innerHTML = title + items;
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}
