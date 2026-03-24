@@ -217,19 +217,19 @@
 <!-- ── Infrastructure ─────────────────────────────────────────────── -->
 <div id="infra-card" class="card" style="margin-bottom:18px;">
   <h2 style="margin-bottom:14px;">Infrastructure</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;overflow:hidden;">
     {# Workers #}
-    <div>
+    <div style="min-width:0;">
       <div class="section-label">Workers</div>
       <div id="infra-workers" style="font-size:13px;color:var(--muted);">Loading…</div>
     </div>
     {# Queues #}
-    <div>
+    <div style="min-width:0;">
       <div class="section-label">Queues</div>
       <div id="infra-queues" style="font-size:13px;color:var(--muted);">Loading…</div>
     </div>
     {# Scheduled tasks #}
-    <div>
+    <div style="min-width:0;">
       <div class="section-label">Scheduled Tasks</div>
       <div id="infra-scheduled" style="font-size:13px;color:var(--muted);">Loading…</div>
     </div>
