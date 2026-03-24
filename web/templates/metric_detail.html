@@ -1044,7 +1044,7 @@
       const idx = el.dataset.rowIdx;
       const entityId = el.dataset.entityId;
       const rawSeason = el.dataset.season;
-      const season = (rawSeason && !rawSeason.startsWith('all_')) ? rawSeason : '';
+      const season = rawSeason || '';
       const row = document.getElementById(`drilldown-${idx}`);
       if (!row) return;
 
