@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-AVAILABLE_LLM_MODELS = ("gpt-5.4", "claude-sonnet-4-6")
+AVAILABLE_LLM_MODELS = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
 
 _MODEL_PROVIDER = {
     "gpt-5.4": "openai",
-    "claude-sonnet-4-6": "anthropic",
+    "gpt-5.4-mini": "openai",
+    "gpt-5.4-nano": "openai",
 }
 
 _PROVIDER_ENV_KEY = {
@@ -61,8 +62,6 @@ def ensure_model_available(model: str) -> str:
 def env_default_llm_model() -> str | None:
     if os.getenv("OPENAI_API_KEY"):
         return "gpt-5.4"
-    if os.getenv("ANTHROPIC_API_KEY"):
-        return "claude-sonnet-4-6"
     return None
 
 

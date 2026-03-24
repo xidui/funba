@@ -10,7 +10,7 @@ import json
 import logging
 import re
 
-from db.llm_models import ensure_model_available, env_default_llm_model
+from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -323,12 +323,13 @@ def _call_llm(messages: list[dict], model: str | None = None) -> str:
     """
     selected_model = model or env_default_llm_model()
     if not selected_model:
-        raise ValueError("No AI API key set — set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+        raise ValueError("No AI API key set — set OPENAI_API_KEY.")
 
     selected_model = ensure_model_available(selected_model)
     system_prompt = _build_system_prompt()
+    provider = provider_for_model(selected_model)
 
-    if selected_model == "gpt-5.4":
+    if provider == "openai":
         import openai
         client = openai.OpenAI()
         response = client.chat.completions.create(
@@ -341,7 +342,7 @@ def _call_llm(messages: list[dict], model: str | None = None) -> str:
             ],
         )
         return response.choices[0].message.content.strip()
-    else:
+    elif provider == "anthropic":
         import anthropic
         client = anthropic.Anthropic()
         message = client.messages.create(
@@ -351,6 +352,8 @@ def _call_llm(messages: list[dict], model: str | None = None) -> str:
             messages=messages,
         )
         return message.content[0].text.strip()
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
 
 
 def generate(expression: str, history: list[dict] | None = None,
