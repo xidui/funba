@@ -251,10 +251,10 @@
       // Workers
       const th = 'style="text-align:center;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);"';
       const thL = th.replace('center', 'left');
-      const td = 'style="padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);text-align:center;"';
+      const td = 'style="padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"';
       const tdL = td.replace('center', 'left');
       if (data.workers.length) {
-        workersEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;">
+        workersEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;table-layout:fixed;">
           <thead><tr><th ${thL}>Queue</th><th ${th}>Status</th></tr></thead><tbody>` +
           data.workers.map(w => {
             if (!w.ok) {
@@ -272,7 +272,7 @@
 
       // Queues
       if (data.queues.length) {
-        queuesEl.innerHTML = '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        queuesEl.innerHTML = '<table style="width:100%;font-size:12px;border-collapse:collapse;table-layout:fixed;">' +
           '<thead><tr>' +
           '<th style="text-align:left;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);">Queue</th>' +
           '<th style="text-align:center;padding:4px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);">Ready</th>' +
@@ -295,7 +295,7 @@
       }
       // Scheduled tasks
       if (scheduledEl && data.scheduled && data.scheduled.length) {
-        scheduledEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;">
+        scheduledEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;table-layout:fixed;">
           <thead><tr><th ${thL}>Task</th><th ${th}>Interval</th></tr></thead><tbody>` +
           data.scheduled.map(s => {
             const interval = s.every ? `${s.every}s` : '?';
