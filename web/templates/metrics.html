@@ -264,7 +264,7 @@
   <div id="metric-search-cards" class="metrics-catalog"></div>
 </div>
 
-<div class="metrics-catalog">
+<div id="metrics-full-catalog" class="metrics-catalog">
   {% for m in metrics_list %}
   <a class="catalog-card" href="{{ url_for('metric_detail', metric_key=m.key) }}">
     <div class="catalog-card-header">
@@ -305,6 +305,7 @@
   const createCta = document.getElementById('metric-create-cta');
   const createInline = document.getElementById('metric-create-cta-inline');
   const modelSelect = document.getElementById('metric-search-model');
+  const fullCatalog = document.getElementById('metrics-full-catalog');
 
   function loginUrl() {
     return `/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
@@ -357,6 +358,7 @@
     {% endif %}
     if (!query) {
       resultsWrap.style.display = 'none';
+      fullCatalog.style.display = '';
       status.textContent = 'Search in any language. If nothing fits, create a new metric from the same query.';
       return;
     }
@@ -387,6 +389,7 @@
       }
 
       resultsWrap.style.display = 'block';
+      fullCatalog.style.display = 'none';
       if (!data.matches.length) {
         subtitle.textContent = 'No strong match found.';
         cards.innerHTML = '';
