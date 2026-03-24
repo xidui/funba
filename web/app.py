@@ -3275,8 +3275,6 @@ def game_page(game_id: str):
             if team_id not in shot_chart_team_ids:
                 shot_chart_team_ids.append(team_id)
 
-        game_metrics = _get_metric_results(session, "game", game_id, game.season)
-
         import json as _json
         score_progression_json = _json.dumps(score_progression)
         road_abbr = _team_abbr(teams, game.road_team_id)
@@ -3302,13 +3300,23 @@ def game_page(game_id: str):
         shot_miss_count_by_team=shot_miss_count_by_team,
         shot_backfill_status=request.args.get("shot_backfill"),
         shot_backfill_count=request.args.get("shot_count"),
-        game_metrics=game_metrics,
         score_progression_json=score_progression_json,
         road_abbr=road_abbr,
         home_abbr=home_abbr,
         quarter_scores=quarter_scores,
         home_team_id=home_team_id,
     )
+
+
+@app.get("/games/<game_id>/fragment/metrics")
+def game_fragment_metrics(game_id: str):
+    """Async fragment: game metrics section."""
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            abort(404)
+        game_metrics = _get_metric_results(session, "game", game_id, game.season)
+    return render_template("_game_metrics.html", game_metrics=game_metrics)
 
 
 @app.route("/metrics")

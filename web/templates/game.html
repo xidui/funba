@@ -512,7 +512,31 @@
   {% endif %}
 </div>
 
-{% include "_game_metrics.html" %}
+<!-- ── Game Metrics (async) ──────────────────────────────────────── -->
+<div id="game-metrics-panel" data-game-id="{{ game.game_id }}">
+  <div class="card">
+    <div style="color:var(--muted);font-size:13px;padding:16px;">Loading metrics…</div>
+  </div>
+</div>
+<script>
+(function(){
+  var el = document.getElementById('game-metrics-panel');
+  fetch('/games/' + el.dataset.gameId + '/fragment/metrics', {
+    headers: {'X-Requested-With': 'fetch'},
+    credentials: 'same-origin',
+  })
+  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+  .then(function(html){
+    el.innerHTML = html;
+    el.querySelectorAll('script').forEach(function(s){
+      var n = document.createElement('script');
+      n.textContent = s.textContent;
+      s.replaceWith(n);
+    });
+  })
+  .catch(function(){ el.innerHTML = '<div class="card"><div style="color:var(--loss);font-size:13px;padding:16px;">Failed to load metrics</div></div>'; });
+})();
+</script>
 
 <!-- ── Box Score (Team + Players unified) ─────────────────────────── -->
 <div class="card">
