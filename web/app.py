@@ -4927,7 +4927,20 @@ def api_admin_infra_status():
     except Exception:
         pass
 
-    return jsonify({"ok": True, "rmq_ok": rmq_ok, "queues": queues, "workers": workers})
+    # Scheduled tasks from Celery Beat config
+    scheduled = []
+    try:
+        from tasks.celery_app import app as _celery_app
+        for name, entry in (_celery_app.conf.beat_schedule or {}).items():
+            scheduled.append({
+                "name": name,
+                "task": entry.get("task", ""),
+                "every": entry.get("schedule"),
+            })
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "rmq_ok": rmq_ok, "queues": queues, "workers": workers, "scheduled": scheduled})
 
 
 @app.get("/api/admin/model-config")

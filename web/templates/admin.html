@@ -217,7 +217,7 @@
 <!-- ── Infrastructure ─────────────────────────────────────────────── -->
 <div id="infra-card" class="card" style="margin-bottom:18px;">
   <h2 style="margin-bottom:14px;">Infrastructure</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
     {# Workers #}
     <div>
       <div class="section-label">Workers</div>
@@ -228,12 +228,18 @@
       <div class="section-label">Queues</div>
       <div id="infra-queues" style="font-size:13px;color:var(--muted);">Loading…</div>
     </div>
+    {# Scheduled tasks #}
+    <div>
+      <div class="section-label">Scheduled Tasks</div>
+      <div id="infra-scheduled" style="font-size:13px;color:var(--muted);">Loading…</div>
+    </div>
   </div>
 </div>
 <script>
 (() => {
   const workersEl = document.getElementById('infra-workers');
   const queuesEl = document.getElementById('infra-queues');
+  const scheduledEl = document.getElementById('infra-scheduled');
   if (!workersEl || !queuesEl) return;
 
   async function refresh() {
@@ -286,6 +292,18 @@
         queuesEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">RabbitMQ unreachable</div>';
       } else {
         queuesEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">No queues</div>';
+      }
+      // Scheduled tasks
+      if (scheduledEl && data.scheduled && data.scheduled.length) {
+        scheduledEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;">
+          <thead><tr><th ${thL}>Task</th><th ${th}>Interval</th></tr></thead><tbody>` +
+          data.scheduled.map(s => {
+            const interval = s.every ? `${s.every}s` : '?';
+            const friendly = s.every >= 3600 ? `${Math.round(s.every/3600)}h` : s.every >= 60 ? `${Math.round(s.every/60)}m` : `${s.every}s`;
+            return `<tr><td ${tdL}><span style="font-weight:600;">${s.name}</span></td><td ${td}>${friendly}</td></tr>`;
+          }).join('') + '</tbody></table>';
+      } else if (scheduledEl) {
+        scheduledEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">No scheduled tasks</div>';
       }
     } catch (e) {
       workersEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">Failed to fetch status</div>';
