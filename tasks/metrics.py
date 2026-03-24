@@ -64,8 +64,11 @@ class ReduceLockUnavailable(RuntimeError):
     """Raised when a per-metric reduce lock is already held."""
 
 
+_SessionLocal = sessionmaker(bind=engine)
+
+
 def _session_factory():
-    return sessionmaker(bind=engine)
+    return _SessionLocal
 
 
 @contextmanager

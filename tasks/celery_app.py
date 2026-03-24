@@ -2,7 +2,15 @@
 import os
 
 from celery import Celery
+from celery.worker.autoscale import Autoscaler
 from kombu import Queue
+
+
+class CooldownAutoscaler(Autoscaler):
+    """Autoscaler with 60s cooldown before shrinking."""
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("keepalive", 60)
+        super().__init__(*args, **kwargs)
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or None
@@ -49,6 +57,8 @@ app.conf.update(
     # --- Worker ---
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    worker_max_tasks_per_child=5000,
+    worker_autoscaler="tasks.celery_app:CooldownAutoscaler",
 )
 
 # Explicitly import task modules so workers register them

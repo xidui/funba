@@ -189,25 +189,38 @@ workers as native processes managed by launchd, with Redis as the message broker
 ```
 Web app (publish metric / daily scheduler)
      → Redis (redis://localhost:6379/0, Homebrew service)
-     → worker-ingest (Queue: ingest + line_score, 4 concurrency)
-     → worker-metrics (Queue: metrics, 50 concurrency)
-     → worker-reduce (Queue: reduce, 16 concurrency)
+     → worker-ingest (Queue: ingest, autoscale 2–10)
+     → worker-metrics (Queue: metrics, autoscale 8–50)
+     → worker-reduce (Queue: reduce, autoscale 2–16)
      → scheduler (Celery Beat)
      → MySQL (shared with web app)
 ```
 
 ### launchd services:
 
-| Service | Label | Queue(s) | Concurrency | Notes |
-|---------|-------|----------|-------------|-------|
+| Service | Label | Queue(s) | Autoscale (min–max) | Notes |
+|---------|-------|----------|---------------------|-------|
 | Redis | `homebrew.mxcl.redis` | — | — | Broker (`brew services start redis`) |
-| Ingest worker | `app.funba.worker-ingest` | `ingest`, `line_score` | 4 | DB_POOL_SIZE=1 |
-| Metrics worker | `app.funba.worker-metrics` | `metrics` | 50 | DB_POOL_SIZE=1, fd limit 4096 |
-| Reduce worker | `app.funba.worker-reduce` | `reduce` | 16 | DB_POOL_SIZE=4 |
+| Ingest worker | `app.funba.worker-ingest` | `ingest` | 2–10 | DB_POOL_SIZE=1 |
+| Metrics worker | `app.funba.worker-metrics` | `metrics` | 8–50 | DB_POOL_SIZE=1, fd limit 4096 |
+| Reduce worker | `app.funba.worker-reduce` | `reduce` | 2–16 | DB_POOL_SIZE=4 |
 | Scheduler | `app.funba.scheduler` | — | — | Celery Beat (daily ingest + sweep) |
 
 All workers use the deploy worktree as WorkingDirectory and set
 `CELERY_BROKER_URL=redis://localhost:6379/0` in their plist EnvironmentVariables.
+
+### Worker tuning (celery_app.py):
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `worker_max_tasks_per_child` | 5000 | Recycle prefork processes to prevent memory bloat |
+| `worker_autoscaler` | `CooldownAutoscaler` | 60s keepalive before shrinking idle workers |
+| `worker_prefetch_multiplier` | 1 | Fair task distribution across workers |
+
+Workers use `--autoscale=MAX,MIN` (not `-c`) in their launchd plists.
+Idle memory footprint is ~900 MB (12 processes); under full backfill load it
+scales to ~2–3 GB (76 processes). Without `max_tasks_per_child`, prefork workers
+leak ~100 MB/min during sustained backfill due to Python malloc fragmentation.
 
 ### Service management:
 
