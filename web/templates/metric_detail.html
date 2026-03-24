@@ -181,23 +181,62 @@
     margin-bottom: 8px;
   }
   .drilldown-game {
-    display: flex;
+    display: grid;
+    grid-template-columns: 82px 1fr auto;
     align-items: center;
-    gap: 10px;
-    padding: 5px 0;
+    gap: 8px;
+    padding: 7px 0;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
   }
   .drilldown-game:last-child { border-bottom: none; }
   .drilldown-date {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
-    min-width: 80px;
+    font-size: 12px;
   }
-  .drilldown-matchup {
+  .drilldown-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .drilldown-matchup a {
     font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
   }
-  .drilldown-matchup a { color: var(--text); }
   .drilldown-matchup a:hover { color: var(--accent); }
+  .drilldown-score {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .drilldown-stat {
+    font-size: 12px;
+    color: var(--muted-2);
+    white-space: nowrap;
+  }
+  .drilldown-win { color: var(--win); }
+  .drilldown-loss { color: var(--loss); }
+  .drilldown-pager {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .drilldown-pager button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .drilldown-pager button:hover { border-color: var(--accent); color: var(--accent); }
+  .drilldown-pager button:disabled { opacity: 0.3; cursor: default; border-color: var(--border); color: var(--muted); }
+  .drilldown-pager-info { color: var(--muted); font-size: 11px; }
   .drilldown-loading {
     color: var(--muted);
     padding: 8px 0;
@@ -989,50 +1028,78 @@
       const row = document.getElementById(`drilldown-${idx}`);
       if (!row) return;
 
-      // Toggle
       if (row.style.display !== 'none') {
         row.style.display = 'none';
         return;
       }
       row.style.display = '';
-
-      const cacheKey = `${entityId}:${season}`;
-      if (cache[cacheKey]) {
-        renderDrilldown(row, cache[cacheKey]);
-        return;
-      }
-
-      // Fetch
-      const panel = row.querySelector('.drilldown-panel');
-      panel.innerHTML = '<div class="drilldown-loading">Loading games\u2026</div>';
-      try {
-        const params = new URLSearchParams({entity_id: entityId, season: season});
-        const resp = await fetch(`/api/metrics/${encodeURIComponent(metricKey)}/qualifying-games?${params}`);
-        const data = await resp.json();
-        if (!data.ok || !data.games.length) {
-          panel.innerHTML = '<div class="drilldown-empty">No qualifying games found.</div>';
-          return;
-        }
-        cache[cacheKey] = data.games;
-        renderDrilldown(row, data.games);
-      } catch (e) {
-        panel.innerHTML = '<div class="drilldown-empty">Failed to load games.</div>';
-      }
+      loadPage(row, entityId, season, 1);
     });
   });
 
-  function renderDrilldown(row, games) {
+  async function loadPage(row, entityId, season, page) {
     const panel = row.querySelector('.drilldown-panel');
-    const title = `<div class="drilldown-title">Qualifying games (${games.length})</div>`;
-    const items = games.map(g => {
-      const date = g.game_date || '';
+    const cacheKey = `${entityId}:${season}:${page}`;
+
+    if (cache[cacheKey]) {
+      renderDrilldown(panel, cache[cacheKey], entityId, season);
+      return;
+    }
+
+    panel.innerHTML = '<div class="drilldown-loading">Loading\u2026</div>';
+    try {
+      const params = new URLSearchParams({entity_id: entityId, season: season, page: page});
+      const resp = await fetch(`/api/metrics/${encodeURIComponent(metricKey)}/qualifying-games?${params}`);
+      const data = await resp.json();
+      if (!data.ok || !data.games.length) {
+        panel.innerHTML = '<div class="drilldown-empty">No qualifying games found.</div>';
+        return;
+      }
+      cache[cacheKey] = data;
+      renderDrilldown(panel, data, entityId, season);
+    } catch (e) {
+      panel.innerHTML = '<div class="drilldown-empty">Failed to load games.</div>';
+    }
+  }
+
+  function renderDrilldown(panel, data, entityId, season) {
+    const {games, page, total, total_pages} = data;
+    let html = `<div class="drilldown-title">Qualifying games (${total})</div>`;
+
+    html += games.map(g => {
       const url = `/games/${g.game_id}`;
+      const score = (g.home_score != null && g.road_score != null)
+        ? `<span class="drilldown-score">${g.road_score} - ${g.home_score}</span>` : '';
+      const stat = g.player_line
+        ? `<span class="drilldown-stat">${g.player_line}</span>`
+        : (g.team_line ? `<span class="drilldown-stat">${g.team_line}</span>` : '');
+      const wl = g.win === true ? '<span class="drilldown-win">W</span>'
+               : g.win === false ? '<span class="drilldown-loss">L</span>' : '';
       return `<div class="drilldown-game">
-        <span class="drilldown-date">${date}</span>
-        <span class="drilldown-matchup"><a href="${url}">${g.road_team} @ ${g.home_team}</a></span>
+        <span class="drilldown-date">${g.game_date || ''}</span>
+        <span class="drilldown-main">
+          <span class="drilldown-matchup"><a href="${url}">${g.road_team} @ ${g.home_team}</a></span>
+          ${score} ${wl}
+        </span>
+        ${stat}
       </div>`;
     }).join('');
-    panel.innerHTML = title + items;
+
+    if (total_pages > 1) {
+      html += `<div class="drilldown-pager">
+        <button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}">\u2190 Prev</button>
+        <span class="drilldown-pager-info">${page} / ${total_pages}</span>
+        <button ${page >= total_pages ? 'disabled' : ''} data-page="${page + 1}">Next \u2192</button>
+      </div>`;
+    }
+
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.drilldown-pager button:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', () => {
+        loadPage(panel.closest('.drilldown-row'), entityId, season, parseInt(btn.dataset.page));
+      });
+    });
   }
 })();
 </script>

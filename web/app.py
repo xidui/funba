@@ -3889,9 +3889,9 @@ def api_qualifying_games(metric_key: str):
     if not entity_id:
         return jsonify({"ok": False, "error": "entity_id is required"}), 400
     page = max(1, int(request.args.get("page", 1) or 1))
-    page_size = 50
+    page_size = 10
     with SessionLocal() as session:
-        q = session.query(MetricRunLog, Game).join(
+        base_q = session.query(MetricRunLog, Game).join(
             Game, MetricRunLog.game_id == Game.game_id,
         ).filter(
             MetricRunLog.metric_key == metric_key,
@@ -3899,21 +3899,79 @@ def api_qualifying_games(metric_key: str):
             MetricRunLog.qualified == True,
         )
         if season:
-            q = q.filter(MetricRunLog.season == season)
-        total = q.count()
-        rows = q.order_by(Game.game_date.desc()).offset((page - 1) * page_size).limit(page_size).all()
+            base_q = base_q.filter(MetricRunLog.season == season)
+        total = base_q.count()
+        rows = base_q.order_by(Game.game_date.desc()).offset((page - 1) * page_size).limit(page_size).all()
         team_map = _team_map(session)
+
+        # Batch-load player/team stats for these games
+        game_ids = [game.game_id for _, game in rows]
+        entity_type = MetricRunLog.entity_type
+
+        player_stats_map = {}
+        team_stats_map = {}
+        if game_ids:
+            for ps in session.query(PlayerGameStats).filter(
+                PlayerGameStats.game_id.in_(game_ids),
+                PlayerGameStats.player_id == entity_id,
+            ).all():
+                player_stats_map[ps.game_id] = ps
+            for ts in session.query(TeamGameStats).filter(
+                TeamGameStats.game_id.in_(game_ids),
+                TeamGameStats.team_id == entity_id,
+            ).all():
+                team_stats_map[ts.game_id] = ts
+
+        # Build home/road score lookup from TeamGameStats
+        game_scores = {}
+        if game_ids:
+            for ts in session.query(TeamGameStats).filter(
+                TeamGameStats.game_id.in_(game_ids),
+            ).all():
+                game_scores.setdefault(ts.game_id, {})[str(ts.team_id)] = int(ts.pts or 0)
+
         games = []
         for log, game in rows:
-            games.append({
-                "game_id": game.game_id,
+            gid = game.game_id
+            home_id = str(game.home_team_id)
+            road_id = str(game.road_team_id)
+            scores = game_scores.get(gid, {})
+            home_score = scores.get(home_id)
+            road_score = scores.get(road_id)
+
+            entry = {
+                "game_id": gid,
                 "game_date": game.game_date.isoformat() if game.game_date else None,
                 "season": game.season,
                 "home_team": _team_abbr(team_map, game.home_team_id),
                 "road_team": _team_abbr(team_map, game.road_team_id),
+                "home_score": home_score,
+                "road_score": road_score,
                 "delta": json.loads(log.delta_json) if log.delta_json else None,
-            })
-        return jsonify({"ok": True, "total": total, "page": page, "games": games})
+            }
+
+            # Add player stat line if available
+            ps = player_stats_map.get(gid)
+            if ps:
+                entry["player_line"] = f"{int(ps.pts or 0)} PTS, {int(ps.reb or 0)} REB, {int(ps.ast or 0)} AST"
+
+            # Add team stat line if available
+            ts = team_stats_map.get(gid)
+            if ts:
+                entry["team_line"] = f"{int(ts.pts or 0)} PTS"
+                entry["win"] = bool(ts.win)
+
+            games.append(entry)
+
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        return jsonify({
+            "ok": True,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "games": games,
+        })
 
 
 @app.get("/api/metrics/<metric_key>/backfill-status")
