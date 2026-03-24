@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 _STATUS_IN_PROGRESS = "in_progress"
 _STATUS_DONE = "done"
-_LEASE_SECONDS = 600
+_LEASE_SECONDS = 60
 _RUN_STATUS_MAPPING = "mapping"
 _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
