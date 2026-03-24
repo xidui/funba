@@ -1,6 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
+  .active-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--win, #4ade80);
+    margin-left: 5px;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .active-toggle-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 10px;
+    text-decoration: none;
+    vertical-align: middle;
+  }
+  .active-toggle-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .active-toggle-label.selected {
+    color: var(--text);
+  }
+  .active-toggle-link.on .active-toggle-label:first-child {
+    color: var(--win, #4ade80);
+  }
+  .active-toggle-track {
+    position: relative;
+    width: 28px;
+    height: 14px;
+    border-radius: 7px;
+    background: var(--border-2);
+  }
+  .active-toggle-track .active-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text);
+  }
+  .active-toggle-link.on .active-toggle-track {
+    background: var(--win, #4ade80);
+  }
+  .active-toggle-link.on .active-toggle-track .active-toggle-thumb {
+    right: auto;
+    left: 2px;
+    background: #fff;
+  }
   .detail-header {
     display: flex;
     align-items: flex-start;
@@ -752,7 +805,21 @@
     <thead>
       <tr>
         <th>#</th>
-        <th>{{ metric_def.scope | capitalize }}</th>
+        <th>
+          {{ metric_def.scope | capitalize }}
+          {% if is_player_scope %}
+          {% set _toggle_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active=none if active_only else '1') %}
+          <a class="active-toggle-link{% if active_only %} on{% endif %}"
+             href="{{ _toggle_url }}"
+             title="{{ 'Show all players' if active_only else 'Show active players only' }}">
+            <span class="active-toggle-label{% if active_only %} selected{% endif %}">Active</span>
+            <span class="active-toggle-track">
+              <span class="active-toggle-thumb"></span>
+            </span>
+            <span class="active-toggle-label{% if not active_only %} selected{% endif %}">All</span>
+          </a>
+          {% endif %}
+        </th>
         {% if show_rank_group %}<th>Group</th>{% endif %}
         {% if show_all_seasons %}<th>Season</th>{% endif %}
         <th class="right">Value</th>
@@ -776,6 +843,7 @@
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ url_for('player_page', player_id=player_id) }}">{{ r.entity_label }}</a>
+              {% if r.is_active %}<span class="active-dot" title="Active player"></span>{% endif %}
             {% elif r.entity_type == 'team' %}
               <img class="entity-thumb team"
                    src="https://cdn.nba.com/logos/nba/{{ r.entity_id }}/global/L/logo.svg"
@@ -837,7 +905,7 @@
 </div>
 
 {% if total_pages > 1 and not search_q %}
-{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p, active='1' if active_only else none) }}{% endmacro %}
 <nav class="pagination" aria-label="Page navigation">
   {# Prev #}
   <a class="page-btn{% if page == 1 %} disabled{% endif %}" href="{{ page_url(page - 1) }}" aria-label="Previous">&#8592;</a>

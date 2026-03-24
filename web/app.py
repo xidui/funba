@@ -4104,7 +4104,11 @@ def api_metric_update(metric_key: str):
 
 
 def _resolve_entity_labels(session, rows):
-    """Bulk-resolve entity IDs to human-readable labels. Returns dict keyed by (entity_type, entity_id)."""
+    """Bulk-resolve entity IDs to human-readable labels.
+
+    Returns (labels_dict, player_active_dict) where labels_dict is keyed by
+    (entity_type, entity_id) and player_active_dict maps player_id → bool.
+    """
     player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
     player_franchise_pairs = {
         tuple(r.entity_id.split(":", 1))
@@ -4116,10 +4120,12 @@ def _resolve_entity_labels(session, rows):
     team_ids.update({franchise_id for _, franchise_id in player_franchise_pairs})
     game_ids   = {r.entity_id.split(":")[0] for r in rows if r.entity_type == "game" and r.entity_id}
 
-    player_names = {
-        p.player_id: p.full_name
-        for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(player_ids)).all()
+    player_info = {
+        p.player_id: (p.full_name, bool(p.is_active))
+        for p in session.query(Player.player_id, Player.full_name, Player.is_active).filter(Player.player_id.in_(player_ids)).all()
     } if player_ids else {}
+    player_names = {pid: info[0] for pid, info in player_info.items()}
+    player_active = {pid: info[1] for pid, info in player_info.items()}
     team_map = _team_map(session)
     game_info = {
         g.game_id: (g.game_date, g.home_team_id, g.road_team_id)
@@ -4154,7 +4160,8 @@ def _resolve_entity_labels(session, rows):
                 return f"{matchup} ({date_str})"
         return entity_id
 
-    return {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
+    labels = {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
+    return labels, player_active
 
 
 @app.route("/metrics/<metric_key>")
@@ -4177,6 +4184,7 @@ def metric_detail(metric_key: str):
         show_all_seasons = False
     page = max(1, int(request.args.get("page", 1) or 1))
     search_q = request.args.get("q", "").strip()
+    active_only = request.args.get("active") == "1"
     page_size = 50
 
     with SessionLocal() as session:
@@ -4299,6 +4307,18 @@ def metric_detail(metric_key: str):
             .order_by(_detail_sort_col, ranked_q.c.entity_id.asc())
         )
 
+        if active_only and metric_def.scope in ("player", "player_franchise"):
+            active_player_ids = [
+                r[0] for r in session.query(Player.player_id)
+                .filter(Player.is_active == True).all()
+            ]
+            if metric_def.scope == "player":
+                base_rows_q = base_rows_q.filter(ranked_q.c.entity_id.in_(active_player_ids))
+            else:
+                # player_franchise: entity_id is "player_id:franchise_id"
+                active_like_filters = [ranked_q.c.entity_id.like(f"{pid}:%") for pid in active_player_ids]
+                base_rows_q = base_rows_q.filter(or_(*active_like_filters)) if active_like_filters else base_rows_q.filter(False)
+
         if search_q:
             matching_player_ids = [
                 r[0] for r in session.query(Player.player_id)
@@ -4329,7 +4349,7 @@ def metric_detail(metric_key: str):
             offset = (page - 1) * page_size
             rows = base_rows_q.offset(offset).limit(page_size).all()
 
-        labels = _resolve_entity_labels(session, rows)
+        labels, player_active = _resolve_entity_labels(session, rows)
         team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
@@ -4366,12 +4386,14 @@ def metric_detail(metric_key: str):
             label = _RANK_LABELS.get(rank, f"#{rank}")
             group_phrase = f" in {rank_group_label}" if rank_group_label else ""
             notable_reason = f"{label} of {standing_total} {scope_label}{group_phrase} {period}."
+            player_id_for_active = r.entity_id.split(":")[0] if r.entity_type in ("player", "player_franchise") else None
             result_rows.append({
                 "rank": rank,
                 "total": standing_total,
                 "entity_type": r.entity_type,
                 "entity_id": r.entity_id,
                 "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
+                "is_active": player_active.get(player_id_for_active) if player_id_for_active else None,
                 "season": _season_label(r.season),
                 "season_raw": r.season,
                 "value_num": r.value_num,
@@ -4401,11 +4423,14 @@ def metric_detail(metric_key: str):
         display_season_label = f"All {_type_name}"
     else:
         display_season_label = _season_label(selected_season)
+    is_player_scope = metric_def.scope in ("player", "player_franchise")
     return render_template(
         "metric_detail.html",
         metric_def=metric_def,
             result_rows=result_rows,
             show_rank_group=show_rank_group,
+            is_player_scope=is_player_scope,
+            active_only=active_only,
         season_options=season_options,
         season_groups=season_groups,
         selected_season=selected_season,
