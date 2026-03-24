@@ -40,10 +40,6 @@ from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks a
 from tasks.ingest import backfill_game_line_score, ingest_game  # noqa: F401
 
 
-def _queue(name: str):
-    return next(q for q in celery_app.conf.task_queues if q.name == name)
-
-
 def _session():
     return sessionmaker(bind=engine)()
 
@@ -463,9 +459,8 @@ def cmd_line_backfill(args: argparse.Namespace) -> None:
         print("No games missing line score.")
         return
 
-    line_score_q = _queue("line_score")
     for gid in game_ids:
-        backfill_game_line_score.apply_async(args=[gid], queue="line_score", declare=[line_score_q])
+        backfill_game_line_score.apply_async(args=[gid])
 
     print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: line_score.")
 

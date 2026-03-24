@@ -4874,33 +4874,22 @@ def admin_fragment(section: str):
 
 @app.get("/api/admin/infra-status")
 def api_admin_infra_status():
-    """Return RabbitMQ queue depths and Celery worker status."""
+    """Return Redis broker status, queue lengths, and Celery worker status."""
     denied = _require_admin_json()
     if denied:
         return denied
-    import urllib.request
-    import urllib.error
-    import base64
 
-    rmq_url = "http://localhost:15672/api/queues/%2F"
-    auth = base64.b64encode(b"guest:guest").decode()
+    # Redis broker status and queue lengths
     queues = []
-    rmq_ok = False
+    broker_ok = False
     try:
-        req = urllib.request.Request(rmq_url, headers={"Authorization": f"Basic {auth}"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            rmq_data = json.loads(resp.read())
-            rmq_ok = True
-            for q in rmq_data:
-                name = q.get("name", "")
-                if name.endswith(".dlq") or name.endswith(".pidbox") or name.startswith("celeryev"):
-                    continue
-                queues.append({
-                    "name": name,
-                    "ready": q.get("messages_ready", 0),
-                    "unacked": q.get("messages_unacknowledged", 0),
-                    "consumers": q.get("consumers", 0),
-                })
+        import redis as _redis
+        r = _redis.Redis.from_url(os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"), socket_timeout=2)
+        r.ping()
+        broker_ok = True
+        for qname in ("ingest", "metrics", "reduce", "line_score"):
+            length = r.llen(qname) or 0
+            queues.append({"name": qname, "ready": length, "unacked": 0, "consumers": 0})
     except Exception:
         pass
 
@@ -4951,7 +4940,7 @@ def api_admin_infra_status():
     except Exception:
         pass
 
-    return jsonify({"ok": True, "rmq_ok": rmq_ok, "queues": queues, "workers": workers, "scheduled": scheduled})
+    return jsonify({"ok": True, "broker_ok": broker_ok, "queues": queues, "workers": workers, "scheduled": scheduled})
 
 
 @app.get("/api/admin/model-config")

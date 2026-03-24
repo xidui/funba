@@ -288,8 +288,8 @@
               <td style="text-align:center;padding:5px 8px;border-bottom:1px solid color-mix(in srgb, var(--border) 30%, transparent);color:${q.consumers > 0 ? 'var(--win)' : 'var(--loss)'};">${q.consumers}</td>
             </tr>`;
           }).join('') + '</tbody></table>';
-      } else if (!data.rmq_ok) {
-        queuesEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">RabbitMQ unreachable</div>';
+      } else if (!data.broker_ok) {
+        queuesEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">Redis unreachable</div>';
       } else {
         queuesEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">No queues</div>';
       }
