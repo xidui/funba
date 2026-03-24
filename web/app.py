@@ -4881,8 +4881,8 @@ def api_admin_infra_status():
     workers = []
     try:
         from tasks.celery_app import app as celery_app
-        inspector = celery_app.control.inspect(timeout=0.5)
-        ping_result = celery_app.control.ping(timeout=0.5)
+        inspector = celery_app.control.inspect(timeout=1.5)
+        ping_result = celery_app.control.ping(timeout=1.5)
         active_queues = inspector.active_queues() or {}
         stats = inspector.stats() or {}
         active_tasks = inspector.active() or {}
