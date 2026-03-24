@@ -237,6 +237,19 @@
   .drilldown-pager button:hover { border-color: var(--accent); color: var(--accent); }
   .drilldown-pager button:disabled { opacity: 0.3; cursor: default; border-color: var(--border); color: var(--muted); }
   .drilldown-pager-info { color: var(--muted); font-size: 11px; }
+  .drilldown-panel { position: relative; }
+  .drilldown-overlay {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 12px;
+    border-radius: 8px;
+    z-index: 1;
+  }
   .drilldown-loading {
     color: var(--muted);
     padding: 8px 0;
@@ -1046,7 +1059,15 @@
       return;
     }
 
-    panel.innerHTML = '<div class="drilldown-loading">Loading\u2026</div>';
+    if (panel.children.length && panel.querySelector('.drilldown-game')) {
+      // Pagination: overlay on existing content
+      const overlay = document.createElement('div');
+      overlay.className = 'drilldown-overlay';
+      overlay.textContent = 'Loading\u2026';
+      panel.appendChild(overlay);
+    } else {
+      panel.innerHTML = '<div class="drilldown-loading">Loading\u2026</div>';
+    }
     try {
       const params = new URLSearchParams({entity_id: entityId, season: season, page: page});
       const resp = await fetch(`/api/metrics/${encodeURIComponent(metricKey)}/qualifying-games?${params}`);
