@@ -179,94 +179,110 @@ launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
 
 ---
 
-## Mac Studio: Celery Workers + RabbitMQ (Docker Compose)
+## Mac Studio: Celery Workers + Redis (native, launchd)
 
 The async pipeline (game ingestion, metric computation, backfill) runs via Celery
-workers inside Docker containers, with RabbitMQ as the message broker.
+workers as native processes managed by launchd, with Redis as the message broker.
 
 ### Architecture:
 
 ```
 Web app (publish metric / daily scheduler)
-     → RabbitMQ (amqp://guest:guest@localhost:5672)
-     → worker-ingest (Queue: ingest, 4 concurrency)
-     → worker-line-score (Queue: line_score, 4 concurrency)
+     → Redis (redis://localhost:6379/0, Homebrew service)
+     → worker-ingest (Queue: ingest + line_score, 4 concurrency)
      → worker-metrics (Queue: metrics, 50 concurrency)
+     → worker-reduce (Queue: reduce, 16 concurrency)
+     → scheduler (Celery Beat)
      → MySQL (shared with web app)
 ```
 
-### Docker Compose file: `docker-compose.yml`
+### launchd services:
 
-| Service | Image | Queue | Purpose |
-|---------|-------|-------|---------|
-| `rabbitmq` | `rabbitmq:3-management` | — | Message broker (management UI at `localhost:15672`, guest/guest) |
-| `worker-ingest` | Built from `Dockerfile` | `ingest` | Game data ingestion (box scores, PBP, shots) |
-| `worker-line-score` | Built from `Dockerfile` | `line_score` | Official line-score backfill |
-| `worker-metrics` | Built from `Dockerfile` | `metrics` | Metric computation and backfill |
-| `scheduler` | Built from `Dockerfile` | — | Celery Beat (daily cron for new games) |
+| Service | Label | Queue(s) | Concurrency | Notes |
+|---------|-------|----------|-------------|-------|
+| Redis | `homebrew.mxcl.redis` | — | — | Broker (`brew services start redis`) |
+| Ingest worker | `app.funba.worker-ingest` | `ingest`, `line_score` | 4 | DB_POOL_SIZE=1 |
+| Metrics worker | `app.funba.worker-metrics` | `metrics` | 50 | DB_POOL_SIZE=1, fd limit 4096 |
+| Reduce worker | `app.funba.worker-reduce` | `reduce` | 16 | DB_POOL_SIZE=4 |
+| Scheduler | `app.funba.scheduler` | — | — | Celery Beat (daily ingest + sweep) |
 
-Workers use `.env` for environment variables (NBA_DB_URL, API keys, etc.).
-Each worker sets `DB_POOL_SIZE=1` to limit MySQL connections per forked process.
+All workers use the deploy worktree as WorkingDirectory and set
+`CELERY_BROKER_URL=redis://localhost:6379/0` in their plist EnvironmentVariables.
 
 ### Service management:
 
 ```bash
-# Check status
-docker compose ps
+# Check all funba services
+launchctl list | grep app.funba
 
-# Start all services
-docker compose up -d
+# Check Redis
+brew services info redis
+redis-cli ping
 
-# Restart workers after code changes (rebuild images first)
-docker compose build worker-ingest worker-line-score worker-metrics
-docker compose up -d worker-ingest worker-line-score worker-metrics
+# Start a worker
+launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
 
-# Restart just one service
-docker compose restart worker-metrics
+# Stop a worker
+launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+
+# Restart a worker
+launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
 
 # View logs
-docker compose logs -f worker-metrics
-docker compose logs -f worker-ingest
-docker compose logs -f worker-line-score
-
-# Stop all
-docker compose down
+tail -f logs/worker-metrics-stderr.log
+tail -f logs/worker-ingest-stderr.log
+tail -f logs/worker-reduce-stderr.log
+tail -f logs/scheduler-stderr.log
 ```
 
 ### After code changes:
 
-Workers run from the Docker image, not the live repo. After pushing code that
-affects `metrics/`, `tasks/`, or `db/`, rebuild and restart:
+Workers run from the deploy worktree. After pushing code that affects
+`metrics/`, `tasks/`, or `db/`:
 
 ```bash
-docker compose build worker-ingest worker-line-score worker-metrics scheduler
-docker compose up -d worker-ingest worker-line-score worker-metrics scheduler
+# 1. Update deploy worktree
+git -C /Users/yuewang/Documents/github/funba/.paperclip/deploy-main pull origin main
+
+# 2. Restart affected workers
+launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
 ```
 
-### Metric backfill via CLI (bypasses Celery):
-
-For one-off backfills without Celery, use the dispatch CLI directly:
+### Metric backfill via CLI:
 
 ```bash
 # Backfill a single metric across all games
-.venv/bin/python -m tasks.dispatch --metric single_quarter_team_scoring
+.venv/bin/python -m tasks.dispatch metric-backfill --metric single_quarter_team_scoring
 
 # Backfill a single game
-.venv/bin/python -m tasks.dispatch --game 0022500826
+.venv/bin/python -m tasks.dispatch game 0022500826
 ```
 
 ### Troubleshooting:
 
 ```bash
-# RabbitMQ healthy?
-docker compose exec rabbitmq rabbitmq-diagnostics ping
+# Redis healthy?
+redis-cli ping
+
+# Check queue depths
+redis-cli llen ingest
+redis-cli llen metrics
+redis-cli llen reduce
 
 # Worker consuming tasks?
-docker compose logs --tail 50 worker-metrics
+tail -50 logs/worker-metrics-stderr.log
 
 # Purge stuck tasks from a queue
-docker compose exec rabbitmq rabbitmqctl purge_queue metrics
+redis-cli del metrics
 ```
+
+### Docker Compose (test environment only):
+
+`docker-compose.yml` is kept for local testing with RabbitMQ. It is NOT used
+in production. To run: update `.env` with `CELERY_BROKER_URL=amqp://...` and
+use `docker compose up -d`.
 
 ---
 
@@ -370,10 +386,12 @@ ls -lh ~/Documents/github/funba/backups/
 ## Startup Checklist (after Mac Studio reboot)
 
 1. MySQL: `brew services list | grep mysql` — should show `started`
-2. Web app: `launchctl list app.funba.web` — should show PID
-3. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
-4. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
-5. Docker / Celery: `docker compose ps` — rabbitmq (healthy), worker-ingest, worker-metrics, scheduler should all be Up
+2. Redis: `brew services list | grep redis` — should show `started`
+3. Web app: `launchctl list app.funba.web` — should show PID
+4. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
+5. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
+6. Workers: `launchctl list | grep app.funba.worker` — all three should show PIDs
+7. Scheduler: `launchctl list app.funba.scheduler` — should show PID
 
 Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
 start automatically after login, restart on crash, and stay up while the screen is
