@@ -967,6 +967,7 @@
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
     rankOrderInput.value = currentSpec.rank_order || 'desc';
     keyInput.value = EDIT_KEY;
+    keyInput.readOnly = true;
     lastAutoKey = EDIT_KEY;
     codeViewer.textContent = currentSpec.code || '';
     if (originalCodeViewer) originalCodeViewer.textContent = originalCode;
