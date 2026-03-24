@@ -253,7 +253,9 @@ def reduce_metric(
         # Non-incremental metrics are fully computed in Phase 1; nothing to reduce.
         return 0
 
-    # Find all distinct entities that have deltas for this (metric, season)
+    # Find all distinct entities that have deltas for this (metric, season).
+    # Order by (entity_type, entity_id) so concurrent reduces on different metrics
+    # acquire InnoDB gap locks in the same order, avoiding deadlocks.
     entity_rows = (
         session.query(MetricRunLog.entity_type, MetricRunLog.entity_id)
         .filter(
@@ -261,6 +263,7 @@ def reduce_metric(
             MetricRunLog.season == season,
         )
         .distinct()
+        .order_by(MetricRunLog.entity_type, MetricRunLog.entity_id)
         .all()
     )
 
