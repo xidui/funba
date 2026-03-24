@@ -4897,6 +4897,55 @@ def admin_fragment(section: str):
     abort(404)
 
 
+@app.get("/api/admin/infra-status")
+def api_admin_infra_status():
+    """Return RabbitMQ queue depths and Celery worker status."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    import urllib.request
+    import urllib.error
+    import base64
+
+    rmq_url = "http://localhost:15672/api/queues/%2F"
+    auth = base64.b64encode(b"guest:guest").decode()
+    queues = []
+    rmq_ok = False
+    try:
+        req = urllib.request.Request(rmq_url, headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            rmq_data = json.loads(resp.read())
+            rmq_ok = True
+            for q in rmq_data:
+                name = q.get("name", "")
+                if name.endswith(".dlq") or name.startswith("celeryev"):
+                    continue
+                queues.append({
+                    "name": name,
+                    "ready": q.get("messages_ready", 0),
+                    "unacked": q.get("messages_unacknowledged", 0),
+                    "consumers": q.get("consumers", 0),
+                })
+    except Exception:
+        pass
+
+    # Celery inspect — ping workers with short timeout
+    workers = []
+    try:
+        from tasks.celery_app import app as celery_app
+        ping_result = celery_app.control.ping(timeout=2)
+        for entry in ping_result:
+            for worker_name, resp in entry.items():
+                workers.append({
+                    "name": worker_name,
+                    "ok": resp.get("ok") == "pong",
+                })
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "rmq_ok": rmq_ok, "queues": queues, "workers": workers})
+
+
 @app.get("/api/admin/model-config")
 def api_admin_model_config():
     denied = _require_admin_json()
