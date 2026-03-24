@@ -496,6 +496,9 @@
           return r.text();
         })
         .then(function (html) {
+          var oldH = el.offsetHeight;
+          var rect = el.getBoundingClientRect();
+          var above = rect.top < 0;
           el.innerHTML = html;
           // Re-execute inline scripts in the fetched fragment
           el.querySelectorAll('script').forEach(function (oldScript) {
@@ -503,6 +506,7 @@
             newScript.textContent = oldScript.textContent;
             oldScript.replaceWith(newScript);
           });
+          if(above){ window.scrollBy(0, el.offsetHeight - oldH); }
         })
         .catch(function () {
           el.innerHTML = '<div style="color:var(--loss);font-size:13px;">Failed to load</div>';

@@ -527,12 +527,16 @@
   })
   .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
   .then(function(html){
+    var oldH = el.offsetHeight;
+    var rect = el.getBoundingClientRect();
+    var above = rect.top < 0;
     el.innerHTML = html;
     el.querySelectorAll('script').forEach(function(s){
       var n = document.createElement('script');
       n.textContent = s.textContent;
       s.replaceWith(n);
     });
+    if(above){ window.scrollBy(0, el.offsetHeight - oldH); }
   })
   .catch(function(){ el.innerHTML = '<div class="card"><div style="color:var(--loss);font-size:13px;padding:16px;">Failed to load metrics</div></div>'; });
 })();
