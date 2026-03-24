@@ -4343,7 +4343,7 @@ def metric_detail(metric_key: str):
             page = 1
         else:
             import math
-            total = session.query(func.count()).select_from(ranked_q).scalar() or 0
+            total = base_rows_q.count() or 0
             total_pages = max(1, math.ceil(total / page_size))
             page = min(page, total_pages)
             offset = (page - 1) * page_size
