@@ -39,8 +39,8 @@ def test_cmd_metric_backfill_creates_runs_and_skips_active_metrics():
         dispatch.cmd_metric_backfill(args)
 
     assert apply_async.call_count == 2
-    apply_async.assert_any_call(args=["g1", "clutch_fg_pct"], queue="metrics")
-    apply_async.assert_any_call(args=["g2", "clutch_fg_pct"], queue="metrics")
+    apply_async.assert_any_call(args=["g1", "clutch_fg_pct"])
+    apply_async.assert_any_call(args=["g2", "clutch_fg_pct"])
     printed = "\n".join(" ".join(str(a) for a in call.args) for call in print_mock.call_args_list)
     assert "for 1 compute run(s)" in printed
     assert "clutch_fg_pct_career (run-2)" in printed
