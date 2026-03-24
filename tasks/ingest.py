@@ -55,35 +55,6 @@ def _fetch_api_row(game_id: str) -> dict | None:
     return df.iloc[0].to_dict()
 
 
-@shared_task(
-    bind=True,
-    name="tasks.ingest.backfill_game_line_score",
-    max_retries=5,
-    queue="line_score",
-)
-def backfill_game_line_score(self, game_id: str, replace_existing: bool = False) -> dict:
-    """Fetch and persist official line score data for one game."""
-    SessionLocal = _session_factory()
-
-    try:
-        with SessionLocal() as sess:
-            row_count = back_fill_game_line_score(
-                sess,
-                game_id,
-                commit=True,
-                replace_existing=replace_existing,
-            )
-    except Exception as exc:
-        wait = 30 * (2 ** self.request.retries)
-        logger.warning(
-            "backfill_game_line_score %s: failed (attempt %d): %s — retrying in %ds",
-            game_id, self.request.retries + 1, exc, wait,
-        )
-        raise self.retry(exc=exc, countdown=wait)
-
-    logger.info("backfill_game_line_score %s: stored %d rows.", game_id, row_count)
-    return {"game_id": game_id, "line_score_rows": int(row_count)}
-
 
 def _season_start_year(season: str | None) -> int | None:
     """Convert DB season code like '21996' to start year 1996."""

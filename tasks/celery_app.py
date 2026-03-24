@@ -15,12 +15,10 @@ app.conf.update(
         Queue("ingest"),
         Queue("metrics"),
         Queue("reduce"),
-        Queue("line_score"),
     ),
     task_default_queue="ingest",
     task_routes={
         "tasks.ingest.ingest_game": {"queue": "ingest"},
-        "tasks.ingest.backfill_game_line_score": {"queue": "line_score"},
         "tasks.metrics.compute_game_delta": {"queue": "metrics"},
         "tasks.metrics.sweep_metric_compute_runs": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_compute_run": {"queue": "reduce"},

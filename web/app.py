@@ -3095,12 +3095,6 @@ def game_page(game_id: str):
         if game is None:
             abort(404, description=f"Game {game_id} not found")
 
-        if not has_game_line_score(session, game_id):
-            try:
-                _enqueue_line_score_backfill(game_id)
-            except Exception:
-                logger.exception("failed to enqueue line-score backfill for game_id=%s", game_id)
-
         teams = _team_map(session)
         team_stats_rows = (
             session.query(TeamGameStats)
@@ -4428,8 +4422,6 @@ def metric_detail(metric_key: str):
 _admin_cache: dict = {}
 _ADMIN_CACHE_TTL = 30  # seconds
 _ADMIN_STALE_REDUCE_GRACE_SECONDS = 300
-_LINE_SCORE_ENQUEUE_CACHE: dict[str, float] = {}
-_LINE_SCORE_ENQUEUE_TTL = 300
 
 
 def _admin_page_arg(name: str, default: int = 1) -> int:
@@ -4696,21 +4688,6 @@ def _load_admin_recent_runs_panel(session, *, recent_page: int, recent_page_size
     }
 
 
-def _enqueue_line_score_backfill(game_id: str) -> bool:
-    """Best-effort enqueue for missing line score data, throttled per web process."""
-    now = time.time()
-    last = _LINE_SCORE_ENQUEUE_CACHE.get(game_id, 0)
-    if now - last < _LINE_SCORE_ENQUEUE_TTL:
-        return False
-
-    from tasks.celery_app import app as celery_app
-    from tasks.ingest import backfill_game_line_score
-
-    line_score_q = next(q for q in celery_app.conf.task_queues if q.name == "line_score")
-    backfill_game_line_score.apply_async(args=[game_id], queue="line_score", declare=[line_score_q])
-    _LINE_SCORE_ENQUEUE_CACHE[game_id] = now
-    logger.info("enqueued line-score backfill for game_id=%s", game_id)
-    return True
 
 
 @app.get("/admin")

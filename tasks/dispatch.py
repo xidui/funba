@@ -13,9 +13,6 @@ Usage examples:
   # Backfill one metric across all games (routes through ingest to ensure artifacts exist)
   python -m tasks.dispatch metric-backfill --metric clutch_fg_pct
 
-  # Backfill official line score data across games
-  python -m tasks.dispatch line-backfill --season 22025
-
   # Backfill all metrics across all games
   python -m tasks.dispatch metric-backfill
 
@@ -33,11 +30,11 @@ from datetime import date as _date, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, GameLineScore, MetricComputeRun, MetricJobClaim, engine
+from db.models import Game, MetricComputeRun, MetricJobClaim, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
-from tasks.ingest import backfill_game_line_score, ingest_game  # noqa: F401
+from tasks.ingest import ingest_game  # noqa: F401
 
 
 def _session():
@@ -67,39 +64,6 @@ def _all_game_ids() -> list[str]:
     sess = _session()
     try:
         return [row.game_id for row in sess.query(Game.game_id).filter(Game.game_date.isnot(None)).all()]
-    finally:
-        sess.close()
-
-
-def _query_games_missing_line_score(
-    season: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-) -> list[str]:
-    sess = _session()
-    try:
-        completed_line_games = (
-            sess.query(GameLineScore.game_id.label("game_id"))
-            .group_by(GameLineScore.game_id)
-            .having(func.count() >= 2)
-            .subquery()
-        )
-        q = (
-            sess.query(Game.game_id)
-            .outerjoin(completed_line_games, completed_line_games.c.game_id == Game.game_id)
-            .filter(
-                Game.game_date.isnot(None),
-                completed_line_games.c.game_id.is_(None),
-            )
-            .order_by(Game.game_date.asc(), Game.game_id.asc())
-        )
-        if season:
-            q = q.filter(Game.season.like(f"{season}%"))
-        if date_from:
-            q = q.filter(Game.game_date >= date_from)
-        if date_to:
-            q = q.filter(Game.game_date <= date_to)
-        return [row.game_id for row in q.all()]
     finally:
         sess.close()
 
@@ -448,23 +412,6 @@ def cmd_metric_retry_failed(args: argparse.Namespace) -> None:
     print(f"Re-enqueued {len(run_ids)} failed compute run(s) → Queue: reduce.")
 
 
-def cmd_line_backfill(args: argparse.Namespace) -> None:
-    game_ids = _query_games_missing_line_score(
-        season=args.season,
-        date_from=args.date_from,
-        date_to=args.date_to,
-    )
-
-    if not game_ids:
-        print("No games missing line score.")
-        return
-
-    for gid in game_ids:
-        backfill_game_line_score.apply_async(args=[gid])
-
-    print(f"Enqueued {len(game_ids)} line-score backfill task(s) → Queue: line_score.")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tasks.dispatch",
@@ -536,16 +483,6 @@ def main() -> None:
     )
     p_mrf.add_argument("--metric", default=None, help="Single metric key, or omit for all failed runs.")
     p_mrf.set_defaults(func=cmd_metric_retry_failed)
-
-    # --- line-backfill ---
-    p_lb = sub.add_parser(
-        "line-backfill",
-        help="Enqueue official line-score fetch tasks for stored games.",
-    )
-    p_lb.add_argument("--season", help="Limit to a season prefix, e.g. 22025")
-    p_lb.add_argument("--date-from", dest="date_from", help="Start date YYYY-MM-DD")
-    p_lb.add_argument("--date-to", dest="date_to", help="End date YYYY-MM-DD")
-    p_lb.set_defaults(func=cmd_line_backfill)
 
     args = parser.parse_args()
     args.func(args)
