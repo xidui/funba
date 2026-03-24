@@ -119,6 +119,7 @@ class TestMetricBackfillFeedback(unittest.TestCase):
             MagicMock(),
             MagicMock(),
             MagicMock(),
+            MagicMock(),
         ]
         session.query.side_effect = queries
         for query in queries[1:]:

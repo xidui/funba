@@ -492,8 +492,8 @@ class TestMetricSearchAuth(unittest.TestCase):
 
         with patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._current_user", return_value=None), \
-             patch("web.app.get_default_llm_model_for_ui", return_value="gpt-5.4"), \
-             patch("web.app.available_llm_models", return_value=["gpt-5.4", "claude-sonnet-4-6"]), \
+             patch("web.app.get_llm_model_for_purpose", return_value="gpt-5.4"), \
+             patch("web.app.available_llm_models", return_value=["gpt-5.4", "gpt-5.4-mini"]), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring"}]) as mock_catalog, \
              patch("web.app.render_template", return_value="<html></html>") as mock_render:
             response = self.client.get(
@@ -515,7 +515,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             status_filter="published",
             search_query="late",
             llm_default_model="gpt-5.4",
-            llm_available_models=["gpt-5.4", "claude-sonnet-4-6"],
+            llm_available_models=["gpt-5.4", "gpt-5.4-mini"],
         )
 
     def test_metric_search_api_requires_login_for_external_visitors(self):
@@ -572,7 +572,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6")
+        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6", purpose="search")
         mock_rank.assert_called_once_with(
             "late game scoring",
             [{"key": "late_game_scoring", "name": "Late Game Scoring"}],
@@ -610,7 +610,7 @@ class TestMetricSearchAuth(unittest.TestCase):
                 },
             },
         )
-        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6")
+        mock_resolve.assert_called_once_with(session, requested_model="claude-sonnet-4-6", purpose="generate")
         mock_generate.assert_called_once_with(
             "clutch scoring",
             history=None,
@@ -695,33 +695,27 @@ class TestMetricSearchAuth(unittest.TestCase):
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app.get_default_llm_model_for_ui", return_value="gpt-5.4"), \
-             patch("web.app.available_llm_models", return_value=["gpt-5.4", "claude-sonnet-4-6"]), \
-             patch("web.app.set_default_llm_model", return_value="claude-sonnet-4-6") as mock_set:
+             patch("web.app.get_llm_model_for_purpose", return_value="gpt-5.4"), \
+             patch("web.app.available_llm_models", return_value=["gpt-5.4", "gpt-5.4-mini"]), \
+             patch("web.app.set_llm_model_for_purpose", return_value="gpt-5.4-mini") as mock_set_purpose:
             get_response = self.client.get("/api/admin/model-config", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
             post_response = self.client.post(
                 "/api/admin/model-config",
-                json={"default_model": "claude-sonnet-4-6"},
+                json={"search_model": "gpt-5.4-mini", "generate_model": "gpt-5.4-mini"},
                 environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
             )
 
         self.assertEqual(get_response.status_code, 200)
-        self.assertEqual(
-            get_response.get_json(),
-            {
-                "default_model": "gpt-5.4",
-                "available_models": ["gpt-5.4", "claude-sonnet-4-6"],
-            },
-        )
+        get_data = get_response.get_json()
+        self.assertEqual(get_data["default_model"], "gpt-5.4")
+        self.assertEqual(get_data["search_model"], "gpt-5.4")
+        self.assertEqual(get_data["generate_model"], "gpt-5.4")
+        self.assertEqual(get_data["available_models"], ["gpt-5.4", "gpt-5.4-mini"])
+
         self.assertEqual(post_response.status_code, 200)
-        self.assertEqual(
-            post_response.get_json(),
-            {
-                "ok": True,
-                "default_model": "claude-sonnet-4-6",
-                "available_models": ["gpt-5.4", "claude-sonnet-4-6"],
-            },
-        )
-        mock_set.assert_called_once_with(session, "claude-sonnet-4-6")
+        post_data = post_response.get_json()
+        self.assertTrue(post_data["ok"])
+        self.assertEqual(mock_set_purpose.call_count, 2)
         session.commit.assert_called_once()
 
 
