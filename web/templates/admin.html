@@ -276,13 +276,16 @@
       const tdL = td.replace('center', 'left');
       if (data.workers.length) {
         workersEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;">
-          <thead><tr><th ${thL}>Queue</th><th ${th}>Status</th><th ${th}>Concurrency</th><th ${th}>Active</th></tr></thead><tbody>` +
+          <thead><tr><th ${thL}>Queue</th><th ${th}>Status</th></tr></thead><tbody>` +
           data.workers.map(w => {
-            const dot = w.ok
-              ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--win);"></span>'
-              : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--loss);"></span>';
-            const util = w.concurrency ? `${w.active}/${w.concurrency}` : `${w.active}`;
-            return `<tr><td ${tdL}><span style="font-weight:600;">${w.role}</span></td><td ${td}>${dot}</td><td ${td}>${w.concurrency ?? '?'}</td><td ${td}>${util}</td></tr>`;
+            if (!w.ok) {
+              return `<tr><td ${tdL}><span style="font-weight:600;">${w.role}</span></td><td ${td}><span style="color:var(--loss);font-weight:600;">offline</span></td></tr>`;
+            }
+            const busy = w.active > 0;
+            const label = w.concurrency ? `${w.active}/${w.concurrency} busy` : `${w.active} busy`;
+            const color = busy ? 'var(--accent)' : 'var(--win)';
+            const text = busy ? label : (w.concurrency ? `0/${w.concurrency} idle` : 'idle');
+            return `<tr><td ${tdL}><span style="font-weight:600;">${w.role}</span></td><td ${td}><span style="color:${color};font-weight:600;">${text}</span></td></tr>`;
           }).join('') + '</tbody></table>';
       } else {
         workersEl.innerHTML = '<div style="color:var(--loss);font-size:12px;">No workers responding</div>';
