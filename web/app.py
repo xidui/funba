@@ -4871,9 +4871,6 @@ def api_admin_infra_status():
         r = _redis.Redis.from_url(os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"), socket_timeout=2)
         r.ping()
         broker_ok = True
-        for qname in ("ingest", "metrics", "reduce", "line_score"):
-            length = r.llen(qname) or 0
-            queues.append({"name": qname, "ready": length, "unacked": 0, "consumers": 0})
     except Exception:
         pass
 
@@ -4908,6 +4905,20 @@ def api_admin_infra_status():
                 "ok": True,
             })
         workers.sort(key=lambda w: w["role"])
+
+        # Build queue info from Redis lengths + worker consumer counts
+        if broker_ok:
+            import redis as _redis
+            r = _redis.Redis.from_url(os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"), socket_timeout=2)
+            consumer_count: dict[str, int] = {}
+            for wq_list in active_queues.values():
+                for q in wq_list:
+                    qn = q.get("name", "")
+                    if not qn.endswith(".pidbox"):
+                        consumer_count[qn] = consumer_count.get(qn, 0) + 1
+            for qname in ("ingest", "metrics", "reduce"):
+                length = r.llen(qname) or 0
+                queues.append({"name": qname, "ready": length, "unacked": 0, "consumers": consumer_count.get(qname, 0)})
     except Exception:
         pass
 
