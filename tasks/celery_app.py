@@ -13,7 +13,7 @@ class CooldownAutoscaler(Autoscaler):
         super().__init__(*args, **kwargs)
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or None
+RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 
 app = Celery("funba", broker=BROKER_URL, backend=RESULT_BACKEND)
 
@@ -31,13 +31,16 @@ app.conf.update(
         "tasks.metrics.sweep_metric_compute_runs": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_compute_run": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_season": {"queue": "reduce"},
+        "tasks.metrics.chord_reduce_callback": {"queue": "reduce"},
     },
 
     # --- Serialization ---
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    task_ignore_result=True,
+
+    # --- Results (needed for chord) ---
+    result_expires=3600,
 
     # --- Celery Beat schedule ---
     beat_schedule={
@@ -47,7 +50,7 @@ app.conf.update(
         },
         "sweep-metric-compute-runs": {
             "task": "tasks.metrics.sweep_metric_compute_runs",
-            "schedule": 10,
+            "schedule": 120,
         },
     },
 

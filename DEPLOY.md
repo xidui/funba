@@ -209,6 +209,9 @@ Web app (publish metric / daily scheduler)
 All workers use the deploy worktree as WorkingDirectory and set
 `CELERY_BROKER_URL=redis://localhost:6379/0` in their plist EnvironmentVariables.
 
+`CELERY_RESULT_BACKEND` defaults to `redis://localhost:6379/0` in code (same as
+broker). No plist change needed unless a separate Redis instance is desired.
+
 ### Worker tuning (celery_app.py):
 
 | Setting | Value | Purpose |
@@ -216,6 +219,13 @@ All workers use the deploy worktree as WorkingDirectory and set
 | `worker_max_tasks_per_child` | 5000 | Recycle prefork processes to prevent memory bloat |
 | `worker_autoscaler` | `CooldownAutoscaler` | 60s keepalive before shrinking idle workers |
 | `worker_prefetch_multiplier` | 1 | Fair task distribution across workers |
+
+### Metric backfill completion:
+
+Bulk metric backfills use **Celery chord** for completion detection. When all
+map tasks finish, the chord callback automatically enqueues reduce. The sweep
+task (every 120s) acts as a fallback for runs stuck in mapping > 2 hours
+(e.g. Redis restart losing the chord counter).
 
 Workers use `--autoscale=MAX,MIN` (not `-c`) in their launchd plists.
 Idle memory footprint is ~900 MB (12 processes); under full backfill load it
@@ -256,11 +266,12 @@ Workers run from the deploy worktree. After pushing code that affects
 
 ```bash
 # 1. Update deploy worktree
-git -C /Users/yuewang/Documents/github/funba/.paperclip/deploy-main pull origin main
+git -C /Users/yuewang/Documents/github/funba/.paperclip/deploy-main checkout --detach origin/main
 
-# 2. Restart affected workers
-launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
-launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+# 2. Restart all workers + scheduler (chord changes affect all of them)
+for svc in worker-ingest worker-metrics worker-reduce scheduler; do
+  launchctl kickstart -k gui/$(id -u)/app.funba.$svc
+done
 ```
 
 ### Metric backfill via CLI:

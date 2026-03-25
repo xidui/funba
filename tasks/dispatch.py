@@ -286,14 +286,16 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_metric_backfill(args: argparse.Namespace) -> None:
-    """Enqueue Phase 1 (map) delta tasks directly to the metrics queue.
+    """Enqueue Phase 1 (map) delta tasks via Celery chord.
 
     Skips the ingest queue since artifacts should already exist for backfill.
     Use 'backfill' or 'discover' commands first if data is missing.
-    Reduce (Phase 2) is promoted by the sweeper once the MetricComputeRun
-    reaches its target done-claim count.
+    Reduce (Phase 2) is triggered automatically by the chord callback when
+    all map tasks finish.
     """
-    from tasks.metrics import compute_game_delta
+    from celery import chord
+
+    from tasks.metrics import chord_reduce_callback, compute_game_delta
     from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
     if args.metric:
@@ -321,7 +323,8 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
         deleted = _clear_claims(game_ids, metric_keys)
         print(f"--force: cleared {deleted} claim(s).")
 
-    # Register one MetricComputeRun per concrete metric key, then enqueue map tasks.
+    # Register one MetricComputeRun per concrete metric key, then enqueue
+    # map tasks as a Celery chord with a reduce callback.
     task_count = 0
     run_count = 0
     skipped_active: list[str] = []
@@ -337,14 +340,19 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
             skipped_active.append(f"{key} ({run.id})")
             continue
         run_count += 1
-        for gid in game_ids:
-            compute_game_delta.apply_async(args=[gid, key])
-            task_count += 1
+
+        map_tasks = [
+            compute_game_delta.s(gid, key, run_id=run.id)
+            for gid in game_ids
+        ]
+        callback = chord_reduce_callback.s(run_id=run.id)
+        chord(map_tasks)(callback)
+        task_count += len(game_ids)
 
     print(
-        f"Enqueued {task_count} delta task(s) → Queue: metrics "
+        f"Enqueued {task_count} delta task(s) as chord(s) → Queue: metrics "
         f"for {run_count} compute run(s). "
-        f"Reduce will be enqueued by the sweeper after mapping completes."
+        f"Reduce will be triggered automatically by chord callback."
     )
     if skipped_active:
         print("Skipped metrics with an active compute run:")

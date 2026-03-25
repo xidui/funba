@@ -34,13 +34,14 @@ def test_cmd_metric_backfill_creates_runs_and_skips_active_metrics():
          patch("metrics.framework.runtime.get_all_metrics", return_value=[SimpleNamespace(key="clutch_fg_pct")]), \
          patch("metrics.framework.runtime.expand_metric_keys", return_value=["clutch_fg_pct", "clutch_fg_pct_career"]), \
          patch.object(dispatch, "_create_metric_compute_run", side_effect=[(created_run, True), (active_run, False)]), \
-         patch.object(metrics_tasks.compute_game_delta, "apply_async") as apply_async, \
+         patch("celery.chord") as chord_mock, \
          patch("builtins.print") as print_mock:
         dispatch.cmd_metric_backfill(args)
 
-    assert apply_async.call_count == 2
-    apply_async.assert_any_call(args=["g1", "clutch_fg_pct"])
-    apply_async.assert_any_call(args=["g2", "clutch_fg_pct"])
+    # chord should be called once (for clutch_fg_pct; career skipped as active)
+    assert chord_mock.call_count == 1
+    map_tasks = chord_mock.call_args[0][0]
+    assert len(map_tasks) == 2  # 2 games
     printed = "\n".join(" ".join(str(a) for a in call.args) for call in print_mock.call_args_list)
     assert "for 1 compute run(s)" in printed
     assert "clutch_fg_pct_career (run-2)" in printed
@@ -69,19 +70,25 @@ def test_compute_game_delta_skips_inline_reduce_when_mapping_run_exists():
     assert result["reduce_triggered"] == []
 
 
-def test_sweeper_promotes_completed_mapping_run_once():
-    run = SimpleNamespace(id="run-1", metric_key="metric-a", target_game_count=3)
+def test_sweeper_promotes_stuck_mapping_run_after_timeout():
+    from datetime import datetime, timedelta
+
+    # Run created 3 hours ago — beyond _CHORD_FALLBACK_SECONDS (2h)
+    run = SimpleNamespace(id="run-1", metric_key="metric-a", target_game_count=3,
+                          created_at=datetime.utcnow() - timedelta(hours=3))
     mapping_query = MagicMock()
     mapping_query.filter.return_value.order_by.return_value.all.return_value = [run]
     reducing_query = MagicMock()
     reducing_query.filter.return_value.order_by.return_value.all.return_value = []
     active_reducing_keys_query = MagicMock()
     active_reducing_keys_query.filter.return_value.all.return_value = []
+    # MetricRunLog count query — return 3 (all games done)
+    log_count_query = MagicMock()
+    log_count_query.filter.return_value.scalar.return_value = 3
     session = _ctx(MagicMock())
-    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query]
+    session.query.side_effect = [reducing_query, active_reducing_keys_query, mapping_query, log_count_query]
 
     with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session])), \
-         patch.object(metrics_tasks, "_done_claim_count_for_run", return_value=3), \
          patch.object(metrics_tasks, "_promote_run_to_reducing", return_value=True) as promote, \
          patch.object(metrics_tasks, "_finalize_reducing_run_if_complete", return_value=False) as finalize, \
          patch.object(metrics_tasks, "_requeue_stale_reducing_run", return_value=False) as requeue, \

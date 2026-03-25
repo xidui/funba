@@ -4,23 +4,14 @@ Two-phase MapReduce pipeline:
   Phase 1 (metrics queue): compute_game_delta — compute delta, write MetricRunLog only.
   Phase 2 (reduce queue):  reduce_metric_season / reduce_metric_compute_run — aggregate deltas, write MetricResult.
 
-Claim lifecycle (Phase 1)
--------------------------
-1. INSERT IGNORE into MetricJobClaim with status='in_progress'.
-   - rowcount=1  → this worker owns the job, proceed.
-   - rowcount=0  → another row exists; check its status:
-       - 'done'        → computation already committed, skip safely.
-       - 'in_progress' → another worker is processing (or crashed); skip.
-         Crashed 'in_progress' rows are cleared via --force in dispatch.
-
-2. Computation succeeds → UPDATE status='done'.
-   Legacy/daily paths still auto-trigger reduce inline. Bulk backfill paths
-   register a MetricComputeRun and let the sweeper trigger reduce off the hot path.
-
-3. Computation fails → DELETE claim row. Celery retries.
-
-4. Worker crash → claim stays 'in_progress'.
-   After _LEASE_SECONDS the next delivery auto-recovers.
+Completion detection:
+  - **Chord path (backfill)**: dispatch uses Celery chord. When all map tasks finish,
+    chord_reduce_callback fires automatically and enqueues reduce. No polling needed.
+    Idempotency via MetricRunLog existence (no MetricJobClaim).
+  - **Legacy ingest path (daily/single-game)**: uses MetricJobClaim INSERT IGNORE for
+    dedup and _maybe_trigger_reduce for inline reduce triggering.
+  - **Sweep fallback**: runs every 120s. Repairs stale reducing runs and force-promotes
+    mapping runs stuck > 2 hours (chord counter lost due to Redis restart, etc.).
 """
 from __future__ import annotations
 
@@ -487,21 +478,36 @@ def _mark_run_failed(session, run_id: str, error_text: str) -> None:
     max_retries=3,
     default_retry_delay=10,
     queue="metrics",
+    ignore_result=False,
 )
-def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
-    """Phase 1: compute delta for one (game, metric) and write MetricRunLog only."""
+def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None = None) -> dict:
+    """Phase 1: compute delta for one (game, metric) and write MetricRunLog only.
+
+    When run_id is set (chord backfill path), skips claim-based dedup and uses
+    MetricRunLog existence for idempotency.  When run_id is None (legacy ingest
+    path), uses the existing MetricJobClaim claim lifecycle.
+    """
     SessionLocal = _session_factory()
 
-    with SessionLocal() as session:
-        owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
-
-    if not owned:
-        return {
-            "game_id": game_id,
-            "metric_key": metric_key,
-            "skipped": True,
-            "reason": existing_status,
-        }
+    if run_id is not None:
+        # Chord path: idempotency via MetricRunLog existence
+        with SessionLocal() as session:
+            already_done = (
+                session.query(MetricRunLog.game_id)
+                .filter(
+                    MetricRunLog.game_id == game_id,
+                    MetricRunLog.metric_key == metric_key,
+                )
+                .first()
+            ) is not None
+        if already_done:
+            return {"game_id": game_id, "metric_key": metric_key, "skipped": True, "reason": "already_computed"}
+    else:
+        # Legacy ingest path: claim-based dedup
+        with SessionLocal() as session:
+            owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
+        if not owned:
+            return {"game_id": game_id, "metric_key": metric_key, "skipped": True, "reason": existing_status}
 
     try:
         with SessionLocal() as session:
@@ -513,12 +519,16 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
         )
         raise self.retry(exc=exc, countdown=10)
 
-    with SessionLocal() as session:
-        _mark_done(session, game_id, metric_key)
-        if _has_mapping_compute_run(session, metric_key):
-            triggered_seasons = []
-        else:
-            triggered_seasons = _maybe_trigger_reduce(session, metric_key)
+    if run_id is None:
+        # Legacy path: mark claim done, maybe trigger reduce inline
+        with SessionLocal() as session:
+            _mark_done(session, game_id, metric_key)
+            if _has_mapping_compute_run(session, metric_key):
+                triggered_seasons = []
+            else:
+                triggered_seasons = _maybe_trigger_reduce(session, metric_key)
+    else:
+        triggered_seasons = []  # Chord callback handles reduce
 
     return {
         "game_id": game_id,
@@ -526,6 +536,41 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
         "produced": produced,
         "reduce_triggered": triggered_seasons,
     }
+
+
+_CHORD_FALLBACK_SECONDS = 7200  # 2 hours — sweep promotes stuck mapping runs
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.chord_reduce_callback",
+    max_retries=2,
+    default_retry_delay=30,
+    queue="reduce",
+    ignore_result=True,
+)
+def chord_reduce_callback(self, results: list, run_id: str) -> dict:
+    """Chord callback: all map tasks finished. Promote run and trigger reduce."""
+    SessionLocal = _session_factory()
+
+    with SessionLocal() as session:
+        run = session.query(MetricComputeRun).filter(MetricComputeRun.id == run_id).first()
+        if run is None:
+            logger.warning("chord_reduce_callback: run %s not found", run_id)
+            return {"run_id": run_id, "skipped": True, "reason": "missing"}
+        if run.status != _RUN_STATUS_MAPPING:
+            logger.info("chord_reduce_callback: run %s already %s", run_id, run.status)
+            return {"run_id": run_id, "skipped": True, "reason": run.status}
+
+    with SessionLocal() as session:
+        promoted = _promote_run_to_reducing(session, run_id)
+    if not promoted:
+        logger.warning("chord_reduce_callback: promote failed for run %s", run_id)
+        return {"run_id": run_id, "skipped": True, "reason": "promote_failed"}
+
+    reduce_metric_compute_run_task.delay(run_id)
+    logger.info("chord_reduce_callback: enqueued reduce for run %s", run_id)
+    return {"run_id": run_id, "status": "reduce_enqueued"}
 
 
 @shared_task(
@@ -536,11 +581,13 @@ def compute_game_delta(self, game_id: str, metric_key: str) -> dict:
     queue="reduce",
 )
 def sweep_metric_compute_runs_task(self) -> dict:
-    """Promote completed mapping runs into the reduce queue.
+    """Safety-net sweeper for metric compute runs.
 
-    Reduce uses per-metric advisory locks, so different metrics can reduce in
-    parallel. The sweeper repairs stale reducing runs first, then promotes any
-    mapping run whose claims are all done.
+    Primary completion detection is now via Celery chord callbacks.
+    This sweeper handles two fallback scenarios:
+    1. Stale reducing runs — reduce worker crashed, requeue.
+    2. Stuck mapping runs — chord counter lost (Redis restart), force promote
+       after _CHORD_FALLBACK_SECONDS (2 hours).
     """
     SessionLocal = _session_factory()
     promoted: list[str] = []
@@ -550,6 +597,7 @@ def sweep_metric_compute_runs_task(self) -> dict:
 
     try:
         with SessionLocal() as session:
+            # --- Repair stale reducing runs (unchanged) ---
             reducing_runs = (
                 session.query(MetricComputeRun)
                 .filter(MetricComputeRun.status == _RUN_STATUS_REDUCING)
@@ -572,20 +620,39 @@ def sweep_metric_compute_runs_task(self) -> dict:
                 .all()
             )
 
-            runs = (
+            # --- Fallback: promote mapping runs stuck beyond chord timeout ---
+            mapping_runs = (
                 session.query(MetricComputeRun)
                 .filter(MetricComputeRun.status == _RUN_STATUS_MAPPING)
                 .order_by(MetricComputeRun.created_at.asc())
                 .all()
             )
 
-            for run in runs:
+            for run in mapping_runs:
                 checked += 1
-                # Skip if this metric already has a reducing run in flight.
                 if run.metric_key in active_reducing_keys:
                     continue
-                if _done_claim_count_for_run(session, run) < int(run.target_game_count):
+                age = (now - run.created_at).total_seconds()
+                if age < _CHORD_FALLBACK_SECONDS:
                     continue
+                # Chord appears lost — check MetricRunLog coverage
+                log_count = (
+                    session.query(func.count(func.distinct(MetricRunLog.game_id)))
+                    .filter(MetricRunLog.metric_key == run.metric_key)
+                    .scalar() or 0
+                )
+                target = int(run.target_game_count)
+                if log_count < target * 0.5:
+                    # Less than 50% done after 2h — likely a real problem, skip
+                    logger.warning(
+                        "sweep: run %s stuck in mapping for %.0fs but only %d/%d games done, skipping",
+                        run.id, age, log_count, target,
+                    )
+                    continue
+                logger.warning(
+                    "sweep: force-promoting run %s after %.0fs (%d/%d games done)",
+                    run.id, age, log_count, target,
+                )
                 if not _promote_run_to_reducing(session, run.id):
                     continue
                 try:
