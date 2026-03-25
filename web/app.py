@@ -30,7 +30,7 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricJobClaim, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -1293,23 +1293,11 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
     from sqlalchemy import desc, func
 
     done_games = (
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == metric_key,
-            MetricJobClaim.status == "done",
-        )
+        session.query(func.count(func.distinct(MetricRunLog.game_id)))
+        .filter(MetricRunLog.metric_key == metric_key)
         .scalar() or 0
     )
-    active_games = (
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == metric_key,
-            MetricJobClaim.status == "in_progress",
-        )
-        .scalar() or 0
-    )
+    active_games = 0  # No longer tracked per-game; chord handles completion
     latest_run_at = (
         session.query(MetricRunLog.computed_at)
         .filter(MetricRunLog.metric_key == metric_key)
@@ -4120,7 +4108,6 @@ def api_metric_update(metric_key: str):
             family_keys = [row.key for row in _metric_family_rows(session, m)]
             session.query(MetricResultModel).filter(MetricResultModel.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(family_keys)).delete(synchronize_session=False)
-            session.query(MetricJobClaim).filter(MetricJobClaim.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.query(MetricComputeRun).filter(MetricComputeRun.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.commit()
             try:
@@ -4511,52 +4498,22 @@ def _admin_fragment_url(section: str, param_name: str, page: int) -> str:
 
 
 def _load_admin_claims_panel(session, *, claims_page: int, claims_page_size: int) -> dict:
-    from datetime import datetime, timedelta
-
-    claim_counts = dict(
-        session.query(MetricJobClaim.status, func.count())
-        .group_by(MetricJobClaim.status)
+    """Pipeline health summary based on MetricComputeRun status."""
+    run_counts = dict(
+        session.query(MetricComputeRun.status, func.count())
+        .group_by(MetricComputeRun.status)
         .all()
-    )
-
-    active_claims_q = (
-        session.query(MetricJobClaim)
-        .filter(MetricJobClaim.status == "in_progress")
-        .order_by(MetricJobClaim.claimed_at)
-    )
-    active_claim_total = active_claims_q.count()
-    active_claim_total_pages = max(1, (active_claim_total + claims_page_size - 1) // claims_page_size)
-    claims_page = min(claims_page, active_claim_total_pages)
-    active_claims = (
-        active_claims_q
-        .offset((claims_page - 1) * claims_page_size)
-        .limit(claims_page_size)
-        .all()
-    )
-    active = [
-        {
-            "game_id": c.game_id,
-            "metric_key": c.metric_key,
-            "worker_id": c.worker_id,
-            "claimed_at": c.claimed_at,
-            "age_s": int((datetime.utcnow() - c.claimed_at).total_seconds()) if c.claimed_at else None,
-        }
-        for c in active_claims
-    ]
-
-    stuck_cutoff = datetime.utcnow() - timedelta(seconds=600)
-    stuck_count = (
-        session.query(func.count())
-        .filter(MetricJobClaim.status == "in_progress", MetricJobClaim.claimed_at < stuck_cutoff)
-        .scalar() or 0
     )
 
     return {
-        "claim_counts": claim_counts,
-        "active": active,
-        "claims_page": claims_page,
-        "claims_total_pages": active_claim_total_pages,
-        "stuck_count": stuck_count,
+        "claim_counts": {
+            "done": run_counts.get("complete", 0),
+            "in_progress": run_counts.get("mapping", 0) + run_counts.get("reducing", 0),
+        },
+        "active": [],
+        "claims_page": 1,
+        "claims_total_pages": 1,
+        "stuck_count": run_counts.get("failed", 0),
     }
 
 
@@ -4571,27 +4528,15 @@ def _admin_compute_run_activity(session, run) -> dict:
     game_ids = games_q.subquery()
 
     scope_done_games = (
-        session.query(func.count())
-        .select_from(MetricJobClaim)
+        session.query(func.count(func.distinct(MetricRunLog.game_id)))
         .filter(
-            MetricJobClaim.metric_key == run.metric_key,
-            MetricJobClaim.status == "done",
-            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
+            MetricRunLog.metric_key == run.metric_key,
+            MetricRunLog.game_id.in_(session.query(game_ids.c.game_id)),
         )
         .scalar()
         or 0
     )
-    scope_active_games = (
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == run.metric_key,
-            MetricJobClaim.status == "in_progress",
-            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
-        )
-        .scalar()
-        or 0
-    )
+    scope_active_games = 0  # No longer tracked per-game; chord handles completion
 
     metric_seasons = 0
     fresh_result_seasons = 0
@@ -4805,8 +4750,8 @@ def admin_fragment(section: str):
                         COUNT(DISTINCT pbp.game_id) AS has_pbp,
                         COUNT(DISTINCT gls.game_id) AS has_line,
                         COUNT(DISTINCT sr.game_id)  AS has_shot,
-                        COALESCE(SUM(mjc_agg.done_cnt > 0), 0)   AS has_metrics,
-                        COALESCE(SUM(mjc_agg.active_cnt), 0)     AS active_claims
+                        COALESCE(SUM(mrl_agg.metric_cnt > 0), 0) AS has_metrics,
+                        0                                        AS active_claims
                     FROM Game g
                     LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
@@ -4814,11 +4759,10 @@ def admin_fragment(section: str):
                     LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
                     LEFT JOIN (
                         SELECT game_id,
-                               SUM(status = 'done')        AS done_cnt,
-                               SUM(status = 'in_progress') AS active_cnt
-                        FROM MetricJobClaim
+                               COUNT(DISTINCT metric_key) AS metric_cnt
+                        FROM MetricRunLog
                         GROUP BY game_id
-                    ) mjc_agg ON mjc_agg.game_id = g.game_id
+                    ) mrl_agg ON mrl_agg.game_id = g.game_id
                     WHERE g.game_date IS NOT NULL
                     GROUP BY g.season
                     ORDER BY g.season DESC

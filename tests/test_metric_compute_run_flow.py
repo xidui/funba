@@ -47,27 +47,23 @@ def test_cmd_metric_backfill_creates_runs_and_skips_active_metrics():
     assert "clutch_fg_pct_career (run-2)" in printed
 
 
-def test_compute_game_delta_skips_inline_reduce_when_mapping_run_exists():
+def test_compute_game_delta_computes_when_not_already_done():
     session_a = _ctx(MagicMock())
     session_b = _ctx(MagicMock())
-    session_c = _ctx(MagicMock())
+    # _is_already_computed returns False
+    session_a.query.return_value.filter.return_value.first.return_value = None
 
     metrics_tasks.compute_game_delta.push_request(id="worker-1")
     try:
-        with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session_a, session_b, session_c])), \
-             patch.object(metrics_tasks, "_try_claim", return_value=(True, None)), \
+        with patch.object(metrics_tasks, "_session_factory", return_value=MagicMock(side_effect=[session_a, session_b])), \
              patch.object(metrics_tasks, "run_delta_only", return_value=True), \
-             patch.object(metrics_tasks, "_mark_done") as mark_done, \
-             patch.object(metrics_tasks, "_has_mapping_compute_run", return_value=True), \
-             patch.object(metrics_tasks.compute_game_delta, "retry", side_effect=AssertionError("retry not expected")), \
-             patch.object(metrics_tasks, "_maybe_trigger_reduce") as maybe_trigger:
+             patch.object(metrics_tasks.compute_game_delta, "retry", side_effect=AssertionError("retry not expected")):
             result = metrics_tasks.compute_game_delta.run("g1", "metric_a")
     finally:
         metrics_tasks.compute_game_delta.pop_request()
 
-    mark_done.assert_called_once_with(session_c, "g1", "metric_a")
-    maybe_trigger.assert_not_called()
     assert result["reduce_triggered"] == []
+    assert result["produced"] is True
 
 
 def test_sweeper_promotes_stuck_mapping_run_after_timeout():

@@ -333,34 +333,6 @@ class MetricRunLog(Base):
     )
 
 
-class MetricJobClaim(Base):
-    """Atomic task-claim table — prevents concurrent duplicate metric computation.
-
-    One row per (game_id, metric_key). The worker that successfully INSERTs
-    via INSERT IGNORE owns the job. Concurrent workers get rowcount=0 and skip.
-
-    Status lifecycle:
-      'in_progress' — claimed, computation underway
-      'done'        — computation committed successfully; future tasks skip
-
-    On transient failure the worker deletes the row so a retry can reclaim.
-    On success the worker updates status to 'done'.
-    On worker crash the row stays as 'in_progress' and must be cleared manually
-    (or via --force in dispatch) before the game can be reprocessed.
-    """
-    __tablename__ = "MetricJobClaim"
-
-    game_id    = Column(String(20), primary_key=True)
-    metric_key = Column(String(64), primary_key=True)
-    claimed_at = Column(DateTime, nullable=False)
-    worker_id  = Column(String(255), nullable=True)   # celery task id for tracing
-    status     = Column(String(16), nullable=False, default="in_progress")  # in_progress | done
-
-    __table_args__ = (
-        Index('ix_MetricJobClaim_metric_status_game', 'metric_key', 'status', 'game_id'),
-    )
-
-
 class MetricComputeRun(Base):
     """Coarse-grained orchestration state for one metric compute/backfill run."""
     __tablename__ = "MetricComputeRun"

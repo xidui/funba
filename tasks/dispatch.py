@@ -30,7 +30,7 @@ from datetime import date as _date, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, MetricComputeRun, MetricJobClaim, engine
+from db.models import Game, MetricComputeRun, MetricRunLog, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
@@ -68,17 +68,17 @@ def _all_game_ids() -> list[str]:
         sess.close()
 
 
-def _clear_claims(game_ids: list[str], metric_keys: list[str] | None = None) -> int:
-    """Delete MetricJobClaim rows so workers can reprocess.
+def _clear_run_logs(game_ids: list[str], metric_keys: list[str] | None = None) -> int:
+    """Delete MetricRunLog rows so workers recompute deltas.
 
-    If metric_keys is None, clears ALL claims for the given games.
+    If metric_keys is None, clears ALL run logs for the given games.
     Returns count of deleted rows.
     """
     sess = _session()
     try:
-        q = sess.query(MetricJobClaim).filter(MetricJobClaim.game_id.in_(game_ids))
+        q = sess.query(MetricRunLog).filter(MetricRunLog.game_id.in_(game_ids))
         if metric_keys is not None:
-            q = q.filter(MetricJobClaim.metric_key.in_(metric_keys))
+            q = q.filter(MetricRunLog.metric_key.in_(metric_keys))
         count = q.delete(synchronize_session=False)
         sess.commit()
         return count
@@ -250,8 +250,8 @@ def cmd_discover(args: argparse.Namespace) -> None:
         return
 
     if args.force:
-        deleted = _clear_claims(list(game_ids))
-        print(f"--force: cleared {deleted} claim(s).")
+        deleted = _clear_run_logs(list(game_ids))
+        print(f"--force: cleared {deleted} run log(s).")
 
     for gid in sorted(game_ids):
         ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, )
@@ -262,8 +262,8 @@ def cmd_discover(args: argparse.Namespace) -> None:
 def cmd_game(args: argparse.Namespace) -> None:
     game_id = args.game_id
     if args.force:
-        deleted = _clear_claims([game_id])
-        print(f"--force: cleared {deleted} claim(s) for game {game_id}.")
+        deleted = _clear_run_logs([game_id])
+        print(f"--force: cleared {deleted} run log(s) for game {game_id}.")
     ingest_game.apply_async(args=[game_id], kwargs={"force": args.force}, )
     print(f"Enqueued 1 ingest task for game {game_id}.")
 
@@ -278,8 +278,8 @@ def cmd_backfill(args: argparse.Namespace) -> None:
         print("No games found for the given filters.")
         return
     if args.force:
-        deleted = _clear_claims(game_ids)
-        print(f"--force: cleared {deleted} claim(s) for {len(game_ids)} games.")
+        deleted = _clear_run_logs(game_ids)
+        print(f"--force: cleared {deleted} run log(s) for {len(game_ids)} games.")
     for gid in game_ids:
         ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, )
     print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
@@ -320,8 +320,8 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
         return
 
     if args.force:
-        deleted = _clear_claims(game_ids, metric_keys)
-        print(f"--force: cleared {deleted} claim(s).")
+        deleted = _clear_run_logs(game_ids, metric_keys)
+        print(f"--force: cleared {deleted} run log(s).")
 
     # Register one MetricComputeRun per concrete metric key, then enqueue
     # map tasks as a Celery chord with a reduce callback.

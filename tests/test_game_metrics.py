@@ -35,7 +35,7 @@ def _import_helper():
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricJobClaim", "MetricDefinition",
+        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "User",
         "GameLineScore",

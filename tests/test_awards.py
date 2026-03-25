@@ -28,7 +28,6 @@ def _import_web_helpers():
         "Game",
         "GamePlayByPlay",
         "MetricComputeRun",
-        "MetricJobClaim",
         "MetricDefinition",
         "MetricResult",
         "MetricRunLog",

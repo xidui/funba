@@ -7,9 +7,8 @@ Two-phase MapReduce pipeline:
 Completion detection:
   - **Chord path (backfill)**: dispatch uses Celery chord. When all map tasks finish,
     chord_reduce_callback fires automatically and enqueues reduce. No polling needed.
-    Idempotency via MetricRunLog existence (no MetricJobClaim).
-  - **Legacy ingest path (daily/single-game)**: uses MetricJobClaim INSERT IGNORE for
-    dedup and _maybe_trigger_reduce for inline reduce triggering.
+  - **Ingest path (daily/single-game)**: tasks check MetricRunLog existence for
+    idempotency. No claim table needed.
   - **Sweep fallback**: runs every 120s. Repairs stale reducing runs and force-promotes
     mapping runs stuck > 2 hours (chord counter lost due to Redis restart, etc.).
 """
@@ -24,14 +23,11 @@ from celery import shared_task
 from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import MetricComputeRun, MetricJobClaim, MetricResult, MetricRunLog, engine
+from db.models import MetricComputeRun, MetricResult, MetricRunLog, engine
 from metrics.framework.runner import run_delta_only, reduce_metric
 
 logger = logging.getLogger(__name__)
 
-_STATUS_IN_PROGRESS = "in_progress"
-_STATUS_DONE = "done"
-_LEASE_SECONDS = 60
 _RUN_STATUS_MAPPING = "mapping"
 _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
@@ -90,173 +86,13 @@ def _reduce_locked_session_factory(lock_name: str, timeout_seconds: int = 30):
                 logger.exception("Failed to release reduce lock %s", lock_name)
 
 
-def _try_claim(session, game_id: str, metric_key: str, worker_id: str) -> tuple[bool, str | None]:
-    """Atomically try to claim (game_id, metric_key).
-
-    Returns (owned, existing_status):
-      (True,  None)          — successfully claimed, proceed
-      (False, 'done')        — already computed, skip
-      (False, 'in_progress') — another worker owns it and lease is still fresh, skip
-    """
-    from sqlalchemy.dialects.mysql import insert as mysql_insert
-
-    stmt = mysql_insert(MetricJobClaim).values(
-        game_id=game_id,
-        metric_key=metric_key,
-        claimed_at=datetime.utcnow(),
-        worker_id=worker_id,
-        status=_STATUS_IN_PROGRESS,
-    ).prefix_with("IGNORE")
-    result = session.execute(stmt)
-    session.commit()
-
-    if result.rowcount == 1:
-        return True, None
-
-    row = (
-        session.query(MetricJobClaim)
-        .filter(
-            MetricJobClaim.game_id == game_id,
-            MetricJobClaim.metric_key == metric_key,
-        )
-        .first()
-    )
-    if row is None:
-        return _try_claim(session, game_id, metric_key, worker_id)
-
-    if row.status == _STATUS_DONE:
-        return False, _STATUS_DONE
-
-    age = (datetime.utcnow() - row.claimed_at).total_seconds()
-    if age < _LEASE_SECONDS:
-        return False, _STATUS_IN_PROGRESS
-
-    # Lease expired — check if MetricRunLog rows exist (work committed before crash)
-    existing_run = (
-        session.query(MetricRunLog.game_id)
-        .filter(
-            MetricRunLog.game_id == game_id,
-            MetricRunLog.metric_key == metric_key,
-        )
-        .first()
-    )
-    if existing_run is not None:
-        updated_done = (
-            session.query(MetricJobClaim)
-            .filter(
-                MetricJobClaim.game_id == game_id,
-                MetricJobClaim.metric_key == metric_key,
-                MetricJobClaim.status == _STATUS_IN_PROGRESS,
-                MetricJobClaim.claimed_at == row.claimed_at,
-            )
-            .update({"status": _STATUS_DONE}, synchronize_session=False)
-        )
-        session.commit()
-        if updated_done == 1:
-            logger.warning(
-                "promoted stale claim to done: game=%s metric=%s",
-                game_id, metric_key,
-            )
-            return False, _STATUS_DONE
-        return False, _STATUS_IN_PROGRESS
-
-    # Lease expired, no MetricRunLog → reclaim
-    updated = (
-        session.query(MetricJobClaim)
-        .filter(
-            MetricJobClaim.game_id == game_id,
-            MetricJobClaim.metric_key == metric_key,
-            MetricJobClaim.status == _STATUS_IN_PROGRESS,
-            MetricJobClaim.claimed_at == row.claimed_at,
-        )
-        .update(
-            {"claimed_at": datetime.utcnow(), "worker_id": worker_id},
-            synchronize_session=False,
-        )
-    )
-    session.commit()
-
-    if updated == 1:
-        logger.warning(
-            "reclaimed expired claim: game=%s metric=%s (age=%.0fs)",
-            game_id, metric_key, age,
-        )
-        return True, None
-    return False, _STATUS_IN_PROGRESS
-
-
-def _mark_done(session, game_id: str, metric_key: str) -> None:
-    session.query(MetricJobClaim).filter(
-        MetricJobClaim.game_id == game_id,
-        MetricJobClaim.metric_key == metric_key,
-    ).update({"status": _STATUS_DONE})
-    session.commit()
-
-
-def _release_claim(session, game_id: str, metric_key: str) -> None:
-    session.query(MetricJobClaim).filter(
-        MetricJobClaim.game_id == game_id,
-        MetricJobClaim.metric_key == metric_key,
-    ).delete()
-    session.commit()
-
-
-def _has_mapping_compute_run(session, metric_key: str) -> bool:
+def _is_already_computed(session, game_id: str, metric_key: str) -> bool:
+    """Check if MetricRunLog already has data for this (game, metric) pair."""
     return (
-        session.query(MetricComputeRun.id)
-        .filter(
-            MetricComputeRun.metric_key == metric_key,
-            MetricComputeRun.status == _RUN_STATUS_MAPPING,
-        )
+        session.query(MetricRunLog.game_id)
+        .filter(MetricRunLog.game_id == game_id, MetricRunLog.metric_key == metric_key)
         .first()
-        is not None
-    )
-
-
-def _maybe_trigger_reduce(session, metric_key: str) -> list[str]:
-    """If all games have been processed for this metric, enqueue reduce tasks.
-
-    Compares done claims against the total number of games in the DB
-    (not just the number of claims), so it won't fire prematurely during
-    backfill when claims are being created incrementally.
-
-    Returns list of seasons for which reduce was triggered.
-    """
-    from db.models import Game
-
-    total_games = (
-        session.query(func.count())
-        .select_from(Game)
-        .filter(Game.game_date.isnot(None))
-        .scalar()
-    )
-    done = (
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == metric_key,
-            MetricJobClaim.status == _STATUS_DONE,
-        )
-        .scalar()
-    )
-    if total_games == 0 or done < total_games:
-        return []
-
-    # All done — find distinct seasons and enqueue reduce
-    seasons = [
-        r.season
-        for r in session.query(MetricRunLog.season)
-        .filter(MetricRunLog.metric_key == metric_key)
-        .distinct()
-        .all()
-    ]
-    for season in seasons:
-        reduce_metric_season_task.delay(metric_key, season)
-    logger.info(
-        "auto-triggered reduce for metric=%s (%d seasons): %s",
-        metric_key, len(seasons), seasons,
-    )
-    return seasons
+    ) is not None
 
 
 def _metric_seasons(session, metric_key: str) -> list[str]:
@@ -281,35 +117,6 @@ def _run_game_ids_query(session, run: MetricComputeRun):
         q = q.filter(Game.game_date <= run.target_date_to)
     return q
 
-
-def _done_claim_count_for_run(session, run: MetricComputeRun) -> int:
-    game_ids = _run_game_ids_query(session, run).subquery()
-    return int(
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == run.metric_key,
-            MetricJobClaim.status == _STATUS_DONE,
-            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
-        )
-        .scalar()
-        or 0
-    )
-
-
-def _active_claim_count_for_run(session, run: MetricComputeRun) -> int:
-    game_ids = _run_game_ids_query(session, run).subquery()
-    return int(
-        session.query(func.count())
-        .select_from(MetricJobClaim)
-        .filter(
-            MetricJobClaim.metric_key == run.metric_key,
-            MetricJobClaim.status == _STATUS_IN_PROGRESS,
-            MetricJobClaim.game_id.in_(session.query(game_ids.c.game_id)),
-        )
-        .scalar()
-        or 0
-    )
 
 
 def _fresh_result_season_count_for_run(session, run: MetricComputeRun, seasons: list[str]) -> int:
@@ -483,31 +290,16 @@ def _mark_run_failed(session, run_id: str, error_text: str) -> None:
 def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None = None) -> dict:
     """Phase 1: compute delta for one (game, metric) and write MetricRunLog only.
 
-    When run_id is set (chord backfill path), skips claim-based dedup and uses
-    MetricRunLog existence for idempotency.  When run_id is None (legacy ingest
-    path), uses the existing MetricJobClaim claim lifecycle.
+    Idempotency is via MetricRunLog existence check — if the delta was already
+    written, the task is skipped.  For chord backfill (run_id set), the chord
+    callback triggers reduce.  For the legacy ingest path (run_id=None), reduce
+    is not triggered inline (the daily ingest handles it separately).
     """
     SessionLocal = _session_factory()
 
-    if run_id is not None:
-        # Chord path: idempotency via MetricRunLog existence
-        with SessionLocal() as session:
-            already_done = (
-                session.query(MetricRunLog.game_id)
-                .filter(
-                    MetricRunLog.game_id == game_id,
-                    MetricRunLog.metric_key == metric_key,
-                )
-                .first()
-            ) is not None
-        if already_done:
+    with SessionLocal() as session:
+        if _is_already_computed(session, game_id, metric_key):
             return {"game_id": game_id, "metric_key": metric_key, "skipped": True, "reason": "already_computed"}
-    else:
-        # Legacy ingest path: claim-based dedup
-        with SessionLocal() as session:
-            owned, existing_status = _try_claim(session, game_id, metric_key, self.request.id or "")
-        if not owned:
-            return {"game_id": game_id, "metric_key": metric_key, "skipped": True, "reason": existing_status}
 
     try:
         with SessionLocal() as session:
@@ -519,22 +311,11 @@ def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None =
         )
         raise self.retry(exc=exc, countdown=10)
 
-    if run_id is None:
-        # Legacy path: mark claim done, maybe trigger reduce inline
-        with SessionLocal() as session:
-            _mark_done(session, game_id, metric_key)
-            if _has_mapping_compute_run(session, metric_key):
-                triggered_seasons = []
-            else:
-                triggered_seasons = _maybe_trigger_reduce(session, metric_key)
-    else:
-        triggered_seasons = []  # Chord callback handles reduce
-
     return {
         "game_id": game_id,
         "metric_key": metric_key,
         "produced": produced,
-        "reduce_triggered": triggered_seasons,
+        "reduce_triggered": [],
     }
 
 
