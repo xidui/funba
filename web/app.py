@@ -4052,6 +4052,7 @@ def api_metric_update(metric_key: str):
         m = _metric_family_base_row(session, m)
         if not getattr(m, "key", None):
             m.key = metric_key
+        result_key = m.key  # capture before session closes
 
         if code_python:
             try:
@@ -4129,9 +4130,9 @@ def api_metric_update(metric_key: str):
                 _dispatch_metric_backfill(m.key)
             except Exception:
                 logger.exception("Failed to enqueue backfill for %s", m.key)
-                return jsonify({"ok": True, "key": m.key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
+                return jsonify({"ok": True, "key": result_key, "warning": "Metric updated but backfill enqueue failed. Run manually."})
 
-    return jsonify({"ok": True, "key": m.key})
+    return jsonify({"ok": True, "key": result_key})
 
 
 def _resolve_entity_labels(session, rows):
