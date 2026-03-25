@@ -361,5 +361,148 @@ class CachedMetric(MetricDefinition):
         )
 
 
+class TestReadOnlySession(unittest.TestCase):
+    def setUp(self):
+        self.fake_db_models = _make_fake_db_models()
+        sys.modules.pop("metrics.framework.runtime", None)
+        sys.modules["db.models"] = self.fake_db_models
+        if "db" in sys.modules:
+            sys.modules["db"].models = self.fake_db_models
+
+    def tearDown(self):
+        sys.modules.pop("metrics.framework.runtime", None)
+        if _ORIGINAL_DB_MODELS is not None:
+            sys.modules["db.models"] = _ORIGINAL_DB_MODELS
+        else:
+            sys.modules.pop("db.models", None)
+        if "db" in sys.modules:
+            if _ORIGINAL_DB_ATTR is not None:
+                sys.modules["db"].models = _ORIGINAL_DB_ATTR
+            elif hasattr(sys.modules["db"], "models"):
+                delattr(sys.modules["db"], "models")
+
+    def _load_runtime(self):
+        return importlib.import_module("metrics.framework.runtime")
+
+    def _make_ro_session(self):
+        runtime = self._load_runtime()
+        inner = MagicMock()
+        return runtime.ReadOnlySession(inner), inner
+
+    def test_query_is_forwarded(self):
+        ro, inner = self._make_ro_session()
+        ro.query("Game")
+        inner.query.assert_called_once_with("Game")
+
+    def test_get_is_forwarded(self):
+        ro, inner = self._make_ro_session()
+        ro.get("Game", 1)
+        inner.get.assert_called_once_with("Game", 1)
+
+    def test_scalar_is_forwarded(self):
+        ro, inner = self._make_ro_session()
+        ro.scalar("stmt")
+        inner.scalar.assert_called_once_with("stmt")
+
+    def test_execute_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*execute"):
+            ro.execute("DROP TABLE game")
+
+    def test_commit_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*commit"):
+            ro.commit()
+
+    def test_add_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*add"):
+            ro.add(object())
+
+    def test_delete_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*delete"):
+            ro.delete(object())
+
+    def test_flush_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*flush"):
+            ro.flush()
+
+    def test_merge_raises_permission_error(self):
+        ro, _ = self._make_ro_session()
+        with self.assertRaisesRegex(PermissionError, "read-only.*merge"):
+            ro.merge(object())
+
+    def test_metric_code_using_session_execute_is_blocked(self):
+        runtime = self._load_runtime()
+        metric = runtime.load_code_metric(
+            """
+from sqlalchemy import text
+from metrics.framework.base import MetricDefinition, MetricResult
+
+
+class MaliciousMetric(MetricDefinition):
+    key = "malicious_metric"
+    name = "Malicious Metric"
+    description = "Tries to drop a table."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        session.execute(text("DROP TABLE game"))
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=game_id,
+            value_num=0.0,
+        )
+"""
+        )
+        ro = runtime.ReadOnlySession(MagicMock())
+        with self.assertRaises(PermissionError):
+            metric.compute(ro, "player-1", "2025-26")
+
+    def test_metric_code_using_session_commit_is_blocked(self):
+        runtime = self._load_runtime()
+        metric = runtime.load_code_metric(
+            """
+from metrics.framework.base import MetricDefinition, MetricResult
+
+
+class CommitMetric(MetricDefinition):
+    key = "commit_metric"
+    name = "Commit Metric"
+    description = "Tries to commit."
+    scope = "player"
+    category = "scoring"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        session.commit()
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=game_id,
+            value_num=0.0,
+        )
+"""
+        )
+        ro = runtime.ReadOnlySession(MagicMock())
+        with self.assertRaises(PermissionError):
+            metric.compute(ro, "player-1", "2025-26")
+
+    def test_unblocked_attr_falls_through(self):
+        """Attributes not in the blocked set should proxy to the real session."""
+        ro, inner = self._make_ro_session()
+        inner.some_custom_attr = "hello"
+        self.assertEqual(ro.some_custom_attr, "hello")
+
+
 if __name__ == "__main__":
     unittest.main()

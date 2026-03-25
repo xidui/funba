@@ -231,7 +231,7 @@
 <div class="search-panel">
   <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Search with natural language</div>
   <div class="search-row">
-    <input id="metric-search-input" class="search-input" type="text" value="{{ search_query or '' }}" placeholder="e.g. highest scoring games by a player, clutch shooting, bench scoring" />
+    <input id="metric-search-input" class="search-input" type="text" maxlength="200" value="{{ search_query or '' }}" placeholder="e.g. highest scoring games by a player, clutch shooting, bench scoring" />
     {% if is_admin %}
     <select id="metric-search-model" class="admin-model-select" aria-label="Select LLM model">
       {% for model_name in llm_available_models %}

@@ -87,6 +87,52 @@ _SAFE_BUILTINS = {
 }
 
 
+class ReadOnlySession:
+    """Proxy that exposes only read operations on a SQLAlchemy Session.
+
+    Generated metric code receives this instead of the real session so it
+    cannot INSERT, UPDATE, DELETE, or COMMIT — even via raw SQL.
+    """
+
+    _BLOCKED = frozenset({
+        "add", "add_all", "delete", "merge", "bulk_save_objects",
+        "bulk_insert_mappings", "bulk_update_mappings",
+        "commit", "flush", "rollback",
+        "execute",  # blocks raw text("DROP TABLE ...")
+    })
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    def query(self, *args, **kwargs):
+        return self._session.query(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        return self._session.get(*args, **kwargs)
+
+    def scalar(self, *args, **kwargs):
+        return self._session.scalar(*args, **kwargs)
+
+    def scalars(self, *args, **kwargs):
+        return self._session.scalars(*args, **kwargs)
+
+    # Expose info/bind for helpers that inspect the session
+    @property
+    def info(self):
+        return self._session.info
+
+    @property
+    def bind(self):
+        return self._session.bind
+
+    def __getattr__(self, name: str):
+        if name in self._BLOCKED:
+            raise PermissionError(
+                f"Code metrics are read-only: session.{name}() is not allowed"
+            )
+        return getattr(self._session, name)
+
+
 def _module_root(name: str | None) -> str:
     return (name or "").split(".", 1)[0]
 
@@ -326,7 +372,7 @@ class CodeMetricDefinition(MetricDefinition):
         return CodeMetricDefinition(self._base_row, career=True)
 
     def compute_delta(self, session, entity_id, game_id):
-        return self._inner.compute_delta(session, entity_id, game_id)
+        return self._inner.compute_delta(ReadOnlySession(session), entity_id, game_id)
 
     def compute_value(self, totals, season, entity_id):
         result = self._inner.compute_value(totals, season, entity_id)
@@ -335,7 +381,7 @@ class CodeMetricDefinition(MetricDefinition):
         return result
 
     def compute(self, session, entity_id, season, game_id=None):
-        result = self._inner.compute(session, entity_id, season, game_id)
+        result = self._inner.compute(ReadOnlySession(session), entity_id, season, game_id)
         if result and self.career:
             result.metric_key = self.key
         return result

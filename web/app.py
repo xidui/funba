@@ -3431,6 +3431,8 @@ def api_metric_search():
     requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400
+    if len(query) > 200:
+        return jsonify({"ok": False, "error": "query too long (max 200 characters)"}), 400
 
     with SessionLocal() as session:
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
@@ -3613,10 +3615,11 @@ def _preview_code_metric(
     rank_order_override: str | None = None,
 ):
     """Run a code-based metric against sample games and return ranked results."""
-    from metrics.framework.runtime import load_code_metric
+    from metrics.framework.runtime import ReadOnlySession, load_code_metric
 
     metadata = _code_metric_metadata_from_code(code_python, rank_order_override=rank_order_override)
     metric = load_code_metric(metadata["code_python"])
+    ro_session = ReadOnlySession(session)
     rank_order = metadata["rank_order"]
     ctx_template = metadata.get("context_label_template")
 
@@ -3646,7 +3649,7 @@ def _preview_code_metric(
         rows = []
         for gr in game_rows:
             try:
-                result = metric.compute(session, gr.game_id, gr.season, gr.game_id)
+                result = metric.compute(ro_session, gr.game_id, gr.season, gr.game_id)
             except Exception:
                 continue
             if not result:
@@ -3673,7 +3676,7 @@ def _preview_code_metric(
             for gid in game_ids:
                 for tid in team_ids:
                     try:
-                        delta = metric.compute_delta(session, tid, gid)
+                        delta = metric.compute_delta(ro_session, tid, gid)
                     except Exception:
                         continue
                     if delta is None:
@@ -3691,7 +3694,7 @@ def _preview_code_metric(
             rows = []
             for tid in team_ids:
                 try:
-                    result = metric.compute(session, tid, season)
+                    result = metric.compute(ro_session, tid, season)
                 except Exception:
                     continue
                 if result and result.value_num is not None:
@@ -3719,7 +3722,7 @@ def _preview_code_metric(
                     .filter(PlayerGameStats.game_id == gid).distinct().all()]
                 for pid in player_ids:
                     try:
-                        delta = metric.compute_delta(session, pid, gid)
+                        delta = metric.compute_delta(ro_session, pid, gid)
                     except Exception:
                         continue
                     if delta is None:
