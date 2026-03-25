@@ -4078,11 +4078,11 @@ def api_metric_update(metric_key: str):
                     )
                     source_code = code_metadata["code_python"]
                 source_definition = None
-                name = code_metadata["name"]
-                description = code_metadata["description"]
-                scope = code_metadata["scope"]
-                category = code_metadata["category"]
-                min_sample = code_metadata["min_sample"]
+                name = body.get("name") or code_metadata["name"]
+                description = body.get("description") if body.get("description") is not None else code_metadata["description"]
+                scope = body.get("scope") or code_metadata["scope"]
+                category = body.get("category") or code_metadata["category"]
+                min_sample = int(body.get("min_sample") or code_metadata["min_sample"])
             else:
                 source_code = None
                 source_definition = body.get("definition")
