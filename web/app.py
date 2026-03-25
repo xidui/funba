@@ -4497,25 +4497,6 @@ def _admin_fragment_url(section: str, param_name: str, page: int) -> str:
     return url_for("admin_fragment", section=section, **args)
 
 
-def _load_admin_claims_panel(session, *, claims_page: int, claims_page_size: int) -> dict:
-    """Pipeline health summary based on MetricComputeRun status."""
-    run_counts = dict(
-        session.query(MetricComputeRun.status, func.count())
-        .group_by(MetricComputeRun.status)
-        .all()
-    )
-
-    return {
-        "claim_counts": {
-            "done": run_counts.get("complete", 0),
-            "in_progress": run_counts.get("mapping", 0) + run_counts.get("reducing", 0),
-        },
-        "active": [],
-        "claims_page": 1,
-        "claims_total_pages": 1,
-        "stuck_count": run_counts.get("failed", 0),
-    }
-
 
 def _admin_compute_run_activity(session, run) -> dict:
     games_q = session.query(Game.game_id).filter(Game.game_date.isnot(None))
@@ -4716,7 +4697,6 @@ def admin_fragment(section: str):
         return denied
 
     section = (section or "").strip().lower()
-    claims_page_size = 25
     runs_page_size = 25
     recent_page_size = 25
 
@@ -4787,19 +4767,6 @@ def admin_fragment(section: str):
                 for row in coverage_rows
             ]
             return render_template("_admin_coverage.html", coverage=coverage)
-
-        if section == "claims":
-            panel = _load_admin_claims_panel(session, claims_page=_admin_page_arg("claims_page"), claims_page_size=claims_page_size)
-            return render_template(
-                "_admin_claims_card.html",
-                claim_counts=panel["claim_counts"],
-                active=panel["active"],
-                claims_page=panel["claims_page"],
-                claims_total_pages=panel["claims_total_pages"],
-                stuck_count=panel["stuck_count"],
-                admin_page_url=_admin_page_url,
-                admin_fragment_url=_admin_fragment_url,
-            )
 
         if section == "compute-runs":
             panel = _load_admin_compute_runs_panel(session, runs_page=_admin_page_arg("runs_page"), runs_page_size=runs_page_size)
