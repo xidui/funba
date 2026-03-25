@@ -3460,6 +3460,32 @@ def api_metric_search():
     return jsonify({"ok": True, "matches": matches})
 
 
+@app.post("/api/metrics/check-similar")
+@limiter.limit("15 per minute")
+def api_metric_check_similar():
+    denied = _require_login_json()
+    if denied:
+        return denied
+    from metrics.framework.generator import check_similar
+    body = request.get_json(force=True) or {}
+    expression = (body.get("expression") or "").strip()
+    requested_model = (body.get("model") or "").strip() if is_admin() else None
+    if not expression:
+        return jsonify({"ok": False, "error": "expression is required"}), 400
+    with SessionLocal() as session:
+        try:
+            llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="search")
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        catalog = _catalog_metrics(session, status_filter="published")
+    try:
+        similar = check_similar(expression, catalog, model=llm_model)
+    except Exception as exc:
+        logger.exception("check-similar failed")
+        similar = []
+    return jsonify({"ok": True, "similar": similar})
+
+
 @app.post("/api/metrics/generate")
 @limiter.limit("10 per minute")
 def api_metric_generate():

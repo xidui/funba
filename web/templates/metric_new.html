@@ -1016,14 +1016,40 @@
     scrollChat();
   }
 
-  function addThinking() {
+  function addThinking(label) {
     const div = document.createElement('div');
     div.className = 'msg msg-ai';
     div.id = 'thinking-msg';
-    div.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble"><div class="msg-thinking"><div class="msg-thinking-dots"><span></span><span></span><span></span></div> Generating…</div></div>`;
+    div.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble"><div class="msg-thinking"><div class="msg-thinking-dots"><span></span><span></span><span></span></div> ${escHtml(label || 'Generating…')}</div></div>`;
     chatMessages.appendChild(div);
     scrollChat();
     return div;
+  }
+
+  function updateThinking(label) {
+    const el = document.getElementById('thinking-msg');
+    if (!el) return;
+    const dots = '<div class="msg-thinking-dots"><span></span><span></span><span></span></div>';
+    el.querySelector('.msg-thinking').innerHTML = `${dots} ${escHtml(label)}`;
+  }
+
+  function addSimilarMetricsMsg(similar) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-ai';
+    let html = `<div class="msg-label">AI</div><div class="msg-bubble">`;
+    html += `<div style="margin-bottom:8px;">I found existing metrics that look similar to what you described:</div>`;
+    for (const m of similar) {
+      html += `<a href="/metrics/${encodeURIComponent(m.key)}" target="_blank" style="display:block;padding:8px 12px;margin:6px 0;border-radius:8px;border:1px solid var(--border);background:var(--surface);text-decoration:none;color:var(--text);transition:border-color 0.15s;">`;
+      html += `<div style="font-weight:700;font-size:14px;color:#fff;">${escHtml(m.name)}</div>`;
+      html += `<div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHtml(m.description)}</div>`;
+      html += `<div style="font-size:11px;color:var(--accent);margin-top:4px;">${escHtml(m.reason)}</div>`;
+      html += `</a>`;
+    }
+    html += `<div style="margin-top:10px;font-size:13px;color:var(--muted);">If your metric is different, describe what makes it unique and I'll generate it.</div>`;
+    html += `</div>`;
+    div.innerHTML = html;
+    chatMessages.appendChild(div);
+    scrollChat();
   }
 
   function removeThinking() {
@@ -1042,6 +1068,91 @@
   }
 
   // ── Generate / Refine ────────────────────────────────────────────
+
+  async function runGenerate(expr, isFollowup) {
+    updateThinking('Generating metric code…');
+
+    const payload = { expression: expr };
+    if (modelSelect) payload.model = modelSelect.value;
+    if (isFollowup) payload.history = chatHistory;
+    if (EDIT_MODE && currentSpec) {
+      payload.existing = {
+        key: EDIT_KEY,
+        name: document.getElementById('f-name').value,
+        description: document.getElementById('f-desc').value,
+        scope: document.getElementById('f-scope').value,
+        category: document.getElementById('f-category').value,
+        rank_order: rankOrderInput.value,
+        code: codeViewer.textContent,
+      };
+    }
+
+    const res = await fetch('/api/metrics/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    removeThinking();
+
+    if (!data.ok) {
+      const errDiv = document.createElement('div');
+      errDiv.className = 'msg msg-ai';
+      errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">${escHtml(data.error)}</div>`;
+      chatMessages.appendChild(errDiv);
+      setChatStatus(data.error || 'Generation failed.');
+      scrollChat();
+      return;
+    }
+
+    const responseType = data.responseType || 'code';
+    const assistantContent = responseType === 'clarification'
+      ? JSON.stringify({responseType: 'clarification', message: data.message || ''})
+      : JSON.stringify(data.spec || {});
+
+    if (!isFollowup) {
+      chatHistory = [
+        {role: 'user', content: expr},
+        {role: 'assistant', content: assistantContent},
+      ];
+    } else {
+      chatHistory.push({role: 'user', content: expr});
+      chatHistory.push({role: 'assistant', content: assistantContent});
+    }
+
+    startOverBtn.style.display = 'inline-flex';
+    if (responseType === 'clarification') {
+      addAiClarification(data.message || '');
+      return;
+    }
+
+    currentSpec = data.spec;
+    addAiMsg(currentSpec);
+
+    if (EDIT_MODE) {
+      currentSpec.name        = document.getElementById('f-name').value;
+      currentSpec.description = document.getElementById('f-desc').value;
+      currentSpec.scope       = document.getElementById('f-scope').value;
+      currentSpec.category    = document.getElementById('f-category').value;
+      currentSpec.rank_order  = rankOrderInput.value;
+    } else {
+      document.getElementById('f-name').value     = currentSpec.name || '';
+      document.getElementById('f-desc').value     = currentSpec.description || '';
+      if (!isFollowup) {
+        document.getElementById('f-scope').value    = currentSpec.scope || 'player';
+        document.getElementById('f-category').value = currentSpec.category || 'scoring';
+      }
+      rankOrderInput.value = currentSpec.rank_order || rankOrderInput.value || 'desc';
+      syncCreateKey(currentSpec, expr);
+    }
+    codeViewer.textContent = currentSpec.code || '';
+    applyRankOrderToCode(rankOrderInput.value);
+    if (EDIT_MODE && originalCode) renderDiff(originalCode, currentSpec.code || '');
+    settingsPanel.style.display = 'block';
+
+    await runPreview();
+  }
+
   async function handleSend(event) {
     if (event) event.preventDefault();
     if (isSubmitting || limitLocked) return;
@@ -1061,91 +1172,41 @@
     syncChatControls();
     setChatStatus('');
 
-    const thinking = addThinking();
+    addThinking('Checking existing metrics…');
 
     try {
-      const payload = { expression: expr };
-      if (modelSelect) payload.model = modelSelect.value;
-      if (isFollowup) payload.history = chatHistory;
-      if (EDIT_MODE && currentSpec) {
-        payload.existing = {
-          key: EDIT_KEY,
-          name: document.getElementById('f-name').value,
-          description: document.getElementById('f-desc').value,
-          scope: document.getElementById('f-scope').value,
-          category: document.getElementById('f-category').value,
-          rank_order: rankOrderInput.value,
-          code: codeViewer.textContent,
-        };
-      }
+      // Step 1: check for similar metrics (first turn, non-edit only)
+      if (!isFollowup && !EDIT_MODE) {
+        const checkPayload = { expression: expr };
+        if (modelSelect) checkPayload.model = modelSelect.value;
+        const checkRes = await fetch('/api/metrics/check-similar', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(checkPayload),
+        });
+        const checkData = await checkRes.json();
 
-      const res = await fetch('/api/metrics/generate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      removeThinking();
-
-      if (!data.ok) {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'msg msg-ai';
-        errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">${escHtml(data.error)}</div>`;
-        chatMessages.appendChild(errDiv);
-        setChatStatus(data.error || 'Generation failed.');
-        scrollChat();
-        lockConversationIfNeeded();
-        return;
-      }
-
-      const responseType = data.responseType || 'code';
-      const assistantContent = responseType === 'clarification'
-        ? JSON.stringify({responseType: 'clarification', message: data.message || ''})
-        : JSON.stringify(data.spec || {});
-
-      if (!isFollowup) {
-        chatHistory = [
-          {role: 'user', content: expr},
-          {role: 'assistant', content: assistantContent},
-        ];
-      } else {
-        chatHistory.push({role: 'user', content: expr});
-        chatHistory.push({role: 'assistant', content: assistantContent});
-      }
-
-      startOverBtn.style.display = 'inline-flex';
-      if (responseType === 'clarification') {
-        addAiClarification(data.message || '');
-        lockConversationIfNeeded();
-        return;
-      }
-
-      currentSpec = data.spec;
-      addAiMsg(currentSpec);
-
-      // Update settings — in edit mode, keep original name/desc/scope/category
-      if (EDIT_MODE) {
-        currentSpec.name        = document.getElementById('f-name').value;
-        currentSpec.description = document.getElementById('f-desc').value;
-        currentSpec.scope       = document.getElementById('f-scope').value;
-        currentSpec.category    = document.getElementById('f-category').value;
-        currentSpec.rank_order  = rankOrderInput.value;
-      } else {
-        document.getElementById('f-name').value     = currentSpec.name || '';
-        document.getElementById('f-desc').value     = currentSpec.description || '';
-        if (!isFollowup) {
-          document.getElementById('f-scope').value    = currentSpec.scope || 'player';
-          document.getElementById('f-category').value = currentSpec.category || 'scoring';
+        if (checkData.ok && checkData.similar && checkData.similar.length > 0) {
+          removeThinking();
+          addSimilarMetricsMsg(checkData.similar);
+          startOverBtn.style.display = 'inline-flex';
+          // Seed chat history so the next message is a followup
+          const similarSummary = checkData.similar.map(s => `${s.name}: ${s.reason}`).join('; ');
+          chatHistory = [
+            {role: 'user', content: expr},
+            {role: 'assistant', content: JSON.stringify({
+              responseType: 'similar_check',
+              similar: checkData.similar.map(s => s.key),
+              message: `Found similar metrics: ${similarSummary}`,
+            })},
+          ];
+          lockConversationIfNeeded();
+          return;
         }
-        rankOrderInput.value = currentSpec.rank_order || rankOrderInput.value || 'desc';
-        syncCreateKey(currentSpec, expr);
       }
-      codeViewer.textContent = currentSpec.code || '';
-      applyRankOrderToCode(rankOrderInput.value);
-      if (EDIT_MODE && originalCode) renderDiff(originalCode, currentSpec.code || '');
-      settingsPanel.style.display = 'block';
 
-      await runPreview();
+      // Step 2: generate metric code
+      await runGenerate(expr, isFollowup);
       lockConversationIfNeeded();
 
     } catch (e) {

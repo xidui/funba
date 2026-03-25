@@ -316,17 +316,18 @@ def _initial_user_message(expression: str) -> str:
     )
 
 
-def _call_llm(messages: list[dict], model: str | None = None) -> str:
-    """Call OpenAI (preferred) or Anthropic and return the raw text response.
-
-    messages: list of {"role": "user"|"assistant", "content": "..."}
-    """
+def _call_llm_with_system(
+    system_prompt: str,
+    messages: list[dict],
+    model: str | None = None,
+    max_tokens: int = 4096,
+) -> str:
+    """Call OpenAI or Anthropic with an explicit system prompt."""
     selected_model = model or env_default_llm_model()
     if not selected_model:
         raise ValueError("No AI API key set — set OPENAI_API_KEY.")
 
     selected_model = ensure_model_available(selected_model)
-    system_prompt = _build_system_prompt()
     provider = provider_for_model(selected_model)
 
     if provider == "openai":
@@ -334,7 +335,7 @@ def _call_llm(messages: list[dict], model: str | None = None) -> str:
         client = openai.OpenAI()
         response = client.chat.completions.create(
             model=selected_model,
-            max_completion_tokens=4096,
+            max_completion_tokens=max_tokens,
             temperature=0,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -347,13 +348,18 @@ def _call_llm(messages: list[dict], model: str | None = None) -> str:
         client = anthropic.Anthropic()
         message = client.messages.create(
             model=selected_model,
-            max_tokens=4096,
+            max_tokens=max_tokens,
             system=system_prompt,
             messages=messages,
         )
         return message.content[0].text.strip()
     else:
         raise ValueError(f"Unsupported provider: {provider}")
+
+
+def _call_llm(messages: list[dict], model: str | None = None) -> str:
+    """Call LLM with the metric-generator system prompt."""
+    return _call_llm_with_system(_build_system_prompt(), messages, model=model)
 
 
 def generate(expression: str, history: list[dict] | None = None,
@@ -444,6 +450,81 @@ def generate(expression: str, history: list[dict] | None = None,
                 spec[field] = existing[field]
 
     return spec
+
+
+def check_similar(expression: str, catalog: list[dict], model: str | None = None) -> list[dict]:
+    """Check if any existing metrics are similar to the user's description.
+
+    Args:
+        expression: The user's metric description.
+        catalog: List of dicts with at least 'key', 'name', 'description' for each existing metric.
+        model: Optional LLM model override.
+
+    Returns:
+        List of similar metrics: [{"key", "name", "description", "reason"}, ...].
+        Empty list if nothing is similar.
+    """
+    if not expression.strip() or not catalog:
+        return []
+
+    catalog_lines = "\n".join(
+        f"- key={m['key']}  name={m.get('name', '')}  description={m.get('description', '')}"
+        for m in catalog
+    )
+
+    system_prompt = (
+        "You are an NBA analytics assistant. The user wants to create a new metric.\n"
+        "Your job is to check whether any existing metrics already measure the same thing "
+        "or are very similar to what the user described.\n\n"
+        "Existing metrics:\n"
+        f"{catalog_lines}\n\n"
+        "Reply with ONLY a JSON array (no markdown fences). Each element:\n"
+        '{"key": "metric_key", "reason": "short explanation of why it is similar"}\n\n'
+        "Rules:\n"
+        "- Only include metrics that genuinely measure the same or very similar thing.\n"
+        "- If nothing is similar, return an empty array: []\n"
+        "- Return at most 3 results.\n"
+        "- Be strict — minor keyword overlap is NOT enough. The intent must match.\n"
+    )
+
+    raw = _call_llm_with_system(
+        system_prompt,
+        [{"role": "user", "content": expression}],
+        model=model,
+        max_tokens=512,
+    )
+
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("check_similar returned invalid JSON: %s", raw)
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    catalog_by_key = {m["key"]: m for m in catalog}
+    results = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key", "")).strip()
+        if key not in catalog_by_key:
+            continue
+        m = catalog_by_key[key]
+        results.append({
+            "key": key,
+            "name": m.get("name", ""),
+            "description": m.get("description", ""),
+            "reason": str(item.get("reason", "")).strip() or "Similar metric.",
+        })
+        if len(results) >= 3:
+            break
+
+    return results
 
 
 def generate_rule(expression: str) -> dict:
