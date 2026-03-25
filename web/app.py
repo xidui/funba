@@ -1292,26 +1292,41 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 def _metric_backfill_component(session, metric_key: str, total_games: int) -> dict:
     from sqlalchemy import desc, func
 
-    done_games = (
-        session.query(func.count(func.distinct(MetricRunLog.game_id)))
-        .filter(MetricRunLog.metric_key == metric_key)
-        .scalar() or 0
+    # Check MetricComputeRun first — it's cheap and tells us the status.
+    latest_compute_run = (
+        session.query(MetricComputeRun)
+        .filter(MetricComputeRun.metric_key == metric_key)
+        .order_by(desc(MetricComputeRun.created_at))
+        .first()
     )
-    active_games = 0  # No longer tracked per-game; chord handles completion
+
+    # For completed/reducing runs, use target_game_count instead of expensive COUNT DISTINCT.
+    if latest_compute_run and latest_compute_run.status in ("complete", "reducing"):
+        done_games = int(latest_compute_run.target_game_count)
+    elif latest_compute_run and latest_compute_run.status == "mapping":
+        # Still mapping — count run logs (may be slow for large metrics, but mapping is transient)
+        done_games = (
+            session.query(func.count(func.distinct(MetricRunLog.game_id)))
+            .filter(MetricRunLog.metric_key == metric_key)
+            .scalar() or 0
+        )
+    else:
+        # No compute run — use MetricResult count as a proxy
+        done_games = (
+            session.query(func.count(MetricResultModel.id))
+            .filter(MetricResultModel.metric_key == metric_key)
+            .scalar() or 0
+        )
+        if done_games:
+            done_games = total_games  # Has results → treat as done
+
+    active_games = 0
     latest_run_at = (
         session.query(MetricRunLog.computed_at)
         .filter(MetricRunLog.metric_key == metric_key)
         .order_by(desc(MetricRunLog.computed_at))
         .limit(1)
         .scalar()
-    )
-
-    # Check MetricComputeRun to reflect map/reduce pipeline status accurately.
-    latest_compute_run = (
-        session.query(MetricComputeRun)
-        .filter(MetricComputeRun.metric_key == metric_key)
-        .order_by(desc(MetricComputeRun.created_at))
-        .first()
     )
 
     reduce_done_seasons = None
@@ -4508,16 +4523,20 @@ def _admin_compute_run_activity(session, run) -> dict:
         games_q = games_q.filter(Game.game_date <= run.target_date_to)
     game_ids = games_q.subquery()
 
-    scope_done_games = (
-        session.query(func.count(func.distinct(MetricRunLog.game_id)))
-        .filter(
-            MetricRunLog.metric_key == run.metric_key,
-            MetricRunLog.game_id.in_(session.query(game_ids.c.game_id)),
+    # Use target_game_count for completed/reducing runs to avoid expensive COUNT DISTINCT.
+    if run.status in ("complete", "reducing"):
+        scope_done_games = int(run.target_game_count)
+    else:
+        scope_done_games = (
+            session.query(func.count(func.distinct(MetricRunLog.game_id)))
+            .filter(
+                MetricRunLog.metric_key == run.metric_key,
+                MetricRunLog.game_id.in_(session.query(game_ids.c.game_id)),
+            )
+            .scalar()
+            or 0
         )
-        .scalar()
-        or 0
-    )
-    scope_active_games = 0  # No longer tracked per-game; chord handles completion
+    scope_active_games = 0
 
     metric_seasons = 0
     fresh_result_seasons = 0
