@@ -111,11 +111,14 @@ def _create_metric_compute_run(
             .first()
         )
         if existing is not None:
+            run_id = existing.id
+            sess.expunge(existing)
             return existing, False
 
+        run_id = str(uuid.uuid4())
         now = datetime.utcnow()
         run = MetricComputeRun(
-            id=str(uuid.uuid4()),
+            id=run_id,
             metric_key=metric_key,
             status="mapping",
             target_season=season,
@@ -127,6 +130,8 @@ def _create_metric_compute_run(
         )
         sess.add(run)
         sess.commit()
+        sess.refresh(run)
+        sess.expunge(run)
         return run, True
     finally:
         sess.close()
