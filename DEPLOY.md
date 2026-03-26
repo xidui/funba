@@ -235,9 +235,8 @@ The sweep task (every 120s) acts as a fallback for:
 - Mapping runs stuck > 2 hours (chord counter lost, e.g. Redis restart)
 - Reducing runs stuck > 30 minutes (worker killed mid-reduce)
 
-`MetricJobClaim` table has been removed. Idempotency is via MetricRunLog
-existence check. One `MetricComputeRun` row per metric (old runs auto-deleted
-on new backfill).
+One `MetricComputeRun` row per metric (old runs auto-deleted on new backfill).
+Idempotency is via MetricRunLog existence check.
 
 Workers use `--autoscale=MAX,MIN` (not `-c`) in their launchd plists.
 Idle memory footprint is ~900 MB (12 processes); under full backfill load it
