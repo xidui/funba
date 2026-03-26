@@ -1391,6 +1391,7 @@
           return;
         }
 
+        let redirectKey = data.key;
         if (publish) {
           const pub = await fetch(`/api/metrics/${data.key}/publish`, { method: 'POST' });
           const pubData = await pub.json();
@@ -1399,6 +1400,7 @@
             saveMsg.className = 'status-msg error';
             return;
           }
+          redirectKey = pubData.key;
           if (pubData.warning) {
             saveMsg.textContent = `${pubData.warning} Redirecting to metric page…`;
             saveMsg.className = 'status-msg warning';
@@ -1406,7 +1408,7 @@
           }
         }
 
-        window.location.href = `/metrics/${data.key}`;
+        window.location.href = `/metrics/${redirectKey}`;
       }
     } catch (e) {
       saveMsg.textContent = 'Error: ' + e.message;
