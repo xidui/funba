@@ -135,12 +135,9 @@ def _fresh_result_season_count_for_run(session, run: MetricComputeRun, seasons: 
 
 
 def _finalize_reducing_run_if_complete(session, run: MetricComputeRun) -> bool:
+    """Mark a reducing run as complete if all seasons have fresh results."""
     seasons = _metric_seasons(session, run.metric_key)
     if not seasons:
-        return False
-    if _done_claim_count_for_run(session, run) < int(run.target_game_count or 0):
-        return False
-    if _active_claim_count_for_run(session, run) > 0:
         return False
     if _fresh_result_season_count_for_run(session, run, seasons) < len(seasons):
         return False
@@ -150,13 +147,10 @@ def _finalize_reducing_run_if_complete(session, run: MetricComputeRun) -> bool:
 
 
 def _requeue_stale_reducing_run(session, run: MetricComputeRun, *, now: datetime | None = None) -> bool:
+    """Requeue a reducing run if it's been stuck for too long."""
     now = now or datetime.utcnow()
     seasons = _metric_seasons(session, run.metric_key)
     if not seasons:
-        return False
-    if _done_claim_count_for_run(session, run) < int(run.target_game_count or 0):
-        return False
-    if _active_claim_count_for_run(session, run) > 0:
         return False
     if not run.reduce_enqueued_at:
         age_seconds = _REDUCE_STALE_REQUEUE_SECONDS
