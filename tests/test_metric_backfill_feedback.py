@@ -22,7 +22,7 @@ def _make_app_module():
     for name in (
         "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats",
+        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats",
         "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())

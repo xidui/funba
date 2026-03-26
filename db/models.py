@@ -60,6 +60,19 @@ class Player(Base):
     to_year = Column(Integer, nullable=True)           # latest NBA season
 
 
+class PlayerSalary(Base):
+    __tablename__ = "PlayerSalary"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(String(50), ForeignKey("Player.player_id"), nullable=False, index=True)
+    season = Column(Integer, nullable=False)
+    salary_usd = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "season", name="uq_PlayerSalary_player_season"),
+    )
+
+
 class Award(Base):
     __tablename__ = 'Award'
 

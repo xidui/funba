@@ -34,6 +34,7 @@ def _import_web_helpers():
         "PageView",
         "Player",
         "PlayerGameStats",
+        "PlayerSalary",
         "ShotRecord",
         "Team",
         "TeamGameStats",
