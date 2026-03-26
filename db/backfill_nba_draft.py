@@ -10,6 +10,8 @@ import argparse
 import logging
 import time
 from dataclasses import dataclass
+from datetime import date
+from functools import lru_cache
 
 from requests.exceptions import ConnectionError, Timeout
 from sqlalchemy.orm import sessionmaker
@@ -28,6 +30,11 @@ try:
     from nba_api.stats.endpoints import drafthistory
 except ImportError:  # pragma: no cover - exercised only in misconfigured runtimes
     drafthistory = None
+
+try:
+    from nba_api.stats.static import players as static_players
+except ImportError:  # pragma: no cover - exercised only in misconfigured runtimes
+    static_players = None
 
 
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +96,25 @@ def _target_years(year: int | None = None, refresh_all: bool = False) -> list[in
     raise ValueError("Either a single year or --all is required")
 
 
+@lru_cache(maxsize=1)
+def _static_players_by_id() -> dict[str, dict]:
+    if static_players is None:
+        return {}
+    return {
+        str(player["id"]): player
+        for player in static_players.get_players()
+        if player.get("id") is not None
+    }
+
+
+def _draft_player_is_active(player_id: str, draft_year: int) -> bool:
+    player = _static_players_by_id().get(player_id)
+    if player is not None:
+        return bool(player.get("is_active"))
+
+    return draft_year >= date.today().year - 4
+
+
 def _apply_draft_fields(player: Player, row: dict) -> bool:
     changed = False
 
@@ -126,7 +152,7 @@ def upsert_draft_row(session, row: dict) -> str:
             Player(
                 player_id=player_id,
                 full_name=full_name,
-                is_active=False,
+                is_active=_draft_player_is_active(player_id, draft_year),
                 is_team=False,
                 draft_year=draft_year,
                 draft_round=draft_round,

@@ -67,6 +67,20 @@ def _int_or_none(val):
         return None
 
 
+def _bool_or_none(val):
+    if val is None or val == "":
+        return None
+    if isinstance(val, bool):
+        return val
+
+    normalized = str(val).strip().lower()
+    if normalized in {"1", "true", "active", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "inactive", "no", "n"}:
+        return False
+    return None
+
+
 def update_player_info(session, player: Player, info: dict) -> bool:
     """Apply bio fields from API response to a Player row. Returns True if changed."""
     changed = False
@@ -84,6 +98,7 @@ def update_player_info(session, player: Player, info: dict) -> bool:
         "position": ("POSITION", str),
         "from_year": ("FROM_YEAR", _int_or_none),
         "to_year": ("TO_YEAR", _int_or_none),
+        "is_active": ("ROSTERSTATUS", _bool_or_none),
     }
 
     for col, (api_key, converter) in field_map.items():
