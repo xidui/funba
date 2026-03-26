@@ -745,8 +745,8 @@
       <span id="reduce-done-seasons">{{ backfill.reduce_done_seasons or 0 }}</span> / <span id="reduce-total-seasons">{{ backfill.reduce_total_seasons or 0 }}</span> seasons
     </div>
   </div>
-  {# Map progress (running phase) #}
-  <div id="backfill-details" {% if backfill.status not in ['running', 'queued'] %}style="display:none"{% endif %}>
+  {# Map progress and job counts (always visible for admin) #}
+  <div id="backfill-details">
   <div id="backfill-components" class="backfill-components"{% if not backfill.is_multi_component %} style="display:none"{% endif %}>
     {% for component in backfill.components %}
     <div class="backfill-component">
@@ -1085,8 +1085,6 @@
     setStatusPill(panelPill, backfill.status);
     if (meta) meta.textContent = summaryMetaText(backfill);
     const isFinalizing = backfill.status === 'finalizing';
-    const showMapDetails = ['running', 'queued'].includes(backfill.status);
-    if (details) details.style.display = showMapDetails ? '' : 'none';
     if (reducePanel) reducePanel.style.display = isFinalizing ? '' : 'none';
     if (isFinalizing && backfill.reduce_total_seasons) {
       const rp = Math.round(backfill.reduce_done_seasons / backfill.reduce_total_seasons * 1000) / 10;
