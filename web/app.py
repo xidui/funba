@@ -30,7 +30,7 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, ShotRecord, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -1634,6 +1634,12 @@ def _season_year_label(season_id: str | None) -> str:
     return s
 
 
+def _season_start_year_label(season: int | None) -> str:
+    if season is None:
+        return "-"
+    return f"{season}-{(season + 1) % 100:02d}"
+
+
 def _season_sort_key(season_id: str | None) -> tuple[int, int]:
     """
     Sort seasons by actual year first, then type priority.
@@ -3002,6 +3008,20 @@ def player_page(player_id: str):
                 )
 
         player_metrics = _get_metric_results(session, "player", player_id, selected_season)
+        salary_records = (
+            session.query(PlayerSalary)
+            .filter(PlayerSalary.player_id == player_id)
+            .order_by(PlayerSalary.season.desc())
+            .all()
+        )
+        salary_rows = [
+            SimpleNamespace(
+                season=row.season,
+                season_label=_season_start_year_label(row.season),
+                salary_usd=row.salary_usd,
+            )
+            for row in salary_records
+        ]
 
     return render_template(
         "player.html",
@@ -3021,6 +3041,7 @@ def player_page(player_id: str):
         game_rows=game_rows,
         player_metrics=player_metrics,
         player_awards=player_awards,
+        salary_rows=salary_rows,
     )
 
 

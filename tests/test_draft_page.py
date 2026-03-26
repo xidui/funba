@@ -58,7 +58,7 @@ def _make_app_module():
     for name in (
         "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun",
         "MetricDefinition", "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "ShotRecord", "Team", "TeamGameStats", "GameLineScore",
+        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.User = fake_user_cls
@@ -169,6 +169,12 @@ class TestDraftPage(unittest.TestCase):
         player_template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
         self.assertIn('href="/draft/{{ player.draft_year }}"', player_template)
         self.assertIn('class="bio-value draft-link"', player_template)
+
+    def test_player_template_contains_salary_history_markup(self):
+        player_template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
+        self.assertIn("<h2>Salary History</h2>", player_template)
+        self.assertIn('{{ row.season_label }}', player_template)
+        self.assertIn('${{ "{:,}".format(row.salary_usd) }}', player_template)
 
 
 if __name__ == "__main__":
