@@ -104,6 +104,44 @@ class TestBackfillPlayerSalary(unittest.TestCase):
         self.assertEqual(counts.matched, 1)
         self.assertEqual(counts.unmatched, 0)
 
+    def test_run_upserts_all_seasons_when_requested(self):
+        contract_players = [
+            self.module.ContractPlayerEntry(
+                full_name="Stephen Curry",
+                player_url="https://www.basketball-reference.com/players/c/curryst01.html",
+            )
+        ]
+        salary_rows = [
+            self.module.SalaryRecord(season=2024, salary_usd=55761216),
+            self.module.SalaryRecord(season=2023, salary_usd=51915615),
+            self.module.SalaryRecord(season=2022, salary_usd=48070014),
+        ]
+
+        with patch.object(self.module, "Session", self.SessionLocal), patch.object(
+            self.module, "fetch_contract_players", return_value=contract_players
+        ), patch.object(
+            self.module, "fetch_salary_history", return_value=salary_rows
+        ), patch.object(
+            self.module, "BasketballReferenceClient"
+        ), patch(
+            "builtins.print"
+        ):
+            counts = self.module.run(season=None)
+
+        self.assertEqual(counts.matched, 1)
+        self.assertEqual(counts.updated, 3)
+
+        with self.SessionLocal() as session:
+            persisted_rows = (
+                session.query(self.models.PlayerSalary)
+                .filter(self.models.PlayerSalary.player_id == "201939")
+                .order_by(self.models.PlayerSalary.season.desc())
+                .all()
+            )
+
+        self.assertEqual([row.season for row in persisted_rows], [2024, 2023, 2022])
+        self.assertEqual([row.salary_usd for row in persisted_rows], [55761216, 51915615, 48070014])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@
 Usage:
     python -m db.backfill_player_salary
     python -m db.backfill_player_salary --season 2024
+    python -m db.backfill_player_salary --all-seasons
 """
 from __future__ import annotations
 
@@ -237,7 +238,7 @@ def _upsert_salary_rows(session, player_id: str, salary_rows: Iterable[SalaryRec
     return updated
 
 
-def run(season: int = DEFAULT_SEASON) -> BackfillCounts:
+def run(season: int | None = DEFAULT_SEASON) -> BackfillCounts:
     counts = BackfillCounts()
     client = BasketballReferenceClient()
     session = Session()
@@ -258,7 +259,8 @@ def run(season: int = DEFAULT_SEASON) -> BackfillCounts:
 
             try:
                 salary_rows = fetch_salary_history(client, entry.player_url)
-                salary_rows = [row for row in salary_rows if row.season == season]
+                if season is not None:
+                    salary_rows = [row for row in salary_rows if row.season == season]
                 if not salary_rows:
                     continue
 
@@ -282,5 +284,10 @@ def run(season: int = DEFAULT_SEASON) -> BackfillCounts:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill player salary history from Basketball Reference")
     parser.add_argument("--season", type=int, default=DEFAULT_SEASON, help="Starting year for the salary season (default: 2024)")
+    parser.add_argument(
+        "--all-seasons",
+        action="store_true",
+        help="Backfill every salary season available on Basketball Reference for each matched player",
+    )
     args = parser.parse_args()
-    run(season=args.season)
+    run(season=None if args.all_seasons else args.season)
