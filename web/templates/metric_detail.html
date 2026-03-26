@@ -666,13 +666,12 @@
 
 {# ── Detailed admin view ── #}
 {% if is_admin %}
-<details
+<div
   id="backfill-admin-panel"
   class="backfill-panel"
   style="margin-top:8px;"
-  {% if backfill.status in ['queued', 'running', 'finalizing'] %}open{% endif %}
 >
-  <summary class="backfill-summary">
+  <div class="backfill-summary" style="cursor:default;">
     <div class="backfill-summary-main">
       <span class="backfill-summary-title">Backfill details</span>
       <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
@@ -695,8 +694,7 @@
         {% endif %}
       </span>
     </div>
-    <span class="backfill-caret" aria-hidden="true"></span>
-  </summary>
+  </div>
   <div class="backfill-body">
   {# Pipeline timeline #}
   {% for component in backfill.components %}
@@ -779,7 +777,7 @@
   </div>
   </div>{# backfill-details #}
   </div>
-</details>
+</div>
 {% endif %}
 
 {% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
@@ -1099,8 +1097,6 @@
     if (totalValue) totalValue.textContent = backfill.total_games;
     renderComponents(backfill);
     renderTimeline(backfill);
-    const adminPanel = document.getElementById('backfill-admin-panel');
-    if (adminPanel && isActive) adminPanel.open = true;
     syncPolling(backfill.status);
   }
 
