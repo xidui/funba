@@ -215,6 +215,55 @@ class TestCreatePlayerGameStats(unittest.TestCase):
         self.assertEqual(existing_stats.plus, 14)
         session.add.assert_called_once_with(existing_stats)
 
+    def test_creates_missing_player_as_active(self):
+        player_query = MagicMock()
+        player_query.filter_by.return_value.first.return_value = None
+        stats_query = MagicMock()
+        stats_query.filter_by.return_value.first.return_value = None
+        session = MagicMock()
+        session.query.side_effect = [player_query, stats_query]
+
+        started = self.module.create_player_game_stats(
+            session,
+            {
+                "GAME_ID": "g2",
+                "TEAM_ID": "t2",
+                "PLAYER_ID": "p2",
+                "PLAYER_NAME": "Rookie Example",
+                "NICKNAME": "R. Example",
+                "COMMENT": "",
+                "MIN": "12:05",
+                "START_POSITION": "",
+                "PTS": 6,
+                "FGM": 2,
+                "FGA": 5,
+                "FG_PCT": 0.4,
+                "FG3M": 1,
+                "FG3A": 2,
+                "FG3_PCT": 0.5,
+                "FTM": 1,
+                "FTA": 2,
+                "FT_PCT": 0.5,
+                "OREB": 0,
+                "DREB": 2,
+                "REB": 2,
+                "AST": 1,
+                "STL": 0,
+                "BLK": 0,
+                "TO": 1,
+                "PF": 2,
+                "PLUS_MINUS": 3,
+            },
+        )
+
+        created_player = session.add.call_args_list[0].args[0]
+        created_stats = session.add.call_args_list[1].args[0]
+
+        self.assertFalse(started)
+        self.assertEqual(created_player.player_id, "p2")
+        self.assertTrue(created_player.is_active)
+        self.assertEqual(created_stats.player_id, "p2")
+
 
 class TestIsGameDetailBackFilled(unittest.TestCase):
     def setUp(self):

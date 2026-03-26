@@ -66,7 +66,9 @@ class TestBackfillNbaDraft(unittest.TestCase):
 
         with patch.object(self.module, "Session", self.SessionLocal), patch.object(
             self.module, "fetch_draft_history", return_value=rows
-        ) as fetch_mock, patch.object(self.module.time, "sleep") as sleep_mock, patch.object(
+        ) as fetch_mock, patch.object(self.module, "_static_players_by_id", return_value={}), patch.object(
+            self.module.time, "sleep"
+        ) as sleep_mock, patch.object(
             self.module.logger, "info"
         ):
             counts = self.module.run(year=2009)
@@ -114,9 +116,16 @@ class TestBackfillNbaDraft(unittest.TestCase):
             },
         ]
 
+        static_players = {
+            "201935": {"id": 201935, "is_active": False},
+            "201939": {"id": 201939, "is_active": True},
+        }
+
         with patch.object(self.module, "Session", self.SessionLocal), patch.object(
             self.module, "fetch_draft_history", return_value=rows
-        ), patch.object(self.module.time, "sleep"), patch.object(self.module.logger, "info"):
+        ), patch.object(self.module, "_static_players_by_id", return_value=static_players), patch.object(
+            self.module.time, "sleep"
+        ), patch.object(self.module.logger, "info"):
             counts = self.module.run(year=2009)
 
         players = self._players()
@@ -146,7 +155,9 @@ class TestBackfillNbaDraft(unittest.TestCase):
 
         with patch.object(self.module, "Session", self.SessionLocal), patch.object(
             self.module, "fetch_draft_history", return_value=rows
-        ), patch.object(self.module.time, "sleep"), patch.object(self.module.logger, "info"):
+        ), patch.object(self.module, "_static_players_by_id", return_value={}), patch.object(
+            self.module.time, "sleep"
+        ), patch.object(self.module.logger, "info"):
             first_counts = self.module.run(year=1996)
             second_counts = self.module.run(year=1996)
 
@@ -161,7 +172,9 @@ class TestBackfillNbaDraft(unittest.TestCase):
     def test_run_all_iterates_historical_year_range(self):
         with patch.object(self.module, "Session", self.SessionLocal), patch.object(
             self.module, "fetch_draft_history", return_value=[]
-        ) as fetch_mock, patch.object(self.module.time, "sleep") as sleep_mock, patch.object(
+        ) as fetch_mock, patch.object(self.module, "_static_players_by_id", return_value={}), patch.object(
+            self.module.time, "sleep"
+        ) as sleep_mock, patch.object(
             self.module.logger, "info"
         ):
             self.module.run(refresh_all=True)
@@ -170,6 +183,27 @@ class TestBackfillNbaDraft(unittest.TestCase):
         self.assertEqual(fetch_mock.call_args_list[0].args, (1947,))
         self.assertEqual(fetch_mock.call_args_list[-1].args, (2024,))
         self.assertEqual(sleep_mock.call_count, fetch_mock.call_count - 1)
+
+    def test_recent_draft_pick_defaults_to_active_when_static_lookup_is_missing(self):
+        recent_year = self.module.date.today().year - 1
+        row = {
+            "SEASON": str(recent_year),
+            "ROUND_NUMBER": "1",
+            "ROUND_PICK": "3",
+            "PERSON_ID": "209999",
+            "PLAYER_NAME": "Recent Rookie",
+        }
+
+        with self.SessionLocal() as session, patch.object(
+            self.module, "_static_players_by_id", return_value={}
+        ):
+            outcome = self.module.upsert_draft_row(session, row)
+            session.commit()
+            player = session.get(self.models.Player, "209999")
+
+        self.assertEqual(outcome, "created")
+        self.assertIsNotNone(player)
+        self.assertTrue(player.is_active)
 
 
 if __name__ == "__main__":
