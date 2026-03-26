@@ -289,6 +289,9 @@
           <th>W</th>
           <th>L</th>
           <th>GP</th>
+          <th>FG%</th>
+          <th>3P%</th>
+          <th>FT%</th>
           <th>Win%</th>
         </tr>
       </thead>
@@ -299,6 +302,9 @@
           <td style="color:var(--win); font-weight:600;">{{ row.wins }}</td>
           <td style="color:var(--loss);">{{ row.losses }}</td>
           <td>{{ row.games }}</td>
+          <td>{{ row.fg_pct|pct_fmt }}</td>
+          <td>{{ row.fg3_pct|pct_fmt }}</td>
+          <td>{{ row.ft_pct|pct_fmt }}</td>
           <td>
             {% if row.games > 0 %}
             {{ "%.3f"|format(row.wins / row.games) }}
