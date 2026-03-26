@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .my-metrics-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .my-metrics-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .my-metrics-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--heading);
+    margin: 0 0 4px;
+  }
+
+  .my-metrics-subtitle {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .my-metrics-create {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--accent) 70%, #fff 10%);
+  }
+  .my-metrics-create:hover { color: #fff; filter: brightness(1.04); }
+
+  .my-metrics-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .my-metrics-section-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--heading);
+    margin: 0;
+  }
+
+  .my-metrics-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .my-metric-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  }
+  .my-metric-card:hover {
+    background: var(--surface-2);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    transform: translateY(-1px);
+  }
+  .my-metric-card:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .my-metric-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+
+  .my-metric-card-main {
+    min-width: 0;
+  }
+
+  .my-metric-card-name {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--heading);
+    margin: 0 0 8px;
+  }
+
+  .my-metric-pill-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .scope-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .scope-badge.player { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .scope-badge.player_franchise { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .scope-badge.team { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
+  .scope-badge.game { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
+
+  .status-pill {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .status-pill.draft {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .status-pill.published {
+    color: var(--win);
+    border-color: color-mix(in srgb, var(--win) 65%, transparent);
+    background: color-mix(in srgb, var(--win) 12%, transparent);
+  }
+
+  .my-metric-updated {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .my-metric-description {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .my-metric-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+
+  .my-metric-meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .my-metric-cta {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .my-metrics-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    min-height: 320px;
+    padding: 32px 20px;
+    text-align: center;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, transparent), color-mix(in srgb, var(--surface-2) 82%, transparent));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+  }
+
+  .my-metrics-empty-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--heading);
+    margin: 0;
+  }
+
+  .my-metrics-empty-copy {
+    max-width: 440px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  @media (max-width: 720px) {
+    .my-metric-card-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .my-metric-updated {
+      text-align: left;
+      white-space: normal;
+    }
+  }
+</style>
+
+<div class="my-metrics-shell">
+  <div class="my-metrics-header">
+    <div>
+      <h1 class="my-metrics-title">My Metrics</h1>
+      <div class="my-metrics-subtitle">{{ total_metrics }} metric{{ 's' if total_metrics != 1 }}</div>
+    </div>
+    <a href="{{ url_for('metric_new') }}" class="my-metrics-create">Create Metric</a>
+  </div>
+
+  {% if not drafts and not published %}
+  <div class="my-metrics-empty">
+    <h2 class="my-metrics-empty-title">You haven&apos;t created any metrics yet.</h2>
+    <p class="my-metrics-empty-copy">Create your first metric to track drafts, publish new ideas, and come back here to manage everything in one place.</p>
+    <a href="{{ url_for('metric_new') }}" class="my-metrics-create">Create your first metric</a>
+  </div>
+  {% endif %}
+
+  {% if drafts %}
+  <section class="my-metrics-section" aria-labelledby="my-metrics-drafts">
+    <h2 id="my-metrics-drafts" class="my-metrics-section-title">Drafts · {{ drafts|length }}</h2>
+    <div class="my-metrics-list">
+      {% for metric in drafts %}
+      <a href="{{ url_for('metric_edit', metric_key=metric.key) }}" class="my-metric-card">
+        <div class="my-metric-card-header">
+          <div class="my-metric-card-main">
+            <h3 class="my-metric-card-name">{{ metric.name }}</h3>
+            <div class="my-metric-pill-row">
+              <span class="scope-badge {{ metric.scope }}">{{ scope_labels.get(metric.scope, metric.scope|replace('_', ' ')|title) }}</span>
+              <span class="status-pill draft">Draft</span>
+            </div>
+          </div>
+          <div class="my-metric-updated">
+            Last updated
+            <div>{{ metric.updated_at.strftime('%Y-%m-%d %H:%M') if metric.updated_at else 'Unknown' }}</div>
+          </div>
+        </div>
+        <p class="my-metric-description">{{ metric.description or 'No description yet.' }}</p>
+        <div class="my-metric-footer">
+          <div class="my-metric-meta">{{ metric.key }}</div>
+          <div class="my-metric-cta">Continue editing &rarr;</div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if published %}
+  <section class="my-metrics-section" aria-labelledby="my-metrics-published">
+    <h2 id="my-metrics-published" class="my-metrics-section-title">Published · {{ published|length }}</h2>
+    <div class="my-metrics-list">
+      {% for metric in published %}
+      <a href="{{ url_for('metric_detail', metric_key=metric.key) }}" class="my-metric-card">
+        <div class="my-metric-card-header">
+          <div class="my-metric-card-main">
+            <h3 class="my-metric-card-name">{{ metric.name }}</h3>
+            <div class="my-metric-pill-row">
+              <span class="scope-badge {{ metric.scope }}">{{ scope_labels.get(metric.scope, metric.scope|replace('_', ' ')|title) }}</span>
+              <span class="status-pill published">Published</span>
+            </div>
+          </div>
+          <div class="my-metric-updated">
+            Last updated
+            <div>{{ metric.updated_at.strftime('%Y-%m-%d %H:%M') if metric.updated_at else 'Unknown' }}</div>
+          </div>
+        </div>
+        <p class="my-metric-description">{{ metric.description or 'No description yet.' }}</p>
+        <div class="my-metric-footer">
+          <div class="my-metric-meta">{{ metric.key }}</div>
+          <div class="my-metric-cta">View results &rarr;</div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

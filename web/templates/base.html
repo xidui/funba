@@ -1013,6 +1013,9 @@
                 <div class="user-dropdown-name">{{ current_user.display_name }}</div>
                 <div class="user-dropdown-email">{{ current_user.email }}</div>
               </div>
+              {% if is_pro %}
+              <a href="{{ url_for('my_metrics') }}" class="user-dropdown-action">My Metrics</a>
+              {% endif %}
               <a href="{{ url_for('account_page') }}" class="user-dropdown-action">Account</a>
               <form method="post" action="{{ url_for('auth_logout') }}" style="margin:0;">
                 <button type="submit" class="user-dropdown-action">Sign out</button>

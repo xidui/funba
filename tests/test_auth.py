@@ -372,6 +372,125 @@ class TestGoogleOAuth(unittest.TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class TestMyMetricsRoute(unittest.TestCase):
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def test_metrics_mine_requires_login_for_external_visitors(self):
+        response = self.client.get(
+            "/metrics/mine",
+            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/auth/login", response.location)
+
+    def test_metrics_mine_blocks_logged_in_non_pro_users(self):
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "some-user-id"
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", display_name="Test User")), \
+             patch("web.app.render_template", return_value="upgrade"):
+            response = self.client.get(
+                "/metrics/mine",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_metrics_mine_renders_separate_drafts_and_published_lists(self):
+        class FakeColumn:
+            def __init__(self, name):
+                self.name = name
+
+            def __eq__(self, other):
+                return ("eq", self.name, other)
+
+            def is_(self, other):
+                return ("is", self.name, other)
+
+            def desc(self):
+                return ("desc", self.name)
+
+        class FakeMetricDefinitionModel:
+            created_by_user_id = FakeColumn("created_by_user_id")
+            base_metric_key = FakeColumn("base_metric_key")
+            status = FakeColumn("status")
+            updated_at = FakeColumn("updated_at")
+            created_at = FakeColumn("created_at")
+
+        class RecordingMetricQuery:
+            def __init__(self, rows):
+                self.rows = rows
+                self.filters = []
+                self.orderings = []
+
+            def filter(self, *conditions):
+                self.filters.extend(conditions)
+                return self
+
+            def order_by(self, *orderings):
+                self.orderings.extend(orderings)
+                return self
+
+            def all(self):
+                return self.rows
+
+        draft_metric = SimpleNamespace(key="draft_metric", name="Draft Metric", description="Draft desc", scope="player", updated_at=None)
+        published_metric = SimpleNamespace(key="published_metric", name="Published Metric", description="Published desc", scope="team", updated_at=None)
+
+        draft_query = RecordingMetricQuery([draft_metric])
+        published_query = RecordingMetricQuery([published_metric])
+
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+        session.query.side_effect = [draft_query, published_query]
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="pro", subscription_expires_at=None)), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.MetricDefinitionModel", FakeMetricDefinitionModel), \
+             patch("web.app.render_template", return_value="<html></html>") as mock_render:
+            response = self.client.get(
+                "/metrics/mine",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            draft_query.filters,
+            [
+                ("eq", "created_by_user_id", "user-123"),
+                ("is", "base_metric_key", None),
+                ("eq", "status", "draft"),
+            ],
+        )
+        self.assertEqual(draft_query.orderings, [("desc", "updated_at")])
+        self.assertEqual(
+            published_query.filters,
+            [
+                ("eq", "created_by_user_id", "user-123"),
+                ("is", "base_metric_key", None),
+                ("eq", "status", "published"),
+            ],
+        )
+        self.assertEqual(published_query.orderings, [("desc", "created_at")])
+        mock_render.assert_called_once_with(
+            "my_metrics.html",
+            drafts=[draft_metric],
+            published=[published_metric],
+            total_metrics=2,
+            scope_labels={
+                "player": "Player",
+                "player_franchise": "Player Franchise",
+                "team": "Team",
+                "game": "Game",
+            },
+        )
+
+
 class TestRedirectSafety(unittest.TestCase):
     """_safe_redirect_url must reject off-site URLs and allow local paths."""
 
@@ -809,6 +928,11 @@ class TestMetricPublishAuth(unittest.TestCase):
         template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
         self.assertIn("{% if is_admin or is_pro %}", template)
         self.assertIn("url_for('metric_edit', metric_key=metric_def.key)", template)
+
+    def test_base_template_shows_my_metrics_link_for_pro_users(self):
+        template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()
+        self.assertIn("{% if is_pro %}", template)
+        self.assertIn("url_for('my_metrics')", template)
 
 
 if __name__ == "__main__":

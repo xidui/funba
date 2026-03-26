@@ -3394,6 +3394,52 @@ def metrics_browse():
     )
 
 
+@app.route("/metrics/mine")
+def my_metrics():
+    denied = _require_metric_creator_page()
+    if denied:
+        return denied
+
+    cur_user = _current_user()
+    if cur_user is None:
+        return redirect(url_for("auth_login", next=request.url))
+
+    with SessionLocal() as session:
+        drafts = (
+            session.query(MetricDefinitionModel)
+            .filter(
+                MetricDefinitionModel.created_by_user_id == cur_user.id,
+                MetricDefinitionModel.base_metric_key.is_(None),
+                MetricDefinitionModel.status == "draft",
+            )
+            .order_by(MetricDefinitionModel.updated_at.desc())
+            .all()
+        )
+        published = (
+            session.query(MetricDefinitionModel)
+            .filter(
+                MetricDefinitionModel.created_by_user_id == cur_user.id,
+                MetricDefinitionModel.base_metric_key.is_(None),
+                MetricDefinitionModel.status == "published",
+            )
+            .order_by(MetricDefinitionModel.created_at.desc())
+            .all()
+        )
+
+    return render_template(
+        "my_metrics.html",
+        drafts=drafts,
+        published=published,
+        total_metrics=len(drafts) + len(published),
+        scope_labels={
+            "player": "Player",
+            "player_franchise": "Player Franchise",
+            "team": "Team",
+            "game": "Game",
+        },
+    )
+
+
 @app.route("/metrics/new")
 def metric_new():
     denied = _require_metric_creator_page()
