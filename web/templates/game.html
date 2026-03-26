@@ -712,9 +712,13 @@
   </div>
 
   <div class="shot-quarter-filters">
+    <label class="qf-label">
+      <input type="radio" class="shot-quarter-filter" name="shot-quarter" value="all" checked />
+      All
+    </label>
     {% for q, lbl in [('1','Q1'),('2','Q2'),('3','Q3'),('4','Q4'),('OT','OT')] %}
     <label class="qf-label">
-      <input type="checkbox" class="shot-quarter-filter" value="{{ q }}" checked />
+      <input type="radio" class="shot-quarter-filter" name="shot-quarter" value="{{ q }}" />
       {{ lbl }}
     </label>
     {% endfor %}
@@ -853,10 +857,15 @@
 
     if (dots.length && filters.length) {
       function apply() {
-        const active = new Set(filters.filter(f => f.checked).map(f => f.value));
+        const selected = document.querySelector('.shot-quarter-filter:checked');
+        const active = selected ? selected.value : 'all';
         dots.forEach(d => {
+          if (active === 'all') {
+            d.style.display = '';
+            return;
+          }
           const p = parseInt(d.dataset.period || '0', 10);
-          d.style.display = (p > 4 ? active.has('OT') : active.has(String(p))) ? '' : 'none';
+          d.style.display = (p > 4 ? active === 'OT' : active === String(p)) ? '' : 'none';
         });
       }
       filters.forEach(f => f.addEventListener('change', apply));
