@@ -435,6 +435,14 @@
     border-bottom: 1px solid var(--border-2);
   }
 
+  .pbp-logo-cell {
+    width: 20px;
+    padding: 2px 4px !important;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .pbp-logo-cell img { display: block; margin: 0 auto; }
+
   .pbp-score-event td {
     background: rgba(249, 115, 22, 0.05);
   }
@@ -802,6 +810,7 @@
           <th>#</th>
           <th>Period</th>
           <th>Clock</th>
+          <th></th>
           <th>Type</th>
           <th>Event</th>
           <th>Score</th>
@@ -813,7 +822,7 @@
         {% for row in pbp_rows %}
         {% if row.period != ns.last_period %}
         <tr class="pbp-period-sep">
-          <td colspan="7">
+          <td colspan="8">
             {% if row.period is not string and row.period <= 4 %}Q{{ row.period }}
             {% elif row.period is not string %}OT{{ row.period - 4 }}
             {% else %}{{ row.period }}{% endif %}
@@ -825,6 +834,12 @@
           <td class="meta">{{ row.event_num }}</td>
           <td class="meta">{{ row.period }}</td>
           <td class="nowrap meta">{{ row.clock }}</td>
+          <td class="pbp-logo-cell">
+            {% if row.team_id %}
+            <img src="https://cdn.nba.com/logos/nba/{{ row.team_id }}/global/L/logo.svg"
+                 alt="" width="20" height="20" loading="lazy" onerror="this.style.display='none'">
+            {% endif %}
+          </td>
           <td class="meta">{{ row.event_type }}</td>
           <td>{{ row.description }}</td>
           <td class="nowrap">{{ row.score }}</td>

@@ -3280,6 +3280,11 @@ def game_page(game_id: str):
                 "description": _pbp_text(row) or "-",
                 "score": row.score or "-",
                 "margin": row.score_margin or "-",
+                "team_id": (
+                    game.home_team_id if row.home_description
+                    else game.road_team_id if row.visitor_description
+                    else None
+                ),
             }
             for row in pbp_rows_raw
         ]
