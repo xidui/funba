@@ -821,7 +821,7 @@
         </tr>
         {% set ns.last_period = row.period %}
         {% endif %}
-        <tr class="{{ 'pbp-score-event' if row.event_type in (1, 3) else '' }}">
+        <tr class="{{ 'pbp-score-event' if row.event_type_code in (1, 3) else '' }}">
           <td class="meta">{{ row.event_num }}</td>
           <td class="meta">{{ row.period }}</td>
           <td class="nowrap meta">{{ row.clock }}</td>

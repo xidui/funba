@@ -48,6 +48,22 @@ from metrics.framework.family import (
 )
 
 _DRAFT_KEY_PREFIX = "_d_"
+_PBP_EVENT_TYPE_LABELS = {
+    1: "Made FG",
+    2: "Missed FG",
+    3: "Free Throw",
+    4: "Rebound",
+    5: "Turnover",
+    6: "Foul",
+    7: "Violation",
+    8: "Sub",
+    9: "Timeout",
+    10: "Jump Ball",
+    11: "Ejection",
+    12: "Period Start",
+    13: "Period End",
+    18: "Replay",
+}
 
 
 def _make_draft_key(user_id: str, key: str) -> str:
@@ -76,6 +92,12 @@ def _replace_key_in_code(code: str, old_key: str, new_key: str) -> str:
         lambda m: f'{m.group(1)}{m.group(2)}{new_key}{m.group(3)}',
         code,
     )
+
+
+def _pbp_event_type_label(event_type):
+    if event_type is None:
+        return "-"
+    return _PBP_EVENT_TYPE_LABELS.get(event_type, str(event_type))
 
 
 app = Flask(__name__)
@@ -3253,7 +3275,8 @@ def game_page(game_id: str):
                 "event_num": row.event_num if row.event_num is not None else "-",
                 "period": row.period if row.period is not None else "-",
                 "clock": row.pc_time or row.wc_time or "-",
-                "event_type": row.event_msg_type if row.event_msg_type is not None else "-",
+                "event_type": _pbp_event_type_label(row.event_msg_type),
+                "event_type_code": row.event_msg_type,
                 "description": _pbp_text(row) or "-",
                 "score": row.score or "-",
                 "margin": row.score_margin or "-",
