@@ -863,6 +863,16 @@
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
             {% elif r.entity_type == 'game' %}
+              {% if r.road_team_id %}
+              <img class="entity-thumb team" style="width:24px;height:24px;"
+                   src="https://cdn.nba.com/logos/nba/{{ r.road_team_id }}/global/L/logo.svg"
+                   alt="" loading="lazy" onerror="this.style.display='none'">
+              {% endif %}
+              {% if r.home_team_id %}
+              <img class="entity-thumb team" style="width:24px;height:24px;"
+                   src="https://cdn.nba.com/logos/nba/{{ r.home_team_id }}/global/L/logo.svg"
+                   alt="" loading="lazy" onerror="this.style.display='none'">
+              {% endif %}
               <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}">{{ r.entity_label }}</a>
             {% else %}
               {{ r.entity_label }}

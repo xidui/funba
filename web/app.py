@@ -4380,7 +4380,7 @@ def _resolve_entity_labels(session, rows):
         return entity_id
 
     labels = {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
-    return labels, player_active
+    return labels, player_active, game_info
 
 
 @app.route("/metrics/<metric_key>")
@@ -4568,7 +4568,7 @@ def metric_detail(metric_key: str):
             offset = (page - 1) * page_size
             rows = base_rows_q.offset(offset).limit(page_size).all()
 
-        labels, player_active = _resolve_entity_labels(session, rows)
+        labels, player_active, game_info = _resolve_entity_labels(session, rows)
         team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
@@ -4606,6 +4606,14 @@ def metric_detail(metric_key: str):
             group_phrase = f" in {rank_group_label}" if rank_group_label else ""
             notable_reason = f"{label} of {standing_total} {scope_label}{group_phrase} {period}."
             player_id_for_active = r.entity_id.split(":")[0] if r.entity_type in ("player", "player_franchise") else None
+            game_home_team_id = None
+            game_road_team_id = None
+            if r.entity_type == "game" and r.entity_id:
+                gid = r.entity_id.split(":")[0]
+                gi = game_info.get(gid)
+                if gi:
+                    game_home_team_id = str(gi[1]) if gi[1] else None
+                    game_road_team_id = str(gi[2]) if gi[2] else None
             result_rows.append({
                 "rank": rank,
                 "total": standing_total,
@@ -4613,6 +4621,8 @@ def metric_detail(metric_key: str):
                 "entity_id": r.entity_id,
                 "entity_label": labels.get((r.entity_type, r.entity_id), r.entity_id),
                 "is_active": player_active.get(player_id_for_active) if player_id_for_active else None,
+                "home_team_id": game_home_team_id,
+                "road_team_id": game_road_team_id,
                 "season": _season_label(r.season),
                 "season_raw": r.season,
                 "value_num": r.value_num,
