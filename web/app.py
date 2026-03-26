@@ -907,6 +907,8 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
     db_q = session.query(MetricDefinitionModel).filter(
         MetricDefinitionModel.status != "archived"
     )
+    if not status_filter:
+        db_q = db_q.filter(MetricDefinitionModel.status != "draft")
     if scope_filter:
         if scope_filter == "player":
             db_q = db_q.filter(MetricDefinitionModel.scope.in_(["player", "player_franchise"]))
@@ -3428,6 +3430,8 @@ def api_metric_search():
     query = (body.get("query") or "").strip()
     scope_filter = (body.get("scope") or "").strip()
     status_filter = (body.get("status") or "").strip()
+    if status_filter == "draft":
+        status_filter = ""
     requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400

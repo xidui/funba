@@ -342,8 +342,89 @@ class LowestQuarterScore(MetricDefinition):
     def test_metric_rank_order_uses_runtime_metric(self):
         with patch("metrics.framework.runtime.get_metric", return_value=SimpleNamespace(rank_order="asc")):
             rank_order = self.web_app._metric_rank_order(MagicMock(), "low_quarter_score")
-
         self.assertEqual(rank_order, "asc")
+
+    def test_catalog_excludes_drafts_by_default_but_allows_explicit_draft_filter(self):
+        class FakeColumn:
+            def __init__(self, name):
+                self.name = name
+
+            def __ne__(self, other):
+                return ("ne", self.name, other)
+
+            def __eq__(self, other):
+                return ("eq", self.name, other)
+
+            def in_(self, values):
+                return ("in", self.name, tuple(values))
+
+            def desc(self):
+                return ("desc", self.name)
+
+        class FakeMetricDefinitionModel:
+            status = FakeColumn("status")
+            scope = FakeColumn("scope")
+            created_at = FakeColumn("created_at")
+
+        class RecordingCountsQuery:
+            def group_by(self, *args, **kwargs):
+                return self
+
+            def all(self):
+                return []
+
+        class RecordingMetricQuery:
+            def __init__(self, rows):
+                self.rows = rows
+                self.filters = []
+
+            def filter(self, *conditions):
+                self.filters.extend(conditions)
+                return self
+
+            def order_by(self, *args, **kwargs):
+                return self
+
+            def all(self):
+                return self.rows
+
+        row = SimpleNamespace(
+            key="draft_metric",
+            name="Draft Metric",
+            description="Hidden until published.",
+            scope="player",
+            category="custom",
+            status="draft",
+            source_type="code",
+            group_key=None,
+            min_sample=1,
+            expression="",
+            code_python="fake code",
+            created_at=1,
+            created_by_user_id=None,
+        )
+
+        def build_session(metric_query):
+            session = MagicMock()
+            session.query.side_effect = [RecordingCountsQuery(), metric_query]
+            return session
+
+        with patch.object(self.web_app, "MetricDefinitionModel", FakeMetricDefinitionModel), \
+             patch.object(self.web_app, "_safe_code_metric_metadata", return_value={}):
+            default_query = RecordingMetricQuery([row])
+            self.web_app._catalog_metrics(build_session(default_query))
+
+            explicit_draft_query = RecordingMetricQuery([row])
+            self.web_app._catalog_metrics(build_session(explicit_draft_query), status_filter="draft")
+
+        self.assertEqual(
+            default_query.filters,
+            [("ne", "status", "archived"), ("ne", "status", "draft")],
+        )
+        self.assertEqual(
+            explicit_draft_query.filters,
+            [("ne", "status", "archived"), ("eq", "status", "draft")],
+        )
 
     def test_asc_metric_keys_uses_runtime_catalog(self):
         with patch(
