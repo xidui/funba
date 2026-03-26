@@ -219,13 +219,25 @@ broker). No plist change needed unless a separate Redis instance is desired.
 | `worker_max_tasks_per_child` | 5000 | Recycle prefork processes to prevent memory bloat |
 | `worker_autoscaler` | `CooldownAutoscaler` | 60s keepalive before shrinking idle workers |
 | `worker_prefetch_multiplier` | 1 | Fair task distribution across workers |
+| `visibility_timeout` | 120s | Unacked tasks redelivered after 2 min (all tasks idempotent) |
+| `result_expires` | 3600s | Chord result keys auto-expire after 1 hour |
 
-### Metric backfill completion:
+### Metric pipeline completion:
 
-Bulk metric backfills use **Celery chord** for completion detection. When all
-map tasks finish, the chord callback automatically enqueues reduce. The sweep
-task (every 120s) acts as a fallback for runs stuck in mapping > 2 hours
-(e.g. Redis restart losing the chord counter).
+Both **bulk backfill** and **daily ingest** use Celery chord for completion:
+- Backfill: `chord(map_tasks)(chord_reduce_callback)` — auto-triggers reduce
+- Ingest: `chord(delta_tasks)(reduce_after_ingest)` — auto-reduces per game
+
+`MetricComputeRun.done_game_count` is atomically incremented by each map task,
+providing real-time backfill progress without expensive DB queries.
+
+The sweep task (every 120s) acts as a fallback for:
+- Mapping runs stuck > 2 hours (chord counter lost, e.g. Redis restart)
+- Reducing runs stuck > 30 minutes (worker killed mid-reduce)
+
+`MetricJobClaim` table has been removed. Idempotency is via MetricRunLog
+existence check. One `MetricComputeRun` row per metric (old runs auto-deleted
+on new backfill).
 
 Workers use `--autoscale=MAX,MIN` (not `-c`) in their launchd plists.
 Idle memory footprint is ~900 MB (12 processes); under full backfill load it
