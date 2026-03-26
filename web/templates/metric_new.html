@@ -661,9 +661,12 @@
     {% endif %}
 
     <div class="action-row">
-      {% if edit_metric %}
+      {% if edit_metric and edit_metric.status == 'published' %}
       <button id="save-draft-btn" class="btn btn-secondary">Update</button>
       <button id="publish-btn" class="btn btn-primary">Update & Re-backfill</button>
+      {% elif edit_metric %}
+      <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
+      <button id="publish-btn" class="btn btn-primary">Publish</button>
       {% else %}
       <button id="save-draft-btn" class="btn btn-secondary">Save Draft</button>
       <button id="publish-btn" class="btn btn-primary">Publish</button>
@@ -719,6 +722,7 @@
 (function () {
   const EDIT_MODE = {{ 'true' if edit_metric else 'false' }};
   const EDIT_KEY = {{ edit_metric.key | tojson if edit_metric else 'null' }};
+  const EDIT_STATUS = {{ edit_metric.status | tojson if edit_metric else 'null' }};
   const TURN_LIMIT = 10;
   const DEFAULT_CHAT_PLACEHOLDER = 'Describe a metric or tell the AI what to change…';
   let currentSpec = null;
@@ -1339,8 +1343,8 @@
 
     try {
       if (EDIT_MODE) {
-        // Update existing metric
-        body.rebackfill = publish;  // "Update & Re-backfill" triggers rebackfill
+        // Update existing metric first
+        body.rebackfill = (publish && EDIT_STATUS === 'published');
         const res = await fetch(`/api/metrics/${EDIT_KEY}/update`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
@@ -1352,6 +1356,26 @@
           saveMsg.className = 'status-msg error';
           return;
         }
+
+        // For draft → publish, call publish API after update
+        if (publish && EDIT_STATUS === 'draft') {
+          saveMsg.textContent = 'Publishing…';
+          const pub = await fetch(`/api/metrics/${EDIT_KEY}/publish`, { method: 'POST' });
+          const pubData = await pub.json();
+          if (!pubData.ok) {
+            saveMsg.textContent = pubData.error;
+            saveMsg.className = 'status-msg error';
+            return;
+          }
+          if (pubData.warning) {
+            saveMsg.textContent = `${pubData.warning} Redirecting…`;
+            saveMsg.className = 'status-msg warning';
+            await new Promise((resolve) => window.setTimeout(resolve, 1400));
+          }
+          window.location.href = `/metrics/${pubData.key}`;
+          return;
+        }
+
         window.location.href = `/metrics/${EDIT_KEY}`;
       } else {
         // Create new metric
