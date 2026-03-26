@@ -3887,7 +3887,7 @@ def api_metric_create():
 
 @app.post("/api/metrics/<metric_key>/publish")
 def api_metric_publish(metric_key: str):
-    denied = _require_admin_json()
+    denied = _require_pro_json()
     if denied:
         return denied
     from datetime import datetime
