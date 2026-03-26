@@ -137,7 +137,7 @@ class TestMetricBackfillFeedback(unittest.TestCase):
         self.assertTrue(response.get_json()["ok"])
         dispatch.assert_called_once_with("custom_metric")
 
-    def test_update_syncs_code_metric_metadata_from_code(self):
+    def test_update_preserves_user_edits_while_syncing_code_metric_metadata(self):
         metric = SimpleNamespace(
             key="single_quarter_team_scoring",
             name="test",
@@ -172,15 +172,15 @@ class TestMetricBackfillFeedback(unittest.TestCase):
                      "rank_order": "desc",
                      "code_python": "normalized code",
                  },
-             ) as metadata_from_code:
+            ) as metadata_from_code:
             response = self.client.post(
                 "/api/metrics/single_quarter_team_scoring/update",
-                json={"code": "new code", "name": "test", "rank_order": "asc"},
+                json={"code": "new code", "name": "User Edited Name", "rank_order": "asc"},
                 environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(metric.name, "Single-Quarter Team Scoring")
+        self.assertEqual(metric.name, "User Edited Name")
         self.assertEqual(metric.description, "Per-quarter team points.")
         self.assertEqual(metric.scope, "game")
         self.assertEqual(metric.category, "scoring")
