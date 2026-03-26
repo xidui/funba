@@ -2,6 +2,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.worker.autoscale import Autoscaler
 from kombu import Queue
 
@@ -33,6 +34,7 @@ app.conf.update(
         "tasks.metrics.reduce_metric_season": {"queue": "reduce"},
         "tasks.metrics.chord_reduce_callback": {"queue": "reduce"},
         "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
+        "tasks.topics.generate_daily_topics": {"queue": "reduce"},
     },
 
     # --- Serialization ---
@@ -53,6 +55,10 @@ app.conf.update(
             "task": "tasks.metrics.sweep_metric_compute_runs",
             "schedule": 120,
         },
+        "generate-daily-topics": {
+            "task": "tasks.topics.generate_daily_topics",
+            "schedule": crontab(hour=12, minute=0),
+        },
     },
 
     # --- Broker ---
@@ -69,3 +75,4 @@ app.conf.update(
 # Explicitly import task modules so workers register them
 import tasks.ingest  # noqa: F401, E402
 import tasks.metrics  # noqa: F401, E402
+import tasks.topics  # noqa: F401, E402
