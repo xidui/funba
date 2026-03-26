@@ -1446,13 +1446,24 @@ def _combine_backfill_components(
     reduce_done = sum(c["reduce_done_seasons"] or 0 for c in components)
     reduce_total = sum(c["reduce_total_seasons"] or 0 for c in components)
 
+    # Combined progress: map phase = 0-90%, reduce phase = 90-100%
+    map_pct = round((done_jobs / total_jobs * 100.0), 1) if total_jobs else 0.0
+    if status == "complete":
+        overall_pct = 100.0
+    elif status == "finalizing":
+        reduce_pct = (reduce_done / reduce_total * 100.0) if reduce_total else 0.0
+        overall_pct = round(90.0 + reduce_pct * 0.1, 1)
+    else:
+        overall_pct = round(map_pct * 0.9, 1)
+
     return {
         "status": status,
         "total_games": total_jobs,
         "done_games": done_jobs,
         "active_games": active_jobs,
         "pending_games": max(total_jobs - done_jobs - active_jobs, 0),
-        "progress_pct": round((done_jobs / total_jobs * 100.0), 1) if total_jobs else 0.0,
+        "progress_pct": map_pct,
+        "overall_pct": overall_pct,
         "reduce_done_seasons": reduce_done,
         "reduce_total_seasons": reduce_total,
         "latest_run_at": latest_run_at,

@@ -647,16 +647,34 @@
   {% endif %}
 </div>
 
-<details
+{# ── Simple progress view (all users) ── #}
+<div
   id="backfill-panel"
   class="backfill-panel"
   data-status="{{ backfill.status }}"
   data-status-url="{{ url_for('api_metric_backfill_status', metric_key=metric_def.key) }}"
+  {% if backfill.status not in ['running', 'queued', 'finalizing'] %}style="display:none"{% endif %}
+>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);">Computing</span>
+    <span id="backfill-overall-pct" style="font-size:13px;color:var(--muted);">{{ backfill.overall_pct|round(0)|int }}%</span>
+  </div>
+  <div class="progress-track">
+    <div id="backfill-overall-fill" class="progress-fill" style="width:{{ backfill.overall_pct }}%;"></div>
+  </div>
+</div>
+
+{# ── Detailed admin view ── #}
+{% if is_admin %}
+<details
+  id="backfill-admin-panel"
+  class="backfill-panel"
+  style="margin-top:8px;"
   {% if backfill.status in ['queued', 'running', 'finalizing'] %}open{% endif %}
 >
   <summary class="backfill-summary">
     <div class="backfill-summary-main">
-      <span class="backfill-summary-title">Backfill status</span>
+      <span class="backfill-summary-title">Backfill details</span>
       <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
       <span id="backfill-summary-meta" class="backfill-summary-meta">
         {% if backfill.latest_run_at %}
@@ -674,8 +692,6 @@
           Publish succeeded. Workers have not claimed jobs yet.
         {% elif backfill.status == 'not_started' %}
           No backfill has run for this metric yet.
-        {% else %}
-          Progress is derived from per-game metric claims.
         {% endif %}
       </span>
     </div>
@@ -689,21 +705,18 @@
   <div id="backfill-timeline" class="run-timeline-wrapper" style="{% if backfill.components|length > 1 %}margin-bottom:4px{% endif %}">
     {% if backfill.is_multi_component %}<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">{{ component.label }}</div>{% endif %}
     <div class="run-timeline">
-      {# Step 1: Map started #}
       <div class="run-timeline-step">
         <div class="run-timeline-dot {{ 'done' if ri.started_at else '' }}"></div>
         <div class="run-timeline-label">Map</div>
         {% if ri.started_at %}<div class="run-timeline-time">{{ ri.started_at[5:16] }}</div>{% endif %}
       </div>
       <div class="run-timeline-line {{ 'done' if ri.reduce_enqueued_at else '' }}"></div>
-      {# Step 2: Reduce enqueued #}
       <div class="run-timeline-step">
         <div class="run-timeline-dot {{ 'done' if ri.reduce_enqueued_at else ('active' if ri.run_status == 'mapping' else '') }}"></div>
         <div class="run-timeline-label">Reduce</div>
         {% if ri.reduce_enqueued_at %}<div class="run-timeline-time">{{ ri.reduce_enqueued_at[5:16] }}</div>{% endif %}
       </div>
       <div class="run-timeline-line {{ 'done' if ri.completed_at else '' }}"></div>
-      {# Step 3: Complete or Failed #}
       {% if ri.failed_at %}
       <div class="run-timeline-step">
         <div class="run-timeline-dot failed"></div>
@@ -748,25 +761,26 @@
   </div>
   <div class="backfill-grid">
     <div>
-      <div class="backfill-stat-label">{{ 'Done Jobs' if backfill.is_multi_component else 'Done' }}</div>
+      <div class="backfill-stat-label">Done Jobs</div>
       <div id="backfill-done-games" class="backfill-stat-value">{{ backfill.done_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">{{ 'In Progress Jobs' if backfill.is_multi_component else 'In Progress' }}</div>
+      <div class="backfill-stat-label">In Progress Jobs</div>
       <div id="backfill-active-games" class="backfill-stat-value">{{ backfill.active_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">{{ 'Pending Jobs' if backfill.is_multi_component else 'Pending' }}</div>
+      <div class="backfill-stat-label">Pending Jobs</div>
       <div id="backfill-pending-games" class="backfill-stat-value">{{ backfill.pending_games }}</div>
     </div>
     <div>
-      <div class="backfill-stat-label">{{ 'Total Jobs' if backfill.is_multi_component else 'Total Games' }}</div>
+      <div class="backfill-stat-label">Total Jobs</div>
       <div id="backfill-total-games" class="backfill-stat-value">{{ backfill.total_games }}</div>
     </div>
   </div>
   </div>{# backfill-details #}
   </div>
 </details>
+{% endif %}
 
 {% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
 {% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
@@ -1056,8 +1070,18 @@
   }
 
   function renderBackfill(backfill) {
+    const isActive = shouldPoll(backfill.status);
     panel.dataset.status = backfill.status;
+    panel.style.display = isActive ? '' : 'none';
     setStatusPill(pagePill, backfill.status);
+
+    // Simple progress bar (all users)
+    const overallFill = document.getElementById('backfill-overall-fill');
+    const overallPct = document.getElementById('backfill-overall-pct');
+    if (overallFill) overallFill.style.width = `${backfill.overall_pct || 0}%`;
+    if (overallPct) overallPct.textContent = `${Math.round(backfill.overall_pct || 0)}%`;
+
+    // Admin details
     setStatusPill(panelPill, backfill.status);
     if (meta) meta.textContent = summaryMetaText(backfill);
     const isFinalizing = backfill.status === 'finalizing';
@@ -1077,9 +1101,8 @@
     if (totalValue) totalValue.textContent = backfill.total_games;
     renderComponents(backfill);
     renderTimeline(backfill);
-    if (shouldPoll(backfill.status)) {
-      panel.open = true;
-    }
+    const adminPanel = document.getElementById('backfill-admin-panel');
+    if (adminPanel && isActive) adminPanel.open = true;
     syncPolling(backfill.status);
   }
 
