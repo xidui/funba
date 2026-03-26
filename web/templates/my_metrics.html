@@ -271,7 +271,7 @@
           {% if is_admin or is_pro %}
           <div class="my-metric-cta">Continue editing &rarr;</div>
           {% else %}
-          <div class="my-metric-cta" style="color:var(--muted);">Resubscribe to edit</div>
+          <div class="my-metric-cta" style="color:var(--accent);" onclick="event.preventDefault();window.location='{{ url_for('pricing') }}';">Resubscribe to edit &rarr;</div>
           {% endif %}
         </div>
       </a>
