@@ -387,18 +387,24 @@ class TestMyMetricsRoute(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/auth/login", response.location)
 
-    def test_metrics_mine_blocks_logged_in_non_pro_users(self):
+    def test_metrics_mine_allows_logged_in_non_pro_users(self):
         with self.client.session_transaction() as sess:
             sess["user_id"] = "some-user-id"
 
-        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", display_name="Test User")), \
-             patch("web.app.render_template", return_value="upgrade"):
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="some-user-id", is_admin=False, subscription_tier="free", display_name="Test User")), \
+             patch("web.app.SessionLocal", return_value=mock_session), \
+             patch("web.app.render_template", return_value="ok"):
             response = self.client.get(
                 "/metrics/mine",
                 environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
             )
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_metrics_mine_renders_separate_drafts_and_published_lists(self):
         class FakeColumn:
@@ -929,10 +935,11 @@ class TestMetricPublishAuth(unittest.TestCase):
         self.assertIn("{% if is_admin or is_pro %}", template)
         self.assertIn("url_for('metric_edit', metric_key=metric_def.key)", template)
 
-    def test_base_template_shows_my_metrics_link_for_pro_users(self):
+    def test_base_template_shows_my_metrics_link_for_all_logged_in_users(self):
         template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()
-        self.assertIn("{% if is_pro %}", template)
         self.assertIn("url_for('my_metrics')", template)
+        # Link is no longer gated behind is_pro
+        self.assertNotIn("{% if is_pro %}\n              <a href=\"{{ url_for('my_metrics')", template)
 
 
 if __name__ == "__main__":

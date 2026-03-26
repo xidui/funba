@@ -47,6 +47,37 @@ from metrics.framework.family import (
     rule_supports_career,
 )
 
+_DRAFT_KEY_PREFIX = "_d_"
+
+
+def _make_draft_key(user_id: str, key: str) -> str:
+    """Prefix a metric key for draft storage: _d_{user_id[:8]}_{key}"""
+    return f"{_DRAFT_KEY_PREFIX}{user_id[:8]}_{key}"
+
+
+def _is_draft_key(key: str) -> bool:
+    return key.startswith(_DRAFT_KEY_PREFIX)
+
+
+def _strip_draft_prefix(key: str) -> str:
+    """_d_abc12345_foo → foo"""
+    if not _is_draft_key(key):
+        return key
+    # Skip "_d_" + 8 chars + "_"
+    parts = key.split("_", 3)  # ['', 'd', 'abc12345', 'foo_bar']
+    return parts[3] if len(parts) >= 4 else key
+
+
+def _replace_key_in_code(code: str, old_key: str, new_key: str) -> str:
+    """Replace the key attribute value in generated Python code."""
+    import re as _re
+    return _re.sub(
+        r'''(key\s*=\s*)(["'])''' + _re.escape(old_key) + r'''(\2)''',
+        lambda m: f'{m.group(1)}{m.group(2)}{new_key}{m.group(3)}',
+        code,
+    )
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
@@ -1992,6 +2023,7 @@ def inject_template_helpers():
         "is_pro": is_pro(),
         "current_user": _current_user(),
         "current_year": date.today().year,
+        "clean_key": _strip_draft_prefix,
     }
 
 
@@ -3929,20 +3961,31 @@ def api_metric_create():
     )
 
     with SessionLocal() as session:
+        # Only check published metrics for key conflict (drafts use prefixed keys)
         reserved_keys = [key]
         if supports_career and not career_only:
             reserved_keys.append(family_career_key(key))
         for reserved_key in reserved_keys:
             if _get_runtime_metric(reserved_key, session=session) is not None:
-                return jsonify({"ok": False, "error": f"Key '{reserved_key}' already exists"}), 409
-            if session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == reserved_key).first():
-                return jsonify({"ok": False, "error": f"Key '{reserved_key}' already exists"}), 409
+                return jsonify({"ok": False, "error": f"Key '{reserved_key}' is already published"}), 409
+            existing = session.query(MetricDefinitionModel).filter(
+                MetricDefinitionModel.key == reserved_key,
+                MetricDefinitionModel.status == "published",
+            ).first()
+            if existing:
+                return jsonify({"ok": False, "error": f"Key '{reserved_key}' is already published"}), 409
 
         now = datetime.utcnow()
         cur_user = _current_user()
+
+        # Prefix key for draft storage so multiple users can draft the same key
+        draft_key = _make_draft_key(cur_user.id, key) if cur_user else key
+        if code_python:
+            code_python = _replace_key_in_code(code_python, key, draft_key)
+
         m = MetricDefinitionModel(
-            key=key,
-            family_key=key,
+            key=draft_key,
+            family_key=draft_key,
             variant=FAMILY_VARIANT_CAREER if career_only else FAMILY_VARIANT_SEASON,
             base_metric_key=None,
             managed_family=False,
@@ -3980,7 +4023,7 @@ def api_metric_create():
             now=now,
         )
         session.commit()
-        return jsonify({"ok": True, "key": key}), 201
+        return jsonify({"ok": True, "key": draft_key}), 201
 
 
 @app.post("/api/metrics/<metric_key>/publish")
@@ -3989,6 +4032,7 @@ def api_metric_publish(metric_key: str):
     if denied:
         return denied
     from datetime import datetime
+    from metrics.framework.runtime import get_metric as _get_runtime_metric
 
     with SessionLocal() as session:
         m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
@@ -3997,14 +4041,41 @@ def api_metric_publish(metric_key: str):
         base_row = _metric_family_base_row(session, m)
         if not getattr(base_row, "key", None):
             base_row.key = metric_key
+
+        # If draft key has prefix, strip it and rename to the clean key
+        old_key = base_row.key
+        clean_key = _strip_draft_prefix(old_key)
+        needs_rename = _is_draft_key(old_key)
+
+        if needs_rename:
+            # Check that the clean key isn't already published
+            if _get_runtime_metric(clean_key, session=session) is not None:
+                return jsonify({"ok": False, "error": f"Key '{clean_key}' is already published by another user"}), 409
+            existing_published = session.query(MetricDefinitionModel).filter(
+                MetricDefinitionModel.key == clean_key,
+                MetricDefinitionModel.status == "published",
+            ).first()
+            if existing_published:
+                return jsonify({"ok": False, "error": f"Key '{clean_key}' is already published by another user"}), 409
+
         family_rows = _metric_family_rows(session, base_row)
+        now = datetime.utcnow()
         for row in family_rows:
             if row.status == "archived":
                 continue
+            if needs_rename:
+                old_row_key = row.key
+                new_row_key = old_row_key.replace(old_key, clean_key, 1)
+                row.key = new_row_key
+                row.family_key = clean_key
+                if row.base_metric_key and _is_draft_key(row.base_metric_key):
+                    row.base_metric_key = _strip_draft_prefix(row.base_metric_key)
+                if row.code_python:
+                    row.code_python = _replace_key_in_code(row.code_python, old_row_key, new_row_key)
             row.status = "published"
-            row.updated_at = datetime.utcnow()
+            row.updated_at = now
         session.commit()
-        dispatch_key = getattr(base_row, "key", metric_key)
+        dispatch_key = clean_key if needs_rename else getattr(base_row, "key", metric_key)
     try:
         _dispatch_metric_backfill(dispatch_key)
     except Exception:

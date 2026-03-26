@@ -267,7 +267,7 @@
         </div>
         <p class="my-metric-description">{{ metric.description or 'No description yet.' }}</p>
         <div class="my-metric-footer">
-          <div class="my-metric-meta">{{ metric.key }}</div>
+          <div class="my-metric-meta">{{ clean_key(metric.key) }}</div>
           {% if is_admin or is_pro %}
           <div class="my-metric-cta">Continue editing &rarr;</div>
           {% else %}
@@ -301,7 +301,7 @@
         </div>
         <p class="my-metric-description">{{ metric.description or 'No description yet.' }}</p>
         <div class="my-metric-footer">
-          <div class="my-metric-meta">{{ metric.key }}</div>
+          <div class="my-metric-meta">{{ clean_key(metric.key) }}</div>
           <div class="my-metric-cta">View results &rarr;</div>
         </div>
       </a>

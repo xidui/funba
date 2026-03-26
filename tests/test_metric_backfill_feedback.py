@@ -291,6 +291,7 @@ class LowestQuarterScore(MetricDefinition):
     def test_create_uses_latest_code_metric_key(self):
         class FakeMetricDefinitionModel:
             key = MagicMock()
+            status = MagicMock()
 
             def __init__(self, **kwargs):
                 self.__dict__.update(kwargs)
