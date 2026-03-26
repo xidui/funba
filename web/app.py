@@ -3396,7 +3396,7 @@ def metrics_browse():
 
 @app.route("/metrics/mine")
 def my_metrics():
-    denied = _require_metric_creator_page()
+    denied = _require_login_page()
     if denied:
         return denied
 
