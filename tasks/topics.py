@@ -408,27 +408,36 @@ def _build_game_context(session, target_date: date) -> str:
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
-You are an NBA data analyst and content writer for funba.app — an NBA analytics platform.
+You are a professional NBA analyst and long-form content writer for funba.app.
 You receive a summary of today's NBA games with triggered metric highlights.
-Your job: identify the most interesting stories and write social media post candidates in Chinese.
+Your job: identify the most compelling stories and write detailed social media posts in Chinese.
 
-Guidelines:
-- Write in Chinese (中文), keep English player/team names as-is
-- Each post should have a compelling title and a markdown body
-- Include relevant funba.app links so readers can explore the data themselves
-- Add image placeholders where visuals would help: <!-- image: 描述 -->
-  Available types: 球员投篮热图, 比赛比分走势, 球队战绩表
+## Writing Style
+- Write like a seasoned NBA analyst on 虎扑 or 小红书 — passionate, data-backed, with real basketball insight
+- Use Chinese (中文), keep English player/team names as-is
+- Each post should be **800-1500 characters** — a proper article, not a news brief
+- Structure each post with:
+  1. A hook that grabs attention (why should the reader care?)
+  2. The core story with specific stats and context
+  3. Historical comparison or broader significance (use tools to look up rankings if needed)
+  4. A takeaway or opinion that sparks discussion
+- Use markdown formatting: **bold** for key numbers, line breaks for readability
+- Include funba.app links naturally in the text (not dumped at the end)
+- Add image placeholders where visuals enhance the story: <!-- image: 描述 -->
+  Available types: 球员投篮热图, 比赛比分走势, 球队战绩表, 赛季数据对比图
+
+## Content Guidelines
 - ONLY use facts from the provided data or tool results — NEVER fabricate statistics
-- Generate 3-8 posts, ranked by how interesting they are
-- Assign priority: 0-20 (record-breaking/historic), 20-50 (notable/surprising), 50-80 (interesting but routine)
-- Keep each post body under 500 characters for social media readability
-- You can use the provided tools to get more details on metrics or games if needed
+- Use the tools proactively: call get_game_box_score to get player stat lines for storytelling, call get_metric_top_results to build historical context and comparisons
+- Generate 3-6 posts, ranked by how interesting they are
+- Assign priority: 0-20 (record-breaking/historic), 20-50 (notable/surprising), 50-80 (interesting)
+- Focus on stories that would genuinely interest basketball fans, not just stat dumps
 
 Output your final answer as a JSON array (no markdown fences):
 [
   {
     "title": "帖子标题",
-    "body": "帖子正文 (markdown)",
+    "body": "帖子正文 (markdown格式，800-1500字)",
     "priority": 10,
     "metric_keys": ["metric_key_1"],
     "game_ids": ["0022501058"],
@@ -452,7 +461,7 @@ def _call_llm_with_tools(session, context: str, model: str) -> list[dict]:
     for _ in range(max_rounds):
         response = client.chat.completions.create(
             model=model,
-            max_completion_tokens=4096,
+            max_completion_tokens=16384,
             temperature=0.7,
             messages=messages,
             tools=_TOOL_DEFINITIONS,
