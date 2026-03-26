@@ -311,6 +311,17 @@ def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None =
         )
         raise self.retry(exc=exc, countdown=10)
 
+    # Increment done counter on the compute run (atomic UPDATE ... + 1)
+    if run_id is not None and produced:
+        with SessionLocal() as session:
+            session.query(MetricComputeRun).filter(
+                MetricComputeRun.id == run_id,
+            ).update(
+                {"done_game_count": MetricComputeRun.done_game_count + 1},
+                synchronize_session=False,
+            )
+            session.commit()
+
     return {
         "game_id": game_id,
         "metric_key": metric_key,

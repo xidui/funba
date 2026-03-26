@@ -344,6 +344,7 @@ class MetricComputeRun(Base):
     target_date_from = Column(DATE, nullable=True)
     target_date_to = Column(DATE, nullable=True)
     target_game_count = Column(Integer, nullable=False)
+    done_game_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False)
     started_at = Column(DateTime, nullable=False)
     reduce_enqueued_at = Column(DateTime, nullable=True)

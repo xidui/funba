@@ -1367,7 +1367,7 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
     if latest_compute_run and latest_compute_run.status in ("complete", "reducing"):
         done_games = int(latest_compute_run.target_game_count)
     elif latest_compute_run and latest_compute_run.status == "mapping":
-        done_games = 0
+        done_games = int(latest_compute_run.done_game_count or 0)
     else:
         # No compute run — use MetricResult count as a proxy
         done_games = (
