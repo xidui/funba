@@ -555,6 +555,29 @@ class TestMetricSearchAuth(unittest.TestCase):
             model="gpt-5.4",
         )
 
+    def test_metric_search_api_ignores_explicit_draft_status(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]) as mock_catalog, \
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring", "status": "draft"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_catalog.assert_called_once_with(
+            session,
+            scope_filter="",
+            status_filter="",
+        )
+
     def test_metric_search_api_passes_admin_model_override(self):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)
