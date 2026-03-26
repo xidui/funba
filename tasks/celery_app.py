@@ -57,7 +57,7 @@ app.conf.update(
 
     # --- Broker ---
     broker_connection_retry_on_startup=True,
-    broker_transport_options={"visibility_timeout": 300},  # 5 min (default 1h)
+    broker_transport_options={"visibility_timeout": 120},  # 2 min (default 1h)
 
     # --- Worker ---
     worker_prefetch_multiplier=1,
