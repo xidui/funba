@@ -67,6 +67,7 @@ class MetricDefinition(ABC):
     incremental: bool = True       # True: use compute_delta+compute_value; False: use compute()
     supports_career: bool = False  # auto-register career sibling
     career: bool = False
+    per_game: bool = True          # False: skip if result already exists for entity+season (use for static per-season data like salary)
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
 ```
 

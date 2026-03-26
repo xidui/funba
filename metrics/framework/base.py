@@ -90,6 +90,7 @@ class MetricDefinition(ABC):
     incremental: bool = True       # False → use compute() instead
     supports_career: bool = False  # True → create/manage a career sibling metric
     career: bool = False           # True → this IS the career version
+    per_game: bool = True          # False → skip if MetricResult already exists for entity+season
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)
     rank_order: str = "desc"

@@ -356,6 +356,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
         self.context_label_template = getattr(self._inner, "context_label_template", None)
+        self.per_game = getattr(self._inner, "per_game", True)
         self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
 
         if self.career:

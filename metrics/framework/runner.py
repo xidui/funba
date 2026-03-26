@@ -161,7 +161,16 @@ def run_delta_only(
     if not metric_def.incremental:
         # Non-incremental metrics (game-scope, rank-based) do a full recompute.
         # No running totals → no lock contention → write result directly.
+        _skip_if_exists = not getattr(metric_def, "per_game", True)
         for entity_type, entity_id in targets:
+            if _skip_if_exists and entity_id and session.query(
+                MetricResultModel.id
+            ).filter(
+                MetricResultModel.metric_key == metric_def.key,
+                MetricResultModel.entity_id == entity_id,
+                MetricResultModel.season == season,
+            ).first():
+                continue
             try:
                 result = metric_def.compute(session, entity_id, season, game_id)
             except Exception as exc:
