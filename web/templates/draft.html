@@ -71,6 +71,19 @@
     text-decoration: none;
   }
 
+  .draft-active-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .draft-active-dot.active {
+    background: var(--win);
+  }
+
   .draft-player-headshot {
     width: 40px;
     height: 40px;
@@ -155,6 +168,7 @@
                 onerror="this.onerror=null;this.src='{{ placeholder_headshot }}';"
               >
               <span class="player-name">{{ player.full_name or player.player_id }}</span>
+              <span class="draft-active-dot{% if player.is_active %} active{% endif %}" title="{% if player.is_active %}Active{% else %}Inactive{% endif %}"></span>
             </a>
           </td>
           <td>{{ player.position or "—" }}</td>
