@@ -41,7 +41,7 @@ Dead-letter exchange:
 | Single game | `python -m tasks.dispatch game 0022400909` | One game → Queue 1 |
 | New metric | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct` | All games → Queue 1 (artifact check) → Queue 2 |
 | All metrics, all games | `python -m tasks.dispatch metric-backfill` | All games → Queue 1 (artifact check) → Queue 2 |
-| Force recompute | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct --force` | Clears claims, undo-redo running totals |
+| Force recompute | `python -m tasks.dispatch metric-backfill --metric clutch_fg_pct --force` | Clears run logs, recomputes all deltas |
 
 ### discover vs backfill
 
@@ -180,5 +180,5 @@ python -m tasks.dispatch metric-backfill --season 22025 --force
 
 ## Notes
 
-- Celery is configured with `task_ignore_result=True`, so workers do not publish task results to an `rpc://` reply queue.
-- This pipeline is fire-and-forget: correctness is tracked in MySQL via `MetricJobClaim` / `MetricRunLog`, not via Celery task results.
+- Celery chord is used for completion detection (both backfill and daily ingest). Redis result backend stores chord counters (results expire after 1 hour).
+- Correctness is tracked in MySQL via `MetricRunLog`. Idempotency is via MetricRunLog existence check.

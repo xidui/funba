@@ -99,8 +99,7 @@ If end users can create and publish arbitrary metrics with full historical backf
 - Today `MetricRunLog` is not just observability; it also supports incremental `force=True` undo-redo via `delta_json`
 
 **Current system constraint:**
-- `MetricJobClaim` is the primary per-`(game_id, metric_key)` idempotency gate
-- `MetricRunLog` is still part of correctness for incremental recompute
+- `MetricRunLog` serves as both the idempotency gate and the correctness record for incremental recompute
 - That means `MetricRunLog` cannot be treated as disposable operational noise without replacing its correctness role
 
 **Questions to settle:**
