@@ -4608,12 +4608,18 @@ def metric_detail(metric_key: str):
             player_id_for_active = r.entity_id.split(":")[0] if r.entity_type in ("player", "player_franchise") else None
             game_home_team_id = None
             game_road_team_id = None
+            game_road_abbr = None
+            game_home_abbr = None
+            game_date_str = None
             if r.entity_type == "game" and r.entity_id:
                 gid = r.entity_id.split(":")[0]
                 gi = game_info.get(gid)
                 if gi:
                     game_home_team_id = str(gi[1]) if gi[1] else None
                     game_road_team_id = str(gi[2]) if gi[2] else None
+                    game_road_abbr = _team_abbr(team_map, gi[2])
+                    game_home_abbr = _team_abbr(team_map, gi[1])
+                    game_date_str = _fmt_date(gi[0])
             result_rows.append({
                 "rank": rank,
                 "total": standing_total,
@@ -4623,6 +4629,9 @@ def metric_detail(metric_key: str):
                 "is_active": player_active.get(player_id_for_active) if player_id_for_active else None,
                 "home_team_id": game_home_team_id,
                 "road_team_id": game_road_team_id,
+                "road_abbr": game_road_abbr,
+                "home_abbr": game_home_abbr,
+                "game_date_str": game_date_str,
                 "season": _season_label(r.season),
                 "season_raw": r.season,
                 "value_num": r.value_num,
