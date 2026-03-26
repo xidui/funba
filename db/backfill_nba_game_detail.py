@@ -224,7 +224,7 @@ def create_player_game_stats(session, player_stats):
             last_name=' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
             full_name=player_stats['PLAYER_NAME'],
             nick_name=player_stats['NICKNAME'],
-            is_active=False,
+            is_active=True,
         )
         session.add(player_record)
 
