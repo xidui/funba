@@ -292,8 +292,8 @@ def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None =
 
     Idempotency is via MetricRunLog existence check — if the delta was already
     written, the task is skipped.  For chord backfill (run_id set), the chord
-    callback triggers reduce.  For the legacy ingest path (run_id=None), reduce
-    is not triggered inline (the daily ingest handles it separately).
+    callback triggers reduce.  For the ingest path (run_id=None), the ingest
+    chord callback (reduce_after_ingest) triggers reduce.
     """
     SessionLocal = _session_factory()
 
@@ -315,7 +315,6 @@ def compute_game_delta(self, game_id: str, metric_key: str, run_id: str | None =
         "game_id": game_id,
         "metric_key": metric_key,
         "produced": produced,
-        "reduce_triggered": [],
     }
 
 
@@ -529,6 +528,59 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
         "seasons_reduced": seasons,
         "results_written": results_written,
     }
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.reduce_after_ingest",
+    max_retries=2,
+    default_retry_delay=30,
+    queue="reduce",
+    ignore_result=True,
+)
+def reduce_after_ingest(self, results: list, game_id: str) -> dict:
+    """Chord callback after all metric deltas for one ingested game complete.
+
+    Collects the (metric_key, season) pairs that produced data, deduplicates,
+    and dispatches one reduce_metric_season per unique pair. Also updates
+    target_game_count on complete MetricComputeRuns.
+    """
+    from db.models import Game
+    SessionLocal = _session_factory()
+
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if not game or not game.season:
+            return {"game_id": game_id, "skipped": True, "reason": "game_not_found"}
+        season = game.season
+
+    # Collect metric keys that produced data
+    metric_keys = set()
+    for r in (results or []):
+        if isinstance(r, dict) and r.get("produced") and not r.get("skipped"):
+            metric_keys.add(r["metric_key"])
+
+    enqueued = 0
+    for key in metric_keys:
+        reduce_metric_season_task.delay(key, season)
+        enqueued += 1
+
+    # Update target_game_count on complete runs so progress stays at 100%
+    if metric_keys:
+        with SessionLocal() as session:
+            total_games = (
+                session.query(func.count(Game.game_id))
+                .filter(Game.game_date.isnot(None))
+                .scalar() or 0
+            )
+            session.query(MetricComputeRun).filter(
+                MetricComputeRun.status == "complete",
+                MetricComputeRun.metric_key.in_(metric_keys),
+            ).update({"target_game_count": total_games}, synchronize_session=False)
+            session.commit()
+
+    logger.info("reduce_after_ingest: game=%s enqueued %d reduce tasks for season %s", game_id, enqueued, season)
+    return {"game_id": game_id, "season": season, "enqueued": enqueued}
+
 
 @shared_task(
     bind=True,

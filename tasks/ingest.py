@@ -188,16 +188,19 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                     exc,
                 )
 
-    # Step 4: fan out — only reached after all ingestion steps succeed
-    from tasks.metrics import compute_game_delta  # local import avoids circular at module load
+    # Step 4: fan out — only reached after all ingestion steps succeed.
+    # Use chord so reduce fires automatically after all deltas complete.
+    from celery import chord
+    from tasks.metrics import compute_game_delta, reduce_after_ingest  # local import avoids circular at module load
 
     keys_to_run = (
         expand_metric_keys(metric_keys)
         if metric_keys is not None
         else [m.key for m in get_all_metrics()]
     )
-    for key in keys_to_run:
-        compute_game_delta.apply_async(args=[game_id, key])
+    if keys_to_run:
+        map_tasks = [compute_game_delta.s(game_id, key) for key in keys_to_run]
+        chord(map_tasks)(reduce_after_ingest.s(game_id=game_id))
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d) → %d metric tasks enqueued.",

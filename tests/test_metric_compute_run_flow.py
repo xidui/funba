@@ -62,7 +62,6 @@ def test_compute_game_delta_computes_when_not_already_done():
     finally:
         metrics_tasks.compute_game_delta.pop_request()
 
-    assert result["reduce_triggered"] == []
     assert result["produced"] is True
 
 

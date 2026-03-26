@@ -32,6 +32,7 @@ app.conf.update(
         "tasks.metrics.reduce_metric_compute_run": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_season": {"queue": "reduce"},
         "tasks.metrics.chord_reduce_callback": {"queue": "reduce"},
+        "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
     },
 
     # --- Serialization ---
