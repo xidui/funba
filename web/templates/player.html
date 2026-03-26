@@ -367,9 +367,9 @@
             <td>{{ s.stl }}</td>
             <td>{{ s.blk }}</td>
             <td>{{ s.tov }}</td>
-            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct }})</span></td>
-            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct }})</span></td>
-            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct }})</span></td>
+            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
+            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
+            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
           </tr>
           {% for row in career_season_rows %}
           {% set s = row.stats %}
@@ -385,9 +385,9 @@
             <td>{{ s.stl }}</td>
             <td>{{ s.blk }}</td>
             <td>{{ s.tov }}</td>
-            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct }})</span></td>
-            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct }})</span></td>
-            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct }})</span></td>
+            <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
+            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
+            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
           </tr>
           {% endfor %}
         </tbody>

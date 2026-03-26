@@ -603,9 +603,9 @@
             <td><strong>{{ row.pts if row.pts is not none else '—' }}</strong></td>
             <td>{{ row.reb if row.reb is not none else '—' }}</td>
             <td>{{ row.ast if row.ast is not none else '—' }}</td>
-            <td>{{ row.fg_pct if row.fg_pct is not none else '—' }}</td>
-            <td>{{ row.fg3_pct if row.fg3_pct is not none else '—' }}</td>
-            <td>{{ row.ft_pct if row.ft_pct is not none else '—' }}</td>
+            <td>{{ row.fg_pct|pct_fmt }}</td>
+            <td>{{ row.fg3_pct|pct_fmt }}</td>
+            <td>{{ row.ft_pct|pct_fmt }}</td>
             <td>
               {% if row.win is none %}
               <span class="meta">—</span>

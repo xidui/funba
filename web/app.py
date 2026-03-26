@@ -59,6 +59,34 @@ limiter = Limiter(
 )
 
 
+@app.template_filter("pct_fmt")
+def pct_fmt(value) -> str:
+    if value is None:
+        return "—"
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text in {"-", "—"}:
+            return "—"
+        has_pct_suffix = text.endswith("%")
+        if has_pct_suffix:
+            text = text[:-1].strip()
+        try:
+            number = float(text)
+        except ValueError:
+            return value
+    else:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        has_pct_suffix = False
+
+    if not has_pct_suffix and -1.0 <= number <= 1.0:
+        number *= 100.0
+    return f"{number:.1f}%"
+
+
 # ── Error handlers ───────────────────────────────────────────────────────────
 
 @app.errorhandler(404)
@@ -2984,6 +3012,12 @@ def team_page(team_id: str):
                 func.sum(case((TeamGameStats.win.is_(True), 1), else_=0)).label("wins"),
                 func.sum(case((TeamGameStats.win.is_(False), 1), else_=0)).label("losses"),
                 func.count(TeamGameStats.game_id).label("games"),
+                func.sum(func.coalesce(TeamGameStats.fgm, 0)).label("fgm"),
+                func.sum(func.coalesce(TeamGameStats.fga, 0)).label("fga"),
+                func.sum(func.coalesce(TeamGameStats.fg3m, 0)).label("fg3m"),
+                func.sum(func.coalesce(TeamGameStats.fg3a, 0)).label("fg3a"),
+                func.sum(func.coalesce(TeamGameStats.ftm, 0)).label("ftm"),
+                func.sum(func.coalesce(TeamGameStats.fta, 0)).label("fta"),
             )
             .join(Game, TeamGameStats.game_id == Game.game_id)
             .filter(TeamGameStats.team_id == team_id, Game.season.isnot(None))
@@ -2997,6 +3031,9 @@ def team_page(team_id: str):
                 "wins": int(row.wins or 0),
                 "losses": int(row.losses or 0),
                 "games": int(row.games or 0),
+                "fg_pct": _pct_text(int(row.fgm or 0), int(row.fga or 0)),
+                "fg3_pct": _pct_text(int(row.fg3m or 0), int(row.fg3a or 0)),
+                "ft_pct": _pct_text(int(row.ftm or 0), int(row.fta or 0)),
             }
             for row in season_summary_rows
         ]
