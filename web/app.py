@@ -3291,7 +3291,7 @@ def game_page(game_id: str):
         }
 
         # Build score progression for the line chart.
-        # NBA PBP score format: "AWAY - HOME" (road/visitor team is first number)
+        # PBP score stored as "HOME - AWAY" (see backfill_nba_game_pbp._build_score_and_margin)
         score_progression = [{"t": 0.0, "road": 0, "home": 0, "scorer": None, "desc": None}]
         _prev_road = _prev_home = 0
         for _row in pbp_rows_raw:
@@ -3301,7 +3301,7 @@ def game_page(game_id: str):
                 _parts = _row.score.split("-")
                 if len(_parts) != 2:
                     continue
-                _road_s, _home_s = int(_parts[0].strip()), int(_parts[1].strip())
+                _home_s, _road_s = int(_parts[0].strip()), int(_parts[1].strip())
             except (ValueError, AttributeError):
                 continue
             if _road_s == _prev_road and _home_s == _prev_home:
