@@ -719,5 +719,74 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.commit.assert_called_once()
 
 
+class TestMetricPublishAuth(unittest.TestCase):
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def _publish_session(self):
+        metric = SimpleNamespace(key="custom_metric", status="draft", updated_at=None)
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+        session.query.return_value.filter.return_value.first.return_value = metric
+        return session, metric
+
+    def test_metric_publish_api_allows_pro_user(self):
+        session, metric = self._publish_session()
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="pro", subscription_expires_at=None)), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._metric_family_base_row", return_value=metric), \
+             patch("web.app._metric_family_rows", return_value=[metric]), \
+             patch("web.app._dispatch_metric_backfill") as mock_dispatch:
+            response = self.client.post(
+                "/api/metrics/custom_metric/publish",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "published")
+        self.assertEqual(metric.status, "published")
+        mock_dispatch.assert_called_once_with("custom_metric")
+        session.commit.assert_called_once()
+
+    def test_metric_publish_api_blocks_free_user(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", subscription_expires_at=None)), \
+             patch("web.app.SessionLocal") as mock_session:
+            response = self.client.post(
+                "/api/metrics/custom_metric/publish",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "pro_required")
+        mock_session.assert_not_called()
+
+    def test_metric_publish_api_keeps_admin_access(self):
+        session, metric = self._publish_session()
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=True, subscription_tier="free", subscription_expires_at=None)), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._metric_family_base_row", return_value=metric), \
+             patch("web.app._metric_family_rows", return_value=[metric]), \
+             patch("web.app._dispatch_metric_backfill") as mock_dispatch:
+            response = self.client.post(
+                "/api/metrics/custom_metric/publish",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "published")
+        self.assertEqual(metric.status, "published")
+        mock_dispatch.assert_called_once_with("custom_metric")
+
+    def test_metric_detail_template_shows_edit_link_for_pro_users(self):
+        template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
+        self.assertIn("{% if is_admin or is_pro %}", template)
+        self.assertIn("url_for('metric_edit', metric_key=metric_def.key)", template)
+
+
 if __name__ == "__main__":
     unittest.main()

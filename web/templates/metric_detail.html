@@ -601,7 +601,7 @@
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
       <span id="metric-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
       <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">{{ metric_def.source_type }} metric</span>
-      {% if is_admin %}
+      {% if is_admin or is_pro %}
       <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">&#9998; Edit</a>
       {% endif %}
     </div>
