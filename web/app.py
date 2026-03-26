@@ -1361,10 +1361,14 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .first()
     )
 
-    # For completed/reducing runs, use target_game_count instead of expensive COUNT DISTINCT.
+    # For completed runs, treat as fully done (use total_games so the bar shows 100%).
+    # target_game_count may be stale if the metric was re-backfilled with a different scope.
+    # For reducing runs, use target_game_count (map is done, reduce in progress).
     # For mapping runs, show 0 — the chord is still in progress; doing COUNT DISTINCT on
     # MetricRunLog (potentially millions of rows) would block the page for 30+ seconds.
-    if latest_compute_run and latest_compute_run.status in ("complete", "reducing"):
+    if latest_compute_run and latest_compute_run.status == "complete":
+        done_games = total_games
+    elif latest_compute_run and latest_compute_run.status == "reducing":
         done_games = int(latest_compute_run.target_game_count)
     elif latest_compute_run and latest_compute_run.status == "mapping":
         done_games = 0
