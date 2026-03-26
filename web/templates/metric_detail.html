@@ -863,17 +863,20 @@
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
             {% elif r.entity_type == 'game' %}
-              {% if r.road_team_id %}
-              <img class="entity-thumb team" style="width:24px;height:24px;"
-                   src="https://cdn.nba.com/logos/nba/{{ r.road_team_id }}/global/L/logo.svg"
-                   alt="" loading="lazy" onerror="this.style.display='none'">
-              {% endif %}
-              {% if r.home_team_id %}
-              <img class="entity-thumb team" style="width:24px;height:24px;"
-                   src="https://cdn.nba.com/logos/nba/{{ r.home_team_id }}/global/L/logo.svg"
-                   alt="" loading="lazy" onerror="this.style.display='none'">
-              {% endif %}
-              <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}">{{ r.entity_label }}</a>
+              <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:6px;">
+                {% if r.road_team_id %}
+                <img class="entity-thumb team" style="width:22px;height:22px;"
+                     src="https://cdn.nba.com/logos/nba/{{ r.road_team_id }}/global/L/logo.svg"
+                     alt="" loading="lazy" onerror="this.style.display='none'">
+                {% endif %}
+                <span style="font-size:11px;color:var(--muted);">@</span>
+                {% if r.home_team_id %}
+                <img class="entity-thumb team" style="width:22px;height:22px;"
+                     src="https://cdn.nba.com/logos/nba/{{ r.home_team_id }}/global/L/logo.svg"
+                     alt="" loading="lazy" onerror="this.style.display='none'">
+                {% endif %}
+                <span>{{ r.entity_label }}</span>
+              </a>
             {% else %}
               {{ r.entity_label }}
             {% endif %}
