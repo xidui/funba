@@ -115,6 +115,12 @@ def _create_metric_compute_run(
             sess.expunge(existing)
             return existing, False
 
+        # Delete old completed/failed runs — keep only one run per metric
+        sess.query(MetricComputeRun).filter(
+            MetricComputeRun.metric_key == metric_key,
+            MetricComputeRun.status.in_(("complete", "failed")),
+        ).delete(synchronize_session=False)
+
         run_id = str(uuid.uuid4())
         now = datetime.utcnow()
         run = MetricComputeRun(
