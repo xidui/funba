@@ -364,6 +364,8 @@ def run_season_metric(
 
     count = 0
     for r in results:
+        if not r or r.value_num is None or r.value_num == 0:
+            continue
         _upsert_result(session, r)
         count += 1
 
