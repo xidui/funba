@@ -161,6 +161,20 @@ class MetricDefinition(ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} must implement compute_season")
 
+    def compute_qualifications(
+        self,
+        session: Any,
+        season: str,
+    ) -> list[dict] | None:
+        """Optional: return per-game qualifying records for drill-down.
+
+        Only called for trigger="season" metrics. Return a list of dicts:
+        [{"entity_id": "12345", "game_id": "0022400101", "qualified": True}, ...]
+
+        Return None (default) to skip writing MetricRunLog.
+        """
+        return None
+
 
 def merge_totals(existing: dict, delta: dict) -> dict:
     """Merge a per-game delta into an existing totals dict (numeric fields summed)."""

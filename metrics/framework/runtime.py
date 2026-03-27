@@ -399,6 +399,12 @@ class CodeMetricDefinition(MetricDefinition):
     def compute_season(self, session, season):
         return self._inner.compute_season(ReadOnlySession(session), season)
 
+    def compute_qualifications(self, session, season):
+        fn = getattr(self._inner, "compute_qualifications", None)
+        if fn is None:
+            return None
+        return fn(ReadOnlySession(session), season)
+
 
 def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]:
     rows = (

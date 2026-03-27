@@ -339,7 +339,8 @@ def run_season_metric(
     """Run a season-triggered metric for an entire season.
 
     Calls compute_season() which returns all MetricResults, then batch upserts.
-    No MetricRunLog is written (idempotency is via MetricResult upsert).
+    If the metric implements compute_qualifications(), also writes MetricRunLog
+    rows for drill-down support.
     Returns the number of results written.
     """
     metric_def = get_metric(metric_key, session=session)
@@ -365,6 +366,32 @@ def run_season_metric(
     for r in results:
         _upsert_result(session, r)
         count += 1
+
+    # Write drill-down records if the metric supports it
+    try:
+        qualifications = metric_def.compute_qualifications(session, season)
+    except Exception as exc:
+        logger.error("run_season_metric %s compute_qualifications failed: %s",
+                     metric_key, exc, exc_info=True)
+        qualifications = None
+
+    if qualifications:
+        run_log_rows = [
+            _log_run(
+                game_id=q["game_id"],
+                metric_key=metric_key,
+                entity_type=q.get("entity_type", "player"),
+                entity_id=q["entity_id"],
+                season=season,
+                delta=None,
+                produced=True,
+                qualified=q.get("qualified", True),
+            )
+            for q in qualifications
+        ]
+        _flush_run_logs(session, run_log_rows)
+        logger.info("run_season_metric %s season=%s: %d qualification records written.",
+                     metric_key, season, len(run_log_rows))
 
     if commit:
         session.commit()

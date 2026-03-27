@@ -116,6 +116,11 @@ def compute_season(self, session, season) -> list[MetricResult]:
     # `season` is e.g. "22025" (single season) or "all_regular" (career, if supports_career=True).
     # Query all entities, compute values, return a list of MetricResult objects.
     # The framework handles upserting results.
+
+def compute_qualifications(self, session, season) -> list[dict] | None:
+    # OPTIONAL: implement for drill-down (clicking a count to see which games).
+    # Return [{"entity_id": "12345", "game_id": "0022400101", "qualified": True}, ...]
+    # Omit or return None if drill-down is not needed.
 ```
 If supports_career=True, the system auto-creates a career sibling that reuses the same
 compute_season code. Therefore compute_season MUST handle BOTH concrete seasons ("22025")
