@@ -128,8 +128,14 @@ def compute_qualifications(self, session, season) -> list[dict] | None:
 If supports_career=True, the system auto-creates a career sibling that reuses the same
 compute_season code. Therefore compute_season MUST handle BOTH concrete seasons ("22025")
 AND career seasons ("all_regular"). Use is_career_season() to branch:
-- Concrete season: filter to that season's data
-- Career season: aggregate across ALL seasons (e.g., SUM all years' salary, or query all regular-season games)
+- Concrete season: filter Game.season == season
+- Career season: filter by season TYPE using career_season_type_code():
+  "all_regular" → Game.season.like("2%")  (regular season only)
+  "all_playoffs" → Game.season.like("4%") (playoffs only)
+  "all_playin" → Game.season.like("5%")   (play-in only)
+  Use career_season_type_code(season) from metrics.framework.base to get the type code.
+CRITICAL: career seasons must NOT query all games unfiltered. Each career bucket
+corresponds to a specific season type.
 NEVER return [] for career seasons — always compute the career aggregation.
 
 **Mode 2: trigger="game", incremental=True (per-game delta/reduce)**
@@ -178,10 +184,11 @@ MetricResult(
 
 For trigger="season" metrics with supports_career=True, use these to detect career mode:
 ```python
-from metrics.framework.base import CAREER_SEASONS, career_season_for, is_career_season
+from metrics.framework.base import CAREER_SEASONS, career_season_for, career_season_type_code, is_career_season
 # CAREER_SEASONS = {"all_regular", "all_playoffs", "all_playin"}
 # is_career_season("all_regular") → True
 # career_season_for("22025") → "all_regular"
+# career_season_type_code("all_regular") → "2"  (use with Game.season.like(code + "%"))
 ```
 
 ## Helper functions (import from metrics.helpers)
