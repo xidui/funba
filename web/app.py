@@ -3724,6 +3724,9 @@ def api_metric_preview():
     if not definition and not code_python:
         return jsonify({"ok": False, "error": "definition or code is required"}), 400
 
+    logger.info("preview: scope=%s season=%s trigger=%s code_len=%d",
+                scope, season, "?", len(code_python))
+
     with SessionLocal() as session:
         try:
             if code_python:
@@ -3851,9 +3854,12 @@ def _preview_code_metric(
         return row
 
     # trigger="season" — one call handles everything regardless of scope
-    if getattr(metric, "trigger", "game") == "season":
+    trigger = getattr(metric, "trigger", "game")
+    logger.info("preview: resolved trigger=%s metric_key=%s", trigger, getattr(metric, "key", "?"))
+    if trigger == "season":
         try:
             results = metric.compute_season(ro_session, season)
+            logger.info("preview: compute_season returned %d results for season=%s", len(results or []), season)
         except Exception:
             logger.exception("preview compute_season failed for season=%s", season)
             results = []
