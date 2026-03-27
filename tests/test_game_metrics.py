@@ -37,7 +37,7 @@ def _import_helper():
     for name in (
         "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
         "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "User",
+        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "TopicPost", "User",
         "GameLineScore",
     ):
         setattr(fake_models, name, MagicMock())
