@@ -1575,7 +1575,16 @@ def _build_metric_backfill_status(session, metric_key: str):
 
     components = []
     for key in backfill_keys:
-        component = _metric_backfill_component(session, key, int(total_games))
+        if is_season_trigger and key != metric_key:
+            # Career sibling uses its own result count as total
+            key_total = (
+                session.query(func.count(MetricResultModel.id))
+                .filter(MetricResultModel.metric_key == key)
+                .scalar() or 0
+            )
+        else:
+            key_total = total_games
+        component = _metric_backfill_component(session, key, int(key_total))
         component["label"] = "Career" if key.endswith("_career") else "Season"
         component["latest_run_at"] = _format_backfill_timestamp(component["latest_run_at"])
         components.append(component)
