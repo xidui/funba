@@ -589,13 +589,16 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
     with SessionLocal() as session:
         season_metrics = [m for m in _get_all_metrics(session=session) if getattr(m, "trigger", "game") == "season"]
     for sm in season_metrics:
-        compute_season_metric_task.delay(sm.key, season)
-        enqueued += 1
-        if getattr(sm, "supports_career", False):
+        if getattr(sm, "career", False):
+            # Career variant — dispatch with career bucket
             career_bucket = career_season_for(season)
             if career_bucket:
                 compute_season_metric_task.delay(sm.key, career_bucket)
                 enqueued += 1
+        else:
+            # Base metric — dispatch with concrete season
+            compute_season_metric_task.delay(sm.key, season)
+            enqueued += 1
 
     logger.info("reduce_after_ingest: game=%s enqueued %d tasks (reduce + season) for season %s", game_id, enqueued, season)
     return {"game_id": game_id, "season": season, "enqueued": enqueued}

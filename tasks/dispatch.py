@@ -475,11 +475,8 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
 
     enqueued = 0
     for m in metrics:
-        for season in seasons:
-            compute_season_metric_task.delay(m.key, season)
-            enqueued += 1
-        # Career buckets
-        if getattr(m, "supports_career", False):
+        if getattr(m, "career", False):
+            # Career variant — dispatch with career seasons only
             if args.season:
                 career_bucket = career_season_for(args.season)
                 if career_bucket:
@@ -489,6 +486,11 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
                 for cb in sorted(CAREER_SEASONS):
                     compute_season_metric_task.delay(m.key, cb)
                     enqueued += 1
+        else:
+            # Base metric — dispatch with concrete seasons
+            for season in seasons:
+                compute_season_metric_task.delay(m.key, season)
+                enqueued += 1
 
     print(f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s).")
 
