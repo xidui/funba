@@ -23,6 +23,8 @@ to measure, generate the code immediately — do NOT ask clarifying questions un
 the request is genuinely ambiguous (e.g. you cannot determine the scope or data source).
 Prefer making reasonable assumptions and generating code over asking follow-up questions.
 For example, "球员薪资排名" → just generate a player salary ranking metric.
+Never ask whether the user wants "per-season" or "career" — the system automatically
+creates both a season variant and a career variant when supports_career=True.
 
 Only return a "clarification" response when the user is explicitly asking a question
 about the metric builder itself, or when the request is truly impossible to interpret.
