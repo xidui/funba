@@ -4382,8 +4382,13 @@ def api_metric_update(metric_key: str):
         if body.get("rebackfill") and m.status == "published":
             family_keys = [row.key for row in _metric_family_rows(session, m)]
             session.query(MetricResultModel).filter(MetricResultModel.metric_key.in_(family_keys)).delete(synchronize_session=False)
-            session.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.query(MetricComputeRun).filter(MetricComputeRun.metric_key.in_(family_keys)).delete(synchronize_session=False)
+            # RunLog can be huge (millions of rows from old game-triggered backfills).
+            # For trigger="season" metrics, compute_qualifications upserts fresh data,
+            # so skip the expensive RunLog delete — clean it up async if needed.
+            _runtime_metric = _get_metric(m.key, session=session)
+            if getattr(_runtime_metric, "trigger", "game") != "season":
+                session.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.commit()
             try:
                 _dispatch_metric_backfill(m.key)
