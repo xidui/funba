@@ -293,7 +293,7 @@ IMPORTANT:
 - Do NOT include register() call — the system handles registration.
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
-- Do NOT put ranking numbers (like #1, #2) in value_str. Ranking is handled by the system at query time, not inside compute(). value_str should only contain the descriptive value (e.g. "ATL Q1: 44 pts").
+- CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must be the RAW metric value (e.g. salary amount in dollars, not rank #1/#2). value_str should display the value (e.g. "$55,761,216"), never a rank number. If the user asks for a "ranking", just store the raw value — the system handles ranking at display time.
 - Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
 
 CRITICAL — PBP score parsing:
