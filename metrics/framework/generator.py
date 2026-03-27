@@ -117,9 +117,12 @@ def compute_season(self, session, season) -> list[MetricResult]:
     # Query all entities, compute values, return a list of MetricResult objects.
     # The framework handles upserting results.
 ```
-If supports_career=True, the same compute_season is called with career season values
-like "all_regular". Use CAREER_SEASONS and career_season_for() from metrics.framework.base
-to detect career mode and adjust your query filter (e.g., Game.season.like("2%") for all regular seasons).
+If supports_career=True, the system auto-creates a career sibling that reuses the same
+compute_season code. Therefore compute_season MUST handle BOTH concrete seasons ("22025")
+AND career seasons ("all_regular"). Use is_career_season() to branch:
+- Concrete season: filter to that season's data
+- Career season: aggregate across ALL seasons (e.g., SUM all years' salary, or query all regular-season games)
+NEVER return [] for career seasons — always compute the career aggregation.
 
 **Mode 2: trigger="game", incremental=True (per-game delta/reduce)**
 Used when you accumulate stats across games (e.g., win rate, FG%).
