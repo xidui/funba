@@ -43,6 +43,8 @@ blk, tov, pf
 game_id (PK), team_id (PK), player_id (PK), comment, min, sec, starter (bool),
 position, pts, fgm, fga, fg_pct, fg3m, fg3a, fg3_pct, ftm, fta, ft_pct,
 oreb, dreb, reb, ast, stl, blk, tov, pf, plus (int, +/-)
+NOTE: PlayerGameStats has no season column. To filter by season, JOIN Game and use
+Game.season. Example: query.join(Game, Game.game_id == PlayerGameStats.game_id).filter(Game.season == season)
 
 ### GamePlayByPlay (one row per play event)
 id (PK), game_id, event_num, event_msg_type, event_msg_action_type, period,
