@@ -61,23 +61,35 @@ class MetricResult:
 class MetricDefinition(ABC):
     """Abstract base for all metric definitions.
 
-    Two execution modes:
+    Three execution modes, selected by ``trigger`` and ``incremental``:
 
-    Incremental (incremental=True, default):
+    Mode 1 — trigger="game", incremental=True (per-game delta/reduce):
         Implement compute_delta() + compute_value().
         The runner accumulates running totals in MetricResult.context_json and
         calls compute_value() after each merge. Efficient for season and career.
 
-    Full recompute (incremental=False):
+    Mode 2 — trigger="game", incremental=False (per-game full recompute):
         Implement compute() instead.
         Used for game-scoped metrics and rank-based metrics that cannot be
         expressed as additive per-game deltas.
 
-    Career variants:
+    Mode 3 — trigger="season" (whole-season computation, RECOMMENDED for new metrics):
+        Implement compute_season().
+        Called once per season with full data access. The metric handles entity
+        discovery and computation internally, returning all results at once.
+        Set supports_career=True to also run with career season values
+        ("all_regular", "all_playoffs", "all_playin").
+
+    Career variants (trigger="game"):
         Set supports_career=True on a season metric to auto-register a career
         sibling (key + "_career") that accumulates per season type
         (all_regular, all_playoffs, all_playin). The sibling inherits
         compute_delta / compute_value with a higher min_sample threshold.
+
+    Career variants (trigger="season"):
+        Set supports_career=True. The same compute_season() is called with
+        career season values (e.g. "all_regular"). The metric should adapt
+        its query filter based on the season parameter.
     """
     key: str
     name: str
@@ -86,11 +98,14 @@ class MetricDefinition(ABC):
     category: str
     min_sample: int = 10
 
-    # Incremental / career flags
+    # Trigger: when does this metric run?
+    trigger: str = "game"          # "game" (per-game pipeline) or "season" (whole-season)
+
+    # Incremental / career flags (used by trigger="game" metrics)
     incremental: bool = True       # False → use compute() instead
-    supports_career: bool = False  # True → create/manage a career sibling metric
-    career: bool = False           # True → this IS the career version
-    per_game: bool = True          # False → skip if MetricResult already exists for entity+season
+    supports_career: bool = False  # True → also dispatch career season values
+    career: bool = False           # True → this IS the career version (trigger="game" only)
+    per_game: bool = True          # DEPRECATED — use trigger="season" instead
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)
     rank_order: str = "desc"
@@ -129,8 +144,22 @@ class MetricDefinition(ABC):
         season: str | None,
         game_id: str | None = None,
     ) -> MetricResult | None:
-        """Full recompute path — used when incremental=False."""
+        """Full recompute path — used when trigger="game", incremental=False."""
         raise NotImplementedError(f"{self.__class__.__name__} must implement compute")
+
+    def compute_season(
+        self,
+        session: Any,
+        season: str,
+    ) -> list[MetricResult]:
+        """Whole-season computation — used when trigger="season".
+
+        The metric is responsible for discovering entities and computing values.
+        Returns all MetricResult objects for the given season.
+        The ``season`` parameter may be a concrete season (e.g. "22025") or a
+        career bucket (e.g. "all_regular") when supports_career=True.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement compute_season")
 
 
 def merge_totals(existing: dict, delta: dict) -> dict:

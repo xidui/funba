@@ -154,6 +154,10 @@ def run_delta_only(
         logger.warning("Metric key %r not found in registry; skipping.", metric_key)
         return False
 
+    if getattr(metric_def, "trigger", "game") == "season":
+        logger.debug("Skipping trigger=season metric %s in game pipeline.", metric_key)
+        return False
+
     targets = _get_targets(session, metric_def.scope, game, player_ids, team_ids)
     produced_any = False
     run_log_rows: list[dict] = []
@@ -161,16 +165,7 @@ def run_delta_only(
     if not metric_def.incremental:
         # Non-incremental metrics (game-scope, rank-based) do a full recompute.
         # No running totals → no lock contention → write result directly.
-        _skip_if_exists = not getattr(metric_def, "per_game", True)
         for entity_type, entity_id in targets:
-            if _skip_if_exists and entity_id and session.query(
-                MetricResultModel.id
-            ).filter(
-                MetricResultModel.metric_key == metric_def.key,
-                MetricResultModel.entity_id == entity_id,
-                MetricResultModel.season == season,
-            ).first():
-                continue
             try:
                 result = metric_def.compute(session, entity_id, season, game_id)
             except Exception as exc:
@@ -333,11 +328,59 @@ def reduce_metric(
     return results_written
 
 
+# ── Season-triggered metrics ──────────────────────────────────────────────────
+
+def run_season_metric(
+    session: Session,
+    metric_key: str,
+    season: str,
+    commit: bool = True,
+) -> int:
+    """Run a season-triggered metric for an entire season.
+
+    Calls compute_season() which returns all MetricResults, then batch upserts.
+    No MetricRunLog is written (idempotency is via MetricResult upsert).
+    Returns the number of results written.
+    """
+    metric_def = get_metric(metric_key, session=session)
+    if metric_def is None:
+        logger.warning("run_season_metric: metric %r not found; skipping.", metric_key)
+        return 0
+
+    if getattr(metric_def, "trigger", "game") != "season":
+        logger.warning("run_season_metric: metric %r is not trigger=season; skipping.", metric_key)
+        return 0
+
+    try:
+        results = metric_def.compute_season(session, season)
+    except Exception as exc:
+        logger.error("run_season_metric %s failed for season %s: %s",
+                     metric_key, season, exc, exc_info=True)
+        return 0
+
+    if not results:
+        return 0
+
+    count = 0
+    for r in results:
+        _upsert_result(session, r)
+        count += 1
+
+    if commit:
+        session.commit()
+
+    logger.info("run_season_metric %s season=%s: %d results written.", metric_key, season, count)
+    return count
+
+
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def already_processed(session: Session, game_id: str) -> bool:
-    """Return True if every registered metric has a log entry for this game."""
-    registered_keys = {m.key for m in get_all_metrics(session=session)}
+    """Return True if every registered game-triggered metric has a log entry for this game."""
+    registered_keys = {
+        m.key for m in get_all_metrics(session=session)
+        if getattr(m, "trigger", "game") != "season"
+    }
     logged_keys = {
         r.metric_key
         for r in session.query(MetricRunLog.metric_key)

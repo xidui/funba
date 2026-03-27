@@ -196,7 +196,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     keys_to_run = (
         expand_metric_keys(metric_keys)
         if metric_keys is not None
-        else [m.key for m in get_all_metrics()]
+        else [m.key for m in get_all_metrics() if getattr(m, "trigger", "game") != "season"]
     )
     if keys_to_run:
         map_tasks = [compute_game_delta.s(game_id, key) for key in keys_to_run]

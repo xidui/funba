@@ -24,7 +24,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
 from db.models import MetricComputeRun, MetricResult, MetricRunLog, engine
-from metrics.framework.runner import run_delta_only, reduce_metric
+from metrics.framework.runner import run_delta_only, reduce_metric, run_season_metric
 
 logger = logging.getLogger(__name__)
 
@@ -583,8 +583,44 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
             ).update({"target_game_count": total_games}, synchronize_session=False)
             session.commit()
 
-    logger.info("reduce_after_ingest: game=%s enqueued %d reduce tasks for season %s", game_id, enqueued, season)
+    # Dispatch season-triggered metrics for this season (+ career buckets if applicable)
+    from metrics.framework.base import CAREER_SEASONS, career_season_for
+    from metrics.framework.runtime import get_all_metrics as _get_all_metrics
+    with SessionLocal() as session:
+        season_metrics = [m for m in _get_all_metrics(session=session) if getattr(m, "trigger", "game") == "season"]
+    for sm in season_metrics:
+        compute_season_metric_task.delay(sm.key, season)
+        enqueued += 1
+        if getattr(sm, "supports_career", False):
+            career_bucket = career_season_for(season)
+            if career_bucket:
+                compute_season_metric_task.delay(sm.key, career_bucket)
+                enqueued += 1
+
+    logger.info("reduce_after_ingest: game=%s enqueued %d tasks (reduce + season) for season %s", game_id, enqueued, season)
     return {"game_id": game_id, "season": season, "enqueued": enqueued}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.compute_season_metric",
+    max_retries=2,
+    default_retry_delay=30,
+    queue="reduce",
+    ignore_result=True,
+)
+def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
+    """Compute a season-triggered metric for one (metric_key, season)."""
+    try:
+        SessionLocal = _session_factory()
+        with SessionLocal() as session:
+            count = run_season_metric(session, metric_key, season, commit=True)
+    except Exception as exc:
+        logger.error("compute_season_metric: metric=%s season=%s failed: %s",
+                     metric_key, season, exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=30)
+
+    return {"metric_key": metric_key, "season": season, "results_written": count}
 
 
 @shared_task(

@@ -184,8 +184,15 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
     if metric.scope not in {"game", "league", "player", "team"}:
         raise ValueError(f"Generated metric has invalid scope: {metric.scope!r}")
 
+    trigger = getattr(metric, "trigger", "game")
+    if trigger not in {"game", "season"}:
+        raise ValueError(f"Generated metric has invalid trigger: {trigger!r}")
+
     metric_cls = type(metric)
-    if getattr(metric, "incremental", True):
+    if trigger == "season":
+        if metric_cls.compute_season is MetricDefinition.compute_season:
+            raise ValueError("Season-triggered metric must implement compute_season()")
+    elif getattr(metric, "incremental", True):
         if metric_cls.compute_delta is MetricDefinition.compute_delta:
             raise ValueError("Generated incremental metric must implement compute_delta()")
         if metric_cls.compute_value is MetricDefinition.compute_value:
@@ -223,6 +230,7 @@ class RuleMetricDefinition(MetricDefinition):
         self.base_metric_key = getattr(row, "base_metric_key", None)
         self.managed_family = bool(getattr(row, "managed_family", False))
         self.definition = json.loads(row.definition_json or "{}")
+        self.trigger = str(self.definition.get("trigger") or "game").strip().lower()
         self.time_scope = str(self.definition.get("time_scope") or "season").strip().lower()
         self.supports_career = rule_supports_career(self.definition, row.scope)
         self.career_name_suffix = str(self.definition.get("career_name_suffix") or " (Career)")
@@ -356,6 +364,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
         self.context_label_template = getattr(self._inner, "context_label_template", None)
+        self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)
         self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
 
@@ -386,6 +395,9 @@ class CodeMetricDefinition(MetricDefinition):
         if result and self.career:
             result.metric_key = self.key
         return result
+
+    def compute_season(self, session, season):
+        return self._inner.compute_season(ReadOnlySession(session), season)
 
 
 def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]:

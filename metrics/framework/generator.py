@@ -64,10 +64,9 @@ class MetricDefinition(ABC):
     scope: str          # "player" | "team" | "game"
     category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
     min_sample: int = 10
-    incremental: bool = True       # True: use compute_delta+compute_value; False: use compute()
-    supports_career: bool = False  # auto-register career sibling
-    career: bool = False
-    per_game: bool = True          # False: skip if result already exists for entity+season (use for static per-season data like salary)
+    trigger: str = "season"        # "season" (RECOMMENDED) or "game" — see execution modes below
+    incremental: bool = True       # (trigger="game" only) True: compute_delta+compute_value; False: compute()
+    supports_career: bool = False  # also dispatch with career season values ("all_regular", etc.)
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
 ```
 
@@ -88,11 +87,38 @@ The `_qualified` key is automatically removed from the delta before storage.
 Use your judgement: if listing the individual qualifying games would be useful
 to a user, include `_qualified`.
 
-### Two execution modes:
+### Choosing a trigger
 
-**Mode 1: incremental=True (for season/career aggregation)**
+trigger="season" (RECOMMENDED for new metrics):
+  Use for most metrics. Simpler code — one method with full-season data access.
+  Examples: season totals, rates, salary, awards, first N games, cost efficiency.
+
+trigger="game" (legacy, for real-time per-game updates):
+  Use only when the metric MUST update within seconds of a game finishing.
+  Examples: live win streak, running plus/minus.
+
+### Three execution modes:
+
+**Mode 1: trigger="season" (RECOMMENDED — whole-season computation)**
+The metric queries all data for the season and returns all results at once.
+```python
+trigger = "season"
+
+def compute_season(self, session, season) -> list[MetricResult]:
+    # `season` is e.g. "22025" (single season) or "all_regular" (career, if supports_career=True).
+    # Query all entities, compute values, return a list of MetricResult objects.
+    # The framework handles upserting results.
+```
+If supports_career=True, the same compute_season is called with career season values
+like "all_regular". Use CAREER_SEASONS and career_season_for() from metrics.framework.base
+to detect career mode and adjust your query filter (e.g., Game.season.like("2%") for all regular seasons).
+
+**Mode 2: trigger="game", incremental=True (per-game delta/reduce)**
 Used when you accumulate stats across games (e.g., win rate, FG%).
 ```python
+trigger = "game"
+incremental = True
+
 def compute_delta(self, session, entity_id, game_id) -> dict | None:
     # Return per-game additive data. Numeric values are SUMMED across games.
     # Return None if entity didn't participate.
@@ -101,9 +127,12 @@ def compute_value(self, totals, season, entity_id) -> MetricResult | None:
     # Derive final value from accumulated totals. Return None if below min_sample.
 ```
 
-**Mode 2: incremental=False (for per-game metrics)**
+**Mode 3: trigger="game", incremental=False (per-game full recompute)**
 Used when each game produces an independent value (e.g., combined score).
 ```python
+trigger = "game"
+incremental = False
+
 def compute(self, session, entity_id, season, game_id=None) -> MetricResult | list[MetricResult] | None:
     # For game-scope: entity_id IS the game_id
     # Compute and return result for this single game.
@@ -124,6 +153,16 @@ MetricResult(
     value_str="display",    # human-readable (optional)
     context={...},          # additional data stored as JSON
 )
+```
+
+## Career season helpers (import from metrics.framework.base)
+
+For trigger="season" metrics with supports_career=True, use these to detect career mode:
+```python
+from metrics.framework.base import CAREER_SEASONS, career_season_for, is_career_season
+# CAREER_SEASONS = {"all_regular", "all_playoffs", "all_playin"}
+# is_career_season("all_regular") → True
+# career_season_for("22025") → "all_regular"
 ```
 
 ## Helper functions (import from metrics.helpers)
@@ -218,6 +257,7 @@ If the user is asking you to create or modify a metric, reply with:
   "scope": "player | team | game",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
   "min_sample": <int>,
+  "trigger": "season | game",
   "incremental": <bool>,
   "supports_career": <bool>,
   "rank_order": "desc | asc",

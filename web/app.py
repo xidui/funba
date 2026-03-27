@@ -686,6 +686,7 @@ def _code_metric_metadata_from_code(
         "career_name_suffix": getattr(metric, "career_name_suffix", " (Career)"),
         "supports_career": bool(getattr(metric, "supports_career", False)),
         "career": bool(getattr(metric, "career", False)),
+        "trigger": getattr(metric, "trigger", "game"),
         "incremental": bool(getattr(metric, "incremental", True)),
         "rank_order": getattr(metric, "rank_order", "desc"),
         "context_label_template": getattr(metric, "context_label_template", None),
@@ -1582,10 +1583,15 @@ def _dispatch_metric_backfill(metric_key: str) -> None:
     import subprocess
     import sys
 
-    # Use the same detached CLI dispatch path for publish and re-backfill so the
-    # web UI still works in local environments without a running Celery broker.
+    from metrics.framework.runtime import get_metric
+    m = get_metric(metric_key)
+    if m and getattr(m, "trigger", "game") == "season":
+        cmd = [sys.executable, "-m", "tasks.dispatch", "season-metrics", "--metric", metric_key]
+    else:
+        cmd = [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key]
+
     subprocess.Popen(
-        [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key],
+        cmd,
         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

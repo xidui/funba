@@ -19,6 +19,10 @@ Usage examples:
   # Force recompute (clears existing claims so workers rerun even for 'done' games)
   python -m tasks.dispatch metric-backfill --metric clutch_fg_pct --force
   python -m tasks.dispatch backfill --season 22025 --force
+
+  # Compute season-triggered metrics (salary, awards, etc.)
+  python -m tasks.dispatch season-metrics --metric player_salary --season 22025
+  python -m tasks.dispatch season-metrics  # all season metrics, all seasons
 """
 from __future__ import annotations
 
@@ -316,9 +320,13 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
             for k in sorted(all_keys):
                 print(f"  {k}", file=sys.stderr)
             sys.exit(1)
+        m = next(m for m in get_all_metrics() if m.key == args.metric)
+        if getattr(m, "trigger", "game") == "season":
+            print(f"Metric {args.metric!r} is trigger=season. Use 'season-metrics' command instead.")
+            return
         metric_keys = expand_metric_keys([args.metric])
     else:
-        metric_keys = [m.key for m in get_all_metrics()]
+        metric_keys = [m.key for m in get_all_metrics() if getattr(m, "trigger", "game") != "season"]
 
     game_ids = _query_games(
         season=args.season,
@@ -431,6 +439,60 @@ def cmd_metric_retry_failed(args: argparse.Namespace) -> None:
     print(f"Re-enqueued {len(run_ids)} failed compute run(s) → Queue: reduce.")
 
 
+def cmd_season_metrics(args: argparse.Namespace) -> None:
+    """Enqueue season-triggered metric computation tasks."""
+    from metrics.framework.base import CAREER_SEASONS, career_season_for
+    from metrics.framework.runtime import get_all_metrics, get_metric
+    from tasks.metrics import compute_season_metric_task
+
+    if args.metric:
+        m = get_metric(args.metric)
+        if m is None:
+            print(f"Unknown metric key: {args.metric!r}", file=sys.stderr)
+            sys.exit(1)
+        if getattr(m, "trigger", "game") != "season":
+            print(f"Metric {args.metric!r} is not trigger=season.", file=sys.stderr)
+            sys.exit(1)
+        metrics = [m]
+    else:
+        metrics = [m for m in get_all_metrics() if getattr(m, "trigger", "game") == "season"]
+
+    if not metrics:
+        print("No season-triggered metrics found.")
+        return
+
+    # Determine seasons to run
+    if args.season:
+        seasons = [args.season]
+    else:
+        sess = _session()
+        try:
+            seasons = sorted(
+                r.season for r in sess.query(Game.season).distinct().filter(Game.season.isnot(None)).all()
+            )
+        finally:
+            sess.close()
+
+    enqueued = 0
+    for m in metrics:
+        for season in seasons:
+            compute_season_metric_task.delay(m.key, season)
+            enqueued += 1
+        # Career buckets
+        if getattr(m, "supports_career", False):
+            if args.season:
+                career_bucket = career_season_for(args.season)
+                if career_bucket:
+                    compute_season_metric_task.delay(m.key, career_bucket)
+                    enqueued += 1
+            else:
+                for cb in sorted(CAREER_SEASONS):
+                    compute_season_metric_task.delay(m.key, cb)
+                    enqueued += 1
+
+    print(f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s).")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tasks.dispatch",
@@ -502,6 +564,15 @@ def main() -> None:
     )
     p_mrf.add_argument("--metric", default=None, help="Single metric key, or omit for all failed runs.")
     p_mrf.set_defaults(func=cmd_metric_retry_failed)
+
+    # --- season-metrics ---
+    p_sm = sub.add_parser(
+        "season-metrics",
+        help="Compute season-triggered metrics (salary, awards, whole-season aggregations).",
+    )
+    p_sm.add_argument("--metric", default=None, help="Single metric key, or omit for all season metrics.")
+    p_sm.add_argument("--season", default=None, help="Single season (e.g. 22025), or omit for all seasons.")
+    p_sm.set_defaults(func=cmd_season_metrics)
 
     args = parser.parse_args()
     args.func(args)

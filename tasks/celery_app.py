@@ -34,6 +34,7 @@ app.conf.update(
         "tasks.metrics.reduce_metric_season": {"queue": "reduce"},
         "tasks.metrics.chord_reduce_callback": {"queue": "reduce"},
         "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
+        "tasks.metrics.compute_season_metric": {"queue": "reduce"},
         "tasks.topics.generate_daily_topics": {"queue": "reduce"},
     },
 
