@@ -305,7 +305,7 @@ IMPORTANT:
 - For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
 - Include all necessary imports at the top of the code. Never use __import__() or dynamic imports inside methods.
-- Only these top-level modules are allowed: __future__, collections, datetime, db, math, metrics, numpy, pandas, sqlalchemy, statistics. Any other import will be rejected.
+- Only these top-level modules are allowed: __future__, collections, dataclasses, datetime, db, decimal, enum, fractions, functools, itertools, json, math, metrics, numpy, operator, pandas, re, sqlalchemy, statistics, string, typing. Any other import will be rejected.
 - Import MetricDefinition and MetricResult from metrics.framework.base.
 - Import DB models from db.models.
 - Do NOT include register() call — the system handles registration.

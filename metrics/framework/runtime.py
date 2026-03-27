@@ -30,14 +30,25 @@ SessionLocal = sessionmaker(bind=engine)
 _ALLOWED_IMPORT_ROOTS = {
     "__future__",
     "collections",
+    "dataclasses",
     "datetime",
     "db",
+    "decimal",
+    "enum",
+    "fractions",
+    "functools",
+    "itertools",
+    "json",
     "math",
     "metrics",
     "numpy",
+    "operator",
     "pandas",
+    "re",
     "sqlalchemy",
     "statistics",
+    "string",
+    "typing",
 }
 # The runtime already owns the SQLAlchemy session used by generated metrics, so they do
 # not need direct engine construction helpers like `create_engine`. If we ever allow
