@@ -3901,6 +3901,12 @@ def _preview_code_metric(
                     continue
                 if result and result.value_num is not None:
                     rows.append(_row(result))
+        elif getattr(metric, "trigger", "game") == "season":
+            try:
+                results = metric.compute_season(ro_session, season)
+            except Exception:
+                results = []
+            rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         else:
             rows = []
             for tid in team_ids:
@@ -3947,6 +3953,12 @@ def _preview_code_metric(
                     continue
                 if result and result.value_num is not None:
                     rows.append(_row(result))
+        elif getattr(metric, "trigger", "game") == "season":
+            try:
+                results = metric.compute_season(ro_session, season)
+            except Exception:
+                results = []
+            rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         else:
             rows = []
         rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
