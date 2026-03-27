@@ -252,6 +252,9 @@ to understand the patterns, coding style, and data access conventions.
 ## Your output format
 
 Reply with ONLY a JSON object (no markdown fences).
+IMPORTANT: Regardless of what language the user writes in, all metric fields (name,
+description, code, value_str) must be in English. Clarification messages should match
+the user's language.
 
 If the user is asking a clarification question, explanation request, or anything
 that should be answered conversationally instead of generating code, reply with:
