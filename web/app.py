@@ -3833,6 +3833,7 @@ def _preview_code_metric(
     ro_session = ReadOnlySession(session)
     rank_order = metadata["rank_order"]
     ctx_template = metadata.get("context_label_template")
+    _reverse = rank_order == "desc"
 
     def _row(r):
         row = {
@@ -3848,6 +3849,16 @@ def _preview_code_metric(
             except Exception:
                 pass
         return row
+
+    # trigger="season" — one call handles everything regardless of scope
+    if getattr(metric, "trigger", "game") == "season":
+        try:
+            results = metric.compute_season(ro_session, season)
+        except Exception:
+            results = []
+        rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
+        rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
+        return rows[:limit]
 
     if scope == "game":
         # For game-scope, run against recent games
@@ -3869,7 +3880,7 @@ def _preview_code_metric(
             for r in result_list:
                 if r.value_num is not None:
                     rows.append(_row(r))
-        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
         return rows[:limit]
 
     elif scope == "team":
@@ -3901,12 +3912,6 @@ def _preview_code_metric(
                     continue
                 if result and result.value_num is not None:
                     rows.append(_row(result))
-        elif getattr(metric, "trigger", "game") == "season":
-            try:
-                results = metric.compute_season(ro_session, season)
-            except Exception:
-                results = []
-            rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         else:
             rows = []
             for tid in team_ids:
@@ -3916,7 +3921,7 @@ def _preview_code_metric(
                     continue
                 if result and result.value_num is not None:
                     rows.append(_row(result))
-        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
         return rows[:limit]
 
     elif scope == "player":
@@ -3953,15 +3958,9 @@ def _preview_code_metric(
                     continue
                 if result and result.value_num is not None:
                     rows.append(_row(result))
-        elif getattr(metric, "trigger", "game") == "season":
-            try:
-                results = metric.compute_season(ro_session, season)
-            except Exception:
-                results = []
-            rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         else:
             rows = []
-        rows.sort(key=lambda r: r["value_num"], reverse=(rank_order == "desc"))
+        rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
         return rows[:limit]
 
     return []
