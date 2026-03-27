@@ -29,6 +29,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 _ALLOWED_IMPORT_ROOTS = {
     "__future__",
+    "collections",
     "datetime",
     "db",
     "math",
