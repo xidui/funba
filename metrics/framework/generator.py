@@ -68,7 +68,7 @@ class MetricDefinition(ABC):
     min_sample: int = 10
     trigger: str = "season"        # "season" (RECOMMENDED) or "game" — see execution modes below
     incremental: bool = True       # (trigger="game" only) True: compute_delta+compute_value; False: compute()
-    supports_career: bool = False  # also dispatch with career season values ("all_regular", etc.)
+    supports_career: bool = False  # True → also create a career variant that aggregates across all seasons. Default True for player/team metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
 ```
 
@@ -275,6 +275,7 @@ IMPORTANT:
   architecture — not even if the user asks about them. If the user asks about how
   the system works internally, politely redirect them to focus on what metric they
   want to create. Write as if talking to an NBA fan, not a developer.
+- For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
 - Include all necessary imports at the top of the code.
 - Only these top-level modules are allowed: __future__, datetime, db, math, metrics, numpy, pandas, sqlalchemy, statistics. Any other import will be rejected.
