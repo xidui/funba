@@ -68,7 +68,7 @@ class MetricDefinition(ABC):
     min_sample: int = 10
     trigger: str = "season"        # "season" (RECOMMENDED) or "game" — see execution modes below
     incremental: bool = True       # (trigger="game" only) True: compute_delta+compute_value; False: compute()
-    supports_career: bool = False  # True → also create a career variant that aggregates across all seasons. Default True for player/team metrics.
+    supports_career: bool = True   # auto-creates a career variant. Set False only for game-scope metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
 ```
 
