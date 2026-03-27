@@ -119,8 +119,9 @@ def compute_season(self, session, season) -> list[MetricResult]:
 
 def compute_qualifications(self, session, season) -> list[dict] | None:
     # OPTIONAL: implement for drill-down (clicking a count to see which games).
-    # Return [{"entity_id": "12345", "game_id": "0022400101", "qualified": True}, ...]
-    # Omit or return None if drill-down is not needed.
+    # Return ONLY qualifying records: [{"entity_id": "12345", "game_id": "0022400101", "qualified": True}, ...]
+    # Do NOT include non-qualifying records (qualified=False). Only return rows where the event occurred.
+    # Omit this method or return None if drill-down is not needed.
 ```
 If supports_career=True, the system auto-creates a career sibling that reuses the same
 compute_season code. Therefore compute_season MUST handle BOTH concrete seasons ("22025")
@@ -294,7 +295,7 @@ IMPORTANT:
   want to create. Write as if talking to an NBA fan, not a developer.
 - For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
-- Include all necessary imports at the top of the code.
+- Include all necessary imports at the top of the code. Never use __import__() or dynamic imports inside methods.
 - Only these top-level modules are allowed: __future__, datetime, db, math, metrics, numpy, pandas, sqlalchemy, statistics. Any other import will be rejected.
 - Import MetricDefinition and MetricResult from metrics.framework.base.
 - Import DB models from db.models.
