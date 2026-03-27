@@ -5311,7 +5311,7 @@ def api_admin_infra_status():
             scheduled.append({
                 "name": name,
                 "task": entry.get("task", ""),
-                "every": entry.get("schedule"),
+                "every": str(entry.get("schedule", "")),
             })
     except Exception:
         pass
