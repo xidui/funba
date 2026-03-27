@@ -15,6 +15,7 @@ class CooldownAutoscaler(Autoscaler):
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+VISIBILITY_TIMEOUT = int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "7200"))
 
 app = Celery("funba", broker=BROKER_URL, backend=RESULT_BACKEND)
 
@@ -35,6 +36,7 @@ app.conf.update(
         "tasks.metrics.chord_reduce_callback": {"queue": "reduce"},
         "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
         "tasks.metrics.compute_season_metric": {"queue": "metrics"},
+        "tasks.metrics.enqueue_career_metric_family": {"queue": "metrics"},
         "tasks.topics.generate_daily_topics": {"queue": "reduce"},
     },
 
@@ -64,7 +66,7 @@ app.conf.update(
 
     # --- Broker ---
     broker_connection_retry_on_startup=True,
-    broker_transport_options={"visibility_timeout": 120},  # 2 min (default 1h)
+    broker_transport_options={"visibility_timeout": VISIBILITY_TIMEOUT},
 
     # --- Worker ---
     worker_prefetch_multiplier=1,

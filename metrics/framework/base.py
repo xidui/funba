@@ -89,12 +89,15 @@ class MetricDefinition(ABC):
     Career variants (trigger="season"):
         Set supports_career=True. The same compute_season() is called with
         career season values (e.g. "all_regular"). The metric should adapt
-        its query filter based on the season parameter.
+        its query filter based on the season parameter. New metrics should prefer
+        `career_aggregate_mode = "season_results"` plus `compute_career_value()`
+        so career variants can be derived from season result contexts rather than
+        rescanning raw historical tables.
     """
     key: str
     name: str
     description: str
-    scope: str       # 'player' | 'team' | 'game' | 'league'
+    scope: str       # 'player' | 'player_franchise' | 'team' | 'game' | 'league'
     category: str
     min_sample: int = 10
 
@@ -113,6 +116,9 @@ class MetricDefinition(ABC):
     # Career sibling overrides (customisable per metric class)
     career_min_sample: int | None = None  # None → min_sample * 5
     career_name_suffix: str = " (Career)"
+    career_aggregate_mode: str | None = None  # "season_results" → runtime aggregates concrete-season contexts
+    career_sum_keys: tuple[str, ...] = ()
+    career_max_keys: tuple[str, ...] = ()
 
     # Optional format string for context label display, e.g. "{b2b_wins}/{b2b_games} B2B".
     # Keys are interpolated from the context dict via str.format_map().
@@ -174,6 +180,21 @@ class MetricDefinition(ABC):
         Return None (default) to skip writing MetricRunLog.
         """
         return None
+
+    def compute_career_value(
+        self,
+        totals: dict,
+        season: str,
+        entity_id: str | None,
+    ) -> MetricResult | None:
+        """Optional reducer for season-result-based career aggregation.
+
+        When `career_aggregate_mode == "season_results"`, the runtime aggregates
+        season `MetricResult.context` payloads using `career_sum_keys` /
+        `career_max_keys`, then calls this method once per entity to build the
+        career `MetricResult`.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement compute_career_value")
 
 
 def merge_totals(existing: dict, delta: dict) -> dict:

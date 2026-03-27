@@ -24,6 +24,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
 from db.models import MetricComputeRun, MetricResult, MetricRunLog, engine
+from metrics.framework.base import is_career_season
 from metrics.framework.runner import run_delta_only, reduce_metric, run_season_metric
 
 logger = logging.getLogger(__name__)
@@ -33,22 +34,36 @@ _RUN_STATUS_REDUCING = "reducing"
 _RUN_STATUS_COMPLETE = "complete"
 _RUN_STATUS_FAILED = "failed"
 _REDUCE_LOCK_PREFIX = "mr_"
+_SEASON_COMPUTE_LOCK_PREFIX = "ms_"
+_CAREER_BUCKET_LOCK_PREFIX = "msb_"
+
+
+def _lock_name(prefix: str, *parts: str) -> str:
+    """Build an advisory lock name that fits MySQL's 64-char limit."""
+    raw = ":".join(str(part) for part in parts if part)
+    name = prefix + raw
+    if len(name) <= 64:
+        return name
+    h = hashlib.md5(raw.encode()).hexdigest()[:16]
+    return prefix + h
 
 
 def _reduce_lock_name(metric_key: str) -> str:
-    """Build a per-metric advisory lock name that fits MySQL's 64-char limit."""
-    name = _REDUCE_LOCK_PREFIX + metric_key
-    if len(name) <= 64:
-        return name
-    # Hash to stay within limit while keeping prefix readable
-    h = hashlib.md5(metric_key.encode()).hexdigest()[:16]
-    return _REDUCE_LOCK_PREFIX + h
+    return _lock_name(_REDUCE_LOCK_PREFIX, metric_key)
+
+
+def _season_compute_lock_name(metric_key: str, season: str) -> str:
+    return _lock_name(_SEASON_COMPUTE_LOCK_PREFIX, metric_key, season)
+
+
+def _career_bucket_lock_name(season: str) -> str:
+    return _lock_name(_CAREER_BUCKET_LOCK_PREFIX, season)
 
 _REDUCE_STALE_REQUEUE_SECONDS = 1800
 
 
-class ReduceLockUnavailable(RuntimeError):
-    """Raised when a per-metric reduce lock is already held."""
+class AdvisoryLockUnavailable(RuntimeError):
+    """Raised when an advisory lock is already held."""
 
 
 _SessionLocal = sessionmaker(bind=engine)
@@ -60,14 +75,14 @@ def _session_factory():
 
 @contextmanager
 def _reduce_locked_session_factory(lock_name: str, timeout_seconds: int = 30):
-    """Hold a per-metric MySQL advisory lock while yielding normal Session factories.
+    """Hold a MySQL advisory lock while yielding normal Session factories.
 
     The lock itself is connection-scoped in MySQL, so keep a dedicated lock
     connection open for the duration of the context. The ORM sessions then use
     normal pooled engine connections, which avoids binding write transactions to
     the advisory-lock connection.
 
-    Different metrics use different lock names, allowing parallel reduce across metrics.
+    Different lock names allow independent work to proceed in parallel.
     """
     with engine.connect() as lock_conn:
         acquired = lock_conn.execute(
@@ -75,7 +90,7 @@ def _reduce_locked_session_factory(lock_name: str, timeout_seconds: int = 30):
             {"name": lock_name, "timeout_seconds": int(timeout_seconds)},
         ).scalar()
         if acquired != 1:
-            raise ReduceLockUnavailable(f"Failed to acquire reduce lock {lock_name!r}")
+            raise AdvisoryLockUnavailable(f"Failed to acquire advisory lock {lock_name!r}")
         SessionLocked = _session_factory()
         try:
             yield SessionLocked
@@ -510,7 +525,7 @@ def reduce_metric_compute_run_task(self, run_id: str) -> dict:
 
             with SessionLocked() as session:
                 _mark_run_complete(session, run_id)
-    except ReduceLockUnavailable as exc:
+    except AdvisoryLockUnavailable as exc:
         logger.info(
             "reduce_metric_compute_run: run_id=%s metric=%s waiting for reduce lock",
             run_id, metric_key,
@@ -583,24 +598,8 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
             ).update({"target_game_count": total_games}, synchronize_session=False)
             session.commit()
 
-    # Dispatch season-triggered metrics for this season (+ career buckets if applicable)
-    from metrics.framework.base import CAREER_SEASONS, career_season_for
-    from metrics.framework.runtime import get_all_metrics as _get_all_metrics
-    with SessionLocal() as session:
-        season_metrics = [m for m in _get_all_metrics(session=session) if getattr(m, "trigger", "game") == "season"]
-    for sm in season_metrics:
-        if getattr(sm, "career", False):
-            # Career variant — dispatch with career bucket
-            career_bucket = career_season_for(season)
-            if career_bucket:
-                compute_season_metric_task.delay(sm.key, career_bucket)
-                enqueued += 1
-        else:
-            # Base metric — dispatch with concrete season
-            compute_season_metric_task.delay(sm.key, season)
-            enqueued += 1
-
-    logger.info("reduce_after_ingest: game=%s enqueued %d tasks (reduce + season) for season %s", game_id, enqueued, season)
+    # Season-triggered metrics are batch jobs, not per-game fanout.
+    logger.info("reduce_after_ingest: game=%s enqueued %d reduce task(s) for season %s", game_id, enqueued, season)
     return {"game_id": game_id, "season": season, "enqueued": enqueued}
 
 
@@ -610,20 +609,74 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
     max_retries=2,
     default_retry_delay=30,
     queue="metrics",
-    ignore_result=True,
+    ignore_result=False,
 )
 def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
     """Compute a season-triggered metric for one (metric_key, season)."""
+    career_bucket = is_career_season(season)
     try:
-        SessionLocal = _session_factory()
-        with SessionLocal() as session:
-            count = run_season_metric(session, metric_key, season, commit=True)
+        lock_name = _career_bucket_lock_name(season) if career_bucket else _season_compute_lock_name(metric_key, season)
+        with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
+            with SessionLocked() as session:
+                count = run_season_metric(session, metric_key, season, commit=True)
+    except AdvisoryLockUnavailable:
+        if career_bucket:
+            logger.info(
+                "compute_season_metric: metric=%s season=%s waiting for career bucket lock",
+                metric_key,
+                season,
+            )
+            raise self.retry(countdown=10, max_retries=1000)
+        logger.info(
+            "compute_season_metric: metric=%s season=%s already running; skipping duplicate dispatch",
+            metric_key,
+            season,
+        )
+        return {"metric_key": metric_key, "season": season, "skipped": True, "reason": "already_running"}
     except Exception as exc:
         logger.error("compute_season_metric: metric=%s season=%s failed: %s",
                      metric_key, season, exc, exc_info=True)
         raise self.retry(exc=exc, countdown=30)
 
     return {"metric_key": metric_key, "season": season, "results_written": count}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.enqueue_career_metric_family",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="metrics",
+    ignore_result=True,
+)
+def enqueue_career_metric_family_task(self, results: list, metric_key: str) -> dict:
+    """Enqueue the three career buckets after all concrete seasons finish."""
+    from metrics.framework.family import family_career_key
+    from metrics.framework.runtime import get_metric
+
+    base_metric = get_metric(metric_key)
+    if base_metric is None:
+        return {"metric_key": metric_key, "skipped": True, "reason": "missing_base_metric"}
+    if getattr(base_metric, "career", False) or not getattr(base_metric, "supports_career", False):
+        return {"metric_key": metric_key, "skipped": True, "reason": "no_career_variant"}
+
+    career_key = family_career_key(metric_key)
+    career_metric = get_metric(career_key)
+    if career_metric is None:
+        return {"metric_key": metric_key, "skipped": True, "reason": "missing_career_metric"}
+
+    enqueued = 0
+    for bucket in ("all_regular", "all_playoffs", "all_playin"):
+        compute_season_metric_task.delay(career_key, bucket)
+        enqueued += 1
+
+    logger.info(
+        "enqueue_career_metric_family: metric=%s career_metric=%s enqueued %d bucket(s)",
+        metric_key,
+        career_key,
+        enqueued,
+    )
+    return {"metric_key": metric_key, "career_metric": career_key, "enqueued": enqueued}
 
 
 @shared_task(
@@ -640,7 +693,7 @@ def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
         with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 count = reduce_metric(session, metric_key, season, commit=True)
-    except ReduceLockUnavailable as exc:
+    except AdvisoryLockUnavailable as exc:
         logger.info(
             "reduce_metric_season: metric=%s season=%s waiting for reduce lock",
             metric_key, season,

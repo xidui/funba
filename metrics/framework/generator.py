@@ -71,7 +71,7 @@ class MetricDefinition(ABC):
     key: str            # unique identifier, e.g. "first_half_high_score"
     name: str           # display name
     description: str    # one-sentence description
-    scope: str          # "player" | "team" | "game"
+    scope: str          # "player" | "player_franchise" | "team" | "game"
     category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
     min_sample: int = 10
     trigger: str = "season"        # "season" (RECOMMENDED) or "game" — see execution modes below
@@ -137,6 +137,18 @@ AND career seasons ("all_regular"). Use is_career_season() to branch:
 CRITICAL: career seasons must NOT query all games unfiltered. Each career bucket
 corresponds to a specific season type.
 NEVER return [] for career seasons — always compute the career aggregation.
+
+For NEW season metrics with supports_career=True, prefer season-result aggregation:
+- Add `career_aggregate_mode = "season_results"`
+- Add `career_sum_keys = ("...", "...")` for additive context fields
+- Add `career_max_keys = ("...",)` only when a max reducer is needed
+- Implement `compute_career_value(self, totals, season, entity_id)` to build the
+  career MetricResult from aggregated season contexts
+- Store enough raw state in each season result's `context` to recompute the career
+  metric exactly. For percentages/ratios, store numerator and denominator inputs,
+  not just the final percentage.
+- `compute_qualifications()` for career variants should be derivable from season
+  MetricRunLog rows; do NOT rescan raw PBP/ShotRecord/Game tables for career.
 
 **Mode 2: trigger="game", incremental=True (per-game delta/reduce)**
 Used when you accumulate stats across games (e.g., win rate, FG%).
@@ -283,7 +295,7 @@ If the user is asking you to create or modify a metric, reply with:
   "responseType": "code",
   "name": "Short display name",
   "description": "One sentence describing what this measures.",
-  "scope": "player | team | game",
+  "scope": "player | player_franchise | team | game",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
   "min_sample": <int>,
   "trigger": "season | game",
@@ -313,6 +325,12 @@ IMPORTANT:
 - Use raw strings or proper escaping in the code field.
 - CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must always be the RAW metric value, not a rank ordinal. value_str should display the value in human-readable form, never a rank like #1 or #2. When the user asks for a "ranking", store the underlying value and let the system rank.
 - Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
+- For trigger="season" metrics with supports_career=True, the season result `context`
+  MUST include the raw reducer state needed for career aggregation. Examples:
+  `made/attempts`, `wins/games`, `pts/fga/fta`, `salary_usd/minutes_played`.
+- For trigger="season" metrics with supports_career=True, define:
+  `career_aggregate_mode = "season_results"`, `career_sum_keys`, optional
+  `career_max_keys`, and `compute_career_value()`.
 
 CRITICAL — PBP score parsing:
 - GamePlayByPlay.score is a CUMULATIVE score string like "62 - 51" (home - road).
@@ -324,6 +342,14 @@ CRITICAL — PBP score parsing:
 CRITICAL — performance:
 - In `compute_delta()`, avoid per-entity/per-game direct queries like `session.query(PlayerGameStats)...filter(player_id == entity_id, game_id == game_id)` or the analogous ShotRecord / TeamGameStats patterns.
 - Prefer the cached helpers above so a game's source rows are loaded once and reused.
+- In `compute_season()`, NEVER implement career by scanning all historical raw rows
+  for `all_regular` / `all_playoffs` / `all_playin` unless absolutely necessary.
+  Prefer season-result aggregation via `compute_career_value()`.
+- In `compute_season()`, if you use PBP helpers (`game_pbp_rows`, `game_score_margin_rows`,
+  `late_final_score_margin_rows`, `period_ending_pbp_row`), do NOT loop over every
+  game twice. Build qualifications during the same pass as the season computation.
+- If exact career aggregation cannot be expressed from season result context, return
+  a "clarification" response instead of generating unsafe code.
 """
 
 

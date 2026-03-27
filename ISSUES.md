@@ -1,34 +1,5 @@
 # Open Issues
 
-## [METRICS-1] Migrate builtin code metrics to MetricDefinition DB rows
-
-Once the `MetricDefinition` table is introduced for user-defined metrics, builtin metrics should
-also be represented as DB rows (`source_type = 'builtin'`) so the full catalog lives in one place.
-
-**Metrics and migratability:**
-| Metric | Migratable to rule? |
-|--------|-------------------|
-| multi_20pt_game | ✅ |
-| scoring_consistency | ✅ |
-| double_double_rate | ✅ |
-| bench_scoring_share | ✅ |
-| close_game_record | ✅ |
-| clutch_fg_pct | ✅ |
-| win_pct_leading_at_half | ⚠️ needs PBP join |
-| hot_hand | ❌ streak detection, keep in Python |
-| cold_streak_recovery | ❌ streak detection, keep in Python |
-
-**Acceptance criteria:**
-- [ ] `MetricDefinition` table with `source_type` field
-- [ ] All remaining builtin metrics have a corresponding DB row
-- [ ] `/metrics` catalog reads from DB, not in-memory registry
-- [ ] Runner handles both `rule` and `builtin` source types
-- [ ] No change in computed results
-
-**Depends on:** User-defined metrics milestone
-
----
-
 ## [INFRA-1] On-demand AWS backfill cluster
 
 Run backfills on a disposable AWS cluster (N workers) that spins up on demand and destroys itself when done. Eliminates the need to run overnight locally and enables parallelism across multiple IPs (useful for NBA API rate limits).
@@ -80,7 +51,6 @@ The current UI-to-backfill MVP is working, but a few implementation choices are 
 
 **Follow-ups:**
 - [ ] Avoid per-ingest metric catalog DB reads. `ingest_game()` currently calls the runtime metric loader without reusing an existing session, which adds one small extra query per ingest task.
-- [ ] Unify metric catalog assembly on one runtime path. `/metrics` currently combines builtins from the in-memory registry with DB-defined metrics from `MetricDefinition`; behavior is correct, but the implementation is asymmetric.
 - [ ] Evaluate whether some DB-backed rule metrics can support an incremental execution mode. They currently run as full recomputes (`incremental = False`) for correctness and simplicity.
 - [ ] Revisit new-metric backfill dispatch speed. Publish-triggered backfill currently routes through the ingest queue for every game to preserve artifact checks and pipeline consistency, but it is slower than a direct metrics-queue dispatch for fully hydrated games.
 

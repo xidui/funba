@@ -441,9 +441,11 @@ def cmd_metric_retry_failed(args: argparse.Namespace) -> None:
 
 def cmd_season_metrics(args: argparse.Namespace) -> None:
     """Enqueue season-triggered metric computation tasks."""
+    from celery import chord
+
     from metrics.framework.base import CAREER_SEASONS, career_season_for
     from metrics.framework.runtime import get_all_metrics, get_metric
-    from tasks.metrics import compute_season_metric_task
+    from tasks.metrics import compute_season_metric_task, enqueue_career_metric_family_task
 
     if args.metric:
         m = get_metric(args.metric)
@@ -455,7 +457,10 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
             sys.exit(1)
         metrics = [m]
     else:
-        metrics = [m for m in get_all_metrics() if getattr(m, "trigger", "game") == "season"]
+        metrics = [
+            m for m in get_all_metrics()
+            if getattr(m, "trigger", "game") == "season" and not getattr(m, "career", False)
+        ]
 
     if not metrics:
         print("No season-triggered metrics found.")
@@ -474,6 +479,7 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
             sess.close()
 
     enqueued = 0
+    callbacks = 0
     for m in metrics:
         if getattr(m, "career", False):
             # Career variant — dispatch with career seasons only
@@ -488,11 +494,23 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
                     enqueued += 1
         else:
             # Base metric — dispatch with concrete seasons
-            for season in seasons:
-                compute_season_metric_task.delay(m.key, season)
-                enqueued += 1
+            if getattr(m, "supports_career", False) and not args.season:
+                season_tasks = [compute_season_metric_task.s(m.key, season) for season in seasons]
+                chord(season_tasks)(enqueue_career_metric_family_task.s(metric_key=m.key))
+                enqueued += len(season_tasks)
+                callbacks += 1
+            else:
+                for season in seasons:
+                    compute_season_metric_task.delay(m.key, season)
+                    enqueued += 1
 
-    print(f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s).")
+    if callbacks:
+        print(
+            f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s) "
+            f"with {callbacks} career callback chord(s)."
+        )
+    else:
+        print(f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s).")
 
 
 def main() -> None:

@@ -10,10 +10,18 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import MetricDefinition as MetricDefinitionModel, engine
-from metrics.framework.base import CAREER_SEASON, MetricDefinition, MetricResult, career_season_for
+from db.models import MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Game, engine
+from metrics.framework.base import (
+    CAREER_SEASON,
+    MetricDefinition,
+    MetricResult,
+    career_season_for,
+    career_season_type_code,
+    is_career_season,
+)
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
@@ -193,7 +201,7 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
             "Generated metric is missing required attributes: " + ", ".join(missing)
         )
 
-    if metric.scope not in {"game", "league", "player", "team"}:
+    if metric.scope not in {"game", "league", "player", "player_franchise", "team"}:
         raise ValueError(f"Generated metric has invalid scope: {metric.scope!r}")
 
     trigger = getattr(metric, "trigger", "game")
@@ -211,6 +219,160 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
             raise ValueError("Generated incremental metric must implement compute_value()")
     elif metric_cls.compute is MetricDefinition.compute:
         raise ValueError("Generated non-incremental metric must implement compute()")
+
+
+def _career_base_key(metric: MetricDefinition) -> str:
+    return family_base_key(getattr(metric, "base_metric_key", None) or metric.key)
+
+
+def _career_season_prefix(career_season: str) -> str | None:
+    code = career_season_type_code(career_season)
+    if not code:
+        return None
+    return f"{code}%"
+
+
+def _career_ready_from_season_results(session: Session, base_key: str, career_season: str) -> bool:
+    prefix = _career_season_prefix(career_season)
+    if not prefix:
+        return False
+
+    expected = {
+        season
+        for (season,) in session.query(Game.season)
+        .filter(Game.game_date.isnot(None), Game.season.like(prefix))
+        .distinct()
+        .all()
+        if season
+    }
+    if not expected:
+        return True
+
+    available = {
+        season
+        for (season,) in session.query(MetricResultModel.season)
+        .filter(MetricResultModel.metric_key == base_key, MetricResultModel.season.like(prefix))
+        .distinct()
+        .all()
+        if season
+    }
+    return expected.issubset(available)
+
+
+def _career_context_rows(session: Session, base_key: str, career_season: str) -> list[tuple[str, dict]]:
+    prefix = _career_season_prefix(career_season)
+    if not prefix:
+        return []
+    rows = (
+        session.query(MetricResultModel.entity_id, MetricResultModel.context_json)
+        .filter(
+            MetricResultModel.metric_key == base_key,
+            MetricResultModel.season.like(prefix),
+            MetricResultModel.entity_id.isnot(None),
+        )
+        .all()
+    )
+    parsed: list[tuple[str, dict]] = []
+    for entity_id, context_json in rows:
+        if not entity_id:
+            continue
+        try:
+            context = json.loads(context_json) if context_json else {}
+        except Exception:
+            context = {}
+        parsed.append((str(entity_id), context))
+    return parsed
+
+
+def _coerce_number(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _aggregate_contexts(
+    rows: list[tuple[str, dict]],
+    *,
+    sum_keys: tuple[str, ...],
+    max_keys: tuple[str, ...] = (),
+) -> dict[str, dict]:
+    sum_key_set = set(sum_keys)
+    max_key_set = set(max_keys)
+    totals_by_entity: dict[str, dict] = {}
+    for entity_id, context in rows:
+        totals = totals_by_entity.setdefault(entity_id, {})
+        for key in sum_key_set:
+            number = _coerce_number(context.get(key))
+            if number is None:
+                continue
+            totals[key] = totals.get(key, 0.0) + number
+        for key in max_key_set:
+            number = _coerce_number(context.get(key))
+            if number is None:
+                continue
+            current = totals.get(key)
+            totals[key] = number if current is None else max(current, number)
+    return totals_by_entity
+
+
+def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
+    inner = getattr(metric, "_inner", None)
+    has_custom_method = inner is not None and type(inner).compute_career_value is not MetricDefinition.compute_career_value
+    return (
+        getattr(metric, "career_aggregate_mode", None) == "season_results"
+        or bool(getattr(metric, "career_sum_keys", ()))
+        or bool(getattr(metric, "career_max_keys", ()))
+        or has_custom_method
+    )
+
+
+def _aggregate_declared_career_metric(session: Session, metric: MetricDefinition, season: str) -> list[MetricResult]:
+    base_key = _career_base_key(metric)
+    rows = _career_context_rows(session, base_key, season)
+    totals_by_entity = _aggregate_contexts(
+        rows,
+        sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
+        max_keys=tuple(getattr(metric, "career_max_keys", ()) or ()),
+    )
+
+    results: list[MetricResult] = []
+    for entity_id in sorted(totals_by_entity):
+        result = metric.compute_career_value(totals_by_entity[entity_id], season, entity_id)
+        if result is not None:
+            result.metric_key = metric.key
+            results.append(result)
+    return results
+
+
+def _aggregate_career_metric_from_season_results(session: Session, metric: MetricDefinition, season: str) -> list[MetricResult]:
+    if not _metric_declares_career_reducer(metric):
+        raise RuntimeError(f"Metric {metric.key} does not declare a season-result career reducer")
+    return _aggregate_declared_career_metric(session, metric, season)
+
+
+def _aggregate_career_qualifications_from_season_logs(session: Session, metric: MetricDefinition, season: str) -> list[dict] | None:
+    base_key = _career_base_key(metric)
+    prefix = _career_season_prefix(season)
+    if not _metric_declares_career_reducer(metric) or not prefix:
+        return None
+    rows = (
+        session.query(MetricRunLog.entity_id, MetricRunLog.game_id)
+        .filter(
+            MetricRunLog.metric_key == base_key,
+            MetricRunLog.season.like(prefix),
+            MetricRunLog.qualified.is_(True),
+        )
+        .all()
+    )
+    if not rows:
+        return None
+    return [
+        {"entity_id": str(entity_id), "game_id": str(game_id), "qualified": True}
+        for entity_id, game_id in rows
+        if entity_id and game_id
+    ]
 
 
 class RuleMetricDefinition(MetricDefinition):
@@ -375,6 +537,9 @@ class CodeMetricDefinition(MetricDefinition):
         self.career = explicit_career if career is None else career
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
+        self.career_aggregate_mode = getattr(self._inner, "career_aggregate_mode", None)
+        self.career_sum_keys = tuple(getattr(self._inner, "career_sum_keys", ()) or ())
+        self.career_max_keys = tuple(getattr(self._inner, "career_max_keys", ()) or ())
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)
@@ -409,13 +574,25 @@ class CodeMetricDefinition(MetricDefinition):
         return result
 
     def compute_season(self, session, season):
+        if self.career and self.trigger == "season" and is_career_season(season):
+            return _aggregate_career_metric_from_season_results(session, self, season)
         return self._inner.compute_season(ReadOnlySession(session), season)
 
     def compute_qualifications(self, session, season):
+        if self.career and self.trigger == "season" and is_career_season(season):
+            quals = _aggregate_career_qualifications_from_season_logs(session, self, season)
+            if quals is not None:
+                return quals
         fn = getattr(self._inner, "compute_qualifications", None)
         if fn is None:
             return None
         return fn(ReadOnlySession(session), season)
+
+    def compute_career_value(self, totals, season, entity_id):
+        result = self._inner.compute_career_value(totals, season, entity_id)
+        if result and self.career:
+            result.metric_key = self.key
+        return result
 
 
 def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]:

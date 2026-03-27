@@ -335,12 +335,14 @@ def run_season_metric(
     metric_key: str,
     season: str,
     commit: bool = True,
+    replace_existing: bool = True,
 ) -> int:
     """Run a season-triggered metric for an entire season.
 
     Calls compute_season() which returns all MetricResults, then batch upserts.
     If the metric implements compute_qualifications(), also writes MetricRunLog
-    rows for drill-down support.
+    rows for drill-down support. Existing persisted output for the same
+    (metric_key, season) is replaced so reruns reflect the latest logic.
     Returns the number of results written.
     """
     metric_def = get_metric(metric_key, session=session)
@@ -359,23 +361,29 @@ def run_season_metric(
                      metric_key, season, exc, exc_info=True)
         return 0
 
-    if not results:
-        return 0
-
-    count = 0
-    for r in results:
-        if not r or r.value_num is None or r.value_num == 0:
-            continue
-        _upsert_result(session, r)
-        count += 1
-
-    # Write drill-down records if the metric supports it
     try:
         qualifications = metric_def.compute_qualifications(session, season)
     except Exception as exc:
         logger.error("run_season_metric %s compute_qualifications failed: %s",
                      metric_key, exc, exc_info=True)
         qualifications = None
+
+    if replace_existing:
+        session.query(MetricResultModel).filter(
+            MetricResultModel.metric_key == metric_key,
+            MetricResultModel.season == season,
+        ).delete(synchronize_session=False)
+        session.query(MetricRunLog).filter(
+            MetricRunLog.metric_key == metric_key,
+            MetricRunLog.season == season,
+        ).delete(synchronize_session=False)
+
+    count = 0
+    for r in results or []:
+        if not r or r.value_num is None or r.value_num == 0:
+            continue
+        _upsert_result(session, r)
+        count += 1
 
     if qualifications:
         run_log_rows = [

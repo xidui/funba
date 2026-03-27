@@ -1598,25 +1598,17 @@ def _dispatch_metric_backfill(metric_key: str) -> None:
     import subprocess
     import sys
 
-    from metrics.framework.family import family_career_key
     from metrics.framework.runtime import get_metric
 
     cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     m = get_metric(metric_key)
     if m and getattr(m, "trigger", "game") == "season":
-        # Dispatch base metric
+        # Dispatch concrete seasons first. Career variants aggregate from season
+        # results and should be enqueued only after the base pass finishes.
         subprocess.Popen(
             [sys.executable, "-m", "tasks.dispatch", "season-metrics", "--metric", metric_key],
             cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        # Also dispatch career sibling if it exists
-        if getattr(m, "supports_career", False):
-            career_key = family_career_key(metric_key)
-            if get_metric(career_key):
-                subprocess.Popen(
-                    [sys.executable, "-m", "tasks.dispatch", "season-metrics", "--metric", career_key],
-                    cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
     else:
         subprocess.Popen(
             [sys.executable, "-m", "tasks.dispatch", "metric-backfill", "--metric", metric_key],
