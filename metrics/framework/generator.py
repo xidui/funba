@@ -91,8 +91,13 @@ The `_qualified` key is automatically removed from the delta before storage.
   set `"_qualified": True` when the event occurred, `False` otherwise.
   Example: `return {"games_50_plus": 1 if hit else 0, "_qualified": hit}`
 
-- For rate/ratio metrics (FG%, win%, etc.) or any metric where drill-down is
-  not meaningful: omit `_qualified` or set it to `None`.
+- For metrics where there is no meaningful qualifying-game subset (for example,
+  pure aggregate efficiency values like AST/TO or TS%): omit `_qualified` or set
+  it to `None`.
+- IMPORTANT: some rates/percentages DO still deserve drill-down when they are built
+  from a clear subset of games. Examples: blowout_rate, win_pct_leading_at_half,
+  comeback_win_pct. For these, users will want to inspect the qualifying games, so
+  implement drill-down.
 
 Use your judgement: if listing the individual qualifying games would be useful
 to a user, include `_qualified`.
@@ -124,6 +129,11 @@ def compute_qualifications(self, session, season) -> list[dict] | None:
     # Return ONLY qualifying records: [{"entity_id": "12345", "game_id": "0022400101", "qualified": True}, ...]
     # Do NOT include non-qualifying records (qualified=False). Only return rows where the event occurred.
     # Omit this method or return None if drill-down is not needed.
+    # You must decide whether this metric should support game drill-down:
+    # - If users would reasonably want to click through and inspect the specific games
+    #   behind the value, implement compute_qualifications().
+    # - If the metric is an aggregate/rate where game-by-game drill-down is not useful
+    #   or would be misleading/noisy, do NOT implement it.
 ```
 If supports_career=True, the system auto-creates a career sibling that reuses the same
 compute_season code. Therefore compute_season MUST handle BOTH concrete seasons ("22025")
@@ -325,6 +335,12 @@ IMPORTANT:
 - Use raw strings or proper escaping in the code field.
 - CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must always be the RAW metric value, not a rank ordinal. value_str should display the value in human-readable form, never a rank like #1 or #2. When the user asks for a "ranking", store the underlying value and let the system rank.
 - Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
+- For trigger="season" metrics, explicitly decide whether game drill-down is useful.
+  If useful, implement `compute_qualifications()`; if not useful, omit it. Do not
+  add `compute_qualifications()` by default.
+- Base this decision on whether the metric corresponds to a clear, user-meaningful
+  set of qualifying games, NOT just on whether the final value is a count or a rate.
+  A rate built from qualifying games should still implement drill-down.
 - For trigger="season" metrics with supports_career=True, the season result `context`
   MUST include the raw reducer state needed for career aggregation. Examples:
   `made/attempts`, `wins/games`, `pts/fga/fta`, `salary_usd/minutes_played`.
