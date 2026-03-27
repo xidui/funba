@@ -609,7 +609,7 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
     name="tasks.metrics.compute_season_metric",
     max_retries=2,
     default_retry_delay=30,
-    queue="reduce",
+    queue="metrics",
     ignore_result=True,
 )
 def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
