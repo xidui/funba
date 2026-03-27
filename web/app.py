@@ -1398,8 +1398,6 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
             .filter(MetricResultModel.metric_key == metric_key)
             .scalar() or 0
         )
-        if done_games:
-            done_games = total_games  # Has results → treat as done
 
     active_games = 0
     latest_run_at = (
@@ -1555,11 +1553,19 @@ def _build_metric_backfill_status(session, metric_key: str):
         source_type=getattr(db_metric, "source_type", None),
     )
     is_career_metric = bool(getattr(runtime_metric, "career", False))
-    total_games = (
-        session.query(func.count(Game.game_id))
-        .filter(Game.game_date.isnot(None))
-        .scalar() or 0
-    )
+    is_season_trigger = getattr(runtime_metric, "trigger", "game") == "season"
+    if is_season_trigger:
+        total_games = (
+            session.query(func.count(MetricResultModel.id))
+            .filter(MetricResultModel.metric_key == metric_key)
+            .scalar() or 0
+        )
+    else:
+        total_games = (
+            session.query(func.count(Game.game_id))
+            .filter(Game.game_date.isnot(None))
+            .scalar() or 0
+        )
 
     backfill_keys = [metric_key]
     if runtime_metric is not None and not is_career_metric and getattr(runtime_metric, "supports_career", False):
