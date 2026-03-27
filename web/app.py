@@ -3855,6 +3855,7 @@ def _preview_code_metric(
         try:
             results = metric.compute_season(ro_session, season)
         except Exception:
+            logger.exception("preview compute_season failed for season=%s", season)
             results = []
         rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
