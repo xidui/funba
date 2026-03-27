@@ -12,6 +12,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable
 from urllib.parse import urljoin
 
@@ -31,7 +32,6 @@ Session = sessionmaker(bind=engine)
 
 BASE_URL = "https://www.basketball-reference.com"
 PLAYER_CONTRACTS_URL = f"{BASE_URL}/contracts/players.html"
-DEFAULT_SEASON = 2024
 REQUEST_DELAY_SECONDS = 2.0
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = (
@@ -40,10 +40,20 @@ USER_AGENT = (
 )
 
 
+def _current_nba_season_start_year(now: datetime | None = None) -> int:
+    current = now or datetime.now()
+    return current.year if current.month >= 7 else current.year - 1
+
+
+CURRENT_SEASON = _current_nba_season_start_year()
+DEFAULT_SEASON = CURRENT_SEASON
+
+
 @dataclass(frozen=True)
 class ContractPlayerEntry:
     full_name: str
     player_url: str
+    current_season_salary: int | None = None
 
 
 @dataclass(frozen=True)
@@ -132,12 +142,54 @@ def _salary_value(cell) -> int | None:
     return int(text)
 
 
+def _contract_salary_column(table) -> tuple[str | None, int | None]:
+    thead = table.find("thead") if table is not None else None
+    if thead is None:
+        return None, None
+
+    fallback: tuple[str | None, int | None] = (None, None)
+    for header in thead.find_all(["th", "td"]):
+        season = _season_start_year(header.get_text(" ", strip=True))
+        data_stat = str(header.get("data-stat") or "").strip()
+        if season is None or not data_stat:
+            continue
+        if fallback == (None, None):
+            fallback = (data_stat, season)
+        if season == CURRENT_SEASON:
+            return data_stat, season
+
+    return fallback
+
+
+def _dedupe_salary_rows(salary_rows: Iterable[SalaryRecord]) -> list[SalaryRecord]:
+    deduped: dict[int, SalaryRecord] = {}
+    for row in salary_rows:
+        deduped[row.season] = row
+    return list(deduped.values())
+
+
 def fetch_contract_players(client: BasketballReferenceClient) -> list[ContractPlayerEntry]:
     soup = client.get_soup(PLAYER_CONTRACTS_URL)
+    table = _find_table(soup, "player-contracts")
+    if table is None:
+        logger.warning("Missing player contracts table on %s", PLAYER_CONTRACTS_URL)
+        return []
+
+    salary_data_stat, table_season = _contract_salary_column(table)
     seen_urls: set[str] = set()
     players: list[ContractPlayerEntry] = []
+    tbody = table.find("tbody")
+    if tbody is None:
+        return players
 
-    for row in soup.select("tr"):
+    if table_season is not None and table_season != CURRENT_SEASON:
+        logger.warning(
+            "Contracts table current-season header is %s but scraper expects %s",
+            table_season,
+            CURRENT_SEASON,
+        )
+
+    for row in tbody.find_all("tr", recursive=False):
         classes = set(row.get("class", []))
         if "thead" in classes or "over_header" in classes:
             continue
@@ -147,7 +199,14 @@ def fetch_contract_players(client: BasketballReferenceClient) -> list[ContractPl
             continue
 
         seen_urls.add(player_url)
-        players.append(ContractPlayerEntry(full_name=name, player_url=player_url))
+        salary_cell = row.find("td", attrs={"data-stat": salary_data_stat}) if salary_data_stat else None
+        players.append(
+            ContractPlayerEntry(
+                full_name=name,
+                player_url=player_url,
+                current_season_salary=_salary_value(salary_cell),
+            )
+        )
 
     return players
 
@@ -259,8 +318,13 @@ def run(season: int | None = DEFAULT_SEASON) -> BackfillCounts:
 
             try:
                 salary_rows = fetch_salary_history(client, entry.player_url)
+                if entry.current_season_salary is not None:
+                    salary_rows.append(
+                        SalaryRecord(season=CURRENT_SEASON, salary_usd=entry.current_season_salary)
+                    )
                 if season is not None:
                     salary_rows = [row for row in salary_rows if row.season == season]
+                salary_rows = _dedupe_salary_rows(salary_rows)
                 if not salary_rows:
                     continue
 
@@ -283,7 +347,12 @@ def run(season: int | None = DEFAULT_SEASON) -> BackfillCounts:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill player salary history from Basketball Reference")
-    parser.add_argument("--season", type=int, default=DEFAULT_SEASON, help="Starting year for the salary season (default: 2024)")
+    parser.add_argument(
+        "--season",
+        type=int,
+        default=DEFAULT_SEASON,
+        help=f"Starting year for the salary season (default: {DEFAULT_SEASON})",
+    )
     parser.add_argument(
         "--all-seasons",
         action="store_true",
