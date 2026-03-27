@@ -52,7 +52,9 @@ shot_zone_range, shot_distance, loc_x, loc_y, shot_attempted (bool),
 shot_made (bool)
 
 ### PlayerSalary (one row per player per season)
-id (PK), player_id (FK → Player), season (int, e.g. 2025), salary_usd (int, USD)
+id (PK), player_id (FK → Player), season (int, 4-digit year e.g. 2025), salary_usd (int, USD)
+NOTE: PlayerSalary.season is a 4-digit year (e.g. 2024), NOT the 5-digit Game.season format
+(e.g. "22024"). To match, extract the year: `int(str(game_season)[-4:])` or `int(game_season) % 10000`.
 
 ## MetricDefinition Base Class
 
