@@ -4382,9 +4382,24 @@ def api_metric_update(metric_key: str):
         if body.get("rebackfill") and m.status == "published":
             family_keys = [row.key for row in _metric_family_rows(session, m)]
             session.query(MetricResultModel).filter(MetricResultModel.metric_key.in_(family_keys)).delete(synchronize_session=False)
-            session.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.query(MetricComputeRun).filter(MetricComputeRun.metric_key.in_(family_keys)).delete(synchronize_session=False)
             session.commit()
+            # RunLog deletion can be very slow for metrics migrated from trigger="game"
+            # (millions of rows). Run it in a background thread to avoid blocking the UI.
+            _bg_keys = list(family_keys)
+            def _delete_run_logs_bg():
+                from sqlalchemy.orm import sessionmaker as _sm
+                _sess = _sm(bind=engine)()
+                try:
+                    _sess.query(MetricRunLog).filter(MetricRunLog.metric_key.in_(_bg_keys)).delete(synchronize_session=False)
+                    _sess.commit()
+                except Exception:
+                    logger.exception("Background RunLog cleanup failed for %s", _bg_keys)
+                    _sess.rollback()
+                finally:
+                    _sess.close()
+            import threading
+            threading.Thread(target=_delete_run_logs_bg, daemon=True).start()
             try:
                 _dispatch_metric_backfill(m.key)
             except Exception:
