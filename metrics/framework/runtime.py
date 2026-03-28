@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, Game, engine
+from db import models as db_models
 from metrics.framework.base import (
     CAREER_SEASON,
     MetricDefinition,
@@ -32,6 +32,12 @@ from metrics.framework.family import (
     family_career_key,
     rule_supports_career,
 )
+
+MetricDefinitionModel = db_models.MetricDefinition
+MetricResultModel = getattr(db_models, "MetricResult", None)
+MetricRunLog = getattr(db_models, "MetricRunLog", None)
+Game = getattr(db_models, "Game", None)
+engine = db_models.engine
 
 SessionLocal = sessionmaker(bind=engine)
 
