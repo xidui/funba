@@ -2193,18 +2193,28 @@ _BOT_SIGNATURES = (
     "bot", "crawl", "spider", "slurp", "mediapartners",
     "meta-webindexer", "facebookexternalhit", "bytespider",
     "gptbot", "claudebot", "bingpreview", "yandex",
+    "curl/", "wget/", "httpie/", "python-requests", "python-urllib",
+    "go-http-client", "java/", "okhttp", "axios/", "node-fetch",
+    "scrapy", "headlesschrome", "phantomjs", "selenium",
 )
+
+# Bare or too-short UAs are almost never real browsers
+_MIN_REAL_UA_LENGTH = 40
 
 
 def _is_bot() -> bool:
-    ua = (request.user_agent.string or "").lower()
+    ua = (request.user_agent.string or "").lower().strip()
+    if not ua or len(ua) < _MIN_REAL_UA_LENGTH:
+        return True
     return any(sig in ua for sig in _BOT_SIGNATURES)
 
 
 @app.before_request
-def _block_bots_on_auth():
-    """Return 403 for known bots hitting /auth/ — saves server resources."""
-    if request.path.startswith("/auth/") and _is_bot():
+def _block_bots():
+    """Return 403 for known bots / non-browser clients."""
+    if request.path.startswith("/static/") or request.path == "/robots.txt":
+        return
+    if _is_bot():
         return "Forbidden", 403
 
 
