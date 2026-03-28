@@ -1065,6 +1065,132 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
     return db_metrics
 
 
+def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
+    """Bulk-load top 3 results per metric for the current season.
+
+    Returns {metric_key: [{entity_id, label, value_str, headshot_url|logo_url}, ...]}.
+    """
+    from sqlalchemy import case
+
+    # Determine current regular season
+    all_seasons = sorted(
+        [r[0] for r in session.query(Game.season).distinct().all() if r[0] and str(r[0]).startswith("2")]
+    )
+    current_season = max(all_seasons) if all_seasons else None
+    if current_season is None:
+        return {}
+
+    # Build map of metric_key → (scope, rank_order, is_career)
+    metric_info: dict[str, tuple[str, str, bool]] = {}
+    for m in metrics_list:
+        if m.get("status") != "published":
+            continue
+        metric_info[m["key"]] = (m["scope"], m.get("rank_order", "desc"), bool(m.get("career")))
+
+    if not metric_info:
+        return {}
+
+    season_keys = [k for k, v in metric_info.items() if not v[2]]
+    career_keys = [k for k, v in metric_info.items() if v[2]]
+
+    # Bulk query: season metrics use current_season, career metrics use "all_regular"
+    rows = []
+    if season_keys:
+        rows.extend(
+            session.query(MetricResultModel)
+            .filter(
+                MetricResultModel.metric_key.in_(season_keys),
+                MetricResultModel.season == current_season,
+                MetricResultModel.value_num.isnot(None),
+            )
+            .all()
+        )
+    if career_keys:
+        rows.extend(
+            session.query(MetricResultModel)
+            .filter(
+                MetricResultModel.metric_key.in_(career_keys),
+                MetricResultModel.season == "all_regular",
+                MetricResultModel.value_num.isnot(None),
+            )
+            .all()
+        )
+
+    # Group by metric_key, sort, take top 3
+    from collections import defaultdict
+    by_metric: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_metric[r.metric_key].append(r)
+
+    # Collect all entity IDs we need to resolve
+    player_ids: set[str] = set()
+    team_ids: set[str] = set()
+
+    top3_raw: dict[str, list] = {}
+    for key, results in by_metric.items():
+        scope, rank_order, _ = metric_info.get(key, ("player", "desc", False))
+        reverse = rank_order == "desc"
+        results.sort(key=lambda r: r.value_num if r.value_num is not None else 0, reverse=reverse)
+        top = results[:3]
+        top3_raw[key] = top
+        for r in top:
+            if scope in ("player", "player_franchise"):
+                eid = r.entity_id.split(":")[0] if ":" in (r.entity_id or "") else r.entity_id
+                if eid:
+                    player_ids.add(eid)
+            elif scope == "team":
+                if r.entity_id:
+                    team_ids.add(r.entity_id)
+
+    # Bulk resolve names
+    player_names = {}
+    if player_ids:
+        for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(player_ids)).all():
+            player_names[p.player_id] = p.full_name
+
+    team_abbrs = {}
+    if team_ids:
+        for t in session.query(Team.team_id, Team.abbr).filter(Team.team_id.in_(team_ids)).all():
+            team_abbrs[t.team_id] = t.abbr
+
+    # Build final output
+    result: dict[str, list[dict]] = {}
+    for key, top in top3_raw.items():
+        scope = metric_info[key][0]
+        entries = []
+        for r in top:
+            eid = r.entity_id or ""
+            if scope in ("player", "player_franchise"):
+                pid = eid.split(":")[0] if ":" in eid else eid
+                label = player_names.get(pid, eid)
+                entry = {
+                    "entity_id": pid,
+                    "label": label,
+                    "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
+                    "headshot_url": f"https://cdn.nba.com/headshots/nba/latest/260x190/{pid}.png",
+                }
+            elif scope == "team":
+                label = team_abbrs.get(eid, eid)
+                entry = {
+                    "entity_id": eid,
+                    "label": label,
+                    "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
+                    "logo_url": f"https://cdn.nba.com/logos/nba/{eid}/global/L/logo.svg",
+                }
+            else:
+                # game scope — just show value_str
+                entry = {
+                    "entity_id": eid,
+                    "label": r.value_str or "",
+                    "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
+                }
+            entries.append(entry)
+        if entries:
+            result[key] = entries
+
+    return result
+
+
 def _fmt_minutes(minute: int | None, sec: int | None) -> str:
     if minute is None and sec is None:
         return "-"
@@ -3959,6 +4085,7 @@ def metrics_browse():
     with SessionLocal() as session:
         metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
         llm_default_model = get_llm_model_for_purpose(session, "search")
+        top3_by_metric = _catalog_top3(session, metrics_list)
 
     return render_template(
         "metrics.html",
@@ -3966,6 +4093,7 @@ def metrics_browse():
         scope_filter=scope_filter,
         status_filter=status_filter,
         search_query=search_query,
+        top3_by_metric=top3_by_metric,
         llm_default_model=llm_default_model,
         llm_available_models=available_llm_models(),
     )

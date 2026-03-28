@@ -37,10 +37,11 @@
   }
 
   .metrics-catalog {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    columns: 3;
+    column-gap: 12px;
   }
+  @media (max-width: 900px) { .metrics-catalog { columns: 2; } }
+  @media (max-width: 560px) { .metrics-catalog { columns: 1; } }
 
   .search-panel {
     background: var(--surface);
@@ -147,6 +148,8 @@
     flex-direction: column;
     gap: 6px;
     transition: border-color 0.15s, background 0.15s;
+    break-inside: avoid;
+    margin-bottom: 12px;
   }
   .catalog-card:hover {
     border-color: var(--accent);
@@ -200,6 +203,57 @@
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--muted);
+  }
+
+  .catalog-top3 {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .top3-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+  .top3-rank {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    width: 14px;
+    flex-shrink: 0;
+    text-align: right;
+  }
+  .top3-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .top3-logo {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .top3-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .top3-val {
+    font-weight: 600;
+    color: var(--accent);
+    flex-shrink: 0;
   }
 
   .catalog-count {
@@ -283,15 +337,25 @@
       </div>
     </div>
     <div class="catalog-desc">{{ m.description }}</div>
+    {% set top3 = top3_by_metric.get(m.key, []) %}
+    {% if top3 %}
+    <div class="catalog-top3">
+      {% for entry in top3 %}
+      <div class="top3-row">
+        <span class="top3-rank">{{ loop.index }}</span>
+        {% if entry.headshot_url %}
+        <img class="top3-avatar" src="{{ entry.headshot_url }}" onerror="this.style.display='none'" loading="lazy">
+        {% elif entry.logo_url %}
+        <img class="top3-logo" src="{{ entry.logo_url }}" onerror="this.style.display='none'" loading="lazy">
+        {% endif %}
+        <span class="top3-name">{{ entry.label }}</span>
+        <span class="top3-val">{{ entry.value_str }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="catalog-footer">
       <div class="catalog-category">{{ m.category }}</div>
-      <div class="catalog-count">
-        {% if m.result_count > 0 %}
-          <span>{{ m.result_count }}</span> result{{ 's' if m.result_count != 1 }}
-        {% else %}
-          No data yet
-        {% endif %}
-      </div>
     </div>
   </a>
   {% endfor %}
