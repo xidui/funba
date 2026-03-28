@@ -637,20 +637,12 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
 )
 def compute_season_metric_task(self, metric_key: str, season: str, run_id: str | None = None) -> dict:
     """Compute a season-triggered metric for one (metric_key, season)."""
-    career_bucket = is_career_season(season)
     try:
-        lock_name = _career_bucket_lock_name(season) if career_bucket else _season_compute_lock_name(metric_key, season)
+        lock_name = _season_compute_lock_name(metric_key, season)
         with _reduce_locked_session_factory(lock_name, timeout_seconds=0) as SessionLocked:
             with SessionLocked() as session:
                 count = run_season_metric(session, metric_key, season, commit=True)
     except AdvisoryLockUnavailable:
-        if career_bucket:
-            logger.info(
-                "compute_season_metric: metric=%s season=%s waiting for career bucket lock",
-                metric_key,
-                season,
-            )
-            raise self.retry(countdown=10, max_retries=1000)
         logger.info(
             "compute_season_metric: metric=%s season=%s already running; skipping duplicate dispatch",
             metric_key,
