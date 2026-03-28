@@ -284,6 +284,31 @@ def _career_context_rows(session: Session, base_key: str, career_season: str) ->
     return parsed
 
 
+def _career_context_rows_by_season(session: Session, base_key: str, career_season: str) -> list[tuple[str, str, dict]]:
+    prefix = _career_season_prefix(career_season)
+    if not prefix:
+        return []
+    rows = (
+        session.query(MetricResultModel.entity_id, MetricResultModel.season, MetricResultModel.context_json)
+        .filter(
+            MetricResultModel.metric_key == base_key,
+            MetricResultModel.season.like(prefix),
+            MetricResultModel.entity_id.isnot(None),
+        )
+        .all()
+    )
+    parsed: list[tuple[str, str, dict]] = []
+    for entity_id, season_value, context_json in rows:
+        if not entity_id or not season_value:
+            continue
+        try:
+            context = json.loads(context_json) if context_json else {}
+        except Exception:
+            context = {}
+        parsed.append((str(entity_id), str(season_value), context))
+    return parsed
+
+
 def _coerce_number(value):
     if isinstance(value, bool):
         return None
@@ -357,8 +382,26 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
     prefix = _career_season_prefix(season)
     if not _metric_declares_career_reducer(metric) or not prefix:
         return None
+    max_keys = tuple(getattr(metric, "career_max_keys", ()) or ())
+    eligible_entity_seasons: set[tuple[str, str]] | None = None
+    if max_keys:
+        context_rows = _career_context_rows_by_season(session, base_key, season)
+        totals_by_entity = _aggregate_contexts(
+            [(entity_id, context) for entity_id, _, context in context_rows],
+            sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
+            max_keys=max_keys,
+        )
+        eligible_entity_seasons = set()
+        for entity_id, season_value, context in context_rows:
+            totals = totals_by_entity.get(entity_id) or {}
+            if all(
+                _coerce_number(context.get(key)) is not None
+                and _coerce_number(context.get(key)) == _coerce_number(totals.get(key))
+                for key in max_keys
+            ):
+                eligible_entity_seasons.add((entity_id, season_value))
     rows = (
-        session.query(MetricRunLog.entity_id, MetricRunLog.game_id)
+        session.query(MetricRunLog.entity_id, MetricRunLog.season, MetricRunLog.game_id)
         .filter(
             MetricRunLog.metric_key == base_key,
             MetricRunLog.season.like(prefix),
@@ -370,8 +413,11 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
         return None
     return [
         {"entity_id": str(entity_id), "game_id": str(game_id), "qualified": True}
-        for entity_id, game_id in rows
-        if entity_id and game_id
+        for entity_id, season_value, game_id in rows
+        if entity_id
+        and season_value
+        and game_id
+        and (eligible_entity_seasons is None or (str(entity_id), str(season_value)) in eligible_entity_seasons)
     ]
 
 

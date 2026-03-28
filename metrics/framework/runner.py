@@ -18,25 +18,36 @@ from metrics.framework.runtime import get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
 
+_BULK_WRITE_BATCH_SIZE = 1000
+
+
+def _batched(rows: list, batch_size: int = _BULK_WRITE_BATCH_SIZE):
+    for start in range(0, len(rows), batch_size):
+        yield rows[start:start + batch_size]
+
+
+def _result_row(result: MetricResult) -> dict:
+    return {
+        "metric_key": result.metric_key,
+        "entity_type": result.entity_type,
+        "entity_id": result.entity_id,
+        "season": result.season,
+        "rank_group": result.rank_group,
+        "game_id": result.game_id,
+        "value_num": result.value_num,
+        "value_str": result.value_str,
+        "context_json": json.dumps(result.context) if result.context else None,
+        "noteworthiness": result.noteworthiness,
+        "notable_reason": result.notable_reason,
+        "computed_at": datetime.utcnow(),
+    }
+
 
 def _upsert_result(session: Session, result: MetricResult) -> None:
     """INSERT or UPDATE a MetricResult row."""
     from sqlalchemy.dialects.mysql import insert
 
-    stmt = insert(MetricResultModel).values(
-        metric_key=result.metric_key,
-        entity_type=result.entity_type,
-        entity_id=result.entity_id,
-        season=result.season,
-        rank_group=result.rank_group,
-        game_id=result.game_id,
-        value_num=result.value_num,
-        value_str=result.value_str,
-        context_json=json.dumps(result.context) if result.context else None,
-        noteworthiness=result.noteworthiness,
-        notable_reason=result.notable_reason,
-        computed_at=datetime.utcnow(),
-    )
+    stmt = insert(MetricResultModel).values(_result_row(result))
     stmt = stmt.on_duplicate_key_update(
         rank_group=stmt.inserted.rank_group,
         game_id=stmt.inserted.game_id,
@@ -46,6 +57,26 @@ def _upsert_result(session: Session, result: MetricResult) -> None:
         computed_at=stmt.inserted.computed_at,
     )
     session.execute(stmt)
+
+
+def _flush_results(session: Session, results: list[MetricResult]) -> None:
+    """Bulk INSERT ... ON DUPLICATE KEY UPDATE for MetricResult rows."""
+    if not results:
+        return
+
+    from sqlalchemy.dialects.mysql import insert
+
+    for batch in _batched(results):
+        stmt = insert(MetricResultModel).values([_result_row(result) for result in batch])
+        stmt = stmt.on_duplicate_key_update(
+            rank_group=stmt.inserted.rank_group,
+            game_id=stmt.inserted.game_id,
+            value_num=stmt.inserted.value_num,
+            value_str=stmt.inserted.value_str,
+            context_json=stmt.inserted.context_json,
+            computed_at=stmt.inserted.computed_at,
+        )
+        session.execute(stmt)
 
 
 def _log_run(
@@ -78,14 +109,15 @@ def _flush_run_logs(session: Session, rows: list[dict]) -> None:
 
     from sqlalchemy.dialects.mysql import insert
 
-    stmt = insert(MetricRunLog).values(rows)
-    stmt = stmt.on_duplicate_key_update(
-        computed_at=stmt.inserted.computed_at,
-        produced_result=stmt.inserted.produced_result,
-        delta_json=stmt.inserted.delta_json,
-        qualified=stmt.inserted.qualified,
-    )
-    session.execute(stmt)
+    for batch in _batched(rows):
+        stmt = insert(MetricRunLog).values(batch)
+        stmt = stmt.on_duplicate_key_update(
+            computed_at=stmt.inserted.computed_at,
+            produced_result=stmt.inserted.produced_result,
+            delta_json=stmt.inserted.delta_json,
+            qualified=stmt.inserted.qualified,
+        )
+        session.execute(stmt)
 
 
 def _get_targets(session: Session, scope: str, game: Game, player_ids: list[str], team_ids: list[str]):
@@ -378,12 +410,12 @@ def run_season_metric(
             MetricRunLog.season == season,
         ).delete(synchronize_session=False)
 
-    count = 0
-    for r in results or []:
-        if not r or r.value_num is None or r.value_num == 0:
-            continue
-        _upsert_result(session, r)
-        count += 1
+    persisted_results = [
+        r for r in (results or [])
+        if r and r.value_num is not None and r.value_num != 0
+    ]
+    _flush_results(session, persisted_results)
+    count = len(persisted_results)
 
     if qualifications:
         run_log_rows = [
