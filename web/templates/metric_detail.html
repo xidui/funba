@@ -606,6 +606,9 @@
       {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
+    {% if backfill.latest_run_at %}
+    <div style="font-size:11px;color:var(--muted);margin-top:4px;">Last updated: {{ backfill.latest_run_at }}</div>
+    {% endif %}
     {% if related_metrics %}
     <div class="metric-switch">
       {% for related_metric in related_metrics %}
@@ -655,12 +658,14 @@
   data-status-url="{{ url_for('api_metric_backfill_status', metric_key=metric_def.key) }}"
   {% if backfill.status not in ['running', 'queued', 'finalizing'] %}style="display:none"{% endif %}
 >
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-    <span style="font-size:13px;font-weight:600;color:var(--text);">Computing</span>
-    <span id="backfill-overall-pct" style="font-size:13px;color:var(--muted);">{{ backfill.overall_pct|round(0)|int }}%</span>
-  </div>
-  <div class="progress-track">
-    <div id="backfill-overall-fill" class="progress-fill" style="width:{{ backfill.overall_pct }}%;"></div>
+  <div style="padding:14px 18px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <span style="font-size:13px;font-weight:600;color:var(--text);">Computing metric results…</span>
+      <span id="backfill-overall-pct" style="font-size:13px;font-weight:600;color:var(--accent);">{{ backfill.overall_pct|round(0)|int }}%</span>
+    </div>
+    <div class="progress-track" style="margin-top:0;">
+      <div id="backfill-overall-fill" class="progress-fill" style="width:{{ backfill.overall_pct }}%;transition:width 0.4s ease;"></div>
+    </div>
   </div>
 </div>
 
@@ -705,15 +710,17 @@
     <div class="run-timeline">
       <div class="run-timeline-step">
         <div class="run-timeline-dot {{ 'done' if ri.started_at else '' }}"></div>
-        <div class="run-timeline-label">Map</div>
+        <div class="run-timeline-label">{{ 'Computing' if metric_def.trigger == 'season' else 'Map' }}</div>
         {% if ri.started_at %}<div class="run-timeline-time">{{ ri.started_at[5:16] }}</div>{% endif %}
       </div>
+      {% if metric_def.trigger != 'season' %}
       <div class="run-timeline-line {{ 'done' if ri.reduce_enqueued_at else '' }}"></div>
       <div class="run-timeline-step">
         <div class="run-timeline-dot {{ 'done' if ri.reduce_enqueued_at else ('active' if ri.run_status == 'mapping' else '') }}"></div>
         <div class="run-timeline-label">Reduce</div>
         {% if ri.reduce_enqueued_at %}<div class="run-timeline-time">{{ ri.reduce_enqueued_at[5:16] }}</div>{% endif %}
       </div>
+      {% endif %}
       <div class="run-timeline-line {{ 'done' if ri.completed_at else '' }}"></div>
       {% if ri.failed_at %}
       <div class="run-timeline-step">
@@ -733,8 +740,8 @@
   {% endif %}
   {% endfor %}
 
-  {# Reduce progress bar (finalizing phase) #}
-  <div id="backfill-reduce" {% if backfill.status != 'finalizing' %}style="display:none"{% endif %}>
+  {# Reduce progress bar (finalizing phase, game-trigger only) #}
+  <div id="backfill-reduce" {% if backfill.status != 'finalizing' or metric_def.trigger == 'season' %}style="display:none"{% endif %}>
     {% set rp = (backfill.reduce_done_seasons / backfill.reduce_total_seasons * 100.0)|round(1) if backfill.reduce_total_seasons else 0 %}
     <div class="progress-track">
       <div id="reduce-progress-fill" class="progress-fill" style="width: {{ rp }}%;"></div>

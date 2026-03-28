@@ -401,10 +401,11 @@ def run_season_metric(
         qualifications = None
 
     if replace_existing:
-        session.query(MetricResultModel).filter(
-            MetricResultModel.metric_key == metric_key,
-            MetricResultModel.season == season,
-        ).delete(synchronize_session=False)
+        # Only delete MetricRunLog (small table, no contention).
+        # MetricResult rows are upserted by _flush_results (INSERT ON DUPLICATE KEY
+        # UPDATE), so DELETE is unnecessary and causes InnoDB deadlocks when multiple
+        # Celery workers process different seasons of the same metric concurrently
+        # (gap locks on the metric_key index overlap across seasons).
         session.query(MetricRunLog).filter(
             MetricRunLog.metric_key == metric_key,
             MetricRunLog.season == season,
@@ -414,6 +415,14 @@ def run_season_metric(
         r for r in (results or [])
         if r and r.value_num is not None and r.value_num != 0
     ]
+
+    # Trim to max_results_per_season if set, keeping the best-ranked results.
+    cap = getattr(metric_def, "max_results_per_season", None)
+    if cap and len(persisted_results) > cap:
+        reverse = getattr(metric_def, "rank_order", "desc") == "desc"
+        persisted_results.sort(key=lambda r: r.value_num, reverse=reverse)
+        persisted_results = persisted_results[:cap]
+
     _flush_results(session, persisted_results)
     count = len(persisted_results)
 

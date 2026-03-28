@@ -74,47 +74,14 @@ class MetricDefinition(ABC):
     scope: str          # "player" | "player_franchise" | "team" | "game"
     category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
     min_sample: int = 10
-    trigger: str = "season"        # "season" (RECOMMENDED) or "game" — see execution modes below
-    incremental: bool = True       # (trigger="game" only) True: compute_delta+compute_value; False: compute()
+    trigger: str = "season"        # always "season"
+    incremental: bool = False
     supports_career: bool = True   # auto-creates a career variant. Set False only for game-scope metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
+    max_results_per_season: int | None = None  # if set, keep only the top N results per season
 ```
 
-### _qualified convention (for drill-down into qualifying games)
-compute_delta() can include a special `"_qualified"` key in its return dict.
-This is a bool (True/False/None) that marks whether this game counts as a
-"qualifying event" for the metric. It is stored on MetricRunLog.qualified
-and powers the UI drill-down (users can click to see which specific games).
-The `_qualified` key is automatically removed from the delta before storage.
-
-- For count/event metrics (e.g., fifty_point_games, triple_doubles, buzzer_beater_wins):
-  set `"_qualified": True` when the event occurred, `False` otherwise.
-  Example: `return {"games_50_plus": 1 if hit else 0, "_qualified": hit}`
-
-- For metrics where there is no meaningful qualifying-game subset (for example,
-  pure aggregate efficiency values like AST/TO or TS%): omit `_qualified` or set
-  it to `None`.
-- IMPORTANT: some rates/percentages DO still deserve drill-down when they are built
-  from a clear subset of games. Examples: blowout_rate, win_pct_leading_at_half,
-  comeback_win_pct. For these, users will want to inspect the qualifying games, so
-  implement drill-down.
-
-Use your judgement: if listing the individual qualifying games would be useful
-to a user, include `_qualified`.
-
-### Choosing a trigger
-
-trigger="season" (RECOMMENDED for new metrics):
-  Use for most metrics. Simpler code — one method with full-season data access.
-  Examples: season totals, rates, salary, awards, first N games, cost efficiency.
-
-trigger="game" (legacy, for real-time per-game updates):
-  Use only when the metric MUST update within seconds of a game finishing.
-  Examples: live win streak, running plus/minus.
-
-### Three execution modes:
-
-**Mode 1: trigger="season" (RECOMMENDED — whole-season computation)**
+### Execution: trigger="season" (whole-season computation)
 The metric queries all data for the season and returns all results at once.
 ```python
 trigger = "season"
@@ -160,34 +127,6 @@ For NEW season metrics with supports_career=True, prefer season-result aggregati
 - `compute_qualifications()` for career variants should be derivable from season
   MetricRunLog rows; do NOT rescan raw PBP/ShotRecord/Game tables for career.
 
-**Mode 2: trigger="game", incremental=True (per-game delta/reduce)**
-Used when you accumulate stats across games (e.g., win rate, FG%).
-```python
-trigger = "game"
-incremental = True
-
-def compute_delta(self, session, entity_id, game_id) -> dict | None:
-    # Return per-game additive data. Numeric values are SUMMED across games.
-    # Return None if entity didn't participate.
-
-def compute_value(self, totals, season, entity_id) -> MetricResult | None:
-    # Derive final value from accumulated totals. Return None if below min_sample.
-```
-
-**Mode 3: trigger="game", incremental=False (per-game full recompute)**
-Used when each game produces an independent value (e.g., combined score).
-```python
-trigger = "game"
-incremental = False
-
-def compute(self, session, entity_id, season, game_id=None) -> MetricResult | list[MetricResult] | None:
-    # For game-scope: entity_id IS the game_id
-    # Compute and return result for this single game.
-    # Can return a LIST of MetricResults to produce multiple rows per game.
-    # When returning multiple rows, each must have a unique entity_id
-    # (e.g., "game_id:team_id:period" for per-quarter-per-team data).
-```
-
 ### MetricResult
 ```python
 MetricResult(
@@ -204,7 +143,7 @@ MetricResult(
 
 ## Career season helpers (import from metrics.framework.base)
 
-For trigger="season" metrics with supports_career=True, use these to detect career mode:
+For metrics with supports_career=True, use these to detect career mode:
 ```python
 from metrics.framework.base import CAREER_SEASONS, career_season_for, career_season_type_code, is_career_season
 # CAREER_SEASONS = {"all_regular", "all_playoffs", "all_playin"}
@@ -213,71 +152,77 @@ from metrics.framework.base import CAREER_SEASONS, career_season_for, career_sea
 # career_season_type_code("all_regular") → "2"  (use with Game.season.like(code + "%"))
 ```
 
-## Helper functions (import from metrics.helpers)
+## Data access in compute_season()
 
-These are available for use and are preferred over direct per-entity `session.query(...)`
-calls inside `compute_delta()`. They cache per-game data on the SQLAlchemy Session so a
-single game's source rows are loaded once and reused across entities/metrics.
+CRITICAL: compute_season() processes an entire season (~1200 games). You MUST bulk-load
+all needed data upfront with a small number of queries, then iterate in pure Python.
+NEVER call per-game queries inside a loop — each round-trip adds ~2ms, so 1200 games ×
+3 queries = 7+ seconds wasted per season on DB round-trips alone.
 
+### Bulk-loading pattern (REQUIRED)
 ```python
-from metrics.helpers import (
-    game_score_margin_rows,
-    game_pbp_rows,
-    game_row,
-    get_half_scores,
-    get_quarter_scores,
-    late_final_score_margin_rows,
-    pbp_clock_seconds_left,
-    player_attempted_shots,
-    player_game_stat,
-    period_ending_pbp_row,
-    team_abbr,
-    team_game_stat,
-    team_player_stats,
-)
+from collections import defaultdict
+from db.models import Game, GameLineScore, PlayerGameStats, TeamGameStats, Team, GamePlayByPlay
 
-# game_row(session, game_id) -> Game | None
-# Use this instead of session.query(Game)...filter(Game.game_id == game_id)
+def compute_season(self, session, season):
+    # 1. Load games
+    if is_career_season(season):
+        type_code = career_season_type_code(season)
+        games = session.query(Game).filter(Game.season.like(f"{type_code}%")).all()
+    else:
+        games = session.query(Game).filter(Game.season == season).all()
+    if not games:
+        return []
 
-# player_game_stat(session, game_id, player_id) -> PlayerGameStats | None
-# Use this instead of querying PlayerGameStats per player/game inside compute_delta().
+    game_ids = [g.game_id for g in games]
+    game_map = {g.game_id: g for g in games}
 
-# team_player_stats(session, game_id, team_id) -> list[PlayerGameStats]
-# Use this for team metrics that need all player rows from one team's game.
+    # 2. Bulk-load related data (pick only what you need):
+    # Player stats — index by game_id
+    all_pstats = session.query(PlayerGameStats).filter(PlayerGameStats.game_id.in_(game_ids)).all()
+    pstats_by_game = defaultdict(list)
+    for ps in all_pstats:
+        pstats_by_game[ps.game_id].append(ps)
 
-# team_game_stat(session, game_id, team_id) -> TeamGameStats | None
-# Use this instead of querying TeamGameStats per team/game inside compute_delta().
+    # Team stats — index by (game_id, team_id)
+    all_tstats = session.query(TeamGameStats).filter(TeamGameStats.game_id.in_(game_ids)).all()
+    tstat_map = {(ts.game_id, ts.team_id): ts for ts in all_tstats}
 
-# player_attempted_shots(session, game_id, player_id) -> list[ShotRecord]
-# Returns all attempted shots for one player in one game, cached per game.
+    # Line scores (quarter/half points) — index by game_id
+    all_ls = session.query(GameLineScore).filter(GameLineScore.game_id.in_(game_ids)).all()
+    ls_by_game = defaultdict(list)
+    for ls in all_ls:
+        ls_by_game[ls.game_id].append(ls)
 
-# game_pbp_rows(session, game_id) -> list[GamePlayByPlay]
-# Returns all PBP rows for one game, cached per game.
+    # Team abbreviations — one query for all teams
+    abbr_map = dict(session.query(Team.team_id, Team.abbr).all())
 
-# game_score_margin_rows(session, game_id) -> list[GamePlayByPlay]
-# Returns PBP rows with non-null score_margin, cached and sorted by period/event.
+    # PBP (only if needed) — index by game_id
+    all_pbp = session.query(GamePlayByPlay).filter(GamePlayByPlay.game_id.in_(game_ids)).all()
+    pbp_by_game = defaultdict(list)
+    for p in all_pbp:
+        pbp_by_game[p.game_id].append(p)
 
-# period_ending_pbp_row(session, game_id, period) -> GamePlayByPlay | None
-# Returns the latest score_margin row in a period (useful for halftime state).
-
-# late_final_score_margin_rows(session, game_id, seconds_left=10) -> list[GamePlayByPlay]
-# Returns final-period score_margin rows in the last N seconds.
-
-# pbp_clock_seconds_left(pc_time) -> int | None
-# Parses a PBP clock string like "1:23" into seconds remaining.
-
-# get_quarter_scores(session, game_id) -> list[dict]
-# Returns per-quarter per-team points:
-# [{"period": 1, "home_pts": 28, "road_pts": 31, "home_team_id": "...", "road_team_id": "..."}, ...]
-# Handles all PBP cumulative score parsing internally.
-
-# get_half_scores(session, game_id) -> dict | None
-# Returns: {"home_team_id", "road_team_id", "home_first_half", "road_first_half",
-#           "home_second_half", "road_second_half"}
-
-# team_abbr(session, team_id) -> str
-# Returns team abbreviation like "GSW", "LAL", etc.
+    # 3. Iterate in memory — NO more DB queries inside this loop
+    results = []
+    for game_id in game_ids:
+        game = game_map[game_id]
+        players = pstats_by_game[game_id]
+        home_ts = tstat_map.get((game_id, game.home_team_id))
+        road_ts = tstat_map.get((game_id, game.road_team_id))
+        # ... compute metric values using in-memory data ...
+    return results
 ```
+
+### GameLineScore fields (for quarter/half scores)
+GameLineScore has per-team per-game rows with: game_id, team_id, on_road (bool),
+q1_pts, q2_pts, q3_pts, q4_pts, ot1_pts, ot2_pts, ot3_pts,
+first_half_pts, second_half_pts, regulation_total_pts, total_pts.
+Use these directly instead of parsing PBP cumulative scores.
+
+### PBP score parsing helper
+`pbp_clock_seconds_left(pc_time) -> int | None` — parses "1:23" into seconds remaining.
+Import from metrics.helpers if needed for PBP clock parsing.
 
 ## Real examples from production
 
@@ -308,8 +253,8 @@ If the user is asking you to create or modify a metric, reply with:
   "scope": "player | player_franchise | team | game",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
   "min_sample": <int>,
-  "trigger": "season | game",
-  "incremental": <bool>,
+  "trigger": "season",
+  "incremental": false,
   "supports_career": <bool>,
   "rank_order": "desc | asc",
   "code": "<full Python code for the class, with imports>"
@@ -333,18 +278,23 @@ IMPORTANT:
 - Do NOT include register() call — the system handles registration.
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
+- For game-scope metrics that produce many rows per game (e.g. one row per team per
+  quarter), the total row count can be enormous across all seasons. Set
+  max_results_per_season to a reasonable cap (e.g. 200) so only the most extreme
+  values are kept. The framework automatically sorts by value_num (respecting
+  rank_order) and trims. Do NOT set it for player/team-scope metrics where each
+  entity should have exactly one result row per season.
 - CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must always be the RAW metric value, not a rank ordinal. value_str should display the value in human-readable form, never a rank like #1 or #2. When the user asks for a "ranking", store the underlying value and let the system rank.
 - Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
-- For trigger="season" metrics, explicitly decide whether game drill-down is useful.
-  If useful, implement `compute_qualifications()`; if not useful, omit it. Do not
-  add `compute_qualifications()` by default.
+- Explicitly decide whether game drill-down is useful. If useful, implement
+  `compute_qualifications()`; if not useful, omit it. Do not add it by default.
 - Base this decision on whether the metric corresponds to a clear, user-meaningful
   set of qualifying games, NOT just on whether the final value is a count or a rate.
   A rate built from qualifying games should still implement drill-down.
-- For trigger="season" metrics with supports_career=True, the season result `context`
-  MUST include the raw reducer state needed for career aggregation. Examples:
+- For metrics with supports_career=True, the season result `context` MUST include
+  the raw reducer state needed for career aggregation. Examples:
   `made/attempts`, `wins/games`, `pts/fga/fta`, `salary_usd/minutes_played`.
-- For trigger="season" metrics with supports_career=True, define:
+- For metrics with supports_career=True, define:
   `career_aggregate_mode = "season_results"`, `career_sum_keys`, optional
   `career_max_keys`, and `compute_career_value()`.
 
@@ -356,14 +306,13 @@ CRITICAL — PBP score parsing:
 - Always parse ALL periods' last score row, then compute per-period deltas.
 
 CRITICAL — performance:
-- In `compute_delta()`, avoid per-entity/per-game direct queries like `session.query(PlayerGameStats)...filter(player_id == entity_id, game_id == game_id)` or the analogous ShotRecord / TeamGameStats patterns.
-- Prefer the cached helpers above so a game's source rows are loaded once and reused.
-- In `compute_season()`, NEVER implement career by scanning all historical raw rows
-  for `all_regular` / `all_playoffs` / `all_playin` unless absolutely necessary.
+- Follow the bulk-loading pattern described in "Data access in compute_season()" above.
+  NEVER call per-game queries inside a loop. Load all data upfront, iterate in memory.
+- NEVER implement career by scanning all historical raw rows for `all_regular` /
+  `all_playoffs` / `all_playin` unless absolutely necessary.
   Prefer season-result aggregation via `compute_career_value()`.
-- In `compute_season()`, if you use PBP helpers (`game_pbp_rows`, `game_score_margin_rows`,
-  `late_final_score_margin_rows`, `period_ending_pbp_row`), do NOT loop over every
-  game twice. Build qualifications during the same pass as the season computation.
+- If you use PBP data, do NOT loop over every game twice. Build qualifications during
+  the same pass as the season computation.
 - If exact career aggregation cannot be expressed from season result context, return
   a "clarification" response instead of generating unsafe code.
 """

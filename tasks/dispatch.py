@@ -494,14 +494,21 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
                     enqueued += 1
         else:
             # Base metric — dispatch with concrete seasons
-            if getattr(m, "supports_career", False) and not args.season:
-                season_tasks = [compute_season_metric_task.s(m.key, season) for season in seasons]
-                chord(season_tasks)(enqueue_career_metric_family_task.s(metric_key=m.key))
+            has_career = getattr(m, "supports_career", False) and not args.season
+            task_count = len(seasons) + (3 if has_career else 0)
+            run, created = _create_metric_compute_run(m.key, task_count)
+            run_id = run.id if created else None
+            if not created:
+                print(f"  {m.key}: active compute run exists ({run.id}), skipping progress tracking")
+
+            if has_career:
+                season_tasks = [compute_season_metric_task.s(m.key, season, run_id=run_id) for season in seasons]
+                chord(season_tasks)(enqueue_career_metric_family_task.s(metric_key=m.key, run_id=run_id))
                 enqueued += len(season_tasks)
                 callbacks += 1
             else:
                 for season in seasons:
-                    compute_season_metric_task.delay(m.key, season)
+                    compute_season_metric_task.delay(m.key, season, run_id=run_id)
                     enqueued += 1
 
     if callbacks:

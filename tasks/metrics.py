@@ -62,6 +62,30 @@ def _career_bucket_lock_name(season: str) -> str:
 _REDUCE_STALE_REQUEUE_SECONDS = 1800
 
 
+def _increment_compute_run_progress(run_id: str) -> None:
+    """Atomically increment done_game_count; mark complete when target reached."""
+    sess = sessionmaker(bind=engine)()
+    try:
+        sess.execute(
+            text(
+                "UPDATE MetricComputeRun "
+                "SET done_game_count = done_game_count + 1, "
+                "    status = CASE WHEN done_game_count + 1 >= target_game_count "
+                "                  THEN 'complete' ELSE status END, "
+                "    completed_at = CASE WHEN done_game_count + 1 >= target_game_count "
+                "                       THEN NOW() ELSE completed_at END "
+                "WHERE id = :run_id AND status = 'mapping'"
+            ),
+            {"run_id": run_id},
+        )
+        sess.commit()
+    except Exception:
+        logger.exception("Failed to increment compute run progress for %s", run_id)
+        sess.rollback()
+    finally:
+        sess.close()
+
+
 class AdvisoryLockUnavailable(RuntimeError):
     """Raised when an advisory lock is already held."""
 
@@ -611,7 +635,7 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
     queue="metrics",
     ignore_result=False,
 )
-def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
+def compute_season_metric_task(self, metric_key: str, season: str, run_id: str | None = None) -> dict:
     """Compute a season-triggered metric for one (metric_key, season)."""
     career_bucket = is_career_season(season)
     try:
@@ -638,6 +662,9 @@ def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
                      metric_key, season, exc, exc_info=True)
         raise self.retry(exc=exc, countdown=30)
 
+    if run_id:
+        _increment_compute_run_progress(run_id)
+
     return {"metric_key": metric_key, "season": season, "results_written": count}
 
 
@@ -649,7 +676,7 @@ def compute_season_metric_task(self, metric_key: str, season: str) -> dict:
     queue="metrics",
     ignore_result=True,
 )
-def enqueue_career_metric_family_task(self, results: list, metric_key: str) -> dict:
+def enqueue_career_metric_family_task(self, results: list, metric_key: str, run_id: str | None = None) -> dict:
     """Enqueue the three career buckets after all concrete seasons finish."""
     from metrics.framework.family import family_career_key
     from metrics.framework.runtime import get_metric
@@ -667,7 +694,7 @@ def enqueue_career_metric_family_task(self, results: list, metric_key: str) -> d
 
     enqueued = 0
     for bucket in ("all_regular", "all_playoffs", "all_playin"):
-        compute_season_metric_task.delay(career_key, bucket)
+        compute_season_metric_task.delay(career_key, bucket, run_id=run_id)
         enqueued += 1
 
     logger.info(

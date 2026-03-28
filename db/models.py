@@ -317,6 +317,7 @@ class MetricDefinition(Base):
     context_label_template = Column(String(256), nullable=True)  # format string for context label
     expression = Column(Text, nullable=True)          # original plain-English input
     min_sample = Column(Integer, nullable=False, default=1)
+    max_results_per_season = Column(Integer, nullable=True)
     created_by_user_id = Column(String(36), ForeignKey('User.id'), nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)

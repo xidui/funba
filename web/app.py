@@ -532,6 +532,7 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         group_key=getattr(metric_def, "group_key", None),
         career=bool(getattr(metric_def, "career", False)),
         supports_career=bool(getattr(metric_def, "supports_career", False)),
+        trigger=getattr(metric_def, "trigger", "game"),
     )
 
 
@@ -690,6 +691,7 @@ def _code_metric_metadata_from_code(
         "incremental": bool(getattr(metric, "incremental", True)),
         "rank_order": getattr(metric, "rank_order", "desc"),
         "context_label_template": getattr(metric, "context_label_template", None),
+        "max_results_per_season": getattr(metric, "max_results_per_season", None),
         "code_python": normalized_code,
     }
     if expected_key and metadata["key"] != expected_key:
@@ -842,6 +844,7 @@ def _sync_metric_family(
     base_row.source_type = source_type
     base_row.expression = expression or ""
     base_row.min_sample = int(min_sample or 1)
+    base_row.max_results_per_season = (code_metadata or {}).get("max_results_per_season")
     base_row.updated_at = now
 
     if source_type == "code":
@@ -1421,9 +1424,12 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .first()
     )
 
-    # For completed/reducing runs, use target_game_count (kept in sync by cleanup).
-    # For mapping runs, show 0 — the chord is still in progress; doing COUNT DISTINCT on
-    # MetricRunLog (potentially millions of rows) would block the page for 30+ seconds.
+    # When a compute run exists, use its target as the authoritative total.
+    # For season metrics the passed-in total_games is MetricResult row count (e.g. 418K)
+    # but the compute run target is the number of tasks (e.g. 86 seasons).
+    if latest_compute_run and latest_compute_run.target_game_count:
+        total_games = int(latest_compute_run.target_game_count)
+
     if latest_compute_run and latest_compute_run.status in ("complete", "reducing"):
         done_games = int(latest_compute_run.target_game_count)
     elif latest_compute_run and latest_compute_run.status == "mapping":
@@ -1444,6 +1450,14 @@ def _metric_backfill_component(session, metric_key: str, total_games: int) -> di
         .limit(1)
         .scalar()
     )
+    if latest_run_at is None:
+        latest_run_at = (
+            session.query(MetricResultModel.computed_at)
+            .filter(MetricResultModel.metric_key == metric_key)
+            .order_by(desc(MetricResultModel.computed_at))
+            .limit(1)
+            .scalar()
+        )
 
     reduce_done_seasons = None
     reduce_total_seasons = None
@@ -4060,6 +4074,7 @@ def metric_edit(metric_key: str):
             "expression": m.expression or "",
             "min_sample": m.min_sample,
             "rank_order": getattr(runtime_metric, "rank_order", "desc"),
+            "max_results_per_season": getattr(runtime_metric, "max_results_per_season", None) or m.max_results_per_season,
             "status": m.status,
         }
         llm_default_model = get_llm_model_for_purpose(session, "generate")
@@ -4795,6 +4810,8 @@ def api_metric_update(metric_key: str):
                 scope = body.get("scope") or code_metadata["scope"]
                 category = body.get("category") or code_metadata["category"]
                 min_sample = int(body.get("min_sample") or code_metadata["min_sample"])
+                if "max_results_per_season" in body:
+                    code_metadata["max_results_per_season"] = body["max_results_per_season"]
             else:
                 source_code = None
                 source_definition = body.get("definition")

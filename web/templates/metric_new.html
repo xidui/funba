@@ -627,14 +627,23 @@
         </select>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Ranking Direction</label>
-      <select id="f-rank-order" class="form-select">
-        <option value="desc">Highest First</option>
-        <option value="asc">Lowest First</option>
-      </select>
-      <div style="margin-top:6px;font-size:11px;color:var(--muted);">
-        Controls which values rank at the top in preview and after publish.
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Ranking Direction</label>
+        <select id="f-rank-order" class="form-select">
+          <option value="desc">Highest First</option>
+          <option value="asc">Lowest First</option>
+        </select>
+        <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+          Controls which values rank at the top in preview and after publish.
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Max Results / Season</label>
+        <input id="f-max-results" class="form-input" type="number" min="1" placeholder="No limit" />
+        <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+          Keep only the top N results per season. Leave empty for no limit.
+        </div>
       </div>
     </div>
 
@@ -741,6 +750,7 @@
       rank_order: {{ ((edit_metric.rank_order if edit_metric else 'desc') | tojson) | safe }},
       code: {{ edit_metric.code | tojson if edit_metric else 'null' }},
       min_sample: {{ edit_metric.min_sample if edit_metric else 1 }},
+      max_results_per_season: {{ edit_metric.max_results_per_season | tojson if edit_metric else 'null' }},
     };
   }
 
@@ -971,6 +981,7 @@
     document.getElementById('f-scope').value = currentSpec.scope || 'player';
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
     rankOrderInput.value = currentSpec.rank_order || 'desc';
+    document.getElementById('f-max-results').value = currentSpec.max_results_per_season || '';
     keyInput.value = EDIT_KEY;
     keyInput.readOnly = true;
     lastAutoKey = EDIT_KEY;
@@ -1147,6 +1158,7 @@
         document.getElementById('f-category').value = currentSpec.category || 'scoring';
       }
       rankOrderInput.value = currentSpec.rank_order || rankOrderInput.value || 'desc';
+      document.getElementById('f-max-results').value = currentSpec.max_results_per_season || '';
       syncCreateKey(currentSpec, expr);
     }
     codeViewer.textContent = currentSpec.code || '';
@@ -1328,6 +1340,7 @@
       code:       codeViewer.textContent,
       expression: chatHistory.length ? chatHistory[0].content : '',
       min_sample: currentSpec.min_sample || 1,
+      max_results_per_season: parseInt(document.getElementById('f-max-results').value) || null,
     };
 
     if (!body.key || !body.name) {

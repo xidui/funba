@@ -596,6 +596,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)
         self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
+        self.max_results_per_season = getattr(row, "max_results_per_season", None) or getattr(self._inner, "max_results_per_season", None)
 
         if self.career:
             if not explicit_career:
