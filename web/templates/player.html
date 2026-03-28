@@ -86,6 +86,17 @@
     border-radius: 6px;
   }
 
+  .player-honor-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--award-gold);
+    background: var(--award-gold-dim);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
   .player-bio-grid {
     display: flex;
     flex-wrap: wrap;
@@ -257,12 +268,21 @@
         {% if player.position %}
         <span class="player-pos-badge">{{ player.position }}</span>
         {% endif %}
+        {% if player.greatest_75_flag %}
+        <span class="player-honor-badge">75 Greatest</span>
+        {% endif %}
       </div>
 
       <h1>{{ player.full_name }}</h1>
 
-      {% if player.height or player.weight or player.country or player.draft_year %}
+      {% if player.birth_date or player.height or player.weight or player.country or player.school or player.draft_year or (player.from_year and player.to_year) or player.season_exp %}
       <div class="player-bio-grid">
+        {% if player.birth_date %}
+        <div class="bio-item">
+          <span class="bio-label">Born</span>
+          <span class="bio-value">{{ player.birth_date.strftime('%b %d, %Y').replace(' 0', ' ') }}</span>
+        </div>
+        {% endif %}
         {% if player.height %}
         <div class="bio-item">
           <span class="bio-label">Height</span>
@@ -299,6 +319,12 @@
         <div class="bio-item">
           <span class="bio-label">Career</span>
           <span class="bio-value">{{ player.from_year }}–{{ player.to_year }}</span>
+        </div>
+        {% endif %}
+        {% if player.season_exp is not none %}
+        <div class="bio-item">
+          <span class="bio-label">Experience</span>
+          <span class="bio-value">{{ player.season_exp }} {{ 'season' if player.season_exp == 1 else 'seasons' }}</span>
         </div>
         {% endif %}
       </div>

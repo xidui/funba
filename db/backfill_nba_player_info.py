@@ -12,6 +12,7 @@ from datetime import datetime
 
 from nba_api.stats.endpoints import commonplayerinfo
 from requests.exceptions import ConnectionError, Timeout
+from sqlalchemy import or_
 from sqlalchemy.orm import sessionmaker
 from tenacity import (
     RetryError,
@@ -98,6 +99,8 @@ def update_player_info(session, player: Player, info: dict) -> bool:
         "position": ("POSITION", str),
         "from_year": ("FROM_YEAR", _int_or_none),
         "to_year": ("TO_YEAR", _int_or_none),
+        "season_exp": ("SEASON_EXP", _int_or_none),
+        "greatest_75_flag": ("GREATEST_75_FLAG", _bool_or_none),
         "is_active": ("ROSTERSTATUS", _bool_or_none),
     }
 
@@ -124,7 +127,14 @@ def run(player_id: str | None = None, refresh_all: bool = False):
             # Only players missing bio data
             players = (
                 session.query(Player)
-                .filter(Player.is_team == False, Player.height.is_(None))
+                .filter(
+                    Player.is_team == False,
+                    or_(
+                        Player.height.is_(None),
+                        Player.position.is_(None),
+                        Player.season_exp.is_(None),
+                    ),
+                )
                 .all()
             )
 

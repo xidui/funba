@@ -58,6 +58,8 @@ class Player(Base):
     position = Column(String(30), nullable=True)       # e.g. "Guard"
     from_year = Column(Integer, nullable=True)         # first NBA season
     to_year = Column(Integer, nullable=True)           # latest NBA season
+    season_exp = Column(Integer, nullable=True)        # NBA seasons played
+    greatest_75_flag = Column(Boolean, nullable=True)  # NBA 75 greatest list
 
 
 class PlayerSalary(Base):
