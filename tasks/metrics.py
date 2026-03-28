@@ -23,7 +23,7 @@ from celery import shared_task
 from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 
-from db.models import MetricComputeRun, MetricResult, MetricRunLog, engine
+from db.models import Game, MetricComputeRun, MetricResult, MetricRunLog, engine
 from metrics.framework.base import is_career_season
 from metrics.framework.runner import run_delta_only, reduce_metric, run_season_metric
 
