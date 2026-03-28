@@ -253,7 +253,12 @@ def ingest_yesterday(self) -> dict:
 
     Uses LeagueGameFinder (not DB) so newly finished games that haven't been
     ingested yet are included — not just games already present in the DB.
+    After all games finish ingesting, a chord callback triggers season metric
+    refresh for the current season.
     """
+    from celery import chord
+    from tasks.metrics import refresh_current_season_metrics
+
     yesterday = date.today() - timedelta(days=1)
 
     # Discover from NBA API first — this catches brand-new games
@@ -263,10 +268,11 @@ def ingest_yesterday(self) -> dict:
         logger.info("ingest_yesterday: no completed games found for %s.", yesterday)
         return {"date": str(yesterday), "enqueued": 0}
 
-    for gid in game_ids:
-        ingest_game.apply_async(args=[gid])
+    # Chord: ingest all games → then refresh season metrics
+    ingest_tasks = [ingest_game.s(gid) for gid in game_ids]
+    chord(ingest_tasks)(refresh_current_season_metrics.s())
 
-    logger.info("ingest_yesterday: enqueued %d games for %s.", len(game_ids), yesterday)
+    logger.info("ingest_yesterday: enqueued %d games for %s (chord → season metric refresh).", len(game_ids), yesterday)
     return {"date": str(yesterday), "enqueued": len(game_ids)}
 
 

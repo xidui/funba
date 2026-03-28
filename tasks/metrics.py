@@ -738,3 +738,84 @@ def reduce_metric_season_task(self, metric_key: str, season: str) -> dict:
         "season": season,
         "results_written": count,
     }
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.refresh_current_season_metrics",
+    max_retries=1,
+    default_retry_delay=60,
+    queue="metrics",
+)
+def refresh_current_season_metrics(self, ingest_results: list | None = None) -> dict:
+    """Recompute all season-triggered metrics for seasons that were just ingested.
+
+    Designed as a chord callback after ingest_yesterday completes all games.
+    Detects which seasons were affected from the ingested game IDs, then
+    refreshes those seasons plus their corresponding career buckets.
+    """
+    from metrics.framework.base import career_season_for
+    from metrics.framework.family import family_career_key
+    from metrics.framework.runtime import get_all_metrics
+
+    Session = sessionmaker(bind=engine)
+
+    # Extract game_ids from ingest results to find affected seasons
+    game_ids = []
+    for r in (ingest_results or []):
+        if isinstance(r, dict) and r.get("game_id"):
+            game_ids.append(r["game_id"])
+
+    with Session() as session:
+        if game_ids:
+            # Query actual seasons from ingested games
+            affected_seasons = set(
+                r[0] for r in session.query(Game.season).filter(
+                    Game.game_id.in_(game_ids),
+                    Game.season.isnot(None),
+                ).distinct().all()
+            )
+        else:
+            # Fallback: use the latest regular season
+            all_seasons = [
+                r[0] for r in session.query(Game.season).distinct().all()
+                if r[0] and str(r[0]).startswith("2")
+            ]
+            affected_seasons = {max(all_seasons)} if all_seasons else set()
+
+    if not affected_seasons:
+        return {"status": "no_seasons"}
+
+    # Dedupe career buckets (e.g. 22025 and 42025 both map to different buckets)
+    career_buckets = set()
+    for s in affected_seasons:
+        cb = career_season_for(s)
+        if cb:
+            career_buckets.add(cb)
+
+    metrics = [
+        m for m in get_all_metrics()
+        if getattr(m, "trigger", "game") == "season" and not getattr(m, "career", False)
+    ]
+
+    enqueued = 0
+    for m in metrics:
+        for season in affected_seasons:
+            compute_season_metric_task.delay(m.key, season)
+            enqueued += 1
+        if getattr(m, "supports_career", False):
+            career_key = family_career_key(m.key)
+            for cb in career_buckets:
+                compute_season_metric_task.delay(career_key, cb)
+                enqueued += 1
+
+    logger.info(
+        "refresh_current_season_metrics: seasons=%s, career_buckets=%s, enqueued %d task(s) for %d metric(s).",
+        affected_seasons, career_buckets, enqueued, len(metrics),
+    )
+    return {
+        "seasons": sorted(affected_seasons),
+        "career_buckets": sorted(career_buckets),
+        "metrics": len(metrics),
+        "enqueued": enqueued,
+    }
