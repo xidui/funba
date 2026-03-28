@@ -4075,6 +4075,7 @@ def metric_edit(metric_key: str):
             "min_sample": m.min_sample,
             "rank_order": getattr(runtime_metric, "rank_order", "desc"),
             "max_results_per_season": getattr(runtime_metric, "max_results_per_season", None) or m.max_results_per_season,
+            "group_key": m.group_key,
             "status": m.status,
         }
         llm_default_model = get_llm_model_for_purpose(session, "generate")
