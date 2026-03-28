@@ -2180,6 +2180,25 @@ _VISITOR_COOKIE = "funba_visitor"
 _VISITOR_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year in seconds
 
 
+_BOT_SIGNATURES = (
+    "bot", "crawl", "spider", "slurp", "mediapartners",
+    "meta-webindexer", "facebookexternalhit", "bytespider",
+    "gptbot", "claudebot", "bingpreview", "yandex",
+)
+
+
+def _is_bot() -> bool:
+    ua = (request.user_agent.string or "").lower()
+    return any(sig in ua for sig in _BOT_SIGNATURES)
+
+
+@app.before_request
+def _block_bots_on_auth():
+    """Return 403 for known bots hitting /auth/ — saves server resources."""
+    if request.path.startswith("/auth/") and _is_bot():
+        return "Forbidden", 403
+
+
 @app.before_request
 def _track_page_view():
     """Log each page load and ensure the visitor cookie is set."""
@@ -2188,6 +2207,18 @@ def _track_page_view():
         return
     if request.path.startswith("/api/") or request.path.startswith("/static/"):
         return
+    if _is_bot():
+        return
+    # Skip tracking for admin / owner sessions
+    _uid = session.get("user_id")
+    if _uid:
+        try:
+            with SessionLocal() as _db:
+                _u = _db.get(User, _uid)
+                if _u and (_u.is_admin or _u.email == "yuewang.sj@gmail.com"):
+                    return
+        except Exception:
+            pass
 
     visitor_id = request.cookies.get(_VISITOR_COOKIE)
     new_visitor = visitor_id is None
