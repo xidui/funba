@@ -31,6 +31,8 @@ Common env vars used in this repo:
 - `FUNBA_WEB_HOST`, `FUNBA_WEB_PORT`, `FUNBA_WEB_DEBUG`
 - `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+- `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_PRO_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
 
 Keep actual values only in local machine config and local `SECRETS.md`. Never commit secrets.
 

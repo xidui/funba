@@ -144,11 +144,35 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 - Stderr: `logs/web-app-5001-stderr.log`
 
 ### Environment variables (set in plist):
-| Variable     | Value                                            |
-|--------------|--------------------------------------------------|
-| `NBA_DB_URL` | `mysql+pymysql://root@localhost/nba_data`        |
 
-To override, edit `~/Library/LaunchAgents/app.funba.web.plist` → `EnvironmentVariables`.
+**Web app** (`app.funba.web`):
+
+| Variable | Purpose |
+|----------|---------|
+| `NBA_DB_URL` | MySQL connection string |
+| `CELERY_BROKER_URL` | Redis broker URL |
+| `FLASK_SECRET_KEY` | Session signing |
+| `GOOGLE_CLIENT_ID` | OAuth login |
+| `GOOGLE_CLIENT_SECRET` | OAuth login |
+| `OPENAI_API_KEY` | Metric code generation |
+| `STRIPE_SECRET_KEY` | Subscription billing |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe frontend |
+| `STRIPE_PRO_PRICE_ID` | Pro tier price |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook verification |
+| `RESEND_API_KEY` | Transactional email |
+
+**Workers** (`app.funba.worker-*`):
+
+| Variable | Purpose |
+|----------|---------|
+| `NBA_DB_URL` | MySQL connection string |
+| `CELERY_BROKER_URL` | Redis broker URL |
+| `DB_POOL_SIZE` | SQLAlchemy pool (1 for ingest/metrics, 4 for reduce) |
+| `DB_MAX_OVERFLOW` | SQLAlchemy pool overflow |
+| `OBJC_DISABLE_INITIALIZE_FORK_SAFETY` | macOS fork safety workaround |
+| `RESEND_API_KEY` | Email notifications (worker-reduce only) |
+
+To override, edit `~/Library/LaunchAgents/app.funba.<service>.plist` → `EnvironmentVariables`.
 
 Secrets (API keys, etc.) must NOT be committed to git. See local `SECRETS.md` (gitignored).
 
@@ -204,7 +228,7 @@ Web app (publish metric / daily scheduler)
 | Ingest worker | `app.funba.worker-ingest` | `ingest` | 2–10 | DB_POOL_SIZE=1 |
 | Metrics worker | `app.funba.worker-metrics` | `metrics` | 8–50 | DB_POOL_SIZE=1, fd limit 4096 |
 | Reduce worker | `app.funba.worker-reduce` | `reduce` | 2–16 | DB_POOL_SIZE=4 |
-| Scheduler | `app.funba.scheduler` | — | — | Celery Beat (daily ingest + sweep) |
+| Scheduler | `app.funba.scheduler` | — | — | Celery Beat (hourly ingest + 2-min sweep + daily topics at 12:00) |
 
 All workers use the deploy worktree as WorkingDirectory and set
 `CELERY_BROKER_URL=redis://localhost:6379/0` in their plist EnvironmentVariables.
@@ -224,19 +248,21 @@ broker). No plist change needed unless a separate Redis instance is desired.
 
 ### Metric pipeline completion:
 
-Both **bulk backfill** and **daily ingest** use Celery chord for completion:
-- Backfill: `chord(map_tasks)(chord_reduce_callback)` — auto-triggers reduce
-- Ingest: `chord(delta_tasks)(reduce_after_ingest)` — auto-reduces per game
+All metrics use `trigger=season` (whole-season recompute). Two flows:
 
-`MetricComputeRun.done_game_count` is atomically incremented by each map task,
-providing real-time backfill progress without expensive DB queries.
+- **Daily ingest**: `ingest_yesterday` uses `chord(ingest_tasks)(refresh_current_season_metrics)`.
+  After all games finish ingesting, the callback detects which seasons were affected
+  and enqueues `compute_season_metric_task` for each (metric, season) pair plus
+  corresponding career buckets (`all_regular`, `all_playoffs`, etc.).
+- **Bulk backfill** (rebackfill from UI): `cmd_season_metrics` creates a
+  `MetricComputeRun` and dispatches tasks via chord. Each task atomically increments
+  `done_game_count`, providing real-time progress in the UI.
 
 The sweep task (every 120s) acts as a fallback for:
 - Mapping runs stuck > 2 hours (chord counter lost, e.g. Redis restart)
 - Reducing runs stuck > 30 minutes (worker killed mid-reduce)
 
 One `MetricComputeRun` row per metric (old runs auto-deleted on new backfill).
-Idempotency is via MetricRunLog existence check.
 
 Workers use `--autoscale=MAX,MIN` (not `-c`) in their launchd plists.
 Idle memory footprint is ~900 MB (12 processes); under full backfill load it
