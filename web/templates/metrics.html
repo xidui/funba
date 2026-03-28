@@ -273,6 +273,9 @@
         {% if m.is_mine %}
         <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);">mine</span>
         {% endif %}
+        {% if m.career %}
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);">career</span>
+        {% endif %}
         {% if m.status == 'draft' %}
         <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;">draft</span>
         {% endif %}
@@ -328,6 +331,9 @@
     const draftBadge = metric.status === 'draft'
       ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;\">draft</span>"
       : "";
+    const careerBadge = metric.career
+      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);\">career</span>"
+      : "";
     const reason = metric.reason
       ? `<div class="result-reason">${esc(metric.reason)}</div>`
       : "";
@@ -338,7 +344,7 @@
       <a class="catalog-card" href="/metrics/${encodeURIComponent(metric.key)}">
         <div class="catalog-card-header">
           <div class="catalog-name">${esc(metric.name)}</div>
-          <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">${draftBadge}${scopeBadge(metric.scope)}</div>
+          <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">${careerBadge}${draftBadge}${scopeBadge(metric.scope)}</div>
         </div>
         <div class="catalog-desc">${esc(metric.description || '')}</div>
         ${reason}

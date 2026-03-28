@@ -978,6 +978,8 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
 
 
 def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", current_user_id: str | None = None) -> list[dict]:
+    from metrics.framework.runtime import get_metric as _get_metric
+
     counts = {
         row.metric_key: row.count
         for row in session.query(
@@ -1000,6 +1002,7 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
         db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
 
     all_defs = db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
+    existing_keys = {m.key for m in all_defs}
 
     db_metrics = []
     for m in all_defs:
@@ -1020,6 +1023,40 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
                 **search_fields,
             }
         )
+        if (
+            m.status == "published"
+            and not search_fields.get("career")
+            and search_fields.get("supports_career")
+        ):
+            career_key = f"{m.key}_career"
+            if career_key not in existing_keys:
+                career_metric = _get_metric(career_key, session=session)
+                if career_metric is not None:
+                    db_metrics.append(
+                        {
+                            "key": career_metric.key,
+                            "name": career_metric.name,
+                            "description": getattr(career_metric, "description", "") or "",
+                            "scope": career_metric.scope,
+                            "category": getattr(career_metric, "category", "") or "",
+                            "status": "published",
+                            "source_type": getattr(career_metric, "source_type", m.source_type),
+                            "result_count": counts.get(career_metric.key, 0),
+                            "is_mine": is_mine,
+                            "group_key": search_fields.get("group_key"),
+                            "min_sample": int(getattr(career_metric, "min_sample", m.min_sample or 1) or 1),
+                            "expression": m.expression or "",
+                            "definition_json": search_fields.get("definition_json", ""),
+                            "code_python": search_fields.get("code_python", ""),
+                            "supports_career": bool(getattr(career_metric, "supports_career", False)),
+                            "career": True,
+                            "incremental": bool(getattr(career_metric, "incremental", False)),
+                            "rank_order": getattr(career_metric, "rank_order", search_fields.get("rank_order", "desc")),
+                            "career_min_sample": search_fields.get("career_min_sample"),
+                            "time_scope": "career",
+                            "base_metric_key": m.key,
+                        }
+                    )
     # Own metrics first, then by original order
     db_metrics.sort(key=lambda d: (not d["is_mine"],))
     return db_metrics
