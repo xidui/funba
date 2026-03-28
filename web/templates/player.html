@@ -157,6 +157,40 @@
     filter: brightness(1.05);
   }
 
+  .player-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+
+  .compare-link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: transparent;
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  }
+
+  .compare-link-btn:hover {
+    background: var(--accent-dim);
+    color: var(--heading);
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+
   @media (max-width: 540px) {
     .player-header { flex-direction: column; align-items: flex-start; }
     .player-avatar { width: 88px; height: 88px; }
@@ -281,26 +315,32 @@
       </div>
       {% endif %}
 
-      {% if career_overall.ppg != '-' %}
-      <div class="stat-chips">
-        <div class="stat-chip">
-          <span class="stat-chip-val">{{ career_overall.ppg }}</span>
-          <span class="stat-chip-lbl">PPG</span>
+      <div class="player-actions">
+        {% if career_overall.ppg != '-' %}
+        <div class="stat-chips">
+          <div class="stat-chip">
+            <span class="stat-chip-val">{{ career_overall.ppg }}</span>
+            <span class="stat-chip-lbl">PPG</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-chip-val">{{ career_overall.rpg }}</span>
+            <span class="stat-chip-lbl">RPG</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-chip-val">{{ career_overall.apg }}</span>
+            <span class="stat-chip-lbl">APG</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-chip-val">{{ career_overall.mpg }}</span>
+            <span class="stat-chip-lbl">MPG</span>
+          </div>
         </div>
-        <div class="stat-chip">
-          <span class="stat-chip-val">{{ career_overall.rpg }}</span>
-          <span class="stat-chip-lbl">RPG</span>
-        </div>
-        <div class="stat-chip">
-          <span class="stat-chip-val">{{ career_overall.apg }}</span>
-          <span class="stat-chip-lbl">APG</span>
-        </div>
-        <div class="stat-chip">
-          <span class="stat-chip-val">{{ career_overall.mpg }}</span>
-          <span class="stat-chip-lbl">MPG</span>
-        </div>
+        {% endif %}
+        <a
+          class="compare-link-btn"
+          href="{{ url_for('players_compare', ids=player.player_id) }}"
+        >Compare</a>
       </div>
-      {% endif %}
     </div>
   </div>
 </div>
