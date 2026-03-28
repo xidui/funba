@@ -17,7 +17,7 @@ import uuid as _uuid_mod
 
 from flask import Flask, abort, after_this_request, flash, get_flashed_messages, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
@@ -104,8 +104,17 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
 
+def _real_ip() -> str:
+    """Return the real client IP, preferring Cloudflare header."""
+    return (
+        request.headers.get("CF-Connecting-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote_addr
+    )
+
+
 limiter = Limiter(
-    get_remote_address,
+    _real_ip,
     app=app,
     default_limits=["200 per minute"],
     storage_uri="memory://",
@@ -2231,7 +2240,7 @@ def _track_page_view():
         path=request.path,
         referrer=(request.referrer or "")[:1000],
         user_agent=(request.user_agent.string or "")[:500],
-        ip_address=request.remote_addr,
+        ip_address=_real_ip(),
         created_at=datetime.utcnow(),
     )
     try:
