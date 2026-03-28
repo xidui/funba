@@ -2235,9 +2235,9 @@ def _track_page_view():
         created_at=datetime.utcnow(),
     )
     try:
-        with SessionLocal() as session:
-            session.add(pv)
-            session.commit()
+        with SessionLocal() as db_sess:
+            db_sess.add(pv)
+            db_sess.commit()
     except Exception:
         logger.exception("page view tracking failed")
 
