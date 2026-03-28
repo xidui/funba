@@ -1,0 +1,838 @@
+{% extends "base.html" %}
+{% block title %}Compare Players — FUNBA{% endblock %}
+{% block meta_description %}Compare up to four NBA players side by side across stats, metrics, and top rankings on FUNBA.{% endblock %}
+{% block og_title %}Compare Players — FUNBA{% endblock %}
+{% block og_description %}Side-by-side NBA player comparison with career stats, season stats, advanced metrics, and top rankings.{% endblock %}
+{% block tw_title %}Compare Players — FUNBA{% endblock %}
+{% block tw_description %}Side-by-side NBA player comparison on FUNBA.{% endblock %}
+{% block content %}
+<style>
+  .compare-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .compare-hero h1 {
+    margin-bottom: 6px;
+  }
+
+  .compare-lead {
+    max-width: 760px;
+    color: var(--muted-2);
+  }
+
+  .compare-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compare-status strong {
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .compare-header-card {
+    position: sticky;
+    top: 70px;
+    z-index: 15;
+  }
+
+  .compare-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .compare-header-grid {
+    display: grid;
+    grid-template-columns: 180px repeat(var(--header-count), minmax(140px, 1fr));
+    gap: 12px;
+    min-width: calc(180px + (var(--header-count) * 140px) + (var(--header-count) * 12px));
+  }
+
+  .compare-label-spacer {
+    min-height: 1px;
+  }
+
+  .compare-player-card,
+  .compare-add-card {
+    position: relative;
+    min-height: 208px;
+    padding: 18px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 86%, transparent), var(--surface)),
+      radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+
+  .compare-player-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .compare-remove-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted-2);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .compare-remove-btn:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    color: var(--heading);
+    background: var(--accent-dim);
+  }
+
+  .compare-player-headshot {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    object-fit: cover;
+    border: 1px solid var(--border-2);
+    background: var(--surface-2);
+  }
+
+  .compare-player-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    line-height: 1.05;
+    text-decoration: none;
+  }
+
+  .compare-player-name:hover {
+    text-decoration: none;
+  }
+
+  .compare-player-meta {
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+
+  .compare-player-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compare-player-state.active {
+    color: var(--win);
+  }
+
+  .compare-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .compare-mini-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: auto;
+  }
+
+  .compare-mini-chip {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 64px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+    border: 1px solid var(--border);
+  }
+
+  .compare-mini-chip strong {
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .compare-mini-chip span {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compare-add-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+    border-style: dashed;
+    text-align: left;
+  }
+
+  .compare-add-eyebrow {
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .compare-add-copy {
+    color: var(--muted-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .compare-picker-wrap {
+    position: relative;
+  }
+
+  .compare-picker-input {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 0 14px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .compare-picker-input::placeholder {
+    color: var(--muted);
+  }
+
+  .compare-picker-input:focus {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .compare-picker-results {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    display: none;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--dropdown-shadow);
+    overflow: hidden;
+    z-index: 20;
+  }
+
+  .compare-picker-results.open {
+    display: block;
+  }
+
+  .compare-picker-item {
+    width: 100%;
+    padding: 11px 14px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .compare-picker-item:last-child {
+    border-bottom: none;
+  }
+
+  .compare-picker-item:hover,
+  .compare-picker-item.focused {
+    background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  }
+
+  .compare-table {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    min-width: calc(180px + (var(--player-count) * 140px));
+  }
+
+  .compare-row {
+    display: grid;
+    grid-template-columns: 180px repeat(var(--player-count), minmax(140px, 1fr));
+  }
+
+  .compare-row:nth-child(odd) .compare-cell {
+    background: var(--surface);
+  }
+
+  .compare-row:nth-child(even) .compare-cell {
+    background: var(--surface-2);
+  }
+
+  .compare-cell {
+    min-height: 50px;
+    padding: 12px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+  }
+
+  .compare-row:last-child .compare-cell {
+    border-bottom: none;
+  }
+
+  .compare-row .compare-cell:last-child {
+    border-right: none;
+  }
+
+  .compare-label-cell {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compare-value-cell {
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 19px;
+    line-height: 1.15;
+  }
+
+  .compare-value-cell.muted {
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .compare-value-cell.best {
+    background: var(--accent-dim) !important;
+    color: var(--heading);
+    font-weight: 700;
+  }
+
+  .compare-value-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .compare-context {
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+
+  .compare-subsection {
+    margin-top: 18px;
+  }
+
+  .compare-subsection:first-of-type {
+    margin-top: 0;
+  }
+
+  .compare-subtitle {
+    margin: 0 0 12px;
+    color: var(--muted-2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .compare-rank-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--player-count), minmax(140px, 1fr));
+    gap: 12px;
+    min-width: calc(var(--player-count) * 140px);
+  }
+
+  .compare-rank-col {
+    min-height: 180px;
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 84%, transparent), var(--surface));
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .compare-rank-player {
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 20px;
+    line-height: 1.05;
+  }
+
+  .compare-rank-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .compare-rank-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 11px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+  }
+
+  .compare-rank-item:hover {
+    text-decoration: none;
+  }
+
+  .compare-rank-scope {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compare-rank-empty,
+  .compare-empty-note {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .compare-empty-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+  }
+
+  .compare-empty-grid .compare-add-card {
+    min-height: 190px;
+  }
+
+  @media (max-width: 768px) {
+    .compare-header-card {
+      top: 62px;
+    }
+
+    .compare-header-grid,
+    .compare-table,
+    .compare-rank-grid {
+      min-width: calc(180px + (max(var(--player-count), 2) * 140px));
+    }
+
+    .compare-player-card,
+    .compare-add-card {
+      min-height: 192px;
+    }
+
+    .compare-player-headshot {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+    }
+
+    .compare-player-name,
+    .compare-rank-player {
+      font-size: 18px;
+    }
+
+    .compare-empty-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="card compare-hero">
+  <div>
+    <h1>Player Comparison</h1>
+    <p class="compare-lead">
+      Search and compare up to four NBA players side by side across career production, the latest regular season, advanced metrics, and top rankings.
+    </p>
+  </div>
+  <div class="compare-status">
+    Compare <strong>{{ comparison_count }}/4</strong>
+  </div>
+</div>
+
+{% if requested_ids and requested_ids|length != active_player_ids|length %}
+<div class="card">
+  <p class="compare-empty-note">Some player IDs in the URL were invalid and were skipped.</p>
+</div>
+{% endif %}
+
+{% if players %}
+<div class="card compare-header-card">
+  <div class="compare-scroll">
+    <div
+      class="compare-header-grid"
+      style="--header-count: {{ comparison_count + (1 if comparison_count < 4 else 0) }};"
+      role="table"
+      aria-label="Compared players"
+    >
+      <div class="compare-label-spacer" aria-hidden="true"></div>
+      {% for card in players %}
+      <article class="compare-player-card" role="columnheader">
+        <button
+          type="button"
+          class="compare-remove-btn"
+          data-remove-player="{{ card.player.player_id }}"
+          aria-label="Remove {{ card.player.full_name }} from comparison"
+          title="Remove from comparison"
+        >&times;</button>
+        <img
+          class="compare-player-headshot"
+          src="{{ card.headshot_url }}"
+          alt="{{ card.player.full_name }}"
+          loading="lazy"
+          onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
+        />
+        <a class="compare-player-name" href="{{ url_for('player_page', player_id=card.player.player_id) }}">{{ card.player.full_name }}</a>
+        <p class="compare-player-meta">
+          {{ card.team_label }}{% if card.player.position %} &middot; {{ card.player.position }}{% endif %}
+        </p>
+        <div class="compare-player-state {{ 'active' if card.player.is_active else '' }}">
+          <span class="compare-state-dot"></span>
+          {{ "Active" if card.player.is_active else "Inactive" }}
+        </div>
+        <div class="compare-mini-chips" aria-hidden="true">
+          <div class="compare-mini-chip">
+            <strong>{{ card.career_summary.ppg if card.career_summary.games_played else "—" }}</strong>
+            <span>PPG</span>
+          </div>
+          <div class="compare-mini-chip">
+            <strong>{{ card.career_summary.rpg if card.career_summary.games_played else "—" }}</strong>
+            <span>RPG</span>
+          </div>
+          <div class="compare-mini-chip">
+            <strong>{{ card.career_summary.apg if card.career_summary.games_played else "—" }}</strong>
+            <span>APG</span>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+
+      {% if comparison_count < 4 %}
+      <div class="compare-add-card" role="columnheader">
+        <div class="compare-add-eyebrow">+ Add Player</div>
+        <p class="compare-add-copy">
+          Search for another player to add to this comparison. Full page reload is used for v1.
+        </p>
+        <div class="compare-picker-wrap" data-compare-picker>
+          <input
+            class="compare-picker-input"
+            type="search"
+            placeholder="Search players"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Add player to comparison"
+          />
+          <div class="compare-picker-results" role="listbox"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not players %}
+<div class="card">
+  <h2>Compare Players</h2>
+  <p class="compare-lead">Search and select 2–4 players to compare side by side.</p>
+  <div class="compare-empty-grid">
+    {% for _ in range(2) %}
+    <div class="compare-add-card">
+      <div class="compare-add-eyebrow">+ Add Player</div>
+      <p class="compare-add-copy">Pick a player to start building a shareable comparison URL.</p>
+      <div class="compare-picker-wrap" data-compare-picker>
+        <input
+          class="compare-picker-input"
+          type="search"
+          placeholder="Search players"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Search players to compare"
+        />
+        <div class="compare-picker-results" role="listbox"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% elif not can_compare %}
+<div class="card">
+  <h2>Add One More Player</h2>
+  <p class="compare-lead">At least two players are required for a full comparison. Add one more player above to unlock the side-by-side tables.</p>
+</div>
+{% else %}
+<div class="card">
+  <h2>Career Stats</h2>
+  <div class="compare-scroll">
+    <div class="compare-table" style="--player-count: {{ comparison_count }};" role="table" aria-label="Career comparison stats">
+      {% for row in season_rows %}
+      <div class="compare-row" role="row">
+        <div class="compare-cell compare-label-cell" role="rowheader">{{ row.label }}</div>
+        {% for value in row["values"] %}
+        <div
+          class="compare-cell compare-value-cell {{ 'best' if loop.index0 == row.best_index }} {{ 'muted' if value == '—' }}"
+          role="cell"
+          {% if loop.index0 == row.best_index %}aria-label="Best: {{ value }} {{ row.label }}"{% endif %}
+        >{{ value }}</div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{ season_label(current_season) if current_season else "Current Season" }}</h2>
+  <div class="compare-scroll">
+    <div class="compare-table" style="--player-count: {{ comparison_count }};" role="table" aria-label="Current season comparison stats">
+      {% for row in current_rows %}
+      <div class="compare-row" role="row">
+        <div class="compare-cell compare-label-cell" role="rowheader">{{ row.label }}</div>
+        {% for value in row["values"] %}
+        <div
+          class="compare-cell compare-value-cell {{ 'best' if loop.index0 == row.best_index }} {{ 'muted' if value == '—' }}"
+          role="cell"
+          {% if loop.index0 == row.best_index %}aria-label="Best: {{ value }} {{ row.label }}"{% endif %}
+        >{{ value }}</div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Advanced Metrics</h2>
+  {% if metric_sections %}
+    {% for section in metric_sections %}
+    <div class="compare-subsection">
+      <h3 class="compare-subtitle">{{ section.title or season_label(current_season) }}</h3>
+      <div class="compare-scroll">
+        <div class="compare-table" style="--player-count: {{ comparison_count }};" role="table" aria-label="{{ section.title or season_label(current_season) }} advanced metrics">
+          {% for row in section.rows %}
+          <div class="compare-row" role="row">
+            <div class="compare-cell compare-label-cell" role="rowheader">
+              <a href="{{ row.href }}">{{ row.label }}</a>
+            </div>
+            {% for value in row["values"] %}
+            <div
+              class="compare-cell compare-value-cell {{ 'best' if loop.index0 == row.best_index }} {{ 'muted' if value.text in ['N/A', '—'] }}"
+              role="cell"
+              {% if value.aria_label %}aria-label="{{ value.aria_label }}"{% endif %}
+            >
+              <div class="compare-value-stack">
+                <span>{{ value.text }}</span>
+                {% if value.context_label %}
+                <span class="compare-context">{{ value.context_label }}</span>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <p class="compare-empty-note">No advanced metrics are available for these players yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Top Rankings</h2>
+  <div class="compare-scroll">
+    <div class="compare-rank-grid" style="--player-count: {{ comparison_count }};">
+      {% for card in players %}
+      <div class="compare-rank-col">
+        <div class="compare-rank-player">{{ card.player.full_name }}</div>
+        <div class="compare-rank-list">
+          {% if card.top_rankings %}
+            {% for ranking in card.top_rankings %}
+            <a class="compare-rank-item" href="{{ ranking.href }}">
+              <span class="rank-chip notable">{{ ranking.badge }}</span>
+              <span class="compare-rank-scope">{{ ranking.scope_label }}</span>
+            </a>
+            {% endfor %}
+          {% else %}
+          <p class="compare-rank-empty">No notable rankings.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  (function () {
+    const currentIds = {{ active_player_ids | tojson }};
+    const hintsUrl = "{{ url_for('player_hints_api') }}";
+
+    function nextUrl(ids) {
+      const unique = [];
+      ids.forEach((id) => {
+        if (id && !unique.includes(id) && unique.length < 4) unique.push(id);
+      });
+      const url = new URL("{{ url_for('players_compare') }}", window.location.origin);
+      if (unique.length) url.searchParams.set('ids', unique.join(','));
+      return url.pathname + url.search;
+    }
+
+    function navigate(ids) {
+      window.location.href = nextUrl(ids);
+    }
+
+    document.querySelectorAll('[data-remove-player]').forEach((button) => {
+      button.addEventListener('click', () => {
+        navigate(currentIds.filter((id) => id !== button.dataset.removePlayer));
+      });
+    });
+
+    document.querySelectorAll('[data-compare-picker]').forEach((root) => {
+      const input = root.querySelector('.compare-picker-input');
+      const results = root.querySelector('.compare-picker-results');
+      if (!input || !results) return;
+
+      let timer = null;
+      let controller = null;
+      let items = [];
+      let focusIndex = -1;
+
+      function closeResults() {
+        results.classList.remove('open');
+      }
+
+      function render(newItems) {
+        items = newItems;
+        focusIndex = -1;
+        results.innerHTML = '';
+        if (!items.length) {
+          closeResults();
+          return;
+        }
+        items.forEach((item, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'compare-picker-item';
+          button.setAttribute('role', 'option');
+          button.textContent = item.full_name;
+          button.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            navigate(currentIds.concat(item.player_id));
+          });
+          results.appendChild(button);
+        });
+        results.classList.add('open');
+      }
+
+      function moveFocus(delta) {
+        const buttons = Array.from(results.querySelectorAll('.compare-picker-item'));
+        if (!buttons.length) return;
+        if (focusIndex >= 0) buttons[focusIndex].classList.remove('focused');
+        focusIndex = Math.max(0, Math.min(focusIndex + delta, buttons.length - 1));
+        buttons[focusIndex].classList.add('focused');
+      }
+
+      async function load(query) {
+        if (controller) controller.abort();
+        controller = new AbortController();
+        const url = new URL(hintsUrl, window.location.origin);
+        url.searchParams.set('q', query);
+        url.searchParams.set('limit', '10');
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          if (!response.ok) return;
+          const data = await response.json();
+          render((data.items || []).filter((item) => !currentIds.includes(item.player_id)));
+        } catch (_) {}
+      }
+
+      input.addEventListener('input', () => {
+        clearTimeout(timer);
+        const query = input.value.trim();
+        if (!query) {
+          closeResults();
+          return;
+        }
+        timer = setTimeout(() => load(query), 150);
+      });
+
+      input.addEventListener('focus', () => {
+        if (input.value.trim()) load(input.value.trim());
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          moveFocus(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          moveFocus(-1);
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          if (focusIndex >= 0 && items[focusIndex]) navigate(currentIds.concat(items[focusIndex].player_id));
+          else if (items.length === 1) navigate(currentIds.concat(items[0].player_id));
+        } else if (event.key === 'Escape') {
+          closeResults();
+        }
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!root.contains(event.target)) closeResults();
+      });
+    });
+  })();
+</script>
+{% endblock %}

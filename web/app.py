@@ -2808,6 +2808,543 @@ def player_hints_api():
     return jsonify({"items": items})
 
 
+_COMPARE_EMPTY_MARK = "—"
+_COMPARE_STATS_ROWS = [
+    ("ppg", "PPG"),
+    ("rpg", "RPG"),
+    ("apg", "APG"),
+    ("mpg", "MPG"),
+    ("fg_pct", "FG%"),
+    ("fg3_pct", "3P%"),
+    ("ft_pct", "FT%"),
+]
+
+
+def _player_summary_fields(played_condition):
+    return [
+        func.count(PlayerGameStats.game_id).label("games_tracked"),
+        func.sum(case((played_condition, 1), else_=0)).label("games_played"),
+        func.sum(func.coalesce(PlayerGameStats.min, 0)).label("total_min"),
+        func.sum(func.coalesce(PlayerGameStats.sec, 0)).label("total_sec"),
+        func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("pts"),
+        func.sum(func.coalesce(PlayerGameStats.reb, 0)).label("reb"),
+        func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
+        func.sum(func.coalesce(PlayerGameStats.stl, 0)).label("stl"),
+        func.sum(func.coalesce(PlayerGameStats.blk, 0)).label("blk"),
+        func.sum(func.coalesce(PlayerGameStats.tov, 0)).label("tov"),
+        func.sum(func.coalesce(PlayerGameStats.fgm, 0)).label("fgm"),
+        func.sum(func.coalesce(PlayerGameStats.fga, 0)).label("fga"),
+        func.sum(func.coalesce(PlayerGameStats.fg3m, 0)).label("fg3m"),
+        func.sum(func.coalesce(PlayerGameStats.fg3a, 0)).label("fg3a"),
+        func.sum(func.coalesce(PlayerGameStats.ftm, 0)).label("ftm"),
+        func.sum(func.coalesce(PlayerGameStats.fta, 0)).label("fta"),
+    ]
+
+
+def _player_summary_from_row(raw_row) -> dict[str, str | int]:
+    games_tracked = int(raw_row.games_tracked or 0)
+    games_played = int(raw_row.games_played or 0)
+    total_sec = int(raw_row.total_sec or 0)
+    total_min = int(raw_row.total_min or 0) + (total_sec // 60)
+
+    summary = {
+        "games_tracked": games_tracked,
+        "games_played": games_played,
+        "minutes": total_min,
+        "pts": int(raw_row.pts or 0),
+        "reb": int(raw_row.reb or 0),
+        "ast": int(raw_row.ast or 0),
+        "stl": int(raw_row.stl or 0),
+        "blk": int(raw_row.blk or 0),
+        "tov": int(raw_row.tov or 0),
+        "fgm": int(raw_row.fgm or 0),
+        "fga": int(raw_row.fga or 0),
+        "fg3m": int(raw_row.fg3m or 0),
+        "fg3a": int(raw_row.fg3a or 0),
+        "ftm": int(raw_row.ftm or 0),
+        "fta": int(raw_row.fta or 0),
+    }
+    summary["fg_pct"] = _pct_text(summary["fgm"], summary["fga"])
+    summary["fg3_pct"] = _pct_text(summary["fg3m"], summary["fg3a"])
+    summary["ft_pct"] = _pct_text(summary["ftm"], summary["fta"])
+
+    if games_played > 0:
+        summary["mpg"] = f"{summary['minutes'] / games_played:.1f}"
+        summary["ppg"] = f"{summary['pts'] / games_played:.1f}"
+        summary["rpg"] = f"{summary['reb'] / games_played:.1f}"
+        summary["apg"] = f"{summary['ast'] / games_played:.1f}"
+        summary["spg"] = f"{summary['stl'] / games_played:.1f}"
+        summary["bpg"] = f"{summary['blk'] / games_played:.1f}"
+        summary["tpg"] = f"{summary['tov'] / games_played:.1f}"
+    else:
+        summary["mpg"] = "-"
+        summary["ppg"] = "-"
+        summary["rpg"] = "-"
+        summary["apg"] = "-"
+        summary["spg"] = "-"
+        summary["bpg"] = "-"
+        summary["tpg"] = "-"
+    return summary
+
+
+def _player_stat_summary(
+    session,
+    player_id: str,
+    *,
+    season: str | None = None,
+    season_prefix: str | None = None,
+) -> dict[str, str | int]:
+    played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
+    query = (
+        session.query(*_player_summary_fields(played_condition))
+        .join(Game, PlayerGameStats.game_id == Game.game_id)
+        .filter(PlayerGameStats.player_id == player_id)
+    )
+    if season:
+        query = query.filter(Game.season == season)
+    elif season_prefix:
+        query = query.filter(Game.season.like(f"{season_prefix}%"))
+    return _player_summary_from_row(query.one())
+
+
+def _player_career_summary(
+    session,
+    player_id: str,
+    *,
+    season_prefix: str,
+    teams: dict[str, Team],
+) -> tuple[dict[str, str | int], list[dict[str, object]]]:
+    played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
+    season_rows_raw = (
+        session.query(
+            Game.season.label("season"),
+            *_player_summary_fields(played_condition),
+        )
+        .join(Game, PlayerGameStats.game_id == Game.game_id)
+        .filter(
+            PlayerGameStats.player_id == player_id,
+            Game.season.like(f"{season_prefix}%"),
+        )
+        .group_by(Game.season)
+        .all()
+    )
+
+    career_season_rows = []
+    for row in season_rows_raw:
+        career_season_rows.append(
+            {
+                "season": row.season,
+                "stats": _player_summary_from_row(row),
+            }
+        )
+    career_season_rows.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
+
+    season_team_rows = (
+        session.query(Game.season, PlayerGameStats.team_id)
+        .join(Game, PlayerGameStats.game_id == Game.game_id)
+        .filter(
+            PlayerGameStats.player_id == player_id,
+            Game.season.like(f"{season_prefix}%"),
+            PlayerGameStats.team_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    season_team_abbrs: dict[str, list[str]] = defaultdict(list)
+    for st_row in season_team_rows:
+        abbr = _team_abbr(teams, st_row.team_id)
+        if abbr not in season_team_abbrs[st_row.season]:
+            season_team_abbrs[st_row.season].append(abbr)
+    for row in career_season_rows:
+        row["team_abbrs"] = season_team_abbrs.get(row["season"], [])
+
+    return _player_stat_summary(session, player_id, season_prefix=season_prefix), career_season_rows
+
+
+def _latest_regular_season(session) -> str | None:
+    seasons = [
+        row.season
+        for row in session.query(Game.season.label("season"))
+        .filter(Game.season.like("2%"))
+        .distinct()
+        .all()
+        if row.season
+    ]
+    return _pick_current_season(seasons) or "22025"
+
+
+def _compare_metric_label(session, metric_key: str) -> str:
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    runtime_metric = _get_metric(metric_key, session=session)
+    if runtime_metric is None and metric_key.endswith("_career"):
+        runtime_metric = _get_metric(metric_key.removesuffix("_career"), session=session)
+    if runtime_metric is not None and getattr(runtime_metric, "name", None):
+        return runtime_metric.name
+
+    base_key = metric_key.removesuffix("_career")
+    db_metric = (
+        session.query(MetricDefinitionModel)
+        .filter(MetricDefinitionModel.key == base_key)
+        .first()
+    )
+    if db_metric is not None and db_metric.name:
+        return db_metric.name
+
+    return base_key.replace("_", " ").title()
+
+
+def _compare_metric_value_text(entry: dict | None, missing: str = "N/A") -> str:
+    if not entry:
+        return missing
+    if entry.get("value_str"):
+        return str(entry["value_str"])
+    if entry.get("value_num") is None:
+        return missing
+    return f"{float(entry['value_num']):.1f}"
+
+
+def _compare_summary_value(summary: dict[str, str | int] | None, key: str, missing: str = _COMPARE_EMPTY_MARK) -> str:
+    if not summary or int(summary.get("games_played") or 0) <= 0:
+        return missing
+    value = summary.get(key)
+    if value in (None, "-", ""):
+        return missing
+    if key.endswith("_pct") and isinstance(value, str):
+        return pct_fmt(value)
+    return str(value)
+
+
+def _compare_numeric_value(value) -> float | None:
+    if value in (None, "", "-", _COMPARE_EMPTY_MARK, "N/A"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compare_best_index(values: list[float | None], *, ascending: bool = False) -> int | None:
+    scored = [(idx, value) for idx, value in enumerate(values) if value is not None]
+    if not scored:
+        return None
+    if ascending:
+        best_idx, _best_value = min(scored, key=lambda item: item[1])
+    else:
+        best_idx, _best_value = max(scored, key=lambda item: item[1])
+    return best_idx
+
+
+def _compare_metric_scope_label(entry: dict) -> str:
+    season = str(entry.get("season") or "").strip()
+    if len(season) == 5 and season.isdigit():
+        return _season_label(season)
+    career_labels = {
+        "all_regular": "Regular Season Career",
+        "all_playoffs": "Playoffs Career",
+        "all_playin": "Play-In Career",
+    }
+    if season in career_labels:
+        return career_labels[season]
+    return entry.get("career_type_label") or "Career"
+
+
+def _build_compare_stat_rows(player_cards: list[dict]) -> list[dict]:
+    rows = []
+    for stat_key, label in _COMPARE_STATS_ROWS:
+        values = [_compare_summary_value(card.get("career_summary"), stat_key) for card in player_cards]
+        best_index = _compare_best_index([_compare_numeric_value(value) for value in values])
+        rows.append(
+            {
+                "label": label,
+                "values": values,
+                "best_index": best_index,
+            }
+        )
+    return rows
+
+
+def _build_compare_current_rows(player_cards: list[dict]) -> list[dict]:
+    rows = []
+    for stat_key, label in _COMPARE_STATS_ROWS:
+        values = [_compare_summary_value(card.get("current_summary"), stat_key) for card in player_cards]
+        best_index = _compare_best_index([_compare_numeric_value(value) for value in values])
+        rows.append(
+            {
+                "label": label,
+                "values": values,
+                "best_index": best_index,
+            }
+        )
+    return rows
+
+
+def _build_compare_metric_sections(session, player_cards: list[dict]) -> list[dict]:
+    sections: list[dict] = []
+    asc_keys = _asc_metric_keys(session)
+
+    def build_rows(entries_by_card: list[list[dict]], *, group_title: str | None = None) -> dict | None:
+        row_map: dict[str, dict] = {}
+        for player_idx, entries in enumerate(entries_by_card):
+            for entry in entries:
+                row_key = entry["metric_key"]
+                row = row_map.setdefault(
+                    row_key,
+                    {
+                        "metric_key": entry["metric_key"],
+                        "label": _compare_metric_label(session, entry["metric_key"]),
+                        "href": url_for("metric_detail", metric_key=entry["metric_key"]),
+                        "values": [None] * len(player_cards),
+                        "ascending": entry["metric_key"].removesuffix("_career") in asc_keys,
+                    },
+                )
+                row["values"][player_idx] = entry
+        if not row_map:
+            return None
+
+        rows = []
+        for row in sorted(row_map.values(), key=lambda item: item["label"].lower()):
+            numeric_values = [
+                float(value["value_num"]) if value and value.get("value_num") is not None else None
+                for value in row["values"]
+            ]
+            best_index = _compare_best_index(numeric_values, ascending=row["ascending"])
+            display_values = [
+                {
+                    "text": _compare_metric_value_text(value),
+                    "aria_label": (
+                        f"Best: {_compare_metric_value_text(value)}"
+                        if best_index == idx and value is not None
+                        else None
+                    ),
+                    "context_label": value.get("context_label") if value else None,
+                }
+                for idx, value in enumerate(row["values"])
+            ]
+            rows.append(
+                {
+                    "label": row["label"],
+                    "href": row["href"],
+                    "values": display_values,
+                    "best_index": best_index,
+                }
+            )
+        return {"title": group_title, "rows": rows}
+
+    season_section = build_rows([card["metrics"]["season"] for card in player_cards], group_title=None)
+    if season_section is not None:
+        sections.append(season_section)
+
+    grouped_alltime: dict[str, list[list[dict]]] = {}
+    for card in player_cards:
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for entry in card["metrics"]["alltime"]:
+            grouped[entry.get("career_type_label") or "Career"].append(entry)
+        for title in grouped:
+            grouped_alltime.setdefault(title, [[] for _ in player_cards])
+    for idx, card in enumerate(player_cards):
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for entry in card["metrics"]["alltime"]:
+            grouped[entry.get("career_type_label") or "Career"].append(entry)
+        for title, lists in grouped_alltime.items():
+            lists[idx] = grouped.get(title, [])
+
+    for title in sorted(grouped_alltime.keys()):
+        section = build_rows(grouped_alltime[title], group_title=f"{title} Career")
+        if section is not None:
+            sections.append(section)
+
+    return sections
+
+
+def _player_compare_team_abbrs(
+    session,
+    player_id: str,
+    teams: dict[str, Team],
+    *,
+    preferred_season: str | None = None,
+) -> list[str]:
+    def load_for_season(season_value: str | None) -> list[str]:
+        if not season_value:
+            return []
+        rows = (
+            session.query(PlayerGameStats.team_id)
+            .join(Game, PlayerGameStats.game_id == Game.game_id)
+            .filter(
+                PlayerGameStats.player_id == player_id,
+                PlayerGameStats.team_id.isnot(None),
+                Game.season == season_value,
+            )
+            .distinct()
+            .all()
+        )
+        abbrs: list[str] = []
+        for row in rows:
+            abbr = _team_abbr(teams, row.team_id)
+            if abbr not in abbrs:
+                abbrs.append(abbr)
+        return abbrs
+
+    abbrs = load_for_season(preferred_season)
+    if abbrs:
+        return abbrs
+
+    latest_row = (
+        session.query(Game.season)
+        .join(PlayerGameStats, PlayerGameStats.game_id == Game.game_id)
+        .filter(
+            PlayerGameStats.player_id == player_id,
+            PlayerGameStats.team_id.isnot(None),
+            Game.season.isnot(None),
+        )
+        .order_by(Game.season.desc(), Game.game_date.desc(), Game.game_id.desc())
+        .first()
+    )
+    return load_for_season(latest_row.season if latest_row else None)
+
+
+def _get_player_top_rankings(
+    session,
+    player_id: str,
+    *,
+    current_season: str | None,
+    limit: int = 3,
+) -> list[dict]:
+    from metrics.framework.base import CAREER_SEASON_PREFIX, SEASON_TYPE_TO_CAREER
+
+    asc_keys = _asc_metric_keys(session)
+    filters = [
+        MetricResultModel.entity_type == "player",
+        MetricResultModel.value_num.isnot(None),
+    ]
+    season_filters = []
+    if current_season:
+        season_filters.append(MetricResultModel.season == current_season)
+        current_type = current_season[0] if len(current_season) == 5 and current_season.isdigit() else None
+        matching_career = SEASON_TYPE_TO_CAREER.get(current_type) if current_type else None
+        if matching_career:
+            season_filters.append(MetricResultModel.season == matching_career)
+        else:
+            season_filters.append(MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
+    if season_filters:
+        filters.append(or_(*season_filters))
+
+    rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
+    rank_value = case(
+        (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
+        else_=MetricResultModel.value_num,
+    )
+    inner = (
+        session.query(
+            MetricResultModel.metric_key.label("metric_key"),
+            MetricResultModel.entity_id.label("entity_id"),
+            MetricResultModel.season.label("season"),
+            MetricResultModel.value_num.label("value_num"),
+            MetricResultModel.value_str.label("value_str"),
+            MetricResultModel.noteworthiness.label("noteworthiness"),
+            func.rank().over(
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+                order_by=rank_value.desc(),
+            ).label("rank"),
+            func.count(MetricResultModel.id).over(
+                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
+            ).label("total"),
+        )
+        .filter(*filters)
+        .subquery()
+    )
+    rows = (
+        session.query(inner)
+        .filter(inner.c.entity_id == player_id)
+        .order_by(
+            func.coalesce(inner.c.noteworthiness, -1).desc(),
+            inner.c.rank.asc(),
+            inner.c.metric_key.asc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+    rankings = []
+    for row in rows:
+        metric_key = row.metric_key
+        label = _compare_metric_label(session, metric_key)
+        scope_label = _compare_metric_scope_label({"season": row.season})
+        badge = f"#{int(row.rank)} of {int(row.total)} · {label}" if row.rank and row.total else label
+        rankings.append(
+            {
+                "metric_key": metric_key,
+                "label": label,
+                "badge": badge,
+                "scope_label": scope_label,
+                "href": url_for("metric_detail", metric_key=metric_key, season=row.season)
+                if row.season
+                else url_for("metric_detail", metric_key=metric_key),
+            }
+        )
+    return rankings
+
+
+@app.route("/players/compare")
+def players_compare():
+    raw_ids = [part.strip() for part in (request.args.get("ids") or "").split(",") if part.strip()]
+    requested_ids: list[str] = []
+    for player_id in raw_ids:
+        if player_id not in requested_ids:
+            requested_ids.append(player_id)
+        if len(requested_ids) == 4:
+            break
+
+    with SessionLocal() as session:
+        players_by_id = {
+            player.player_id: player
+            for player in session.query(Player)
+            .filter(Player.player_id.in_(requested_ids))
+            .all()
+        } if requested_ids else {}
+        players = [players_by_id[player_id] for player_id in requested_ids if player_id in players_by_id]
+        teams = _team_map(session)
+        current_season = _latest_regular_season(session)
+
+        season_rows: list[dict] = []
+        current_rows: list[dict] = []
+        metric_sections: list[dict] = []
+
+        player_cards = []
+        for player in players:
+            team_abbrs = _player_compare_team_abbrs(session, player.player_id, teams, preferred_season=current_season)
+            player_cards.append(
+                {
+                    "player": player,
+                    "headshot_url": _player_headshot_url(player.player_id),
+                    "team_abbrs": team_abbrs,
+                    "team_label": " / ".join(team_abbrs) if team_abbrs else "NBA",
+                    "career_summary": _player_stat_summary(session, player.player_id, season_prefix="2"),
+                    "current_summary": _player_stat_summary(session, player.player_id, season=current_season),
+                    "metrics": _get_metric_results(session, "player", player.player_id, current_season),
+                    "top_rankings": _get_player_top_rankings(session, player.player_id, current_season=current_season),
+                }
+            )
+
+        if len(player_cards) >= 2:
+            season_rows = _build_compare_stat_rows(player_cards)
+            current_rows = _build_compare_current_rows(player_cards)
+            metric_sections = _build_compare_metric_sections(session, player_cards)
+
+    return render_template(
+        "compare.html",
+        requested_ids=requested_ids,
+        players=player_cards,
+        active_player_ids=[card["player"].player_id for card in player_cards],
+        comparison_count=len(player_cards),
+        can_compare=len(player_cards) >= 2,
+        current_season=current_season,
+        season_rows=season_rows,
+        current_rows=current_rows,
+        metric_sections=metric_sections,
+    )
+
+
 @app.route("/draft/<int:year>")
 def draft_page(year: int):
     current_year = date.today().year
@@ -2874,135 +3411,19 @@ def player_page(player_id: str):
             for row in player_award_rows
         ]
 
-        played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
         selected_career_kind = request.args.get("career_kind", "regular")
         if selected_career_kind not in {"regular", "playoffs"}:
             selected_career_kind = "regular"
         season_prefix = "2" if selected_career_kind == "regular" else "4"
         career_kind_label = "Regular Season" if selected_career_kind == "regular" else "Playoffs"
 
-        def _summary_fields():
-            return [
-                func.count(PlayerGameStats.game_id).label("games_tracked"),
-                func.sum(case((played_condition, 1), else_=0)).label("games_played"),
-                func.sum(func.coalesce(PlayerGameStats.min, 0)).label("total_min"),
-                func.sum(func.coalesce(PlayerGameStats.sec, 0)).label("total_sec"),
-                func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("pts"),
-                func.sum(func.coalesce(PlayerGameStats.reb, 0)).label("reb"),
-                func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
-                func.sum(func.coalesce(PlayerGameStats.stl, 0)).label("stl"),
-                func.sum(func.coalesce(PlayerGameStats.blk, 0)).label("blk"),
-                func.sum(func.coalesce(PlayerGameStats.tov, 0)).label("tov"),
-                func.sum(func.coalesce(PlayerGameStats.fgm, 0)).label("fgm"),
-                func.sum(func.coalesce(PlayerGameStats.fga, 0)).label("fga"),
-                func.sum(func.coalesce(PlayerGameStats.fg3m, 0)).label("fg3m"),
-                func.sum(func.coalesce(PlayerGameStats.fg3a, 0)).label("fg3a"),
-                func.sum(func.coalesce(PlayerGameStats.ftm, 0)).label("ftm"),
-                func.sum(func.coalesce(PlayerGameStats.fta, 0)).label("fta"),
-            ]
-
-        def _to_summary(raw_row) -> dict[str, str | int]:
-            games_tracked = int(raw_row.games_tracked or 0)
-            games_played = int(raw_row.games_played or 0)
-            total_sec = int(raw_row.total_sec or 0)
-            total_min = int(raw_row.total_min or 0) + (total_sec // 60)
-
-            summary = {
-                "games_tracked": games_tracked,
-                "games_played": games_played,
-                "minutes": total_min,
-                "pts": int(raw_row.pts or 0),
-                "reb": int(raw_row.reb or 0),
-                "ast": int(raw_row.ast or 0),
-                "stl": int(raw_row.stl or 0),
-                "blk": int(raw_row.blk or 0),
-                "tov": int(raw_row.tov or 0),
-                "fgm": int(raw_row.fgm or 0),
-                "fga": int(raw_row.fga or 0),
-                "fg3m": int(raw_row.fg3m or 0),
-                "fg3a": int(raw_row.fg3a or 0),
-                "ftm": int(raw_row.ftm or 0),
-                "fta": int(raw_row.fta or 0),
-            }
-            summary["fg_pct"] = _pct_text(summary["fgm"], summary["fga"])
-            summary["fg3_pct"] = _pct_text(summary["fg3m"], summary["fg3a"])
-            summary["ft_pct"] = _pct_text(summary["ftm"], summary["fta"])
-
-            if games_played > 0:
-                summary["mpg"] = f"{summary['minutes'] / games_played:.1f}"
-                summary["ppg"] = f"{summary['pts'] / games_played:.1f}"
-                summary["rpg"] = f"{summary['reb'] / games_played:.1f}"
-                summary["apg"] = f"{summary['ast'] / games_played:.1f}"
-                summary["spg"] = f"{summary['stl'] / games_played:.1f}"
-                summary["bpg"] = f"{summary['blk'] / games_played:.1f}"
-                summary["tpg"] = f"{summary['tov'] / games_played:.1f}"
-            else:
-                summary["mpg"] = "-"
-                summary["ppg"] = "-"
-                summary["rpg"] = "-"
-                summary["apg"] = "-"
-                summary["spg"] = "-"
-                summary["bpg"] = "-"
-                summary["tpg"] = "-"
-            return summary
-
-        season_rows_raw = (
-            session.query(
-                Game.season.label("season"),
-                *_summary_fields(),
-            )
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(
-                PlayerGameStats.player_id == player_id,
-                Game.season.like(f"{season_prefix}%"),
-            )
-            .group_by(Game.season)
-            .all()
-        )
-
-        career_season_rows = []
-        for row in season_rows_raw:
-            season_stats = _to_summary(row)
-            career_season_rows.append(
-                {
-                    "season": row.season,
-                    "stats": season_stats,
-                }
-            )
-        career_season_rows.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
-
         teams = _team_map(session)
-
-        # Attach distinct team abbreviations to each season row
-        season_team_rows = (
-            session.query(Game.season, PlayerGameStats.team_id)
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(
-                PlayerGameStats.player_id == player_id,
-                Game.season.like(f"{season_prefix}%"),
-                PlayerGameStats.team_id.isnot(None),
-            )
-            .distinct()
-            .all()
+        career_overall, career_season_rows = _player_career_summary(
+            session,
+            player_id,
+            season_prefix=season_prefix,
+            teams=teams,
         )
-        season_team_abbrs: dict[str, list[str]] = defaultdict(list)
-        for st_row in season_team_rows:
-            abbr = _team_abbr(teams, st_row.team_id)
-            if abbr not in season_team_abbrs[st_row.season]:
-                season_team_abbrs[st_row.season].append(abbr)
-        for row in career_season_rows:
-            row["team_abbrs"] = season_team_abbrs.get(row["season"], [])
-
-        overall_row = (
-            session.query(*_summary_fields())
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(
-                PlayerGameStats.player_id == player_id,
-                Game.season.like(f"{season_prefix}%"),
-            )
-            .one()
-        )
-        career_overall = _to_summary(overall_row)
 
         heatmap_season_rows = (
             session.query(Game.season)
