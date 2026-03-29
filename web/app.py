@@ -6135,6 +6135,16 @@ def api_data_pbp(game_id: str):
     return jsonify({"game_id": game_id, "period": period, "plays": get_game_play_by_play(game_id, period)})
 
 
+@app.get("/api/data/games/<game_id>/metrics")
+def api_data_game_metrics(game_id: str):
+    """Get all metrics triggered by a single game."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from tasks.topics import get_game_metrics
+    return jsonify({"game_id": game_id, "metrics": get_game_metrics(game_id)})
+
+
 @app.get("/api/data/metrics/<metric_key>/top")
 def api_data_metric_top(metric_key: str):
     """Get top N results for a metric. Query: ?season=22025&limit=10"""

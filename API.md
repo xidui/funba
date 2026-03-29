@@ -110,6 +110,37 @@ Get play-by-play for a specific period (last 30 plays).
 
 ---
 
+### GET /api/data/games/{game_id}/metrics
+
+Get all metrics triggered by a single game, ranked by noteworthiness. Unlike `/api/data/metrics/triggered` (which deduplicates across all games on a date), this returns every triggered metric for the specific game.
+
+**Response:**
+
+```json
+{
+  "game_id": "0022501066",
+  "metrics": [
+    {
+      "metric_key": "ot_winner_max_deficit",
+      "metric_name": "OT Winner Max Deficit",
+      "scope": "game",
+      "entity": "Tyrese Haliburton",
+      "entity_id": "1630169",
+      "entity_type": "player",
+      "value": 15.0,
+      "value_str": "15",
+      "rank": 1,
+      "total": 42,
+      "rank_pct": 0.024,
+      "notable": true,
+      "metric_url": "https://funba.app/metrics/ot_winner_max_deficit"
+    }
+  ]
+}
+```
+
+---
+
 ### GET /api/data/metrics/{metric_key}/top
 
 Get top N entities for a metric, ranked by value.

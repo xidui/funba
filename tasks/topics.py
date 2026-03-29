@@ -312,3 +312,110 @@ def get_triggered_metrics(target_date: date) -> list[dict]:
         return sorted(seen.values(), key=lambda x: x["rank_pct"])
     finally:
         session.close()
+
+
+def get_game_metrics(game_id: str) -> list[dict]:
+    """Return all metrics triggered by a single game, ranked by noteworthiness."""
+    session = Session()
+    try:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if not game:
+            return []
+
+        team_map = {t.team_id: t.abbr for t in session.query(Team.team_id, Team.abbr).all()}
+
+        run_logs = session.query(
+            MetricRunLog.metric_key, MetricRunLog.entity_type, MetricRunLog.entity_id,
+        ).filter(
+            MetricRunLog.game_id == game_id,
+            MetricRunLog.produced_result == True,
+        ).all()
+        if not run_logs:
+            return []
+
+        triggered = [(rl.metric_key, rl.entity_type, rl.entity_id) for rl in run_logs]
+        metric_keys = {k for k, _, _ in triggered}
+        entity_ids = {eid for _, _, eid in triggered}
+
+        mr_rows = session.query(MetricResult).filter(
+            MetricResult.metric_key.in_(metric_keys),
+            MetricResult.entity_id.in_(entity_ids),
+            MetricResult.value_num.isnot(None),
+        ).all()
+        result_map: dict[tuple, MetricResult] = {}
+        for mr in mr_rows:
+            result_map[(mr.metric_key, mr.entity_type, mr.entity_id, mr.season)] = mr
+
+        md_map = {
+            md.key: md
+            for md in session.query(MetricDefinition).filter(
+                MetricDefinition.key.in_(metric_keys),
+                MetricDefinition.status == "published",
+            ).all()
+        }
+
+        player_ids = {eid for _, et, eid in triggered if et == "player"}
+        player_names = {
+            p.player_id: p.full_name
+            for p in session.query(Player.player_id, Player.full_name).filter(
+                Player.player_id.in_(player_ids)
+            ).all()
+        } if player_ids else {}
+
+        rank_cache: dict[int, tuple[int, int]] = {}
+
+        def _get_rank(mr: MetricResult) -> tuple[int, int]:
+            if mr.id in rank_cache:
+                return rank_cache[mr.id]
+            total = session.query(func.count(MetricResult.id)).filter(
+                MetricResult.metric_key == mr.metric_key,
+                MetricResult.season == mr.season,
+                MetricResult.value_num.isnot(None),
+            ).scalar() or 0
+            better = session.query(func.count(MetricResult.id)).filter(
+                MetricResult.metric_key == mr.metric_key,
+                MetricResult.season == mr.season,
+                MetricResult.value_num > mr.value_num,
+            ).scalar() or 0
+            rank = better + 1
+            rank_cache[mr.id] = (rank, total)
+            return rank, total
+
+        results = []
+        for mk, et, eid in triggered:
+            md = md_map.get(mk)
+            if not md or mk.endswith("_career"):
+                continue
+
+            mr = result_map.get((mk, et, eid, game.season))
+            if not mr:
+                for key, val in result_map.items():
+                    if key[0] == mk and key[1] == et and key[2] == eid:
+                        mr = val
+                        break
+            if not mr or mr.value_num is None:
+                continue
+
+            rank, total = _get_rank(mr)
+            pct = rank / total if total > 0 else 1.0
+            entity_name = player_names.get(eid) or team_map.get(eid) or eid
+
+            results.append({
+                "metric_key": mk,
+                "metric_name": md.name,
+                "scope": md.scope,
+                "entity": entity_name,
+                "entity_id": eid,
+                "entity_type": et,
+                "value": mr.value_num,
+                "value_str": mr.value_str or str(mr.value_num),
+                "rank": rank,
+                "total": total,
+                "rank_pct": pct,
+                "notable": pct <= 0.25,
+                "metric_url": f"{_BASE_URL}/metrics/{mk}",
+            })
+
+        return sorted(results, key=lambda x: x["rank_pct"])
+    finally:
+        session.close()
