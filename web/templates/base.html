@@ -1242,10 +1242,11 @@
 
       // ── Admin dropdown ────────────────────────────────────────────
       (function () {
+        const btn = document.getElementById('admin-menu-btn');
         const wrap = document.getElementById('admin-menu-wrap');
         const menu = document.getElementById('admin-dropdown');
-        if (!wrap || !menu) return;
-        wrap.addEventListener('click', function (e) {
+        if (!btn || !wrap || !menu) return;
+        btn.addEventListener('click', function (e) {
           e.preventDefault();
           e.stopPropagation();
           menu.classList.toggle('open');
