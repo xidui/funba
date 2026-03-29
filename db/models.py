@@ -466,6 +466,72 @@ class TopicPost(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Content pipeline: SocialPost → SocialPostVariant → SocialPostDelivery
+# ---------------------------------------------------------------------------
+
+class SocialPost(Base):
+    """A topic/theme for social media content (e.g. "blowout rate rankings")."""
+    __tablename__ = 'SocialPost'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    topic = Column(String(255), nullable=False)
+    source_date = Column(DATE, nullable=False)
+    source_metrics = Column(Text, nullable=True)       # JSON list of metric keys
+    source_game_ids = Column(Text, nullable=True)      # JSON list of game IDs
+    status = Column(String(16), nullable=False, default='draft')  # draft|in_review|approved|archived
+    admin_comments = Column(Text, nullable=True)       # JSON array [{text, timestamp, from}]
+    priority = Column(Integer, nullable=False, default=50)
+    llm_model = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_SocialPost_source_date', 'source_date'),
+        Index('ix_SocialPost_status', 'status'),
+        Index('ix_SocialPost_source_date_status', 'source_date', 'status'),
+    )
+
+
+class SocialPostVariant(Base):
+    """Audience-specific content variant of a SocialPost."""
+    __tablename__ = 'SocialPostVariant'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey('SocialPost.id', ondelete='CASCADE'), nullable=False)
+    title = Column(String(255), nullable=False)
+    content_raw = Column(Text, nullable=False)         # content with placeholders
+    audience_hint = Column(String(128), nullable=True) # e.g. "thunder fans", "general nba"
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_SocialPostVariant_post_id', 'post_id'),
+    )
+
+
+class SocialPostDelivery(Base):
+    """Per-destination publishing record for a variant."""
+    __tablename__ = 'SocialPostDelivery'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    variant_id = Column(Integer, ForeignKey('SocialPostVariant.id', ondelete='CASCADE'), nullable=False)
+    platform = Column(String(32), nullable=False)      # hupu|reddit|discord|twitter|facebook
+    forum = Column(String(64), nullable=True)           # platform-specific target (e.g. "thunder", "r/nba")
+    status = Column(String(16), nullable=False, default='pending')  # pending|publishing|published|failed
+    content_final = Column(Text, nullable=True)        # platform-rendered content
+    published_url = Column(String(1024), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_SocialPostDelivery_variant_id', 'variant_id'),
+        Index('ix_SocialPostDelivery_status', 'status'),
+    )
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

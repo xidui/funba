@@ -30,7 +30,7 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, Team, TeamGameStats, TopicPost, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, TopicPost, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -5749,6 +5749,425 @@ def admin_topics_generate():
         return jsonify({"ok": True, **result})
     except Exception as exc:
         logger.exception("Topic generation failed for %s", target_date)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Content pipeline: SocialPost kanban + API
+# ---------------------------------------------------------------------------
+
+@app.get("/admin/content")
+def admin_content():
+    """Kanban board for content pipeline."""
+    denied = _require_admin_page()
+    if denied:
+        return denied
+    status_filter = request.args.get("status")
+    page = max(1, request.args.get("page", 1, type=int))
+    page_size = 30
+
+    with SessionLocal() as s:
+        q = s.query(SocialPost).order_by(SocialPost.source_date.desc(), SocialPost.priority.asc())
+        if status_filter and status_filter in ("draft", "in_review", "approved", "archived"):
+            q = q.filter(SocialPost.status == status_filter)
+        total = q.count()
+        import math
+        total_pages = max(1, math.ceil(total / page_size))
+        page = min(page, total_pages)
+        posts = q.offset((page - 1) * page_size).limit(page_size).all()
+
+        post_ids = [p.id for p in posts]
+        variants = s.query(SocialPostVariant).filter(
+            SocialPostVariant.post_id.in_(post_ids)
+        ).all() if post_ids else []
+        variant_ids = [v.id for v in variants]
+        deliveries = s.query(SocialPostDelivery).filter(
+            SocialPostDelivery.variant_id.in_(variant_ids)
+        ).all() if variant_ids else []
+
+        # Group variants by post_id, deliveries by variant_id
+        v_by_post: dict[int, list] = {}
+        for v in variants:
+            v_by_post.setdefault(v.post_id, []).append(v)
+        d_by_variant: dict[int, list] = {}
+        for d in deliveries:
+            d_by_variant.setdefault(d.variant_id, []).append(d)
+
+        post_rows = []
+        for p in posts:
+            pvariants = v_by_post.get(p.id, [])
+            post_rows.append({
+                "id": p.id,
+                "topic": p.topic,
+                "source_date": p.source_date.isoformat() if p.source_date else "",
+                "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
+                "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+                "status": p.status,
+                "priority": p.priority,
+                "admin_comments": json.loads(p.admin_comments) if p.admin_comments else [],
+                "llm_model": p.llm_model,
+                "created_at": p.created_at,
+                "variant_count": len(pvariants),
+                "variants": [
+                    {
+                        "id": v.id,
+                        "title": v.title,
+                        "content_raw": v.content_raw,
+                        "audience_hint": v.audience_hint,
+                        "deliveries": [
+                            {
+                                "id": d.id,
+                                "platform": d.platform,
+                                "forum": d.forum,
+                                "status": d.status,
+                                "published_url": d.published_url,
+                                "error_message": d.error_message,
+                            }
+                            for d in d_by_variant.get(v.id, [])
+                        ],
+                    }
+                    for v in pvariants
+                ],
+            })
+
+    from datetime import date as _date, timedelta as _td
+    yesterday = (_date.today() - _td(days=1)).isoformat()
+    return render_template(
+        "admin_content.html",
+        posts=post_rows,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        status_filter=status_filter or "all",
+        today=yesterday,
+    )
+
+
+@app.get("/api/admin/content/<int:post_id>")
+def admin_content_detail(post_id: int):
+    """Get full post detail with variants and deliveries."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as s:
+        p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        variants = s.query(SocialPostVariant).filter(
+            SocialPostVariant.post_id == post_id
+        ).order_by(SocialPostVariant.id).all()
+        variant_ids = [v.id for v in variants]
+        deliveries = s.query(SocialPostDelivery).filter(
+            SocialPostDelivery.variant_id.in_(variant_ids)
+        ).all() if variant_ids else []
+        d_by_variant: dict[int, list] = {}
+        for d in deliveries:
+            d_by_variant.setdefault(d.variant_id, []).append(d)
+
+        return jsonify({
+            "id": p.id,
+            "topic": p.topic,
+            "source_date": p.source_date.isoformat() if p.source_date else None,
+            "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
+            "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+            "status": p.status,
+            "priority": p.priority,
+            "admin_comments": json.loads(p.admin_comments) if p.admin_comments else [],
+            "llm_model": p.llm_model,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "variants": [
+                {
+                    "id": v.id,
+                    "title": v.title,
+                    "content_raw": v.content_raw,
+                    "audience_hint": v.audience_hint,
+                    "deliveries": [
+                        {
+                            "id": d.id,
+                            "platform": d.platform,
+                            "forum": d.forum,
+                            "status": d.status,
+                            "content_final": d.content_final,
+                            "published_url": d.published_url,
+                            "published_at": d.published_at.isoformat() if d.published_at else None,
+                            "error_message": d.error_message,
+                        }
+                        for d in d_by_variant.get(v.id, [])
+                    ],
+                }
+                for v in variants
+            ],
+        })
+
+
+@app.post("/api/admin/content/<int:post_id>/update")
+def admin_content_update(post_id: int):
+    """Update a social post's topic, status, or priority."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    data = request.get_json(force=True) or {}
+    with SessionLocal() as s:
+        p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        if "topic" in data:
+            p.topic = data["topic"]
+        if "status" in data and data["status"] in ("draft", "in_review", "approved", "archived"):
+            p.status = data["status"]
+        if "priority" in data:
+            p.priority = int(data["priority"])
+        p.updated_at = datetime.utcnow()
+        s.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/content/<int:post_id>/comment")
+def admin_content_comment(post_id: int):
+    """Add an admin comment to a post."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    data = request.get_json(force=True) or {}
+    text_val = (data.get("text") or "").strip()
+    if not text_val:
+        return jsonify({"error": "text required"}), 400
+    with SessionLocal() as s:
+        p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        comments = json.loads(p.admin_comments) if p.admin_comments else []
+        user = _current_user()
+        comments.append({
+            "text": text_val,
+            "timestamp": datetime.utcnow().isoformat(),
+            "from": user.display_name if user else "admin",
+        })
+        p.admin_comments = json.dumps(comments, ensure_ascii=False)
+        p.updated_at = datetime.utcnow()
+        s.commit()
+    return jsonify({"ok": True, "comments": comments})
+
+
+@app.post("/api/admin/content/<int:post_id>/delete")
+def admin_content_delete(post_id: int):
+    """Delete a social post and all its variants/deliveries (cascade)."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as s:
+        p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        # Delete deliveries → variants → post (manual cascade for safety)
+        variant_ids = [v.id for v in s.query(SocialPostVariant.id).filter(SocialPostVariant.post_id == post_id).all()]
+        if variant_ids:
+            s.query(SocialPostDelivery).filter(SocialPostDelivery.variant_id.in_(variant_ids)).delete(synchronize_session=False)
+        s.query(SocialPostVariant).filter(SocialPostVariant.post_id == post_id).delete(synchronize_session=False)
+        s.query(SocialPost).filter(SocialPost.id == post_id).delete(synchronize_session=False)
+        s.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/content/<int:post_id>/variants/<int:variant_id>/update")
+def admin_content_variant_update(post_id: int, variant_id: int):
+    """Update a variant's title, content, or audience hint."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    data = request.get_json(force=True) or {}
+    with SessionLocal() as s:
+        v = s.query(SocialPostVariant).filter(
+            SocialPostVariant.id == variant_id,
+            SocialPostVariant.post_id == post_id,
+        ).first()
+        if not v:
+            return jsonify({"error": "not_found"}), 404
+        if "title" in data:
+            v.title = data["title"]
+        if "content_raw" in data:
+            v.content_raw = data["content_raw"]
+        if "audience_hint" in data:
+            v.audience_hint = data["audience_hint"]
+        v.updated_at = datetime.utcnow()
+        s.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/content/<int:post_id>/variants/<int:variant_id>/destinations")
+def admin_content_add_destination(post_id: int, variant_id: int):
+    """Add a delivery destination to a variant."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    data = request.get_json(force=True) or {}
+    platform = (data.get("platform") or "").strip()
+    forum = (data.get("forum") or "").strip() or None
+    if not platform:
+        return jsonify({"error": "platform required"}), 400
+    now = datetime.utcnow()
+    with SessionLocal() as s:
+        v = s.query(SocialPostVariant).filter(
+            SocialPostVariant.id == variant_id,
+            SocialPostVariant.post_id == post_id,
+        ).first()
+        if not v:
+            return jsonify({"error": "variant not_found"}), 404
+        d = SocialPostDelivery(
+            variant_id=variant_id,
+            platform=platform,
+            forum=forum,
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        s.add(d)
+        s.commit()
+        return jsonify({"ok": True, "delivery_id": d.id})
+
+
+@app.post("/api/admin/content/deliveries/<int:delivery_id>/publish")
+def admin_content_publish(delivery_id: int):
+    """Publish a single delivery to its platform."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    with SessionLocal() as s:
+        d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
+        if not d:
+            return jsonify({"error": "not_found"}), 404
+        if d.status == "published":
+            return jsonify({"ok": True, "already": True, "url": d.published_url})
+
+        v = s.query(SocialPostVariant).filter(SocialPostVariant.id == d.variant_id).first()
+        if not v:
+            return jsonify({"error": "variant not_found"}), 404
+
+        d.status = "publishing"
+        d.updated_at = datetime.utcnow()
+        s.commit()
+
+        # Dispatch to platform publisher
+        try:
+            result = _publish_to_platform(d.platform, d.forum, v.title, v.content_raw)
+            d.status = "published"
+            d.published_url = result.get("url")
+            d.content_final = result.get("content_final")
+            d.published_at = datetime.utcnow()
+            d.error_message = None
+        except Exception as exc:
+            logger.exception("Publish failed for delivery %d", delivery_id)
+            d.status = "failed"
+            d.error_message = str(exc)
+        d.updated_at = datetime.utcnow()
+        s.commit()
+
+    return jsonify({
+        "ok": d.status == "published",
+        "status": d.status,
+        "published_url": d.published_url,
+        "error": d.error_message,
+    })
+
+
+@app.post("/api/admin/content/deliveries/<int:delivery_id>/retry")
+def admin_content_retry(delivery_id: int):
+    """Retry a failed delivery."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    with SessionLocal() as s:
+        d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
+        if not d:
+            return jsonify({"error": "not_found"}), 404
+        d.status = "pending"
+        d.error_message = None
+        d.updated_at = datetime.utcnow()
+        s.commit()
+    # Re-trigger publish
+    return admin_content_publish.__wrapped__(delivery_id) if hasattr(admin_content_publish, '__wrapped__') else admin_content_publish(delivery_id)
+
+
+def _publish_to_platform(platform: str, forum: str | None, title: str, content: str) -> dict:
+    """Dispatch publishing to the appropriate platform adapter.
+
+    Returns dict with 'url' and optionally 'content_final'.
+    """
+    if platform == "hupu":
+        return _publish_hupu(forum or "nba", title, content)
+    raise ValueError(f"Unsupported platform: {platform}")
+
+
+def _publish_hupu(forum: str, title: str, content: str) -> dict:
+    """Publish to Hupu using Playwright automation."""
+    from tools.hupu_post import FORUM_IDS, _load_cookies, _create_context, _is_logged_in, _fill_editor, _click_submit
+    from playwright.sync_api import sync_playwright
+
+    if forum not in FORUM_IDS:
+        raise ValueError(f"Unknown Hupu forum: {forum}. Available: {', '.join(FORUM_IDS)}")
+
+    forum_id = FORUM_IDS[forum]
+    paragraphs = content.split("\n")
+
+    # Build footer with funba link
+    footer_html = '<p><a href="https://funba.app" target="_blank">funba.app — NBA数据分析</a></p>'
+
+    with sync_playwright() as pw:
+        context = _create_context(pw, headless=True)
+        page = context.new_page()
+
+        # Check login
+        page.goto("https://bbs.hupu.com", wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(2000)
+        if not _is_logged_in(page):
+            context.close()
+            raise RuntimeError("Hupu session expired. Run: python -m tools.hupu_post login")
+
+        # Navigate to post page
+        page.goto(f"https://bbs.hupu.com/newpost/{forum_id}", wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(3000)
+
+        # Fill title
+        title_input = page.query_selector('input[placeholder*="标题"]')
+        if not title_input:
+            context.close()
+            raise RuntimeError("Hupu title input not found")
+        title_input.fill(title)
+
+        # Fill content
+        _fill_editor(page, paragraphs, footer_html=footer_html)
+        page.wait_for_timeout(1000)
+
+        # Submit
+        final_url = _click_submit(page)
+        context.close()
+
+    return {"url": final_url, "content_final": content}
+
+
+@app.post("/api/admin/content/generate")
+def admin_content_generate():
+    """Generate social posts for a date using the content strategist agent."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    target_date = data.get("date")
+    if not target_date:
+        return jsonify({"ok": False, "error": "date is required"}), 400
+    force = bool(data.get("force", False))
+    try:
+        from tasks.topics import generate_social_posts
+        result = generate_social_posts(target_date, force=force)
+        return jsonify({"ok": True, **result})
+    except Exception as exc:
+        logger.exception("Content generation failed for %s", target_date)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 

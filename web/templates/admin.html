@@ -204,6 +204,7 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
   <h1 style="margin:0;">Pipeline Status</h1>
   <div style="display:flex;gap:8px;">
+    <a href="{{ url_for('admin_content') }}" class="tab-btn" style="background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);">Content Pipeline</a>
     <a href="{{ url_for('admin_topics') }}" class="tab-btn" style="background:var(--surface-2);color:var(--muted-2);border:1px solid var(--border);">Daily Topics</a>
     <a href="{{ url_for('admin_feedback') }}" class="tab-btn" style="background:var(--surface-2);color:var(--muted-2);border:1px solid var(--border);">User Feedback</a>
   </div>

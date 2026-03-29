@@ -1,0 +1,500 @@
+{% extends "base.html" %}
+{% block title %}Admin — Content Pipeline{% endblock %}
+
+{% block content %}
+<style>
+  .content-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+  }
+  .content-header h1 { margin: 0; }
+  .content-header .meta { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+
+  /* Generate bar */
+  .gen-bar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 20px;
+  }
+  .gen-bar label { font-size: 13px; font-weight: 600; color: var(--text); }
+  .gen-bar input[type="date"] {
+    background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 6px;
+    color: var(--text); padding: 6px 10px; font-size: 13px; font-family: inherit;
+  }
+  .gen-bar .cb-label {
+    font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px;
+  }
+  .gen-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .gen-status { font-size: 12px; color: var(--muted); }
+
+  /* Status tabs */
+  .status-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+  .status-tab {
+    padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    text-decoration: none; color: var(--muted-2); background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .status-tab.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  /* Date group */
+  .date-group { font-family: Outfit, sans-serif; font-size: 15px; font-weight: 700;
+    color: var(--heading); margin: 24px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .date-group:first-of-type { margin-top: 0; }
+
+  /* Post card */
+  .post-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.15s;
+  }
+  .post-card:hover { border-color: var(--accent); }
+  .post-card.expanded { cursor: default; }
+
+  .post-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .post-topic { font-weight: 700; font-size: 14px; color: var(--heading); flex: 1; }
+  .post-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .post-badge.draft { background: var(--surface-3); color: var(--muted-2); }
+  .post-badge.in_review { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .post-badge.approved { background: color-mix(in srgb, var(--win) 15%, transparent); color: var(--win); }
+  .post-badge.archived { background: var(--surface-2); color: var(--muted); }
+  .post-priority { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .post-summary { font-size: 12px; color: var(--muted-2); margin-bottom: 6px; }
+
+  /* Delivery chips */
+  .delivery-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .d-chip {
+    font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .d-chip.pending { background: var(--surface-3); color: var(--muted-2); }
+  .d-chip.publishing { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .d-chip.published { background: color-mix(in srgb, var(--win) 15%, transparent); color: var(--win); }
+  .d-chip.failed { background: color-mix(in srgb, var(--loss) 15%, transparent); color: var(--loss); }
+  .d-chip a { color: inherit; text-decoration: none; }
+  .d-chip a:hover { text-decoration: underline; }
+
+  /* Expanded detail */
+  .post-detail { display: none; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .post-card.expanded .post-detail { display: block; }
+
+  /* Variant tabs */
+  .variant-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .v-tab {
+    padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--muted-2); cursor: pointer;
+  }
+  .v-tab.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  .variant-panel { display: none; }
+  .variant-panel.active { display: block; }
+
+  .v-title { font-weight: 700; font-size: 13px; color: var(--heading); margin-bottom: 4px; }
+  .v-audience { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .v-content {
+    font-size: 13px; line-height: 1.65; color: var(--text); white-space: pre-wrap; word-break: break-word;
+    max-height: 300px; overflow-y: auto; background: var(--surface-2); border-radius: 8px; padding: 12px;
+  }
+
+  .v-content-edit {
+    width: 100%; min-height: 160px; background: var(--surface-2); border: 1px solid var(--border-2);
+    border-radius: 6px; color: var(--text); padding: 10px; font-size: 13px; font-family: inherit;
+    line-height: 1.6; resize: vertical; display: none;
+  }
+  .v-title-edit {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 6px;
+    color: var(--text); padding: 6px 10px; font-size: 13px; font-weight: 700; font-family: inherit;
+    display: none;
+  }
+
+  /* Destinations panel */
+  .dest-section { margin-top: 12px; }
+  .dest-section h4 { font-size: 12px; color: var(--muted-2); margin: 0 0 6px; font-weight: 600; }
+  .dest-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .dest-row:last-child { border-bottom: none; }
+  .dest-platform { font-weight: 600; color: var(--heading); min-width: 60px; }
+  .dest-forum { color: var(--muted-2); flex: 1; }
+
+  /* Add destination form */
+  .add-dest { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  .add-dest select, .add-dest input {
+    background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 5px;
+    color: var(--text); padding: 4px 8px; font-size: 12px; font-family: inherit;
+  }
+
+  /* Comment thread */
+  .comment-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .comment-section h4 { font-size: 12px; color: var(--muted-2); margin: 0 0 8px; font-weight: 600; }
+  .comment-item { font-size: 12px; color: var(--text); margin-bottom: 6px; padding: 6px 8px;
+    background: var(--surface-2); border-radius: 6px; }
+  .comment-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .comment-input {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  .comment-input input {
+    flex: 1; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 5px;
+    color: var(--text); padding: 6px 10px; font-size: 12px; font-family: inherit;
+  }
+
+  /* Action buttons */
+  .post-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .act-btn {
+    font-size: 11px; font-weight: 600; padding: 5px 14px; border-radius: 5px;
+    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--muted-2); cursor: pointer;
+  }
+  .act-btn:hover { color: var(--text); border-color: var(--text); }
+  .act-btn.approve { color: var(--win); border-color: var(--win); }
+  .act-btn.publish { color: var(--accent); border-color: var(--accent); }
+  .act-btn.delete { color: var(--loss); border-color: var(--loss); }
+  .act-btn.save { color: var(--accent); border-color: var(--accent); }
+
+  .pager { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
+  .pager a {
+    padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    color: var(--muted-2); background: var(--surface-2); border: 1px solid var(--border); text-decoration: none;
+  }
+  .pager a.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+</style>
+
+<div class="content-header">
+  <div>
+    <h1>Content Pipeline</h1>
+    <p class="meta">{{ total }} post{{ 's' if total != 1 }} total</p>
+  </div>
+  <a href="{{ url_for('admin_pipeline') }}" class="act-btn" style="text-decoration:none;">← Admin</a>
+</div>
+
+<!-- Generate bar -->
+<div class="gen-bar">
+  <label for="gen-date">Generate for:</label>
+  <input type="date" id="gen-date" value="{{ today }}">
+  <label class="cb-label"><input type="checkbox" id="gen-force"> Overwrite drafts</label>
+  <button class="gen-btn" id="gen-btn" onclick="doGenerate()">Generate</button>
+  <span class="gen-status" id="gen-status"></span>
+</div>
+
+<!-- Status tabs -->
+<div class="status-tabs">
+  {% for s in ['all', 'draft', 'in_review', 'approved', 'archived'] %}
+  <a class="status-tab{% if status_filter == s %} active{% endif %}"
+     href="{{ url_for('admin_content', status=s if s != 'all' else None) }}">
+    {{ s.replace('_', ' ')|title }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Post list -->
+{% if posts %}
+  {% set ns = namespace(current_date='') %}
+  {% for p in posts %}
+    {% if p.source_date != ns.current_date %}
+      {% set ns.current_date = p.source_date %}
+      <div class="date-group">{{ p.source_date }}</div>
+    {% endif %}
+
+    <div class="post-card" id="post-{{ p.id }}" onclick="togglePost(event, {{ p.id }})">
+      <div class="post-top">
+        <span class="post-topic">{{ p.topic }}</span>
+        <span class="post-badge {{ p.status }}">{{ p.status.replace('_', ' ') }}</span>
+        <span class="post-priority">P{{ p.priority }}</span>
+      </div>
+
+      <div class="post-summary">
+        {{ p.variant_count }} variant{{ 's' if p.variant_count != 1 }}
+        {% if p.source_metrics %} · {{ p.source_metrics|length }} metric{{ 's' if p.source_metrics|length != 1 }}{% endif %}
+      </div>
+
+      <!-- Delivery chips (aggregated from all variants) -->
+      <div class="delivery-chips">
+        {% for v in p.variants %}
+          {% for d in v.deliveries %}
+            <span class="d-chip {{ d.status }}">
+              {% if d.published_url %}<a href="{{ d.published_url }}" target="_blank">{% endif %}
+              {{ d.platform }}/{{ d.forum or '?' }}
+              {% if d.published_url %}</a>{% endif %}
+            </span>
+          {% endfor %}
+        {% endfor %}
+      </div>
+
+      <!-- Expanded detail (hidden by default) -->
+      <div class="post-detail" id="detail-{{ p.id }}">
+
+        <!-- Variant tabs -->
+        {% if p.variants %}
+        <div class="variant-tabs" id="vtabs-{{ p.id }}">
+          {% for v in p.variants %}
+          <button class="v-tab{% if loop.first %} active{% endif %}"
+                  onclick="event.stopPropagation(); switchVariant({{ p.id }}, {{ v.id }})">
+            {{ v.audience_hint or ('Variant ' ~ loop.index) }}
+          </button>
+          {% endfor %}
+        </div>
+
+        {% for v in p.variants %}
+        <div class="variant-panel{% if loop.first %} active{% endif %}" id="vpanel-{{ p.id }}-{{ v.id }}">
+          <div class="v-title" id="vt-display-{{ v.id }}">{{ v.title }}</div>
+          <input class="v-title-edit" id="vt-edit-{{ v.id }}" value="{{ v.title }}" onclick="event.stopPropagation()">
+
+          <div class="v-audience">{{ v.audience_hint or 'No audience hint' }}</div>
+
+          <div class="v-content" id="vc-display-{{ v.id }}">{{ v.content_raw }}</div>
+          <textarea class="v-content-edit" id="vc-edit-{{ v.id }}" onclick="event.stopPropagation()">{{ v.content_raw }}</textarea>
+
+          <!-- Destinations for this variant -->
+          <div class="dest-section">
+            <h4>Destinations</h4>
+            <div id="dests-{{ v.id }}">
+            {% for d in v.deliveries %}
+              <div class="dest-row" id="dest-{{ d.id }}">
+                <span class="dest-platform">{{ d.platform }}</span>
+                <span class="dest-forum">{{ d.forum or '—' }}</span>
+                <span class="d-chip {{ d.status }}">{{ d.status }}</span>
+                {% if d.published_url %}
+                  <a href="{{ d.published_url }}" target="_blank" style="font-size:11px;color:var(--accent);">View</a>
+                {% endif %}
+                {% if d.status == 'pending' or d.status == 'failed' %}
+                  <button class="act-btn publish" onclick="event.stopPropagation(); publishDelivery({{ d.id }})">
+                    {% if d.status == 'failed' %}Retry{% else %}Publish{% endif %}
+                  </button>
+                {% endif %}
+                {% if d.error_message %}
+                  <span style="font-size:10px;color:var(--loss);" title="{{ d.error_message }}">Error</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+            </div>
+
+            <div class="add-dest" onclick="event.stopPropagation()">
+              <select id="add-platform-{{ v.id }}">
+                <option value="hupu">Hupu</option>
+                <option value="reddit">Reddit</option>
+                <option value="discord">Discord</option>
+                <option value="twitter">Twitter</option>
+              </select>
+              <input id="add-forum-{{ v.id }}" placeholder="forum (e.g. thunder, r/nba)" style="width:160px;">
+              <button class="act-btn" onclick="addDestination({{ p.id }}, {{ v.id }})">+ Add</button>
+            </div>
+          </div>
+
+          <!-- Variant edit actions -->
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button class="act-btn" id="edit-btn-{{ v.id }}" onclick="event.stopPropagation(); toggleVariantEdit({{ v.id }})">Edit</button>
+            <button class="act-btn save" id="save-btn-{{ v.id }}" style="display:none;" onclick="event.stopPropagation(); saveVariant({{ p.id }}, {{ v.id }})">Save</button>
+          </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state" style="padding:20px;">No variants yet.</div>
+        {% endif %}
+
+        <!-- Comment thread -->
+        <div class="comment-section" onclick="event.stopPropagation()">
+          <h4>Comments</h4>
+          <div id="comments-{{ p.id }}">
+            {% for c in p.admin_comments %}
+            <div class="comment-item">
+              {{ c.text }}
+              <div class="comment-meta">{{ c.from }} · {{ c.timestamp }}</div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="comment-input">
+            <input id="comment-text-{{ p.id }}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addComment({{ p.id }})">
+            <button class="act-btn" onclick="addComment({{ p.id }})">Send</button>
+          </div>
+        </div>
+
+        <!-- Post-level actions -->
+        <div class="post-actions" onclick="event.stopPropagation()">
+          {% if p.status == 'draft' %}
+            <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'in_review')">Send to Review</button>
+          {% endif %}
+          {% if p.status == 'in_review' %}
+            <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve</button>
+            <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Back to Draft</button>
+          {% endif %}
+          {% if p.status == 'approved' %}
+            <button class="act-btn publish" onclick="publishAllPending({{ p.id }})">Publish All Pending</button>
+          {% endif %}
+          <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'archived')">Archive</button>
+          <button class="act-btn delete" onclick="deletePost({{ p.id }})">Delete</button>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="empty-state">No posts found. Use the Generate button to create some.</div>
+{% endif %}
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<div class="pager">
+  {% for p in range(1, total_pages + 1) %}
+  <a href="{{ url_for('admin_content', page=p, status=status_filter if status_filter != 'all' else None) }}"
+     class="{% if p == page %}active{% endif %}">{{ p }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function doGenerate() {
+  const dateVal = document.getElementById('gen-date').value;
+  const force = document.getElementById('gen-force').checked;
+  const btn = document.getElementById('gen-btn');
+  const status = document.getElementById('gen-status');
+  if (!dateVal) { status.textContent = 'Pick a date first'; return; }
+  btn.disabled = true;
+  status.textContent = 'Generating...';
+  fetch('/api/admin/content/generate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({date: dateVal, force: force}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      if (data.skipped) status.textContent = `Skipped — ${data.existing} posts exist.`;
+      else { status.textContent = `Generated ${data.generated} posts!`; setTimeout(() => location.reload(), 800); }
+    } else status.textContent = 'Error: ' + (data.error || 'Unknown');
+  })
+  .catch(e => { status.textContent = 'Error: ' + e.message; })
+  .finally(() => { btn.disabled = false; });
+}
+
+function togglePost(e, id) {
+  const card = document.getElementById('post-' + id);
+  if (card.classList.contains('expanded')) return; // don't collapse on click inside
+  card.classList.toggle('expanded');
+}
+
+function switchVariant(postId, variantId) {
+  const tabs = document.querySelectorAll('#vtabs-' + postId + ' .v-tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  const panels = document.querySelectorAll('[id^="vpanel-' + postId + '-"]');
+  panels.forEach(p => p.classList.remove('active'));
+  document.getElementById('vpanel-' + postId + '-' + variantId).classList.add('active');
+}
+
+function toggleVariantEdit(vid) {
+  const titleD = document.getElementById('vt-display-' + vid);
+  const titleE = document.getElementById('vt-edit-' + vid);
+  const contentD = document.getElementById('vc-display-' + vid);
+  const contentE = document.getElementById('vc-edit-' + vid);
+  const saveBtn = document.getElementById('save-btn-' + vid);
+  const editing = contentE.style.display === 'block';
+  titleD.style.display = editing ? '' : 'none';
+  titleE.style.display = editing ? 'none' : 'block';
+  contentD.style.display = editing ? '' : 'none';
+  contentE.style.display = editing ? 'none' : 'block';
+  saveBtn.style.display = editing ? 'none' : '';
+}
+
+function saveVariant(postId, vid) {
+  const title = document.getElementById('vt-edit-' + vid).value;
+  const content = document.getElementById('vc-edit-' + vid).value;
+  fetch(`/api/admin/content/${postId}/variants/${vid}/update`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title, content_raw: content}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      document.getElementById('vt-display-' + vid).textContent = title;
+      document.getElementById('vc-display-' + vid).textContent = content;
+      toggleVariantEdit(vid);
+    }
+  });
+}
+
+function setPostStatus(id, status) {
+  fetch(`/api/admin/content/${id}/update`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  })
+  .then(r => r.json())
+  .then(data => { if (data.ok) location.reload(); });
+}
+
+function deletePost(id) {
+  if (!confirm('Delete this post and all its variants?')) return;
+  fetch(`/api/admin/content/${id}/delete`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+  })
+  .then(r => r.json())
+  .then(data => { if (data.ok) document.getElementById('post-' + id).remove(); });
+}
+
+function addComment(postId) {
+  const input = document.getElementById('comment-text-' + postId);
+  const text = input.value.trim();
+  if (!text) return;
+  fetch(`/api/admin/content/${postId}/comment`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      input.value = '';
+      const container = document.getElementById('comments-' + postId);
+      const last = data.comments[data.comments.length - 1];
+      container.innerHTML += `<div class="comment-item">${last.text}<div class="comment-meta">${last.from} · ${last.timestamp}</div></div>`;
+    }
+  });
+}
+
+function addDestination(postId, variantId) {
+  const platform = document.getElementById('add-platform-' + variantId).value;
+  const forum = document.getElementById('add-forum-' + variantId).value.trim();
+  fetch(`/api/admin/content/${postId}/variants/${variantId}/destinations`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({platform, forum: forum || null}),
+  })
+  .then(r => r.json())
+  .then(data => { if (data.ok) location.reload(); });
+}
+
+function publishDelivery(deliveryId) {
+  if (!confirm('Publish this delivery?')) return;
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Publishing...';
+  fetch(`/api/admin/content/deliveries/${deliveryId}/publish`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) { location.reload(); }
+    else { btn.textContent = 'Failed'; alert('Publish failed: ' + (data.error || 'Unknown')); btn.disabled = false; }
+  })
+  .catch(e => { btn.textContent = 'Error'; btn.disabled = false; });
+}
+
+function publishAllPending(postId) {
+  if (!confirm('Publish all pending deliveries for this post?')) return;
+  // Find all pending delivery publish buttons within this post
+  const card = document.getElementById('post-' + postId);
+  const btns = card.querySelectorAll('.act-btn.publish');
+  btns.forEach(btn => {
+    const match = btn.getAttribute('onclick')?.match(/publishDelivery\((\d+)\)/);
+    if (match) {
+      fetch(`/api/admin/content/deliveries/${match[1]}/publish`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+      });
+    }
+  });
+  setTimeout(() => location.reload(), 3000);
+}
+</script>
+{% endblock %}

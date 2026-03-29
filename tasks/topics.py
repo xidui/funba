@@ -12,7 +12,8 @@ from sqlalchemy.orm import sessionmaker
 
 from db.models import (
     Game, GameLineScore, GamePlayByPlay, MetricDefinition, MetricResult,
-    MetricRunLog, Player, PlayerGameStats, Team, TeamGameStats, TopicPost, engine,
+    MetricRunLog, Player, PlayerGameStats, SocialPost, SocialPostDelivery,
+    SocialPostVariant, Team, TeamGameStats, TopicPost, engine,
 )
 
 logger = logging.getLogger(__name__)
@@ -621,3 +622,262 @@ def generate_daily_topics(target_date_str: str | None = None, force: bool = Fals
 def generate_daily_topics_task(self, target_date_str: str | None = None) -> dict:
     """Celery wrapper for generate_daily_topics."""
     return generate_daily_topics(target_date_str)
+
+
+# ---------------------------------------------------------------------------
+# Content pipeline: multi-variant SocialPost generation
+# ---------------------------------------------------------------------------
+
+_SOCIAL_POST_SYSTEM_PROMPT = """\
+You are a professional NBA analyst and content strategist for funba.app.
+You receive a summary of today's NBA games with triggered metric highlights.
+Your job: identify the most compelling stories and write social media posts with **multiple audience-targeted variants**.
+
+## Writing Style
+- Write like a seasoned NBA analyst on 虎扑 or 小红书 — passionate, data-backed, with real basketball insight
+- Use Chinese (中文), keep English player/team names as-is
+- Each variant should be **800-1500 characters** — a proper article, not a news brief
+- Structure each variant with:
+  1. A hook that grabs attention (why should the reader care?)
+  2. The core story with specific stats and context
+  3. Historical comparison or broader significance (use tools to look up rankings if needed)
+  4. A takeaway or opinion that sparks discussion
+- Use markdown formatting: **bold** for key numbers, line breaks for readability
+- Include funba.app links naturally in the text (not dumped at the end)
+
+## Multi-Variant Strategy
+For each topic/story, generate **2-4 variants** targeting different audiences:
+- **Team-specific fans**: Focus on their team's angle, use "我们"/"我霆" etc.
+- **General NBA fans**: Neutral perspective, compare across teams
+- **Casual fans**: Simpler language, focus on the wow factor
+Each variant should suggest which platforms/forums it's best suited for.
+
+## Content Guidelines
+- ONLY use facts from the provided data or tool results — NEVER fabricate statistics
+- Use the tools proactively: call get_game_box_score for player stats, get_metric_top_results for rankings
+- Generate 3-6 posts (topics), each with 2-4 variants
+- Assign priority: 0-20 (record-breaking/historic), 20-50 (notable/surprising), 50-80 (interesting)
+
+Output your final answer as a JSON array (no markdown fences):
+[
+  {
+    "topic": "话题描述 (e.g. 本赛季大胜率排行分析)",
+    "priority": 10,
+    "metric_keys": ["metric_key_1"],
+    "game_ids": ["0022501058"],
+    "variants": [
+      {
+        "title": "[funba] 帖子标题",
+        "audience_hint": "thunder fans",
+        "content": "���子正文 (markdown, 800-1500字)",
+        "suggested_destinations": [
+          {"platform": "hupu", "forum": "thunder"},
+          {"platform": "reddit", "forum": "r/thunder"}
+        ]
+      },
+      {
+        "title": "[funba] 中立角度标题",
+        "audience_hint": "general nba",
+        "content": "中立角度正文...",
+        "suggested_destinations": [
+          {"platform": "hupu", "forum": "nba"}
+        ]
+      }
+    ]
+  }
+]
+"""
+
+
+def _call_llm_for_social_posts(session, context: str, model: str) -> list[dict]:
+    """Call LLM with tool use to generate multi-variant social posts."""
+    import openai
+    client = openai.OpenAI()
+
+    messages = [
+        {"role": "system", "content": _SOCIAL_POST_SYSTEM_PROMPT},
+        {"role": "user", "content": context},
+    ]
+
+    max_rounds = 5
+    for _ in range(max_rounds):
+        response = client.chat.completions.create(
+            model=model,
+            max_completion_tokens=16384,
+            temperature=0.7,
+            messages=messages,
+            tools=_TOOL_DEFINITIONS,
+        )
+        choice = response.choices[0]
+
+        if choice.finish_reason == "tool_calls" or (choice.message.tool_calls and len(choice.message.tool_calls) > 0):
+            messages.append(choice.message)
+            for tc in choice.message.tool_calls:
+                fn_name = tc.function.name
+                fn_args = json.loads(tc.function.arguments)
+                logger.info("LLM tool call: %s(%s)", fn_name, fn_args)
+                result = _dispatch_tool_call(session, fn_name, fn_args)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                })
+            continue
+
+        text = (choice.message.content or "").strip()
+        return _parse_topics_json(text)
+
+    logger.warning("LLM tool use loop exhausted after %d rounds", max_rounds)
+    return []
+
+
+def generate_social_posts(target_date_str: str | None = None, force: bool = False) -> dict:
+    """Generate SocialPost records with variants for a given date.
+
+    Args:
+        target_date_str: ISO date string (YYYY-MM-DD). Defaults to yesterday.
+        force: If True, delete existing drafts and regenerate.
+
+    Returns:
+        dict with generation results.
+    """
+    from db.llm_models import resolve_llm_model
+
+    if target_date_str:
+        target = date.fromisoformat(target_date_str)
+    else:
+        target = date.today() - timedelta(days=1)
+
+    session = Session()
+    try:
+        # Idempotency check
+        existing = (
+            session.query(func.count(SocialPost.id))
+            .filter(SocialPost.source_date == target)
+            .scalar() or 0
+        )
+        if existing > 0 and not force:
+            logger.info("Social posts already exist for %s (%d posts), skipping.", target, existing)
+            return {"date": str(target), "skipped": True, "existing": existing}
+
+        if force and existing > 0:
+            # Delete draft social posts and their children
+            draft_ids = [
+                r[0] for r in session.query(SocialPost.id).filter(
+                    SocialPost.source_date == target,
+                    SocialPost.status == "draft",
+                ).all()
+            ]
+            if draft_ids:
+                variant_ids = [
+                    r[0] for r in session.query(SocialPostVariant.id).filter(
+                        SocialPostVariant.post_id.in_(draft_ids)
+                    ).all()
+                ]
+                if variant_ids:
+                    session.query(SocialPostDelivery).filter(
+                        SocialPostDelivery.variant_id.in_(variant_ids)
+                    ).delete(synchronize_session=False)
+                session.query(SocialPostVariant).filter(
+                    SocialPostVariant.post_id.in_(draft_ids)
+                ).delete(synchronize_session=False)
+                session.query(SocialPost).filter(
+                    SocialPost.id.in_(draft_ids)
+                ).delete(synchronize_session=False)
+                session.commit()
+                logger.info("Deleted %d draft social posts for %s", len(draft_ids), target)
+
+        # Build context
+        context = _build_game_context(session, target)
+        if not context:
+            logger.info("No games found for %s, skipping.", target)
+            return {"date": str(target), "skipped": True, "reason": "no_games"}
+
+        # Resolve model
+        model = resolve_llm_model(session, purpose="generate")
+        logger.info("Generating social posts for %s using model %s", target, model)
+
+        # Call LLM
+        posts_data = _call_llm_for_social_posts(session, context, model)
+        if not posts_data:
+            logger.warning("LLM returned no posts for %s", target)
+            return {"date": str(target), "generated": 0}
+
+        # Save to DB
+        now = datetime.utcnow()
+        post_count = 0
+        for pd in posts_data:
+            topic = (pd.get("topic") or "").strip()
+            variants_data = pd.get("variants", [])
+            if not topic or not variants_data:
+                continue
+
+            sp = SocialPost(
+                topic=topic,
+                source_date=target,
+                source_metrics=json.dumps(pd.get("metric_keys", []), ensure_ascii=False),
+                source_game_ids=json.dumps(pd.get("game_ids", []), ensure_ascii=False),
+                status="draft",
+                priority=int(pd.get("priority", 50)),
+                llm_model=model,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(sp)
+            session.flush()  # get sp.id
+
+            for vd in variants_data:
+                vtitle = (vd.get("title") or "").strip()
+                vcontent = (vd.get("content") or "").strip()
+                if not vtitle or not vcontent:
+                    continue
+
+                sv = SocialPostVariant(
+                    post_id=sp.id,
+                    title=vtitle,
+                    content_raw=vcontent,
+                    audience_hint=(vd.get("audience_hint") or "").strip() or None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(sv)
+                session.flush()  # get sv.id
+
+                # Create suggested deliveries
+                for dest in vd.get("suggested_destinations", []):
+                    platform = (dest.get("platform") or "").strip()
+                    forum = (dest.get("forum") or "").strip() or None
+                    if platform:
+                        sd = SocialPostDelivery(
+                            variant_id=sv.id,
+                            platform=platform,
+                            forum=forum,
+                            status="pending",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(sd)
+
+            post_count += 1
+
+        session.commit()
+        logger.info("Generated %d social posts for %s", post_count, target)
+        return {"date": str(target), "generated": post_count}
+
+    except Exception:
+        session.rollback()
+        logger.exception("Failed to generate social posts for %s", target_date_str)
+        raise
+    finally:
+        session.close()
+
+
+@shared_task(
+    bind=True,
+    name="tasks.topics.generate_social_posts_task",
+    max_retries=2,
+    default_retry_delay=300,
+)
+def generate_social_posts_task(self, target_date_str: str | None = None) -> dict:
+    """Celery wrapper for generate_social_posts."""
+    return generate_social_posts(target_date_str)
