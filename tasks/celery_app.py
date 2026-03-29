@@ -37,7 +37,6 @@ app.conf.update(
         "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
         "tasks.metrics.compute_season_metric": {"queue": "metrics"},
         "tasks.metrics.enqueue_career_metric_family": {"queue": "metrics"},
-        "tasks.topics.generate_daily_topics": {"queue": "reduce"},
         "tasks.topics.generate_social_posts_task": {"queue": "reduce"},
     },
 
@@ -58,10 +57,6 @@ app.conf.update(
         "sweep-metric-compute-runs": {
             "task": "tasks.metrics.sweep_metric_compute_runs",
             "schedule": 120,
-        },
-        "generate-daily-topics": {
-            "task": "tasks.topics.generate_daily_topics",
-            "schedule": crontab(hour=12, minute=0),
         },
         "generate-social-posts": {
             "task": "tasks.topics.generate_social_posts_task",

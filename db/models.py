@@ -444,28 +444,6 @@ class PageView(Base):
     )
 
 
-class TopicPost(Base):
-    __tablename__ = 'TopicPost'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(DATE, nullable=False)
-    title = Column(String(255), nullable=False)
-    body = Column(Text, nullable=False)
-    priority = Column(Integer, nullable=False, default=50)
-    status = Column(String(16), nullable=False, default='draft')
-    source_metric_keys = Column(Text, nullable=True)   # JSON list
-    source_game_ids = Column(Text, nullable=True)       # JSON list
-    source_entity_ids = Column(Text, nullable=True)     # JSON list
-    llm_model = Column(String(64), nullable=True)
-    created_at = Column(DateTime, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
-
-    __table_args__ = (
-        Index('ix_TopicPost_date', 'date'),
-        Index('ix_TopicPost_date_status', 'date', 'status'),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Content pipeline: SocialPost → SocialPostVariant → SocialPostDelivery
 # ---------------------------------------------------------------------------

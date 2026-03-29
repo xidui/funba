@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from db.models import (
     Game, GameLineScore, GamePlayByPlay, MetricDefinition, MetricResult,
     MetricRunLog, Player, PlayerGameStats, SocialPost, SocialPostDelivery,
-    SocialPostVariant, Team, TeamGameStats, TopicPost, engine,
+    SocialPostVariant, Team, TeamGameStats, engine,
 )
 
 logger = logging.getLogger(__name__)
@@ -405,91 +405,8 @@ def _build_game_context(session, target_date: date) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM call with tool use loop
+# Shared helpers
 # ---------------------------------------------------------------------------
-
-_SYSTEM_PROMPT = """\
-You are a professional NBA analyst and long-form content writer for funba.app.
-You receive a summary of today's NBA games with triggered metric highlights.
-Your job: identify the most compelling stories and write detailed social media posts in Chinese.
-
-## Writing Style
-- Write like a seasoned NBA analyst on 虎扑 or 小红书 — passionate, data-backed, with real basketball insight
-- Use Chinese (中文), keep English player/team names as-is
-- Each post should be **800-1500 characters** — a proper article, not a news brief
-- Structure each post with:
-  1. A hook that grabs attention (why should the reader care?)
-  2. The core story with specific stats and context
-  3. Historical comparison or broader significance (use tools to look up rankings if needed)
-  4. A takeaway or opinion that sparks discussion
-- Use markdown formatting: **bold** for key numbers, line breaks for readability
-- Include funba.app links naturally in the text (not dumped at the end)
-- Add image placeholders where visuals enhance the story: <!-- image: 描述 -->
-  Available types: 球员投篮热图, 比赛比分走势, 球队战绩表, 赛季数据对比图
-
-## Content Guidelines
-- ONLY use facts from the provided data or tool results — NEVER fabricate statistics
-- Use the tools proactively: call get_game_box_score to get player stat lines for storytelling, call get_metric_top_results to build historical context and comparisons
-- Generate 3-6 posts, ranked by how interesting they are
-- Assign priority: 0-20 (record-breaking/historic), 20-50 (notable/surprising), 50-80 (interesting)
-- Focus on stories that would genuinely interest basketball fans, not just stat dumps
-
-Output your final answer as a JSON array (no markdown fences):
-[
-  {
-    "title": "帖子标题",
-    "body": "帖子正文 (markdown格式，800-1500字)",
-    "priority": 10,
-    "metric_keys": ["metric_key_1"],
-    "game_ids": ["0022501058"],
-    "entity_ids": ["player_id_or_team_id"]
-  }
-]
-"""
-
-
-def _call_llm_with_tools(session, context: str, model: str) -> list[dict]:
-    """Call OpenAI with tool use, loop until final answer."""
-    import openai
-    client = openai.OpenAI()
-
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": context},
-    ]
-
-    max_rounds = 5
-    for _ in range(max_rounds):
-        response = client.chat.completions.create(
-            model=model,
-            max_completion_tokens=16384,
-            temperature=0.7,
-            messages=messages,
-            tools=_TOOL_DEFINITIONS,
-        )
-        choice = response.choices[0]
-
-        # If model wants to call tools
-        if choice.finish_reason == "tool_calls" or (choice.message.tool_calls and len(choice.message.tool_calls) > 0):
-            messages.append(choice.message)
-            for tc in choice.message.tool_calls:
-                fn_name = tc.function.name
-                fn_args = json.loads(tc.function.arguments)
-                logger.info("LLM tool call: %s(%s)", fn_name, fn_args)
-                result = _dispatch_tool_call(session, fn_name, fn_args)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
-                })
-            continue
-
-        # Final text response
-        text = (choice.message.content or "").strip()
-        return _parse_topics_json(text)
-
-    logger.warning("LLM tool use loop exhausted after %d rounds", max_rounds)
-    return []
 
 
 def _parse_topics_json(text: str) -> list[dict]:
@@ -515,113 +432,6 @@ def _parse_topics_json(text: str) -> list[dict]:
         return []
 
     return data
-
-
-# ---------------------------------------------------------------------------
-# Main generation function
-# ---------------------------------------------------------------------------
-
-
-def generate_daily_topics(target_date_str: str | None = None, force: bool = False) -> dict:
-    """Generate topic post candidates for a given date.
-
-    Can be called directly (from admin UI) or as a Celery task.
-
-    Args:
-        target_date_str: ISO date string (YYYY-MM-DD). Defaults to yesterday.
-        force: If True, delete existing drafts and regenerate.
-
-    Returns:
-        dict with generation results.
-    """
-    from db.llm_models import resolve_llm_model
-
-    if target_date_str:
-        target = date.fromisoformat(target_date_str)
-    else:
-        target = date.today() - timedelta(days=1)
-
-    session = Session()
-    try:
-        # Idempotency check
-        existing = (
-            session.query(func.count(TopicPost.id))
-            .filter(TopicPost.date == target)
-            .scalar() or 0
-        )
-        if existing > 0 and not force:
-            logger.info("Topics already exist for %s (%d posts), skipping.", target, existing)
-            return {"date": str(target), "skipped": True, "existing": existing}
-
-        if force and existing > 0:
-            session.query(TopicPost).filter(
-                TopicPost.date == target,
-                TopicPost.status == "draft",
-            ).delete()
-            session.commit()
-            logger.info("Deleted %d draft topics for %s", existing, target)
-
-        # Build context
-        context = _build_game_context(session, target)
-        if not context:
-            logger.info("No games found for %s, skipping topic generation.", target)
-            return {"date": str(target), "skipped": True, "reason": "no_games"}
-
-        # Resolve model
-        model = resolve_llm_model(session, purpose="generate")
-        logger.info("Generating topics for %s using model %s", target, model)
-
-        # Call LLM
-        topics = _call_llm_with_tools(session, context, model)
-        if not topics:
-            logger.warning("LLM returned no topics for %s", target)
-            return {"date": str(target), "generated": 0}
-
-        # Save to DB
-        now = datetime.utcnow()
-        count = 0
-        for t in topics:
-            title = (t.get("title") or "").strip()
-            body = (t.get("body") or "").strip()
-            if not title or not body:
-                continue
-            post = TopicPost(
-                date=target,
-                title=title,
-                body=body,
-                priority=int(t.get("priority", 50)),
-                status="draft",
-                source_metric_keys=json.dumps(t.get("metric_keys", []), ensure_ascii=False),
-                source_game_ids=json.dumps(t.get("game_ids", []), ensure_ascii=False),
-                source_entity_ids=json.dumps(t.get("entity_ids", []), ensure_ascii=False),
-                llm_model=model,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(post)
-            count += 1
-
-        session.commit()
-        logger.info("Generated %d topics for %s", count, target)
-        return {"date": str(target), "generated": count}
-
-    except Exception:
-        session.rollback()
-        logger.exception("Failed to generate topics for %s", target_date_str)
-        raise
-    finally:
-        session.close()
-
-
-@shared_task(
-    bind=True,
-    name="tasks.topics.generate_daily_topics",
-    max_retries=2,
-    default_retry_delay=300,
-)
-def generate_daily_topics_task(self, target_date_str: str | None = None) -> dict:
-    """Celery wrapper for generate_daily_topics."""
-    return generate_daily_topics(target_date_str)
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ def _make_app_module():
     for name in (
         "Award", "Feedback", "Game", "GameLineScore", "GamePlayByPlay", "MagicToken",
         "MetricComputeRun", "MetricDefinition", "MetricResult", "MetricRunLog", "PageView",
-        "Player", "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "TopicPost",
+        "Player", "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostVariant", "SocialPostDelivery",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.User = fake_user_cls

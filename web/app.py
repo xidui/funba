@@ -30,7 +30,7 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, TopicPost, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -5647,109 +5647,6 @@ def admin_pipeline():
         admin_fragment_url=_admin_fragment_url,
         llm_available_models=available_llm_models(),
     )
-
-
-@app.get("/admin/topics")
-def admin_topics():
-    denied = _require_admin_page()
-    if denied:
-        return denied
-    import json as _json
-    status_filter = request.args.get("status")
-    page = max(1, request.args.get("page", 1, type=int))
-    page_size = 30
-
-    with SessionLocal() as session:
-        q = session.query(TopicPost).order_by(TopicPost.date.desc(), TopicPost.priority.asc())
-        if status_filter and status_filter in ("draft", "approved", "sent", "archived"):
-            q = q.filter(TopicPost.status == status_filter)
-        total = q.count()
-        import math
-        total_pages = max(1, math.ceil(total / page_size))
-        page = min(page, total_pages)
-        topics = q.offset((page - 1) * page_size).limit(page_size).all()
-
-        topic_rows = []
-        for t in topics:
-            topic_rows.append({
-                "id": t.id,
-                "date": t.date.isoformat() if t.date else "",
-                "title": t.title,
-                "body": t.body,
-                "priority": t.priority,
-                "status": t.status,
-                "source_metric_keys": _json.loads(t.source_metric_keys) if t.source_metric_keys else [],
-                "source_game_ids": _json.loads(t.source_game_ids) if t.source_game_ids else [],
-                "llm_model": t.llm_model,
-                "created_at": t.created_at,
-            })
-
-    from datetime import date as _date, timedelta as _td
-    yesterday = (_date.today() - _td(days=1)).isoformat()
-    return render_template(
-        "admin_topics.html",
-        topics=topic_rows,
-        page=page,
-        total_pages=total_pages,
-        total=total,
-        status_filter=status_filter or "all",
-        today=yesterday,
-    )
-
-
-@app.post("/admin/topics/<int:topic_id>/update")
-def admin_topic_update(topic_id: int):
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from datetime import datetime
-    data = request.get_json(force=True) or {}
-    with SessionLocal() as session:
-        topic = session.query(TopicPost).filter(TopicPost.id == topic_id).first()
-        if not topic:
-            return jsonify({"error": "not_found"}), 404
-        if "title" in data:
-            topic.title = data["title"]
-        if "body" in data:
-            topic.body = data["body"]
-        if "status" in data and data["status"] in ("draft", "approved", "sent", "archived"):
-            topic.status = data["status"]
-        if "priority" in data:
-            topic.priority = int(data["priority"])
-        topic.updated_at = datetime.utcnow()
-        session.commit()
-    return jsonify({"ok": True})
-
-
-@app.post("/admin/topics/<int:topic_id>/delete")
-def admin_topic_delete(topic_id: int):
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        session.query(TopicPost).filter(TopicPost.id == topic_id).delete()
-        session.commit()
-    return jsonify({"ok": True})
-
-
-@app.post("/admin/topics/generate")
-def admin_topics_generate():
-    """Trigger topic generation for a specific date (runs inline, not via Celery)."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    data = request.get_json(force=True) or {}
-    target_date = data.get("date")
-    if not target_date:
-        return jsonify({"ok": False, "error": "date is required"}), 400
-    force = bool(data.get("force", False))
-    try:
-        from tasks.topics import generate_daily_topics
-        result = generate_daily_topics(target_date, force=force)
-        return jsonify({"ok": True, **result})
-    except Exception as exc:
-        logger.exception("Topic generation failed for %s", target_date)
-        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
