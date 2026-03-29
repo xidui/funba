@@ -5927,145 +5927,235 @@ def admin_content_add_destination(post_id: int, variant_id: int):
         return jsonify({"ok": True, "delivery_id": d.id})
 
 
-@app.post("/api/admin/content/deliveries/<int:delivery_id>/publish")
-def admin_content_publish(delivery_id: int):
-    """Publish a single delivery to its platform."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from datetime import datetime
-    with SessionLocal() as s:
-        d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
-        if not d:
-            return jsonify({"error": "not_found"}), 404
-        if d.status == "published":
-            return jsonify({"ok": True, "already": True, "url": d.published_url})
+# ---------------------------------------------------------------------------
+# Content API for Paperclip (localhost, no browser session needed)
+# ---------------------------------------------------------------------------
 
-        v = s.query(SocialPostVariant).filter(SocialPostVariant.id == d.variant_id).first()
-        if not v:
-            return jsonify({"error": "variant not_found"}), 404
+@app.post("/api/content/posts")
+def api_content_create_post():
+    """Create a SocialPost with variants and suggested deliveries.
 
-        d.status = "publishing"
-        d.updated_at = datetime.utcnow()
-        s.commit()
-
-        # Dispatch to platform publisher
-        try:
-            result = _publish_to_platform(d.platform, d.forum, v.title, v.content_raw)
-            d.status = "published"
-            d.published_url = result.get("url")
-            d.content_final = result.get("content_final")
-            d.published_at = datetime.utcnow()
-            d.error_message = None
-        except Exception as exc:
-            logger.exception("Publish failed for delivery %d", delivery_id)
-            d.status = "failed"
-            d.error_message = str(exc)
-        d.updated_at = datetime.utcnow()
-        s.commit()
-
-    return jsonify({
-        "ok": d.status == "published",
-        "status": d.status,
-        "published_url": d.published_url,
-        "error": d.error_message,
-    })
-
-
-@app.post("/api/admin/content/deliveries/<int:delivery_id>/retry")
-def admin_content_retry(delivery_id: int):
-    """Retry a failed delivery."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from datetime import datetime
-    with SessionLocal() as s:
-        d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
-        if not d:
-            return jsonify({"error": "not_found"}), 404
-        d.status = "pending"
-        d.error_message = None
-        d.updated_at = datetime.utcnow()
-        s.commit()
-    # Re-trigger publish
-    return admin_content_publish.__wrapped__(delivery_id) if hasattr(admin_content_publish, '__wrapped__') else admin_content_publish(delivery_id)
-
-
-def _publish_to_platform(platform: str, forum: str | None, title: str, content: str) -> dict:
-    """Dispatch publishing to the appropriate platform adapter.
-
-    Returns dict with 'url' and optionally 'content_final'.
+    Expects JSON:
+    {
+      "topic": "...",
+      "source_date": "2026-03-28",
+      "source_metrics": ["metric_key_1"],
+      "source_game_ids": ["0022501058"],
+      "priority": 30,
+      "llm_model": "claude-sonnet-4-6",
+      "variants": [
+        {
+          "title": "...",
+          "content_raw": "...",
+          "audience_hint": "thunder fans",
+          "destinations": [
+            {"platform": "hupu", "forum": "thunder"}
+          ]
+        }
+      ]
+    }
     """
-    if platform == "hupu":
-        return _publish_hupu(forum or "nba", title, content)
-    raise ValueError(f"Unsupported platform: {platform}")
-
-
-def _publish_hupu(forum: str, title: str, content: str) -> dict:
-    """Publish to Hupu using Playwright automation."""
-    from tools.hupu_post import FORUM_IDS, _load_cookies, _create_context, _is_logged_in, _fill_editor, _click_submit
-    from playwright.sync_api import sync_playwright
-
-    if forum not in FORUM_IDS:
-        raise ValueError(f"Unknown Hupu forum: {forum}. Available: {', '.join(FORUM_IDS)}")
-
-    forum_id = FORUM_IDS[forum]
-    paragraphs = content.split("\n")
-
-    # Build footer with funba link
-    footer_html = '<p><a href="https://funba.app" target="_blank">funba.app — NBA数据分析</a></p>'
-
-    with sync_playwright() as pw:
-        context = _create_context(pw, headless=True)
-        page = context.new_page()
-
-        # Check login
-        page.goto("https://bbs.hupu.com", wait_until="domcontentloaded", timeout=15000)
-        page.wait_for_timeout(2000)
-        if not _is_logged_in(page):
-            context.close()
-            raise RuntimeError("Hupu session expired. Run: python -m tools.hupu_post login")
-
-        # Navigate to post page
-        page.goto(f"https://bbs.hupu.com/newpost/{forum_id}", wait_until="domcontentloaded", timeout=15000)
-        page.wait_for_timeout(3000)
-
-        # Fill title
-        title_input = page.query_selector('input[placeholder*="标题"]')
-        if not title_input:
-            context.close()
-            raise RuntimeError("Hupu title input not found")
-        title_input.fill(title)
-
-        # Fill content
-        _fill_editor(page, paragraphs, footer_html=footer_html)
-        page.wait_for_timeout(1000)
-
-        # Submit
-        final_url = _click_submit(page)
-        context.close()
-
-    return {"url": final_url, "content_final": content}
-
-
-@app.post("/api/admin/content/generate")
-def admin_content_generate():
-    """Generate social posts for a date using the content strategist agent."""
     denied = _require_admin_json()
     if denied:
         return denied
+    from datetime import datetime
     data = request.get_json(force=True) or {}
-    target_date = data.get("date")
-    if not target_date:
-        return jsonify({"ok": False, "error": "date is required"}), 400
-    force = bool(data.get("force", False))
-    try:
-        from tasks.topics import generate_social_posts
-        result = generate_social_posts(target_date, force=force)
-        return jsonify({"ok": True, **result})
-    except Exception as exc:
-        logger.exception("Content generation failed for %s", target_date)
-        return jsonify({"ok": False, "error": str(exc)}), 500
+    topic = (data.get("topic") or "").strip()
+    if not topic:
+        return jsonify({"error": "topic required"}), 400
+    source_date_str = data.get("source_date")
+    if not source_date_str:
+        return jsonify({"error": "source_date required"}), 400
+
+    now = datetime.utcnow()
+    with SessionLocal() as s:
+        sp = SocialPost(
+            topic=topic,
+            source_date=date.fromisoformat(source_date_str),
+            source_metrics=json.dumps(data.get("source_metrics", []), ensure_ascii=False),
+            source_game_ids=json.dumps(data.get("source_game_ids", []), ensure_ascii=False),
+            status=data.get("status", "draft"),
+            priority=int(data.get("priority", 50)),
+            llm_model=data.get("llm_model"),
+            admin_comments=None,
+            created_at=now,
+            updated_at=now,
+        )
+        s.add(sp)
+        s.flush()
+
+        variant_ids = []
+        for vd in data.get("variants", []):
+            vtitle = (vd.get("title") or "").strip()
+            vcontent = (vd.get("content_raw") or "").strip()
+            if not vtitle or not vcontent:
+                continue
+            sv = SocialPostVariant(
+                post_id=sp.id,
+                title=vtitle,
+                content_raw=vcontent,
+                audience_hint=(vd.get("audience_hint") or "").strip() or None,
+                created_at=now,
+                updated_at=now,
+            )
+            s.add(sv)
+            s.flush()
+            variant_ids.append(sv.id)
+
+            for dest in vd.get("destinations", []):
+                platform = (dest.get("platform") or "").strip()
+                forum = (dest.get("forum") or "").strip() or None
+                if platform:
+                    s.add(SocialPostDelivery(
+                        variant_id=sv.id,
+                        platform=platform,
+                        forum=forum,
+                        status="pending",
+                        created_at=now,
+                        updated_at=now,
+                    ))
+
+        s.commit()
+        return jsonify({"ok": True, "post_id": sp.id, "variant_ids": variant_ids})
+
+
+@app.get("/api/content/posts")
+def api_content_list_posts():
+    """List social posts, optionally filtered by status or date."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    status_filter = request.args.get("status")
+    date_filter = request.args.get("date")
+    limit = min(int(request.args.get("limit", 50)), 200)
+    offset = int(request.args.get("offset", 0))
+
+    with SessionLocal() as s:
+        q = s.query(SocialPost).order_by(SocialPost.source_date.desc(), SocialPost.priority.asc())
+        if status_filter:
+            q = q.filter(SocialPost.status == status_filter)
+        if date_filter:
+            q = q.filter(SocialPost.source_date == date_filter)
+        total = q.count()
+        posts = q.offset(offset).limit(limit).all()
+
+        return jsonify({
+            "total": total,
+            "posts": [
+                {
+                    "id": p.id,
+                    "topic": p.topic,
+                    "source_date": p.source_date.isoformat() if p.source_date else None,
+                    "status": p.status,
+                    "priority": p.priority,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in posts
+            ],
+        })
+
+
+@app.post("/api/content/deliveries/<int:delivery_id>/status")
+def api_content_delivery_status(delivery_id: int):
+    """Update a delivery's status (called by Paperclip after publishing).
+
+    Expects JSON:
+    {
+      "status": "published",
+      "published_url": "https://bbs.hupu.com/...",
+      "error_message": null
+    }
+    """
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+    data = request.get_json(force=True) or {}
+    new_status = (data.get("status") or "").strip()
+    if new_status not in ("pending", "publishing", "published", "failed"):
+        return jsonify({"error": "invalid status"}), 400
+
+    with SessionLocal() as s:
+        d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
+        if not d:
+            return jsonify({"error": "not_found"}), 404
+        d.status = new_status
+        if "published_url" in data:
+            d.published_url = data["published_url"]
+        if "content_final" in data:
+            d.content_final = data["content_final"]
+        if "error_message" in data:
+            d.error_message = data["error_message"]
+        if new_status == "published":
+            d.published_at = datetime.utcnow()
+        d.updated_at = datetime.utcnow()
+        s.commit()
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Data API for Paperclip (localhost, read-only NBA data)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/data/games")
+def api_data_games():
+    """Get games for a date. Query: ?date=2026-03-28"""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+    from tasks.topics import get_games_by_date
+    result = get_games_by_date(date.fromisoformat(date_str))
+    return jsonify({"date": date_str, "games": result})
+
+
+@app.get("/api/data/games/<game_id>/boxscore")
+def api_data_boxscore(game_id: str):
+    """Get box score for a game."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from tasks.topics import get_game_box_score
+    return jsonify(get_game_box_score(game_id))
+
+
+@app.get("/api/data/games/<game_id>/pbp")
+def api_data_pbp(game_id: str):
+    """Get play-by-play for a game period. Query: ?period=4"""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    period = int(request.args.get("period", 4))
+    from tasks.topics import get_game_play_by_play
+    return jsonify({"game_id": game_id, "period": period, "plays": get_game_play_by_play(game_id, period)})
+
+
+@app.get("/api/data/metrics/<metric_key>/top")
+def api_data_metric_top(metric_key: str):
+    """Get top N results for a metric. Query: ?season=22025&limit=10"""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    season = request.args.get("season")
+    limit = min(int(request.args.get("limit", 10)), 100)
+    from tasks.topics import get_metric_top_results
+    return jsonify({"metric_key": metric_key, "results": get_metric_top_results(metric_key, season, limit)})
+
+
+@app.get("/api/data/metrics/triggered")
+def api_data_triggered_metrics():
+    """Get triggered metrics for a date. Query: ?date=2026-03-28"""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+    from tasks.topics import get_triggered_metrics
+    result = get_triggered_metrics(date.fromisoformat(date_str))
+    return jsonify({"date": date_str, "metrics": result})
 
 
 @app.get("/admin/fragment/<section>")

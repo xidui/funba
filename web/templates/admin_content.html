@@ -174,15 +174,6 @@
   <a href="{{ url_for('admin_pipeline') }}" class="act-btn" style="text-decoration:none;">← Admin</a>
 </div>
 
-<!-- Generate bar -->
-<div class="gen-bar">
-  <label for="gen-date">Generate for:</label>
-  <input type="date" id="gen-date" value="{{ today }}">
-  <label class="cb-label"><input type="checkbox" id="gen-force"> Overwrite drafts</label>
-  <button class="gen-btn" id="gen-btn" onclick="doGenerate()">Generate</button>
-  <span class="gen-status" id="gen-status"></span>
-</div>
-
 <!-- Status tabs -->
 <div class="status-tabs">
   {% for s in ['all', 'draft', 'in_review', 'approved', 'archived'] %}
@@ -263,11 +254,6 @@
                 {% if d.published_url %}
                   <a href="{{ d.published_url }}" target="_blank" style="font-size:11px;color:var(--accent);">View</a>
                 {% endif %}
-                {% if d.status == 'pending' or d.status == 'failed' %}
-                  <button class="act-btn publish" onclick="event.stopPropagation(); publishDelivery({{ d.id }})">
-                    {% if d.status == 'failed' %}Retry{% else %}Publish{% endif %}
-                  </button>
-                {% endif %}
                 {% if d.error_message %}
                   <span style="font-size:10px;color:var(--loss);" title="{{ d.error_message }}">Error</span>
                 {% endif %}
@@ -324,9 +310,6 @@
             <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve</button>
             <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Back to Draft</button>
           {% endif %}
-          {% if p.status == 'approved' %}
-            <button class="act-btn publish" onclick="publishAllPending({{ p.id }})">Publish All Pending</button>
-          {% endif %}
           <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'archived')">Archive</button>
           <button class="act-btn delete" onclick="deletePost({{ p.id }})">Delete</button>
         </div>
@@ -348,29 +331,6 @@
 {% endif %}
 
 <script>
-function doGenerate() {
-  const dateVal = document.getElementById('gen-date').value;
-  const force = document.getElementById('gen-force').checked;
-  const btn = document.getElementById('gen-btn');
-  const status = document.getElementById('gen-status');
-  if (!dateVal) { status.textContent = 'Pick a date first'; return; }
-  btn.disabled = true;
-  status.textContent = 'Generating...';
-  fetch('/api/admin/content/generate', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({date: dateVal, force: force}),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.ok) {
-      if (data.skipped) status.textContent = `Skipped — ${data.existing} posts exist.`;
-      else { status.textContent = `Generated ${data.generated} posts!`; setTimeout(() => location.reload(), 800); }
-    } else status.textContent = 'Error: ' + (data.error || 'Unknown');
-  })
-  .catch(e => { status.textContent = 'Error: ' + e.message; })
-  .finally(() => { btn.disabled = false; });
-}
-
 function togglePost(e, id) {
   const card = document.getElementById('post-' + id);
   if (card.classList.contains('expanded')) return; // don't collapse on click inside
@@ -465,36 +425,5 @@ function addDestination(postId, variantId) {
   .then(data => { if (data.ok) location.reload(); });
 }
 
-function publishDelivery(deliveryId) {
-  if (!confirm('Publish this delivery?')) return;
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Publishing...';
-  fetch(`/api/admin/content/deliveries/${deliveryId}/publish`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.ok) { location.reload(); }
-    else { btn.textContent = 'Failed'; alert('Publish failed: ' + (data.error || 'Unknown')); btn.disabled = false; }
-  })
-  .catch(e => { btn.textContent = 'Error'; btn.disabled = false; });
-}
-
-function publishAllPending(postId) {
-  if (!confirm('Publish all pending deliveries for this post?')) return;
-  // Find all pending delivery publish buttons within this post
-  const card = document.getElementById('post-' + postId);
-  const btns = card.querySelectorAll('.act-btn.publish');
-  btns.forEach(btn => {
-    const match = btn.getAttribute('onclick')?.match(/publishDelivery\((\d+)\)/);
-    if (match) {
-      fetch(`/api/admin/content/deliveries/${match[1]}/publish`, {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-      });
-    }
-  });
-  setTimeout(() => location.reload(), 3000);
-}
 </script>
 {% endblock %}
