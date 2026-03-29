@@ -274,7 +274,20 @@ Create a SocialPost with variants and delivery destinations.
 **Response:**
 
 ```json
-{"ok": true, "post_id": 42, "variant_ids": [101, 102]}
+{
+  "ok": true,
+  "post_id": 42,
+  "variant_ids": [101, 102],
+  "workflow": {
+    "enabled": true,
+    "issue_id": "9f4d...",
+    "issue_identifier": "XIX-123",
+    "issue_status": "in_review",
+    "owner_label": "Reviewer",
+    "last_synced_at": "2026-03-28T12:35:00",
+    "sync_error": null
+  }
+}
 ```
 
 ---
@@ -330,6 +343,15 @@ Get full post detail with all variants and deliveries. (Uses admin session auth 
   "admin_comments": [],
   "llm_model": "claude-sonnet-4-6",
   "created_at": "2026-03-28T12:30:00",
+  "workflow": {
+    "enabled": true,
+    "issue_id": "9f4d...",
+    "issue_identifier": "XIX-123",
+    "issue_status": "in_review",
+    "owner_label": "Reviewer",
+    "last_synced_at": "2026-03-28T12:35:00",
+    "sync_error": null
+  },
   "variants": [
     {
       "id": 101,
@@ -396,6 +418,17 @@ These endpoints are also available from localhost. Used by the admin kanban UI a
 | POST | `/api/admin/content/{post_id}/delete` | Delete post + variants + deliveries |
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/update` | Update variant title/content/audience |
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/destinations` | Add delivery destination `{platform, forum}` |
+| POST | `/api/admin/content/{post_id}/paperclip/sync` | Pull latest Paperclip issue status + comments into Funba |
+
+### Paperclip Workflow Bridge
+
+When the Paperclip env vars are configured, Funba mirrors workflow signals into Paperclip:
+
+- comments added in `/admin/content` are mirrored to the linked Paperclip issue
+- `draft -> in_review` hands the post to the configured review user
+- `in_review -> draft` requests revision from the configured content analyst
+- `approved` hands the post to the configured delivery publisher
+- Paperclip issue comments can be synced back into Funba via `POST /api/admin/content/{post_id}/paperclip/sync`
 
 ---
 

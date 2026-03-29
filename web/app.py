@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 import inspect
 import json
@@ -46,6 +46,20 @@ from metrics.framework.family import (
     rule_is_career_variant,
     rule_supports_career,
 )
+from web.paperclip_bridge import (
+    PaperclipBridgeError,
+    PaperclipClient,
+    actor_label_for_issue,
+    append_admin_comment,
+    build_post_issue_description,
+    build_post_issue_title,
+    build_status_handoff_comment,
+    desired_issue_state_for_post,
+    load_paperclip_bridge_config,
+    merge_paperclip_comments,
+    normalize_admin_comments,
+)
+from tasks.content import ensure_daily_content_analysis_issue
 
 _DRAFT_KEY_PREFIX = "_d_"
 _PBP_EVENT_TYPE_LABELS = {
@@ -2294,6 +2308,320 @@ def _current_user() -> User | None:
             display_name="",
             avatar_url=None,
         )
+
+
+def _paperclip_bridge_config():
+    return load_paperclip_bridge_config()
+
+
+def _paperclip_bridge_enabled() -> bool:
+    return _paperclip_bridge_config() is not None
+
+
+def _paperclip_actor_name() -> str:
+    user = _current_user()
+    if user is not None and getattr(user, "display_name", None):
+        return str(user.display_name)
+    return "Funba admin"
+
+
+def _social_post_comments(post: SocialPost) -> list[dict]:
+    if not post.admin_comments:
+        return []
+    try:
+        raw_comments = json.loads(post.admin_comments)
+    except Exception:
+        logger.warning("Failed to decode admin_comments for SocialPost %s", post.id, exc_info=True)
+        return []
+    return normalize_admin_comments(raw_comments)
+
+
+def _write_social_post_comments(post: SocialPost, comments: list[dict]) -> None:
+    post.admin_comments = json.dumps(comments, ensure_ascii=False)
+    post.updated_at = datetime.utcnow()
+
+
+def _find_comment_index(
+    comments: list[dict],
+    *,
+    timestamp: str,
+    text: str,
+    origin: str,
+) -> int | None:
+    for idx in range(len(comments) - 1, -1, -1):
+        comment = comments[idx]
+        if comment.get("paperclip_comment_id"):
+            continue
+        if comment.get("timestamp") != timestamp:
+            continue
+        if comment.get("origin") != origin:
+            continue
+        if comment.get("text") != text:
+            continue
+        return idx
+    return None
+
+
+def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
+    cfg = _paperclip_bridge_config()
+    return {
+        "enabled": _paperclip_bridge_enabled(),
+        "issue_id": post.paperclip_issue_id,
+        "issue_identifier": post.paperclip_issue_identifier,
+        "issue_status": post.paperclip_issue_status,
+        "owner_label": actor_label_for_issue(
+            assignee_agent_id=post.paperclip_assignee_agent_id,
+            assignee_user_id=post.paperclip_assignee_user_id,
+            cfg=cfg,
+        ),
+        "assignee_agent_id": post.paperclip_assignee_agent_id,
+        "assignee_user_id": post.paperclip_assignee_user_id,
+        "last_comment_id": post.paperclip_last_comment_id,
+        "last_synced_at": post.paperclip_last_synced_at.isoformat() if post.paperclip_last_synced_at else None,
+        "sync_error": post.paperclip_sync_error,
+    }
+
+
+def _load_social_post_bundle(db_sess, post_id: int):
+    post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+    if not post:
+        return None
+    variants = (
+        db_sess.query(SocialPostVariant)
+        .filter(SocialPostVariant.post_id == post_id)
+        .order_by(SocialPostVariant.id)
+        .all()
+    )
+    variant_ids = [v.id for v in variants]
+    deliveries = (
+        db_sess.query(SocialPostDelivery)
+        .filter(SocialPostDelivery.variant_id.in_(variant_ids))
+        .order_by(SocialPostDelivery.id)
+        .all()
+        if variant_ids
+        else []
+    )
+    deliveries_by_variant: dict[int, list] = {}
+    for delivery in deliveries:
+        deliveries_by_variant.setdefault(delivery.variant_id, []).append(delivery)
+    try:
+        source_metrics = json.loads(post.source_metrics) if post.source_metrics else []
+    except Exception:
+        source_metrics = []
+    try:
+        source_game_ids = json.loads(post.source_game_ids) if post.source_game_ids else []
+    except Exception:
+        source_game_ids = []
+    snapshot = {
+        "id": post.id,
+        "topic": post.topic,
+        "source_date": post.source_date.isoformat() if post.source_date else None,
+        "status": post.status,
+        "priority": post.priority,
+        "source_metrics": source_metrics,
+        "source_game_ids": source_game_ids,
+        "variants": [
+            {
+                "id": variant.id,
+                "title": variant.title,
+                "audience_hint": variant.audience_hint,
+                "destinations": [
+                    {
+                        "id": delivery.id,
+                        "platform": delivery.platform,
+                        "forum": delivery.forum,
+                        "status": delivery.status,
+                    }
+                    for delivery in deliveries_by_variant.get(variant.id, [])
+                ],
+            }
+            for variant in variants
+        ],
+    }
+    return post, snapshot
+
+
+def _apply_paperclip_issue_fields(post: SocialPost, issue: dict | None, *, sync_error: str | None = None) -> None:
+    if issue:
+        post.paperclip_issue_id = issue.get("id") or post.paperclip_issue_id
+        post.paperclip_issue_identifier = issue.get("identifier") or post.paperclip_issue_identifier
+        post.paperclip_issue_status = issue.get("status") or post.paperclip_issue_status
+        post.paperclip_assignee_agent_id = issue.get("assigneeAgentId")
+        post.paperclip_assignee_user_id = issue.get("assigneeUserId")
+    post.paperclip_last_synced_at = datetime.utcnow()
+    post.paperclip_sync_error = sync_error
+    post.updated_at = datetime.utcnow()
+
+
+def _paperclip_client_or_raise() -> tuple[PaperclipClient, object]:
+    cfg = _paperclip_bridge_config()
+    if cfg is None:
+        raise PaperclipBridgeError("Paperclip bridge is not configured.")
+    client = PaperclipClient(cfg)
+    resolved_cfg = client.discover_defaults()
+    if not resolved_cfg.company_id:
+        raise PaperclipBridgeError("Paperclip bridge could not resolve company_id.")
+    if not resolved_cfg.project_id:
+        raise PaperclipBridgeError("Paperclip bridge could not resolve the Funba project in Paperclip.")
+    return client, resolved_cfg
+
+
+def _ensure_paperclip_issue_for_post(post_id: int) -> None:
+    try:
+        client, cfg = _paperclip_client_or_raise()
+        with SessionLocal() as db_sess:
+            bundle = _load_social_post_bundle(db_sess, post_id)
+            if bundle is None:
+                return
+            post, snapshot = bundle
+            desired_state = desired_issue_state_for_post(snapshot, cfg)
+            payload = {
+                "projectId": cfg.project_id,
+                "title": build_post_issue_title(snapshot),
+                "description": build_post_issue_description(snapshot),
+                "status": desired_state.status,
+                "priority": "medium",
+                "assigneeAgentId": desired_state.assignee_agent_id,
+                "assigneeUserId": desired_state.assignee_user_id,
+            }
+            if post.paperclip_issue_id:
+                issue = client.update_issue(post.paperclip_issue_id, payload)
+            else:
+                issue = client.create_issue(payload)
+            warning_text = "\n".join(desired_state.warnings) if desired_state.warnings else None
+            _apply_paperclip_issue_fields(post, issue, sync_error=warning_text)
+            db_sess.commit()
+    except PaperclipBridgeError as exc:
+        logger.warning("Failed to ensure Paperclip issue for SocialPost %s: %s", post_id, exc)
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if post:
+                _apply_paperclip_issue_fields(post, None, sync_error=str(exc))
+                db_sess.commit()
+
+
+def _mirror_paperclip_comment(post_id: int, *, text: str, local_comment_timestamp: str) -> None:
+    try:
+        client, _cfg = _paperclip_client_or_raise()
+        _ensure_paperclip_issue_for_post(post_id)
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if not post or not post.paperclip_issue_id:
+                return
+            remote_comment = client.add_comment(post.paperclip_issue_id, text)
+            comments = _social_post_comments(post)
+            idx = _find_comment_index(
+                comments,
+                timestamp=local_comment_timestamp,
+                text=text,
+                origin="funba_user",
+            )
+            if idx is not None:
+                comments[idx]["paperclip_comment_id"] = remote_comment.get("id")
+            if remote_comment.get("id"):
+                post.paperclip_last_comment_id = remote_comment.get("id")
+            _apply_paperclip_issue_fields(post, None, sync_error=None)
+            _write_social_post_comments(post, comments)
+            db_sess.commit()
+    except PaperclipBridgeError as exc:
+        logger.warning("Failed to mirror Paperclip comment for SocialPost %s: %s", post_id, exc)
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if post:
+                _apply_paperclip_issue_fields(post, None, sync_error=str(exc))
+                db_sess.commit()
+
+
+def _handoff_social_post(post_id: int, *, action: str, local_comment_timestamp: str, local_comment_text: str) -> None:
+    try:
+        client, cfg = _paperclip_client_or_raise()
+        with SessionLocal() as db_sess:
+            bundle = _load_social_post_bundle(db_sess, post_id)
+            if bundle is None:
+                return
+            post, snapshot = bundle
+            desired_state = desired_issue_state_for_post(snapshot, cfg)
+        _ensure_paperclip_issue_for_post(post_id)
+        with SessionLocal() as db_sess:
+            bundle = _load_social_post_bundle(db_sess, post_id)
+            if bundle is None:
+                return
+            post, snapshot = bundle
+            desired_state = desired_issue_state_for_post(snapshot, cfg)
+            if not post.paperclip_issue_id:
+                raise PaperclipBridgeError("Paperclip issue was not created for this post.")
+            payload = {
+                "title": build_post_issue_title(snapshot),
+                "description": build_post_issue_description(snapshot),
+                "status": desired_state.status,
+                "assigneeAgentId": desired_state.assignee_agent_id,
+                "assigneeUserId": desired_state.assignee_user_id,
+                "comment": build_status_handoff_comment(
+                    post=snapshot,
+                    action=action,
+                    actor_name=_paperclip_actor_name(),
+                    desired_state=desired_state,
+                ),
+            }
+            issue = client.update_issue(post.paperclip_issue_id, payload)
+            comments = _social_post_comments(post)
+            idx = _find_comment_index(
+                comments,
+                timestamp=local_comment_timestamp,
+                text=local_comment_text,
+                origin="system",
+            )
+            remote_comment = issue.get("comment") if isinstance(issue.get("comment"), dict) else None
+            if idx is not None and remote_comment and remote_comment.get("id"):
+                comments[idx]["paperclip_comment_id"] = remote_comment.get("id")
+            if remote_comment and remote_comment.get("id"):
+                post.paperclip_last_comment_id = remote_comment.get("id")
+            warning_text = "\n".join(desired_state.warnings) if desired_state.warnings else None
+            _apply_paperclip_issue_fields(post, issue, sync_error=warning_text)
+            _write_social_post_comments(post, comments)
+            db_sess.commit()
+    except PaperclipBridgeError as exc:
+        logger.warning("Failed to hand off SocialPost %s to Paperclip: %s", post_id, exc)
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if post:
+                _apply_paperclip_issue_fields(post, None, sync_error=str(exc))
+                db_sess.commit()
+
+
+def _sync_social_post_from_paperclip(post_id: int, *, ensure_issue: bool = True) -> dict[str, object] | None:
+    if ensure_issue:
+        _ensure_paperclip_issue_for_post(post_id)
+    try:
+        client, cfg = _paperclip_client_or_raise()
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if not post:
+                return None
+            if not post.paperclip_issue_id:
+                _apply_paperclip_issue_fields(post, None, sync_error="Paperclip issue not linked for this post.")
+                db_sess.commit()
+                return {"workflow": _paperclip_workflow_view(post), "comments": _social_post_comments(post)}
+            issue = client.get_issue(post.paperclip_issue_id)
+            remote_comments = client.list_comments(post.paperclip_issue_id, after_comment_id=post.paperclip_last_comment_id)
+            comments = _social_post_comments(post)
+            changed = merge_paperclip_comments(comments, remote_comments, cfg=cfg)
+            if remote_comments:
+                post.paperclip_last_comment_id = remote_comments[-1].get("id") or post.paperclip_last_comment_id
+            _apply_paperclip_issue_fields(post, issue, sync_error=None)
+            if changed:
+                _write_social_post_comments(post, comments)
+            db_sess.commit()
+            return {"workflow": _paperclip_workflow_view(post), "comments": _social_post_comments(post)}
+    except PaperclipBridgeError as exc:
+        logger.warning("Failed to sync SocialPost %s from Paperclip: %s", post_id, exc)
+        with SessionLocal() as db_sess:
+            post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if post:
+                _apply_paperclip_issue_fields(post, None, sync_error=str(exc))
+                db_sess.commit()
+                return {"workflow": _paperclip_workflow_view(post), "comments": _social_post_comments(post)}
+    return None
 
 
 @app.context_processor
@@ -5704,9 +6032,10 @@ def admin_content():
                 "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
                 "status": p.status,
                 "priority": p.priority,
-                "admin_comments": json.loads(p.admin_comments) if p.admin_comments else [],
+                "admin_comments": _social_post_comments(p),
                 "llm_model": p.llm_model,
                 "created_at": p.created_at,
+                "workflow": _paperclip_workflow_view(p),
                 "variant_count": len(pvariants),
                 "variants": [
                     {
@@ -5772,9 +6101,10 @@ def admin_content_detail(post_id: int):
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
             "status": p.status,
             "priority": p.priority,
-            "admin_comments": json.loads(p.admin_comments) if p.admin_comments else [],
+            "admin_comments": _social_post_comments(p),
             "llm_model": p.llm_model,
             "created_at": p.created_at.isoformat() if p.created_at else None,
+            "workflow": _paperclip_workflow_view(p),
             "variants": [
                 {
                     "id": v.id,
@@ -5806,21 +6136,68 @@ def admin_content_update(post_id: int):
     denied = _require_admin_json()
     if denied:
         return denied
-    from datetime import datetime
     data = request.get_json(force=True) or {}
+    handoff_action = None
+    handoff_comment_text = None
+    handoff_comment_timestamp = None
+    topic_changed = False
+    priority_changed = False
     with SessionLocal() as s:
         p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
         if not p:
             return jsonify({"error": "not_found"}), 404
+        previous_status = p.status
+        comments = _social_post_comments(p)
         if "topic" in data:
-            p.topic = data["topic"]
+            new_topic = (data["topic"] or "").strip()
+            if new_topic and new_topic != p.topic:
+                p.topic = new_topic
+                topic_changed = True
         if "status" in data and data["status"] in ("draft", "in_review", "approved", "archived"):
             p.status = data["status"]
         if "priority" in data:
-            p.priority = int(data["priority"])
-        p.updated_at = datetime.utcnow()
+            new_priority = int(data["priority"])
+            if new_priority != p.priority:
+                p.priority = new_priority
+                priority_changed = True
+        if p.status != previous_status:
+            if p.status == "in_review":
+                handoff_action = "send_to_review"
+                handoff_comment_text = "Sent this post to review from Funba."
+            elif p.status == "draft":
+                handoff_action = "request_revision"
+                handoff_comment_text = "Requested revision on this post from Funba."
+            elif p.status == "approved":
+                handoff_action = "approve_and_queue_publish"
+                handoff_comment_text = "Approved this post and queued publishing from Funba."
+            elif p.status == "archived":
+                handoff_action = "archive_post"
+                handoff_comment_text = "Archived this post from Funba."
+            if handoff_comment_text:
+                handoff_comment_timestamp = append_admin_comment(
+                    comments,
+                    text=handoff_comment_text,
+                    author=_paperclip_actor_name(),
+                    origin="system",
+                    event_type="handoff",
+                )
+                _write_social_post_comments(p, comments)
+            else:
+                p.updated_at = datetime.utcnow()
+        else:
+            p.updated_at = datetime.utcnow()
         s.commit()
-    return jsonify({"ok": True})
+    if handoff_action and handoff_comment_timestamp and handoff_comment_text:
+        _handoff_social_post(
+            post_id,
+            action=handoff_action,
+            local_comment_timestamp=handoff_comment_timestamp,
+            local_comment_text=handoff_comment_text,
+        )
+    elif topic_changed or priority_changed:
+        _ensure_paperclip_issue_for_post(post_id)
+    sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
+    return jsonify({"ok": True, **(sync_result or {})})
 
 
 @app.post("/api/admin/content/<int:post_id>/comment")
@@ -5829,26 +6206,40 @@ def admin_content_comment(post_id: int):
     denied = _require_admin_json()
     if denied:
         return denied
-    from datetime import datetime
     data = request.get_json(force=True) or {}
     text_val = (data.get("text") or "").strip()
     if not text_val:
         return jsonify({"error": "text required"}), 400
+    comment_timestamp = None
     with SessionLocal() as s:
         p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
         if not p:
             return jsonify({"error": "not_found"}), 404
-        comments = json.loads(p.admin_comments) if p.admin_comments else []
+        comments = _social_post_comments(p)
         user = _current_user()
-        comments.append({
-            "text": text_val,
-            "timestamp": datetime.utcnow().isoformat(),
-            "from": user.display_name if user else "admin",
-        })
-        p.admin_comments = json.dumps(comments, ensure_ascii=False)
-        p.updated_at = datetime.utcnow()
+        comment_timestamp = append_admin_comment(
+            comments,
+            text=text_val,
+            author=user.display_name if user and getattr(user, "display_name", None) else "admin",
+            origin="funba_user",
+            event_type="comment",
+        )
+        _write_social_post_comments(p, comments)
         s.commit()
-    return jsonify({"ok": True, "comments": comments})
+    if comment_timestamp:
+        _mirror_paperclip_comment(post_id, text=text_val, local_comment_timestamp=comment_timestamp)
+    sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
+    comments = None
+    workflow = None
+    if sync_result:
+        comments = sync_result.get("comments")
+        workflow = sync_result.get("workflow")
+    if comments is None or workflow is None:
+        with SessionLocal() as s:
+            p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+            comments = _social_post_comments(p) if p else []
+            workflow = _paperclip_workflow_view(p) if p else {}
+    return jsonify({"ok": True, "comments": comments, "workflow": workflow})
 
 
 @app.post("/api/admin/content/<int:post_id>/delete")
@@ -5857,10 +6248,12 @@ def admin_content_delete(post_id: int):
     denied = _require_admin_json()
     if denied:
         return denied
+    issue_id = None
     with SessionLocal() as s:
         p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
         if not p:
             return jsonify({"error": "not_found"}), 404
+        issue_id = p.paperclip_issue_id
         # Delete deliveries → variants → post (manual cascade for safety)
         variant_ids = [v.id for v in s.query(SocialPostVariant.id).filter(SocialPostVariant.post_id == post_id).all()]
         if variant_ids:
@@ -5868,7 +6261,54 @@ def admin_content_delete(post_id: int):
         s.query(SocialPostVariant).filter(SocialPostVariant.post_id == post_id).delete(synchronize_session=False)
         s.query(SocialPost).filter(SocialPost.id == post_id).delete(synchronize_session=False)
         s.commit()
+    if issue_id and _paperclip_bridge_enabled():
+        try:
+            client, _cfg = _paperclip_client_or_raise()
+            client.update_issue(
+                issue_id,
+                {
+                    "status": "cancelled",
+                    "comment": "## Funba Workflow Update\n\nAction: delete_post\nTriggered from: Funba admin content\n\nThe linked SocialPost was deleted in Funba, so this workflow thread is now cancelled.",
+                },
+            )
+        except PaperclipBridgeError as exc:
+            logger.warning("Failed to cancel Paperclip issue %s for deleted post %s: %s", issue_id, post_id, exc)
     return jsonify({"ok": True})
+
+
+@app.post("/api/admin/content/<int:post_id>/paperclip/sync")
+def admin_content_sync_paperclip(post_id: int):
+    """Sync the linked Paperclip issue and comments back into Funba."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    result = _sync_social_post_from_paperclip(post_id, ensure_issue=True)
+    if result is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/admin/content/daily-analysis/trigger")
+def admin_content_trigger_daily_analysis():
+    """Create or refresh the daily content analysis issue for a source date."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    source_date = (data.get("source_date") or "").strip()
+    force = bool(data.get("force"))
+    try:
+        target_date = date.fromisoformat(source_date) if source_date else (date.today() - timedelta(days=1))
+    except ValueError:
+        return jsonify({"error": "invalid source_date"}), 400
+    try:
+        result = ensure_daily_content_analysis_issue(target_date, force=force)
+    except PaperclipBridgeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to trigger daily content analysis for %s", target_date.isoformat())
+        return jsonify({"error": str(exc)}), 500
+    return jsonify(result)
 
 
 @app.post("/api/admin/content/<int:post_id>/variants/<int:variant_id>/update")
@@ -5894,6 +6334,7 @@ def admin_content_variant_update(post_id: int, variant_id: int):
             v.audience_hint = data["audience_hint"]
         v.updated_at = datetime.utcnow()
         s.commit()
+    _ensure_paperclip_issue_for_post(post_id)
     return jsonify({"ok": True})
 
 
@@ -5927,7 +6368,9 @@ def admin_content_add_destination(post_id: int, variant_id: int):
         )
         s.add(d)
         s.commit()
-        return jsonify({"ok": True, "delivery_id": d.id})
+        delivery_id = d.id
+    _ensure_paperclip_issue_for_post(post_id)
+    return jsonify({"ok": True, "delivery_id": delivery_id})
 
 
 # ---------------------------------------------------------------------------
@@ -6019,7 +6462,14 @@ def api_content_create_post():
                     ))
 
         s.commit()
-        return jsonify({"ok": True, "post_id": sp.id, "variant_ids": variant_ids})
+        post_id = sp.id
+
+    _ensure_paperclip_issue_for_post(post_id)
+    sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
+    response = {"ok": True, "post_id": post_id, "variant_ids": variant_ids}
+    if sync_result:
+        response.update(sync_result)
+    return jsonify(response)
 
 
 @app.get("/api/content/posts")

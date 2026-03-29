@@ -461,6 +461,14 @@ class SocialPost(Base):
     admin_comments = Column(Text, nullable=True)       # JSON array [{text, timestamp, from}]
     priority = Column(Integer, nullable=False, default=50)
     llm_model = Column(String(64), nullable=True)
+    paperclip_issue_id = Column(String(64), nullable=True)
+    paperclip_issue_identifier = Column(String(64), nullable=True)
+    paperclip_issue_status = Column(String(16), nullable=True)
+    paperclip_assignee_agent_id = Column(String(64), nullable=True)
+    paperclip_assignee_user_id = Column(String(64), nullable=True)
+    paperclip_last_comment_id = Column(String(64), nullable=True)
+    paperclip_last_synced_at = Column(DateTime, nullable=True)
+    paperclip_sync_error = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
@@ -468,6 +476,7 @@ class SocialPost(Base):
         Index('ix_SocialPost_source_date', 'source_date'),
         Index('ix_SocialPost_status', 'status'),
         Index('ix_SocialPost_source_date_status', 'source_date', 'status'),
+        Index('ix_SocialPost_paperclip_issue_id', 'paperclip_issue_id'),
     )
 
 

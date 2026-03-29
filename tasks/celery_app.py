@@ -37,6 +37,7 @@ app.conf.update(
         "tasks.metrics.reduce_after_ingest": {"queue": "reduce"},
         "tasks.metrics.compute_season_metric": {"queue": "metrics"},
         "tasks.metrics.enqueue_career_metric_family": {"queue": "metrics"},
+        "tasks.content.ensure_daily_content_analysis": {"queue": "ingest"},
     },
 
     # --- Serialization ---
@@ -57,6 +58,10 @@ app.conf.update(
             "task": "tasks.metrics.sweep_metric_compute_runs",
             "schedule": 120,
         },
+        "ensure-daily-content-analysis": {
+            "task": "tasks.content.ensure_daily_content_analysis",
+            "schedule": 600,
+        },
     },
 
     # --- Broker ---
@@ -74,3 +79,4 @@ app.conf.update(
 import tasks.ingest  # noqa: F401, E402
 import tasks.metrics  # noqa: F401, E402
 import tasks.topics  # noqa: F401, E402
+import tasks.content  # noqa: F401, E402

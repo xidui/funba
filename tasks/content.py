@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import logging
+from datetime import date, timedelta
+
+from celery import shared_task
+from sqlalchemy.orm import sessionmaker
+
+from db.models import Game, engine
+from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
+
+logger = logging.getLogger(__name__)
+
+_SessionLocal = sessionmaker(bind=engine)
+
+
+def _session_factory():
+    return _SessionLocal
+
+
+def _queue_state() -> dict:
+    broker_url = None
+    queues = {"ingest": 0, "metrics": 0, "reduce": 0}
+    worker_active = 0
+    broker_ok = False
+
+    try:
+        import os
+        import redis as _redis
+
+        broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        r = _redis.Redis.from_url(broker_url, socket_timeout=2)
+        r.ping()
+        broker_ok = True
+        for qname in queues:
+            queues[qname] = int(r.llen(qname) or 0)
+    except Exception:
+        logger.warning("content readiness: failed to inspect Redis broker", exc_info=True)
+
+    try:
+        from tasks.celery_app import app as celery_app
+
+        inspector = celery_app.control.inspect(timeout=1.5)
+        active_tasks = inspector.active() or {}
+        for task_list in active_tasks.values():
+            worker_active += len(task_list or [])
+    except Exception:
+        logger.warning("content readiness: failed to inspect Celery workers", exc_info=True)
+
+    return {
+        "broker_ok": broker_ok,
+        "broker_url": broker_url,
+        "queues": queues,
+        "worker_active": worker_active,
+    }
+
+
+def _games_for_date(target_date: date) -> list[str]:
+    with _session_factory()() as session:
+        return [
+            row.game_id
+            for row in session.query(Game.game_id)
+            .filter(Game.game_date == target_date)
+            .order_by(Game.game_id.asc())
+            .all()
+        ]
+
+
+def _build_daily_analysis_title(target_date: date) -> str:
+    return f"Daily content analysis — funba — {target_date.isoformat()}"
+
+
+def _build_daily_analysis_description(target_date: date, game_ids: list[str]) -> str:
+    joined_game_ids = ", ".join(game_ids) if game_ids else "(none)"
+    return (
+        "Run the daily Funba content analysis pass once NBA ingest and metric computation are stable.\n\n"
+        f"Source date: {target_date.isoformat()}\n"
+        f"Game count: {len(game_ids)}\n"
+        f"Game IDs: {joined_game_ids}\n\n"
+        "Required work:\n"
+        "1. Read yesterday's games and triggered metrics from Funba localhost APIs.\n"
+        "2. Select 3-6 high-signal story angles.\n"
+        "3. Create SocialPost entries with Chinese variants for different audiences.\n"
+        "4. Leave the resulting posts in Funba for human review.\n"
+        "5. Do not publish to external platforms from this issue.\n"
+    )
+
+
+def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = False) -> dict:
+    cfg = load_paperclip_bridge_config()
+    if cfg is None:
+        raise PaperclipBridgeError("Paperclip bridge is unavailable.")
+
+    client = PaperclipClient(cfg)
+    cfg = client.discover_defaults()
+    if not cfg.project_id:
+        raise PaperclipBridgeError("Could not resolve Funba project in Paperclip.")
+    if not cfg.content_analyst_agent_id:
+        raise PaperclipBridgeError("Could not resolve Content Analyst agent in Paperclip.")
+
+    game_ids = _games_for_date(target_date)
+    if not game_ids:
+        return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
+
+    queue_state = _queue_state()
+    queue_backlog = sum(queue_state["queues"].values())
+    if not force and (queue_backlog > 0 or queue_state["worker_active"] > 0):
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "source_date": target_date.isoformat(),
+            "game_ids": game_ids,
+            "queue_state": queue_state,
+        }
+
+    title = _build_daily_analysis_title(target_date)
+    existing = client.list_issues(q=title, project_id=cfg.project_id)
+    exact_matches = [
+        issue
+        for issue in existing
+        if str(issue.get("title") or "").strip() == title
+        and str(issue.get("status") or "").strip() in {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}
+    ]
+    if exact_matches:
+        chosen = exact_matches[0]
+        return {
+            "ok": True,
+            "status": "exists",
+            "source_date": target_date.isoformat(),
+            "issue_id": chosen.get("id"),
+            "issue_identifier": chosen.get("identifier"),
+            "game_ids": game_ids,
+        }
+
+    issue = client.create_issue(
+        {
+            "projectId": cfg.project_id,
+            "title": title,
+            "description": _build_daily_analysis_description(target_date, game_ids),
+            "status": "todo",
+            "priority": "medium",
+            "assigneeAgentId": cfg.content_analyst_agent_id,
+        }
+    )
+    return {
+        "ok": True,
+        "status": "created",
+        "source_date": target_date.isoformat(),
+        "issue_id": issue.get("id"),
+        "issue_identifier": issue.get("identifier"),
+        "game_ids": game_ids,
+    }
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.ensure_daily_content_analysis",
+    queue="ingest",
+    max_retries=1,
+)
+def ensure_daily_content_analysis_task(self, source_date: str | None = None, force: bool = False) -> dict:
+    target_date = date.fromisoformat(source_date) if source_date else (date.today() - timedelta(days=1))
+    try:
+        result = ensure_daily_content_analysis_issue(target_date, force=force)
+        logger.info("daily content analysis readiness for %s -> %s", target_date.isoformat(), result.get("status"))
+        return result
+    except Exception as exc:
+        logger.warning("daily content analysis readiness failed for %s: %s", target_date.isoformat(), exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=60)

@@ -122,6 +122,7 @@
   .dest-row:last-child { border-bottom: none; }
   .dest-platform { font-weight: 600; color: var(--heading); min-width: 60px; }
   .dest-forum { color: var(--muted-2); flex: 1; }
+  .dest-tone { color: var(--muted); font-size: 11px; }
 
   /* Add destination form */
   .add-dest { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
@@ -143,6 +144,20 @@
     flex: 1; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 5px;
     color: var(--text); padding: 6px 10px; font-size: 12px; font-family: inherit;
   }
+
+  .workflow-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .workflow-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+  }
+  .workflow-header h4 { font-size: 12px; color: var(--muted-2); margin: 0; font-weight: 600; }
+  .workflow-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;
+    background: var(--surface-2); border-radius: 8px; padding: 10px 12px;
+  }
+  .workflow-field { font-size: 11px; color: var(--muted); }
+  .workflow-field strong { display: block; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 2px; }
+  .workflow-error { margin-top: 8px; font-size: 11px; color: var(--loss); }
+  .workflow-disabled { font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
 
   /* Action buttons */
   .post-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
@@ -172,6 +187,17 @@
     <p class="meta">{{ total }} post{{ 's' if total != 1 }} total</p>
   </div>
   <a href="{{ url_for('admin_pipeline') }}" class="act-btn" style="text-decoration:none;">← Admin</a>
+</div>
+
+<div class="gen-bar" onclick="event.stopPropagation()">
+  <label for="daily-analysis-date">Daily Analysis</label>
+  <input id="daily-analysis-date" type="date" value="{{ today }}">
+  <label class="cb-label">
+    <input id="daily-analysis-force" type="checkbox">
+    force
+  </label>
+  <button class="gen-btn" onclick="triggerDailyAnalysis()">Trigger</button>
+  <span class="gen-status" id="daily-analysis-status">Create or re-check the daily content analysis issue for this date.</span>
 </div>
 
 <!-- Status tabs -->
@@ -227,7 +253,11 @@
           {% for v in p.variants %}
           <button class="v-tab{% if loop.first %} active{% endif %}"
                   onclick="event.stopPropagation(); switchVariant({{ p.id }}, {{ v.id }})">
-            {{ v.audience_hint or ('Variant ' ~ loop.index) }}
+            {% if v.deliveries %}
+              {{ v.deliveries[0].platform }}/{{ v.deliveries[0].forum or '?' }} · {{ v.audience_hint or 'tone?' }}
+            {% else %}
+              {{ v.audience_hint or ('Variant ' ~ loop.index) }}
+            {% endif %}
           </button>
           {% endfor %}
         </div>
@@ -237,7 +267,16 @@
           <div class="v-title" id="vt-display-{{ v.id }}">{{ v.title }}</div>
           <input class="v-title-edit" id="vt-edit-{{ v.id }}" value="{{ v.title }}" onclick="event.stopPropagation()">
 
-          <div class="v-audience">{{ v.audience_hint or 'No audience hint' }}</div>
+          <div class="v-audience">
+            {% if v.deliveries %}
+              {{ v.deliveries[0].platform }}/{{ v.deliveries[0].forum or '?' }} · {{ v.audience_hint or 'No tone hint' }}
+            {% else %}
+              Tone: {{ v.audience_hint or 'No tone hint' }}
+            {% endif %}
+            {% if v.deliveries %}
+              · primary publish target
+            {% endif %}
+          </div>
 
           <div class="v-content" id="vc-display-{{ v.id }}">{{ v.content_raw }}</div>
           <textarea class="v-content-edit" id="vc-edit-{{ v.id }}" onclick="event.stopPropagation()">{{ v.content_raw }}</textarea>
@@ -250,6 +289,7 @@
               <div class="dest-row" id="dest-{{ d.id }}">
                 <span class="dest-platform">{{ d.platform }}</span>
                 <span class="dest-forum">{{ d.forum or '—' }}</span>
+                <span class="dest-tone">{{ v.audience_hint or 'No tone hint' }}</span>
                 <span class="d-chip {{ d.status }}">{{ d.status }}</span>
                 {% if d.published_url %}
                   <a href="{{ d.published_url }}" target="_blank" style="font-size:11px;color:var(--accent);">View</a>
@@ -284,6 +324,28 @@
         <div class="empty-state" style="padding:20px;">No variants yet.</div>
         {% endif %}
 
+        <div class="workflow-section" onclick="event.stopPropagation()">
+          <div class="workflow-header">
+            <h4>Paperclip Workflow</h4>
+            <button class="act-btn" onclick="syncPaperclip({{ p.id }})">Sync</button>
+          </div>
+          <div id="workflow-{{ p.id }}">
+            {% if p.workflow.enabled %}
+            <div class="workflow-grid">
+              <div class="workflow-field"><strong>Issue</strong>{{ p.workflow.issue_identifier or 'Not linked' }}</div>
+              <div class="workflow-field"><strong>Status</strong>{{ p.workflow.issue_status or '—' }}</div>
+              <div class="workflow-field"><strong>Owner</strong>{{ p.workflow.owner_label or 'Unassigned' }}</div>
+              <div class="workflow-field"><strong>Last Sync</strong>{{ p.workflow.last_synced_at or 'Never' }}</div>
+            </div>
+            {% if p.workflow.sync_error %}
+            <div class="workflow-error">{{ p.workflow.sync_error }}</div>
+            {% endif %}
+            {% else %}
+            <div class="workflow-disabled">Paperclip bridge is not configured for this environment.</div>
+            {% endif %}
+          </div>
+        </div>
+
         <!-- Comment thread -->
         <div class="comment-section" onclick="event.stopPropagation()">
           <h4>Comments</h4>
@@ -291,7 +353,7 @@
             {% for c in p.admin_comments %}
             <div class="comment-item">
               {{ c.text }}
-              <div class="comment-meta">{{ c.from }} · {{ c.timestamp }}</div>
+              <div class="comment-meta">{{ c.from }} · {{ c.timestamp }} · {{ c.origin }}</div>
             </div>
             {% endfor %}
           </div>
@@ -307,8 +369,8 @@
             <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'in_review')">Send to Review</button>
           {% endif %}
           {% if p.status == 'in_review' %}
-            <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve</button>
-            <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Back to Draft</button>
+            <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve & Queue Publish</button>
+            <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Request Revision</button>
           {% endif %}
           <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'archived')">Archive</button>
           <button class="act-btn delete" onclick="deletePost({{ p.id }})">Delete</button>
@@ -335,6 +397,37 @@ function togglePost(e, id) {
   const card = document.getElementById('post-' + id);
   if (card.classList.contains('expanded')) return; // don't collapse on click inside
   card.classList.toggle('expanded');
+  if (card.classList.contains('expanded')) syncPaperclip(id);
+}
+
+function triggerDailyAnalysis() {
+  const dateInput = document.getElementById('daily-analysis-date');
+  const forceInput = document.getElementById('daily-analysis-force');
+  const status = document.getElementById('daily-analysis-status');
+  status.textContent = 'Checking readiness…';
+  fetch('/api/admin/content/daily-analysis/trigger', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      source_date: dateInput.value,
+      force: forceInput.checked,
+    }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      status.textContent = `${data.status}: ${data.issue_identifier || 'issue ready'}`;
+      return;
+    }
+    if (data.status) {
+      status.textContent = `${data.status}: ${data.issue_identifier || data.error || 'not ready yet'}`;
+      return;
+    }
+    status.textContent = data.error || 'Trigger failed.';
+  })
+  .catch(err => {
+    status.textContent = `Trigger failed: ${err.message}`;
+  });
 }
 
 function switchVariant(postId, variantId) {
@@ -373,7 +466,47 @@ function saveVariant(postId, vid) {
       document.getElementById('vt-display-' + vid).textContent = title;
       document.getElementById('vc-display-' + vid).textContent = content;
       toggleVariantEdit(vid);
+      syncPaperclip(postId);
     }
+  });
+}
+
+function renderComments(postId, comments) {
+  const container = document.getElementById('comments-' + postId);
+  container.innerHTML = (comments || []).map((comment) => {
+    const meta = [comment.from, comment.timestamp, comment.origin].filter(Boolean).join(' · ');
+    return `<div class="comment-item">${comment.text}<div class="comment-meta">${meta}</div></div>`;
+  }).join('');
+}
+
+function renderWorkflow(postId, workflow) {
+  const container = document.getElementById('workflow-' + postId);
+  if (!container || !workflow) return;
+  if (!workflow.enabled) {
+    container.innerHTML = '<div class="workflow-disabled">Paperclip bridge is not configured for this environment.</div>';
+    return;
+  }
+  const fields = [
+    ['Issue', workflow.issue_identifier || 'Not linked'],
+    ['Status', workflow.issue_status || '—'],
+    ['Owner', workflow.owner_label || 'Unassigned'],
+    ['Last Sync', workflow.last_synced_at || 'Never'],
+  ];
+  const grid = `<div class="workflow-grid">${fields.map(([label, value]) => `<div class="workflow-field"><strong>${label}</strong>${value}</div>`).join('')}</div>`;
+  const error = workflow.sync_error ? `<div class="workflow-error">${workflow.sync_error}</div>` : '';
+  container.innerHTML = `${grid}${error}`;
+}
+
+function syncPaperclip(postId) {
+  fetch(`/api/admin/content/${postId}/paperclip/sync`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok) return;
+    renderWorkflow(postId, data.workflow);
+    renderComments(postId, data.comments);
   });
 }
 
@@ -407,9 +540,8 @@ function addComment(postId) {
   .then(data => {
     if (data.ok) {
       input.value = '';
-      const container = document.getElementById('comments-' + postId);
-      const last = data.comments[data.comments.length - 1];
-      container.innerHTML += `<div class="comment-item">${last.text}<div class="comment-meta">${last.from} · ${last.timestamp}</div></div>`;
+      renderComments(postId, data.comments);
+      renderWorkflow(postId, data.workflow);
     }
   });
 }
