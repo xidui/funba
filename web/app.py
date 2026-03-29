@@ -2214,6 +2214,9 @@ def _block_bots():
     """Return 403 for known bots / non-browser clients."""
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
+    # Exempt localhost API calls (Paperclip)
+    if request.path.startswith(("/api/content/", "/api/data/")) and request.remote_addr in ("127.0.0.1", "::1"):
+        return
     if _is_bot():
         return "Forbidden", 403
 
