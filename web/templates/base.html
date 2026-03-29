@@ -298,6 +298,20 @@
         user-select: none;
       }
 
+      .admin-menu-wrap { position: relative; display: flex; align-items: center; }
+      .admin-dropdown {
+        display: none; position: absolute; right: 0; top: calc(100% + 8px);
+        background: var(--surface-2); border: 1px solid var(--border-2);
+        border-radius: 10px; min-width: 180px; z-index: 200;
+        box-shadow: var(--dropdown-shadow); overflow: hidden;
+      }
+      .admin-dropdown.open { display: block; }
+      .admin-dropdown a {
+        display: block; padding: 10px 14px; font-size: 13px; color: var(--text);
+        text-decoration: none;
+      }
+      .admin-dropdown a:hover { background: var(--surface-3); text-decoration: none; }
+
       .theme-toggle {
         width: 34px;
         height: 34px;
@@ -966,8 +980,19 @@
           <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if request.endpoint == 'awards_page' }}">Awards</a>
           <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if request.endpoint == 'pricing' }}">Pricing</a>
           {% if is_admin %}
-          <a href="{{ url_for('admin_pipeline') }}" class="nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}">Admin</a>
-          <span class="admin-badge" title="Admin mode (localhost)">&#9737;</span>
+          <div class="admin-menu-wrap" id="admin-menu-wrap">
+            <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback') }}" id="admin-menu-btn">
+              Admin
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-left:3px;vertical-align:middle;opacity:0.5;">
+                <path d="M2 3.5l3 3 3-3"/>
+              </svg>
+            </a>
+            <div class="admin-dropdown" id="admin-dropdown">
+              <a href="{{ url_for('admin_pipeline') }}">Pipeline Status</a>
+              <a href="{{ url_for('admin_content') }}">Content Pipeline</a>
+              <a href="{{ url_for('admin_feedback') }}">User Feedback</a>
+            </div>
+          </div>
           {% endif %}
           <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Switch to light mode">
             <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1212,6 +1237,21 @@
         document.addEventListener('click', e => {
           if (!input.contains(e.target) && !dropdown.contains(e.target))
             dropdown.classList.remove('open');
+        });
+      })();
+
+      // ── Admin dropdown ────────────────────────────────────────────
+      (function () {
+        const wrap = document.getElementById('admin-menu-wrap');
+        const menu = document.getElementById('admin-dropdown');
+        if (!wrap || !menu) return;
+        wrap.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          menu.classList.toggle('open');
+        });
+        document.addEventListener('click', function (e) {
+          if (!wrap.contains(e.target)) menu.classList.remove('open');
         });
       })();
 
