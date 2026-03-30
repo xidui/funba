@@ -8,7 +8,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from tools.hupu_post import _extract_thread_url_from_html, _render_inline_html, _resolve_forum  # noqa: E402
+from tools.hupu_post import (  # noqa: E402
+    NBA_COMPOSER_FORUM_ID,
+    _extract_thread_url_from_html,
+    _forum_label_matches,
+    _render_inline_html,
+    _resolve_forum,
+)
 
 
 class TestHupuPostUrlExtraction(unittest.TestCase):
@@ -33,7 +39,7 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
     def test_resolve_forum_supports_chinese_alias(self):
         key, forum_id, label = _resolve_forum("湖人专区")
         self.assertEqual(key, "lakers")
-        self.assertEqual(forum_id, 127)
+        self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "湖人专区")
 
     def test_render_inline_html_supports_bold_and_links(self):
@@ -44,8 +50,19 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
     def test_resolve_forum_supports_existing_english_key(self):
         key, forum_id, label = _resolve_forum("thunder")
         self.assertEqual(key, "thunder")
-        self.assertEqual(forum_id, 129)
+        self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "雷霆专区")
+
+    def test_resolve_forum_supports_dynamic_chinese_team_forum(self):
+        key, forum_id, label = _resolve_forum("勇士专区")
+        self.assertEqual(key, "勇士专区")
+        self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
+        self.assertEqual(label, "勇士专区")
+
+    def test_forum_label_matches_treats_basketball_court_as_nba_board(self):
+        self.assertTrue(_forum_label_matches("篮球场", "NBA版"))
+        self.assertTrue(_forum_label_matches("NBA版", "NBA版"))
+        self.assertFalse(_forum_label_matches("湖人专区", "NBA版"))
 
 
 if __name__ == "__main__":

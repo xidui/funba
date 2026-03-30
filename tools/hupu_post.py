@@ -37,11 +37,16 @@ REAL_BROWSER_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 )
 
+NBA_COMPOSER_FORUM_ID = 179
+CBA_COMPOSER_FORUM_ID = 346
+
+# Hupu team forums are selected dynamically through the composer picker. These
+# aliases only preserve backward compatibility with existing English keys.
 FORUMS = {
-    "nba": {"id": 179, "label": "NBA版", "aliases": ("nba", "NBA版")},
-    "cba": {"id": 346, "label": "CBA版", "aliases": ("cba", "CBA版")},
-    "thunder": {"id": 129, "label": "雷霆专区", "aliases": ("thunder", "雷霆专区")},
-    "lakers": {"id": 127, "label": "湖人专区", "aliases": ("lakers", "湖人专区")},
+    "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "NBA版", "aliases": ("nba", "NBA版")},
+    "cba": {"composer_id": CBA_COMPOSER_FORUM_ID, "label": "CBA版", "aliases": ("cba", "CBA版")},
+    "thunder": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "雷霆专区", "aliases": ("thunder", "雷霆专区")},
+    "lakers": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "湖人专区", "aliases": ("lakers", "湖人专区")},
 }
 
 
@@ -120,12 +125,14 @@ def _fill_editor(page: Page, paragraphs: list[str], footer_html: str | None = No
 
 
 def _resolve_forum(forum: str) -> tuple[str, int, str]:
-    """Resolve an input forum alias into (key, id, label)."""
+    """Resolve an input forum alias into (key, composer_page_id, label)."""
     normalized = (forum or "").strip()
     for key, meta in FORUMS.items():
         aliases = meta.get("aliases") or ()
         if normalized == key or normalized in aliases:
-            return key, int(meta["id"]), str(meta["label"])
+            return key, int(meta["composer_id"]), str(meta["label"])
+    if normalized.endswith("专区"):
+        return normalized, NBA_COMPOSER_FORUM_ID, normalized
     raise KeyError(forum)
 
 
@@ -185,37 +192,77 @@ def _append_footer_html(page: Page, footer_html: str) -> None:
     time.sleep(0.3)
 
 
-def _ensure_forum_selected(page: Page, forum_label: str) -> None:
-    """Select the target forum in the composer if Hupu leaves it blank."""
-    body_text = page.locator("body").inner_text(timeout=3000)
-    if (
-        f"专区：\n{forum_label}" in body_text
-        or f"专区： {forum_label}" in body_text
-        or forum_label in body_text
-    ):
+def _forum_label_matches(current_label: str | None, target_label: str) -> bool:
+    """Return whether the current composer forum should be treated as the target."""
+    current = (current_label or "").strip()
+    target = (target_label or "").strip()
+    if not current or not target:
+        return False
+    if target == "NBA版":
+        return current in {"NBA版", "篮球场"}
+    return current == target
+
+
+def _current_forum_label(page: Page) -> str | None:
+    """Return the currently selected forum label shown in the composer."""
+    chip = page.locator(".selectTagWrap .ant-tag").first
+    if chip.count() == 0:
+        return None
+    text = chip.inner_text(timeout=1000).strip()
+    return text or None
+
+
+def _clear_selected_forum(page: Page) -> None:
+    """Remove the currently selected forum tag so the picker can reopen."""
+    close = page.locator(".selectTagWrap .anticon-close").first
+    if close.count() == 0:
         return
+    close.click()
+    time.sleep(1)
+
+
+def _ensure_forum_selected(page: Page, forum_label: str) -> None:
+    """Select the target forum in the composer via the dynamic picker."""
+    current_label = _current_forum_label(page)
+    if _forum_label_matches(current_label, forum_label):
+        return
+
+    _clear_selected_forum(page)
 
     add_forum = page.locator("text=添加专区").first
     if add_forum.count() == 0:
-        # Some default forums (e.g. NBA版) may already be implicitly selected and
-        # the explicit picker affordance is not rendered. In that case, tolerate
-        # the missing trigger instead of hard-failing.
-        return
+        raise RuntimeError("Forum picker trigger not found after clearing current forum")
     add_forum.click()
     time.sleep(1)
 
-    option = page.locator(f"text={forum_label}").first
+    search_input = page.locator('input[placeholder="添加专区可以让更多JR和你一起讨论"]').first
+    if search_input.count() == 0:
+        raise RuntimeError("Forum search input not found in picker")
+    search_input.fill(forum_label)
+
+    search_button = page.locator(".ant-modal button.btnRed", has_text="搜").first
+    if search_button.count() == 0:
+        raise RuntimeError("Forum search button not found in picker")
+    search_button.click()
+    time.sleep(1.5)
+
+    option = page.locator(".ant-modal .listItem", has_text=forum_label).first
     if option.count() == 0:
         raise RuntimeError(f"Forum option not found in selector: {forum_label}")
     option.click()
-    time.sleep(1)
+    time.sleep(0.8)
 
-    # Some forum pickers need an extra click to close/confirm.
-    try:
-        page.keyboard.press("Escape")
-    except Exception:
-        pass
-    time.sleep(0.5)
+    confirm = page.locator(".ant-modal button", has_text="确").first
+    if confirm.count() == 0:
+        raise RuntimeError("Forum confirm button not found in picker")
+    confirm.click()
+    time.sleep(1.5)
+
+    current_label = _current_forum_label(page)
+    if not _forum_label_matches(current_label, forum_label):
+        raise RuntimeError(
+            f"Forum selection did not persist: expected {forum_label}, got {current_label or 'none'}"
+        )
 
 
 def _fill_editor_with_content_blocks(
@@ -597,13 +644,13 @@ def cmd_post(args: argparse.Namespace) -> None:
     link_url = args.link_url
 
     try:
-        forum_key, forum_id, forum_label = _resolve_forum(forum)
+        forum_key, composer_id, forum_label = _resolve_forum(forum)
     except KeyError:
         available = ", ".join(f"{key}({meta['label']})" for key, meta in FORUMS.items())
-        print(f"Unknown forum: {forum!r}. Available: {available}")
+        print(f"Unknown forum: {forum!r}. Available aliases: {available} or any Chinese Hupu forum label like '勇士专区'")
         sys.exit(1)
 
-    print(f"Forum: {forum_key} / {forum_label} (ID {forum_id})")
+    print(f"Forum: {forum_key} / {forum_label} (composer page {composer_id})")
     print(f"Title: {title}")
     print(f"Content: {content[:100]}{'...' if len(content) > 100 else ''}")
     if images:
@@ -627,7 +674,7 @@ def cmd_post(args: argparse.Namespace) -> None:
         print("Logged in.")
 
         # Navigate to post page
-        post_url = f"{HUPU_HOME}/newpost/{forum_id}"
+        post_url = f"{HUPU_HOME}/newpost/{composer_id}"
         page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
         time.sleep(3)
         print(f"Post page loaded: {page.url}")
