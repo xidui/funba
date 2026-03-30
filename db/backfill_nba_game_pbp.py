@@ -1,4 +1,6 @@
-from nba_api.stats.endpoints import playbyplayv3
+import requests
+
+from nba_api.stats.library.http import STATS_HEADERS
 from sqlalchemy.orm import sessionmaker
 from db.models import Game, GamePlayByPlay, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
@@ -150,7 +152,21 @@ def _normalize_pbp(raw):
 )
 def fetch_game_play_by_play(game_id):
     try:
-        raw = playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=30).get_dict()
+        response = requests.get(
+            "https://stats.nba.com/stats/playbyplayv3",
+            params={
+                "GameID": str(game_id),
+                "StartPeriod": 1,
+                "EndPeriod": 10,
+            },
+            headers=STATS_HEADERS,
+            timeout=30,
+        )
+        response.raise_for_status()
+        raw = response.json()
+        actions = ((raw.get("game") or {}).get("actions") or [])
+        if not actions:
+            raise ValueError(f"No PBP actions returned for game {game_id}")
         return _normalize_pbp(raw)
     except Exception as e:
         logger.error(f"Failed to fetch game pbp for {game_id}, error: {e}")
