@@ -280,6 +280,7 @@
   .shot-legend-dot.missed { background: var(--shot-missed); }
 
   .player-heat-court .shot-dot { stroke: none; }
+  .zone-court { background: transparent; }
 
   /* Two-chart layout */
   .shot-charts-row {
@@ -738,7 +739,7 @@
     <div class="shot-chart-col">
       <h3>Zone FG%</h3>
       {% if heatmap_zones %}
-      <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
+      <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court zone-court">
         <g transform="scale(1,-1)">
           {% for zone in heatmap_zones %}
           <path
