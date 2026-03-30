@@ -422,8 +422,6 @@
     border-radius: 10px;
   }
 
-  .pbp-table { min-width: 540px; }
-
   .pbp-period-sep td {
     background: var(--surface-3);
     color: var(--muted-2);
@@ -445,6 +443,17 @@
 
   .pbp-score-event td {
     background: rgba(249, 115, 22, 0.05);
+  }
+
+  @media (max-width: 540px) {
+    .bs-tab,
+    .qf-label {
+      min-height: 44px;
+    }
+
+    .shot-team-court {
+      max-height: 70vh;
+    }
   }
 </style>
 
@@ -641,13 +650,13 @@
       <div class="box-score-team">
         <h3>{{ team_name(team_id) }}</h3>
         {% if players %}
-        <div class="table-wrap">
+        <div class="table-wrap" data-mobile-key="game-player-stats-{{ team_id }}">
           <table>
             <thead>
               <tr>
                 <th>Player</th>
-                <th>Status</th>
-                <th>Min</th>
+                <th class="mobile-hide">Status</th>
+                <th class="mobile-hide">Min</th>
                 <th>PTS</th>
                 <th>REB</th>
                 <th>AST</th>
@@ -660,8 +669,8 @@
                 <td>
                   <a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a>
                 </td>
-                <td class="meta">{{ row.status }}</td>
-                <td>{{ row.minutes }}</td>
+                <td class="mobile-hide meta">{{ row.status }}</td>
+                <td class="mobile-hide">{{ row.minutes }}</td>
                 <td><strong>{{ row.pts }}</strong></td>
                 <td>{{ row.reb }}</td>
                 <td>{{ row.ast }}</td>
@@ -803,18 +812,18 @@
 <div class="card">
   <h2>Play by Play</h2>
   {% if pbp_rows %}
-  <div class="pbp-wrap">
+  <div class="pbp-wrap table-wrap" data-mobile-key="game-play-by-play">
     <table class="pbp-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Period</th>
+          <th class="mobile-hide">#</th>
+          <th class="mobile-hide">Period</th>
           <th>Clock</th>
           <th></th>
-          <th>Type</th>
+          <th class="mobile-hide">Type</th>
           <th>Event</th>
           <th>Score</th>
-          <th>Margin</th>
+          <th class="mobile-hide">Margin</th>
         </tr>
       </thead>
       <tbody>
@@ -831,8 +840,8 @@
         {% set ns.last_period = row.period %}
         {% endif %}
         <tr class="{{ 'pbp-score-event' if row.event_type_code in (1, 3) else '' }}">
-          <td class="meta">{{ row.event_num }}</td>
-          <td class="meta">{{ row.period }}</td>
+          <td class="mobile-hide meta">{{ row.event_num }}</td>
+          <td class="mobile-hide meta">{{ row.period }}</td>
           <td class="nowrap meta">{{ row.clock }}</td>
           <td class="pbp-logo-cell">
             {% if row.team_id %}
@@ -840,10 +849,10 @@
                  alt="" width="20" height="20" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
           </td>
-          <td class="meta">{{ row.event_type }}</td>
+          <td class="mobile-hide meta">{{ row.event_type }}</td>
           <td>{{ row.description }}</td>
           <td class="nowrap">{{ row.score }}</td>
-          <td class="meta">{{ row.margin }}</td>
+          <td class="mobile-hide meta">{{ row.margin }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -862,6 +871,7 @@
     document.getElementById('bs-' + name).classList.remove('hidden');
     document.querySelectorAll('.bs-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    window.dispatchEvent(new Event('resize'));
   }
 
   (function () {

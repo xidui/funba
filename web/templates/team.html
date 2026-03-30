@@ -218,13 +218,13 @@
   {% endif %}
 
   {% if current_games %}
-  <div class="table-wrap">
+  <div class="table-wrap" data-mobile-key="team-season-games">
     <table>
       <thead>
         <tr>
           <th>Date</th>
           <th>Opponent</th>
-          <th>H/A</th>
+          <th class="mobile-hide">H/A</th>
           <th>Result</th>
           <th>Score</th>
         </tr>
@@ -236,7 +236,7 @@
           <td>
             <a href="{{ url_for('team_page', team_id=row.opponent_id) }}">{{ row.opponent_name }}</a>
           </td>
-          <td class="meta">{{ row.where }}</td>
+          <td class="mobile-hide meta">{{ row.where }}</td>
           <td>
             {% if row.result == 'W' %}
             <span class="badge badge-win">W</span>
@@ -281,17 +281,17 @@
   </div>
 
   {% if season_summary %}
-  <div class="table-wrap">
+  <div class="table-wrap" data-mobile-key="team-season-summary">
     <table>
       <thead>
         <tr>
           <th>Season</th>
           <th>W</th>
           <th>L</th>
-          <th>GP</th>
-          <th>FG%</th>
-          <th>3P%</th>
-          <th>FT%</th>
+          <th class="mobile-hide">GP</th>
+          <th class="mobile-hide">FG%</th>
+          <th class="mobile-hide">3P%</th>
+          <th class="mobile-hide">FT%</th>
           <th>Win%</th>
         </tr>
       </thead>
@@ -301,10 +301,10 @@
           <td class="nowrap">{{ season_label(row.season) }}</td>
           <td style="color:var(--win); font-weight:600;">{{ row.wins }}</td>
           <td style="color:var(--loss);">{{ row.losses }}</td>
-          <td>{{ row.games }}</td>
-          <td>{{ row.fg_pct|pct_fmt }}</td>
-          <td>{{ row.fg3_pct|pct_fmt }}</td>
-          <td>{{ row.ft_pct|pct_fmt }}</td>
+          <td class="mobile-hide">{{ row.games }}</td>
+          <td class="mobile-hide">{{ row.fg_pct|pct_fmt }}</td>
+          <td class="mobile-hide">{{ row.fg3_pct|pct_fmt }}</td>
+          <td class="mobile-hide">{{ row.ft_pct|pct_fmt }}</td>
           <td>
             {% if row.games > 0 %}
             {{ "%.3f"|format(row.wins / row.games) }}
