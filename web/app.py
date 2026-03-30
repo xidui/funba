@@ -1958,7 +1958,7 @@ SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
         "label": "Center Above Break 3",
         "x": 0.0,
         "y": 305.0,
-        "path_d": "M -90 222.8 L -90 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 0 -90 222.8 Z",
+        "path_d": "M -90 222.8 L -90 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 1 -90 222.8 Z",
     },
     {
         "key": "right_above_break_3",
