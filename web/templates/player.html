@@ -765,12 +765,16 @@
           <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
           <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
           <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
-          {% for zone in heatmap_zones if zone.attempts > 0 %}
-          <text x="{{ zone.x }}" y="{{ -zone.y }}" text-anchor="middle" dominant-baseline="central"
-                fill="#fff" font-size="14" font-weight="700" font-family="Outfit, sans-serif"
-                style="paint-order:stroke;stroke:rgba(0,0,0,0.6);stroke-width:3px;">{{ zone.fg_pct }}</text>
-          {% endfor %}
         </g>
+        <!-- FG% labels outside the flipped group so text is upright -->
+        {% for zone in heatmap_zones if zone.attempts > 0 %}
+        <text x="{{ zone.x }}" y="{{ -zone.y }}" text-anchor="middle" dominant-baseline="central"
+              fill="#fff" font-size="13" font-weight="700" font-family="Outfit, sans-serif"
+              style="paint-order:stroke;stroke:rgba(0,0,0,0.55);stroke-width:3px;">{{ zone.fg_pct }}</text>
+        <text x="{{ zone.x }}" y="{{ -zone.y + 15 }}" text-anchor="middle" dominant-baseline="central"
+              fill="rgba(255,255,255,0.6)" font-size="9" font-family="Inter, sans-serif"
+              style="paint-order:stroke;stroke:rgba(0,0,0,0.4);stroke-width:2px;">{{ zone.made }}/{{ zone.attempts }}</text>
+        {% endfor %}
       </svg>
       {% else %}
       <p class="meta">No zone data.</p>

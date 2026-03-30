@@ -2079,10 +2079,11 @@ def _build_shot_zone_heatmap(
         b = buckets.get(key, {})
         attempts = int(b.get("attempts", 0))
         made = int(b.get("made", 0))
-        density = (attempts / max_attempts) if max_attempts > 0 else 0.0
-        hue = int(210 - (210 * density))  # blue -> red based on attempt density
-        lightness = int(88 - (38 * density))
-        alpha = round(0.08 + (0.72 * density), 3) if attempts > 0 else 0.035
+        fg_rate = (made / attempts) if attempts > 0 else 0.0
+        # Red (0) at 0% → Yellow (55) at 40% → Green (130) at 60%+
+        hue = int(min(fg_rate / 0.6, 1.0) * 130)
+        lightness = int(38 + 15 * fg_rate)
+        alpha = 0.8 if attempts > 0 else 0.035
         zones.append(
             {
                 "zone_key": key,
