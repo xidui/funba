@@ -206,11 +206,22 @@
     .player-header { flex-direction: column; align-items: flex-start; }
     .player-avatar { width: 88px; height: 88px; }
     .player-bio-grid {
-      gap: 8px 0;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+      overflow: visible;
     }
-    .bio-item { padding: 0 12px; }
+    .bio-item {
+      min-width: 0;
+      padding: 0;
+      border-right: none;
+    }
+    .bio-value {
+      white-space: normal;
+    }
+    .compare-link-btn {
+      min-height: 44px;
+    }
   }
 
   /* ── Career section ─────────────────────────────────────────────── */
@@ -306,6 +317,12 @@
 
   @media (max-width: 800px) {
     .shot-charts-row { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 540px) {
+    .shot-chart-col .player-heat-court {
+      max-height: 70vh;
+    }
   }
 </style>
 
@@ -465,24 +482,24 @@
 
   <!-- Totals view -->
   <div id="view-totals" class="stat-view">
-    <div class="table-wrap">
+    <div class="table-wrap" data-mobile-key="player-career-totals">
       <table>
         <thead>
           <tr>
             <th>Season</th>
             <th>Team</th>
-            <th>GP</th>
-            <th>Played</th>
-            <th>MIN</th>
+            <th class="mobile-hide">GP</th>
+            <th class="mobile-hide">Played</th>
+            <th class="mobile-hide">MIN</th>
             <th>PTS</th>
             <th>REB</th>
             <th>AST</th>
-            <th>STL</th>
-            <th>BLK</th>
-            <th>TOV</th>
+            <th class="mobile-hide">STL</th>
+            <th class="mobile-hide">BLK</th>
+            <th class="mobile-hide">TOV</th>
             <th>FG</th>
-            <th>3PT</th>
-            <th>FT</th>
+            <th class="mobile-hide">3PT</th>
+            <th class="mobile-hide">FT</th>
           </tr>
         </thead>
         <tbody>
@@ -490,36 +507,36 @@
           <tr class="row-overall">
             <td><strong>Overall</strong></td>
             <td class="meta">—</td>
-            <td>{{ s.games_tracked }}</td>
-            <td>{{ s.games_played }}</td>
-            <td>{{ s.minutes }}</td>
+            <td class="mobile-hide">{{ s.games_tracked }}</td>
+            <td class="mobile-hide">{{ s.games_played }}</td>
+            <td class="mobile-hide">{{ s.minutes }}</td>
             <td>{{ s.pts }}</td>
             <td>{{ s.reb }}</td>
             <td>{{ s.ast }}</td>
-            <td>{{ s.stl }}</td>
-            <td>{{ s.blk }}</td>
-            <td>{{ s.tov }}</td>
+            <td class="mobile-hide">{{ s.stl }}</td>
+            <td class="mobile-hide">{{ s.blk }}</td>
+            <td class="mobile-hide">{{ s.tov }}</td>
             <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
-            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
-            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
+            <td class="mobile-hide nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
+            <td class="mobile-hide nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
           </tr>
           {% for row in career_season_rows %}
           {% set s = row.stats %}
           <tr>
             <td class="nowrap">{{ season_label(row.season) }}</td>
             <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
-            <td>{{ s.games_tracked }}</td>
-            <td>{{ s.games_played }}</td>
-            <td>{{ s.minutes }}</td>
+            <td class="mobile-hide">{{ s.games_tracked }}</td>
+            <td class="mobile-hide">{{ s.games_played }}</td>
+            <td class="mobile-hide">{{ s.minutes }}</td>
             <td>{{ s.pts }}</td>
             <td>{{ s.reb }}</td>
             <td>{{ s.ast }}</td>
-            <td>{{ s.stl }}</td>
-            <td>{{ s.blk }}</td>
-            <td>{{ s.tov }}</td>
+            <td class="mobile-hide">{{ s.stl }}</td>
+            <td class="mobile-hide">{{ s.blk }}</td>
+            <td class="mobile-hide">{{ s.tov }}</td>
             <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
-            <td class="nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
-            <td class="nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
+            <td class="mobile-hide nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
+            <td class="mobile-hide nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -529,19 +546,19 @@
 
   <!-- Per-Game view -->
   <div id="view-pergame" class="stat-view active">
-    <div class="table-wrap">
+    <div class="table-wrap" data-mobile-key="player-career-pergame">
       <table>
         <thead>
           <tr>
             <th>Season</th>
             <th>Team</th>
-            <th>MPG</th>
+            <th class="mobile-hide">MPG</th>
             <th>PPG</th>
             <th>RPG</th>
             <th>APG</th>
-            <th>SPG</th>
-            <th>BPG</th>
-            <th>TPG</th>
+            <th class="mobile-hide">SPG</th>
+            <th class="mobile-hide">BPG</th>
+            <th class="mobile-hide">TPG</th>
           </tr>
         </thead>
         <tbody>
@@ -549,26 +566,26 @@
           <tr class="row-overall">
             <td><strong>Overall</strong></td>
             <td class="meta">—</td>
-            <td>{{ s.mpg }}</td>
+            <td class="mobile-hide">{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>
             <td>{{ s.apg }}</td>
-            <td>{{ s.spg }}</td>
-            <td>{{ s.bpg }}</td>
-            <td>{{ s.tpg }}</td>
+            <td class="mobile-hide">{{ s.spg }}</td>
+            <td class="mobile-hide">{{ s.bpg }}</td>
+            <td class="mobile-hide">{{ s.tpg }}</td>
           </tr>
           {% for row in career_season_rows %}
           {% set s = row.stats %}
           <tr>
             <td class="nowrap">{{ season_label(row.season) }}</td>
             <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
-            <td>{{ s.mpg }}</td>
+            <td class="mobile-hide">{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>
             <td>{{ s.apg }}</td>
-            <td>{{ s.spg }}</td>
-            <td>{{ s.bpg }}</td>
-            <td>{{ s.tpg }}</td>
+            <td class="mobile-hide">{{ s.spg }}</td>
+            <td class="mobile-hide">{{ s.bpg }}</td>
+            <td class="mobile-hide">{{ s.tpg }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -819,16 +836,16 @@
   {% endif %}
 
   {% if game_rows %}
-  <div class="table-wrap">
+  <div class="table-wrap" data-mobile-key="player-season-games">
     <table>
       <thead>
         <tr>
           <th>Date</th>
           <th>Matchup</th>
-          <th>Score</th>
+          <th class="mobile-hide">Score</th>
           <th>Result</th>
-          <th>Status</th>
-          <th>Min</th>
+          <th class="mobile-hide">Status</th>
+          <th class="mobile-hide">Min</th>
           <th>PTS</th>
           <th>REB</th>
           <th>AST</th>
@@ -851,7 +868,7 @@
               {{ row.opponent_abbr }}
             </a>
           </td>
-          <td class="nowrap">
+          <td class="mobile-hide nowrap">
             <a href="{{ url_for('game_page', game_id=row.game_id) }}" class="gl-score-link">
               {% if row.player_team_score is not none and row.opponent_score is not none %}
               {{ row.player_team_score }}–{{ row.opponent_score }}
@@ -869,8 +886,8 @@
             <span class="meta">—</span>
             {% endif %}
           </td>
-          <td class="meta">{{ row.status }}</td>
-          <td>{{ row.minutes }}</td>
+          <td class="mobile-hide meta">{{ row.status }}</td>
+          <td class="mobile-hide">{{ row.minutes }}</td>
           <td><strong>{{ row.pts }}</strong></td>
           <td>{{ row.reb }}</td>
           <td>{{ row.ast }}</td>
@@ -894,6 +911,7 @@
         Object.values(views).forEach(v => v && v.classList.remove('active'));
         const target = views[btn.dataset.view];
         if (target) target.classList.add('active');
+        window.dispatchEvent(new Event('resize'));
       });
     });
   })();

@@ -636,13 +636,72 @@
         overflow-x: auto;
         border: 1px solid var(--border);
         border-radius: 10px;
+        position: relative;
       }
 
       table {
         width: 100%;
         border-collapse: collapse;
         font-size: 13px;
-        min-width: 500px;
+        min-width: 0;
+      }
+
+      .table-wrap--mobile-toggle table {
+        min-width: 100%;
+      }
+
+      .table-mobile-toolbar {
+        display: none;
+        justify-content: flex-end;
+        margin-bottom: 10px;
+      }
+
+      .table-mobile-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 36px;
+        padding: 0 14px;
+        border: 1px solid var(--border-2);
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--text);
+        font-family: 'Outfit', sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+      }
+
+      .table-mobile-toggle:hover {
+        border-color: var(--accent);
+        color: var(--heading);
+      }
+
+      .table-mobile-toggle.is-active {
+        background: var(--accent-dim);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+
+      .table-wrap--mobile-gradient::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 18px;
+        height: 100%;
+        background: linear-gradient(to left, var(--surface), transparent);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+      }
+
+      .table-wrap--mobile-gradient.is-overflowing:not(.at-end)::after {
+        opacity: 1;
       }
 
       thead th {
@@ -1047,6 +1106,9 @@
       }
 
       @media (max-width: 540px) {
+        .container {
+          padding: 12px 10px;
+        }
         .topbar-inner {
           height: auto;
           min-height: 64px;
@@ -1074,13 +1136,50 @@
         .gs-item {
           padding: 12px 14px;
         }
+        .card {
+          padding: 14px;
+        }
+        .table-mobile-toolbar {
+          display: flex;
+        }
+        .table-mobile-toggle {
+          min-height: 44px;
+          padding: 0 16px;
+        }
+        .table-wrap--mobile-toggle table {
+          width: max-content;
+          min-width: 100%;
+        }
+        .table-wrap--mobile-toggle th.mobile-hide,
+        .table-wrap--mobile-toggle td.mobile-hide {
+          display: none;
+        }
+        .table-wrap--mobile-toggle.is-expanded th.mobile-hide,
+        .table-wrap--mobile-toggle.is-expanded td.mobile-hide {
+          display: table-cell;
+        }
+        thead th,
+        tbody td {
+          padding: 12px;
+        }
+        .tab-btn {
+          min-height: 44px;
+          display: inline-flex;
+          align-items: center;
+        }
+        select {
+          min-height: 44px;
+        }
         .mobile-nav-toggle,
         .mobile-nav-overlay,
         .mobile-nav-scrim {
           display: block;
         }
         .shot-court,
-        .player-heat-court { height: auto; }
+        .player-heat-court {
+          height: auto;
+          max-height: 70vh;
+        }
         .user-dropdown {
           right: auto;
           left: 0;
@@ -1725,6 +1824,85 @@
         });
         document.addEventListener('click', function (e) {
           if (!wrap.contains(e.target)) menu.classList.remove('open');
+        });
+      })();
+
+      (function () {
+        const MOBILE_BREAKPOINT = 540;
+        const wraps = Array.from(document.querySelectorAll('.table-wrap[data-mobile-key]'));
+        if (!wraps.length) return;
+
+        function isMobile() {
+          return window.innerWidth <= MOBILE_BREAKPOINT;
+        }
+
+        function storageKey(key) {
+          return 'funba-table-expanded:' + key;
+        }
+
+        function isExpanded(wrap) {
+          if (!isMobile()) return true;
+          try {
+            return sessionStorage.getItem(storageKey(wrap.dataset.mobileKey)) === '1';
+          } catch (_) {
+            return false;
+          }
+        }
+
+        function setExpanded(wrap, expanded) {
+          wrap.classList.toggle('is-expanded', expanded);
+          const button = document.querySelector('[data-mobile-toggle-for="' + wrap.dataset.mobileKey + '"]');
+          if (button) {
+            button.classList.toggle('is-active', expanded);
+            button.textContent = expanded ? 'Compact columns' : 'All columns';
+            button.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+          }
+        }
+
+        function syncOverflow(wrap) {
+          const hasOverflow = wrap.scrollWidth - wrap.clientWidth > 2;
+          wrap.classList.toggle('is-overflowing', hasOverflow);
+          wrap.classList.toggle('at-end', !hasOverflow || wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 2);
+        }
+
+        wraps.forEach(function (wrap) {
+          wrap.classList.add('table-wrap--mobile-toggle', 'table-wrap--mobile-gradient');
+          if (!wrap.previousElementSibling || !wrap.previousElementSibling.classList.contains('table-mobile-toolbar')) {
+            const toolbar = document.createElement('div');
+            toolbar.className = 'table-mobile-toolbar';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'table-mobile-toggle';
+            button.dataset.mobileToggleFor = wrap.dataset.mobileKey;
+            button.setAttribute('aria-pressed', 'false');
+            toolbar.appendChild(button);
+            wrap.parentNode.insertBefore(toolbar, wrap);
+          }
+          setExpanded(wrap, isExpanded(wrap));
+          syncOverflow(wrap);
+          wrap.addEventListener('scroll', function () {
+            syncOverflow(wrap);
+          }, { passive: true });
+        });
+
+        document.addEventListener('click', function (event) {
+          const button = event.target.closest('.table-mobile-toggle');
+          if (!button) return;
+          const wrap = document.querySelector('.table-wrap[data-mobile-key="' + button.dataset.mobileToggleFor + '"]');
+          if (!wrap || !isMobile()) return;
+          const nextExpanded = !wrap.classList.contains('is-expanded');
+          try {
+            sessionStorage.setItem(storageKey(wrap.dataset.mobileKey), nextExpanded ? '1' : '0');
+          } catch (_) {}
+          setExpanded(wrap, nextExpanded);
+          syncOverflow(wrap);
+        });
+
+        window.addEventListener('resize', function () {
+          wraps.forEach(function (wrap) {
+            setExpanded(wrap, isExpanded(wrap));
+            syncOverflow(wrap);
+          });
         });
       })();
     </script>
