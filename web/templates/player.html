@@ -258,13 +258,17 @@
     margin: 8px 0 10px;
   }
 
-  .shot-legend-item {
+  .shot-toggle {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 12px;
     color: var(--muted);
+    cursor: pointer;
+    user-select: none;
   }
+
+  .shot-toggle input { margin: 0; }
 
   .shot-legend-dot {
     width: 10px;
@@ -652,8 +656,14 @@
 
   {% if shot_dots %}
   <div class="shot-chart-legend">
-    <span class="shot-legend-item"><span class="shot-legend-dot made"></span> Made</span>
-    <span class="shot-legend-item"><span class="shot-legend-dot missed"></span> Missed</span>
+    <label class="shot-toggle">
+      <input type="checkbox" id="toggle-made" checked>
+      <span class="shot-legend-dot made"></span> Made
+    </label>
+    <label class="shot-toggle">
+      <input type="checkbox" id="toggle-missed" checked>
+      <span class="shot-legend-dot missed"></span> Missed
+    </label>
   </div>
 
   <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
@@ -678,6 +688,19 @@
       {% endfor %}
     </g>
   </svg>
+  <script>
+    (function () {
+      var made = document.getElementById('toggle-made');
+      var missed = document.getElementById('toggle-missed');
+      if (!made || !missed) return;
+      function apply() {
+        document.querySelectorAll('.shot-dot.is-made').forEach(function (d) { d.style.display = made.checked ? '' : 'none'; });
+        document.querySelectorAll('.shot-dot.is-missed').forEach(function (d) { d.style.display = missed.checked ? '' : 'none'; });
+      }
+      made.addEventListener('change', apply);
+      missed.addEventListener('change', apply);
+    })();
+  </script>
   {% else %}
   <p class="meta">No shot records found for this scope.</p>
   {% endif %}
