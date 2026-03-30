@@ -505,6 +505,7 @@ class SocialPostDelivery(Base):
     variant_id = Column(Integer, ForeignKey('SocialPostVariant.id', ondelete='CASCADE'), nullable=False)
     platform = Column(String(32), nullable=False)      # hupu|reddit|discord|twitter|facebook
     forum = Column(String(64), nullable=True)           # platform-specific target (e.g. "thunder", "r/nba")
+    is_enabled = Column(Boolean, nullable=False, default=True)
     status = Column(String(16), nullable=False, default='pending')  # pending|publishing|published|failed
     content_final = Column(Text, nullable=True)        # platform-rendered content
     published_url = Column(String(1024), nullable=True)

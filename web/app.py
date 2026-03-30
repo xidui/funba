@@ -6048,6 +6048,7 @@ def admin_content():
                                 "id": d.id,
                                 "platform": d.platform,
                                 "forum": d.forum,
+                                "is_enabled": bool(getattr(d, "is_enabled", True)),
                                 "status": d.status,
                                 "published_url": d.published_url,
                                 "error_message": d.error_message,
@@ -6116,6 +6117,7 @@ def admin_content_detail(post_id: int):
                             "id": d.id,
                             "platform": d.platform,
                             "forum": d.forum,
+                            "is_enabled": bool(getattr(d, "is_enabled", True)),
                             "status": d.status,
                             "content_final": d.content_final,
                             "published_url": d.published_url,
@@ -6362,6 +6364,7 @@ def admin_content_add_destination(post_id: int, variant_id: int):
             variant_id=variant_id,
             platform=platform,
             forum=forum,
+            is_enabled=True,
             status="pending",
             created_at=now,
             updated_at=now,
@@ -6371,6 +6374,38 @@ def admin_content_add_destination(post_id: int, variant_id: int):
         delivery_id = d.id
     _ensure_paperclip_issue_for_post(post_id)
     return jsonify({"ok": True, "delivery_id": delivery_id})
+
+
+@app.post("/api/admin/content/<int:post_id>/deliveries/<int:delivery_id>/toggle")
+def admin_content_toggle_delivery(post_id: int, delivery_id: int):
+    """Enable or disable a single delivery destination."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    if "is_enabled" not in data:
+        return jsonify({"error": "is_enabled required"}), 400
+    enabled = bool(data.get("is_enabled"))
+    with SessionLocal() as s:
+        d = (
+            s.query(SocialPostDelivery)
+            .join(SocialPostVariant, SocialPostVariant.id == SocialPostDelivery.variant_id)
+            .filter(
+                SocialPostDelivery.id == delivery_id,
+                SocialPostVariant.post_id == post_id,
+            )
+            .first()
+        )
+        if not d:
+            return jsonify({"error": "not_found"}), 404
+        d.is_enabled = enabled
+        d.updated_at = datetime.utcnow()
+        if not enabled and d.status == "publishing":
+            d.status = "failed"
+            d.error_message = "Delivery disabled while publishing"
+        s.commit()
+    _ensure_paperclip_issue_for_post(post_id)
+    return jsonify({"ok": True, "delivery_id": delivery_id, "is_enabled": enabled})
 
 
 # ---------------------------------------------------------------------------
@@ -6456,6 +6491,7 @@ def api_content_create_post():
                         variant_id=sv.id,
                         platform=platform,
                         forum=forum,
+                        is_enabled=True,
                         status="pending",
                         created_at=now,
                         updated_at=now,

@@ -120,6 +120,7 @@
     border-bottom: 1px solid var(--border); font-size: 12px;
   }
   .dest-row:last-child { border-bottom: none; }
+  .dest-row.disabled { opacity: 0.5; }
   .dest-platform { font-weight: 600; color: var(--heading); min-width: 60px; }
   .dest-forum { color: var(--muted-2); flex: 1; }
   .dest-tone { color: var(--muted); font-size: 11px; }
@@ -286,11 +287,14 @@
             <h4>Destinations</h4>
             <div id="dests-{{ v.id }}">
             {% for d in v.deliveries %}
-              <div class="dest-row" id="dest-{{ d.id }}">
+              <div class="dest-row{% if not d.is_enabled %} disabled{% endif %}" id="dest-{{ d.id }}">
                 <span class="dest-platform">{{ d.platform }}</span>
                 <span class="dest-forum">{{ d.forum or '—' }}</span>
                 <span class="dest-tone">{{ v.audience_hint or 'No tone hint' }}</span>
                 <span class="d-chip {{ d.status }}">{{ d.status }}</span>
+                <button class="act-btn" onclick="toggleDelivery({{ p.id }}, {{ d.id }}, {{ 'false' if d.is_enabled else 'true' }})">
+                  {{ 'Disable' if d.is_enabled else 'Enable' }}
+                </button>
                 {% if d.published_url %}
                   <a href="{{ d.published_url }}" target="_blank" style="font-size:11px;color:var(--accent);">View</a>
                 {% endif %}
@@ -552,6 +556,16 @@ function addDestination(postId, variantId) {
   fetch(`/api/admin/content/${postId}/variants/${variantId}/destinations`, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({platform, forum: forum || null}),
+  })
+  .then(r => r.json())
+  .then(data => { if (data.ok) location.reload(); });
+}
+
+function toggleDelivery(postId, deliveryId, isEnabled) {
+  fetch(`/api/admin/content/${postId}/deliveries/${deliveryId}/toggle`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({is_enabled: isEnabled}),
   })
   .then(r => r.json())
   .then(data => { if (data.ok) location.reload(); });
