@@ -26,8 +26,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
-from playwright.sync_api import sync_playwright, Page, BrowserContext
+try:
+    from playwright.sync_api import sync_playwright, Page, BrowserContext
+except ModuleNotFoundError:
+    sync_playwright = None
+    Page = BrowserContext = Any
 from .forums import normalize_hupu_forum
 
 MODULE_DIR = Path(__file__).resolve().parent
@@ -47,6 +52,12 @@ FORUMS = {
     "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "湿乎乎的话题", "aliases": ("nba", "NBA版", "湿乎乎的话题", "篮球场")},
     "cba": {"composer_id": CBA_COMPOSER_FORUM_ID, "label": "CBA版", "aliases": ("cba", "CBA版")},
 }
+
+
+def _playwright():
+    if sync_playwright is None:
+        raise RuntimeError("Playwright is required for Hupu posting commands. Install it with `pip install playwright`.")
+    return sync_playwright()
 
 
 def _load_cookies() -> list[dict]:
@@ -509,7 +520,7 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
     """Capture a compact screenshot suited for inline forum posts."""
     target_url = url
 
-    with sync_playwright() as pw:
+    with _playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         context = browser.new_context(
             viewport={"width": 1280, "height": 900},
@@ -674,7 +685,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         print("No cookies found. Run: python -m social_media.hupu.post login")
         sys.exit(1)
 
-    with sync_playwright() as pw:
+    with _playwright() as pw:
         context = _create_context(pw, headless=True)
         page = context.new_page()
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
@@ -719,7 +730,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     print(f"Submit: {'YES' if submit else 'NO (dry run)'}")
     print()
 
-    with sync_playwright() as pw:
+    with _playwright() as pw:
         context = _create_context(pw, headless=False)
         page = context.new_page()
 
