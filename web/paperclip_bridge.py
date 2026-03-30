@@ -434,7 +434,22 @@ class PaperclipClient:
         params: dict[str, Any] = {"order": "asc"}
         if after_comment_id:
             params["after"] = after_comment_id
-        result = self._request("GET", f"/api/issues/{issue_id}/comments", params=params)
+        try:
+            result = self._request("GET", f"/api/issues/{issue_id}/comments", params=params)
+        except PaperclipBridgeError:
+            if not after_comment_id:
+                raise
+            # Paperclip's incremental comment query can fail on some issues when
+            # `after` is present even though the full comments endpoint succeeds.
+            # Fall back to fetching the full ascending comment list and trim it
+            # client-side so Funba syncs stay usable.
+            result = self._request("GET", f"/api/issues/{issue_id}/comments", params={"order": "asc"})
+            if not isinstance(result, list):
+                return []
+            anchor_index = next((i for i, c in enumerate(result) if c.get("id") == after_comment_id), None)
+            if anchor_index is None:
+                return []
+            result = result[anchor_index + 1 :]
         return result if isinstance(result, list) else []
 
     def list_issues(self, *, q: str | None = None, project_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
