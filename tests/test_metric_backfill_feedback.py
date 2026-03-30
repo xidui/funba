@@ -554,6 +554,46 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(backfill["components"][0]["latest_run_at"], "2026-03-19 12:34:56")
         self.assertEqual(backfill["components"][1]["label"], "Career")
 
+    def test_metric_backfill_component_uses_compute_run_progress_when_failed(self):
+        latest_compute_run = SimpleNamespace(
+            status="failed",
+            target_game_count=89,
+            done_game_count=38,
+            started_at=datetime(2026, 3, 30, 21, 49, 17),
+            reduce_enqueued_at=None,
+            completed_at=None,
+            failed_at=datetime(2026, 3, 30, 21, 57, 13),
+            created_at=datetime(2026, 3, 30, 21, 49, 17),
+        )
+
+        latest_run_query = MagicMock()
+        latest_run_query.filter.return_value.order_by.return_value.first.return_value = latest_compute_run
+
+        latest_log_query = MagicMock()
+        latest_log_query.filter.return_value.order_by.return_value.limit.return_value.scalar.return_value = datetime(2026, 3, 30, 21, 57, 31)
+
+        latest_result_query = MagicMock()
+        latest_result_query.filter.return_value.order_by.return_value.limit.return_value.scalar.return_value = None
+
+        session = MagicMock()
+        session.query.side_effect = [latest_run_query, latest_log_query, latest_result_query]
+
+        self.web_app.MetricComputeRun.created_at = column("created_at")
+        self.web_app.MetricRunLog.computed_at = column("computed_at")
+        self.web_app.MetricResultModel.computed_at = column("computed_at")
+        self.web_app.MetricResultModel.id = column("id")
+        self.web_app.MetricComputeRun.metric_key = column("metric_key")
+        self.web_app.MetricRunLog.metric_key = column("metric_key")
+        self.web_app.MetricResultModel.metric_key = column("metric_key")
+
+        component = self.web_app._metric_backfill_component(session, "bench_high_score", 10570)
+
+        self.assertEqual(component["status"], "failed")
+        self.assertEqual(component["done_games"], 38)
+        self.assertEqual(component["pending_games"], 51)
+        self.assertEqual(component["total_games"], 89)
+        self.assertEqual(component["progress_pct"], round(38 / 89 * 100.0, 1))
+
     def test_admin_compute_run_display_status_marks_stalled_when_reduce_never_started(self):
         run = SimpleNamespace(
             status="reducing",

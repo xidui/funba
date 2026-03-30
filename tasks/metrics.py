@@ -18,10 +18,12 @@ from contextlib import contextmanager
 import hashlib
 import logging
 from datetime import datetime
+from random import randint
 
 from celery import shared_task
 from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from db.models import Game, MetricComputeRun, MetricResult, MetricRunLog, engine
 from metrics.framework.base import is_career_season
@@ -60,6 +62,24 @@ def _career_bucket_lock_name(season: str) -> str:
     return _lock_name(_CAREER_BUCKET_LOCK_PREFIX, season)
 
 _REDUCE_STALE_REQUEUE_SECONDS = 1800
+_SEASON_METRIC_DEADLOCK_MAX_RETRIES = 5
+
+
+def _is_retryable_mysql_deadlock(exc: Exception) -> bool:
+    """Return True for transient MySQL deadlocks that are worth retrying."""
+    if not isinstance(exc, SAOperationalError):
+        return False
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", ()) if orig is not None else ()
+    if args and args[0] == 1213:
+        return True
+    return "deadlock found when trying to get lock" in str(exc).lower()
+
+
+def _deadlock_retry_countdown(retries: int) -> int:
+    """Back off retries with slight jitter to reduce synchronized contention."""
+    base = min(300, 15 * (2 ** max(retries, 0)))
+    return base + randint(0, 7)
 
 
 def _increment_compute_run_progress(run_id: str) -> None:
@@ -652,6 +672,22 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
     except Exception as exc:
         logger.error("compute_season_metric: metric=%s season=%s failed: %s",
                      metric_key, season, exc, exc_info=True)
+        if _is_retryable_mysql_deadlock(exc):
+            if self.request.retries >= _SEASON_METRIC_DEADLOCK_MAX_RETRIES:
+                if run_id:
+                    with _session_factory()() as session:
+                        _mark_run_failed(session, run_id, f"season {season} failed after deadlock retries: {exc}")
+                raise
+            raise self.retry(
+                exc=exc,
+                countdown=_deadlock_retry_countdown(self.request.retries),
+                max_retries=_SEASON_METRIC_DEADLOCK_MAX_RETRIES,
+            )
+        if self.request.retries >= self.max_retries:
+            if run_id:
+                with _session_factory()() as session:
+                    _mark_run_failed(session, run_id, f"season {season} failed: {exc}")
+            raise
         raise self.retry(exc=exc, countdown=30)
 
     if run_id:
