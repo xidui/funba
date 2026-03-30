@@ -86,6 +86,18 @@ def _build_daily_analysis_description(target_date: date, game_ids: list[str]) ->
     )
 
 
+def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) -> str:
+    joined_game_ids = ", ".join(game_ids) if game_ids else "(none)"
+    return (
+        "## Rerun Requested\n\n"
+        "Force rerun requested from the Funba admin content UI.\n\n"
+        f"- Source date: {target_date.isoformat()}\n"
+        f"- Game count: {len(game_ids)}\n"
+        f"- Game IDs: {joined_game_ids}\n"
+        "- Expected action: rerun the daily analysis for this date and refresh the review-ready SocialPosts.\n"
+    )
+
+
 def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = False) -> dict:
     cfg = load_paperclip_bridge_config()
     if cfg is None:
@@ -123,6 +135,24 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     ]
     if exact_matches:
         chosen = exact_matches[0]
+        if force:
+            reopened = client.update_issue(
+                chosen.get("id"),
+                {
+                    "status": "todo",
+                    "assigneeAgentId": cfg.content_analyst_agent_id,
+                    "assigneeUserId": None,
+                    "comment": _build_daily_analysis_rerun_comment(target_date, game_ids),
+                },
+            )
+            return {
+                "ok": True,
+                "status": "reopened",
+                "source_date": target_date.isoformat(),
+                "issue_id": reopened.get("id") or chosen.get("id"),
+                "issue_identifier": reopened.get("identifier") or chosen.get("identifier"),
+                "game_ids": game_ids,
+            }
         return {
             "ok": True,
             "status": "exists",
