@@ -669,10 +669,10 @@
 
       <!-- Missed shots first (under), then made shots on top -->
       {% for dot in shot_dots if not dot.made %}
-      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="3" class="shot-dot is-missed" fill-opacity="0.55" stroke-width="0.5"></circle>
+      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-missed" fill-opacity="0.3" stroke="none"></circle>
       {% endfor %}
       {% for dot in shot_dots if dot.made %}
-      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="3" class="shot-dot is-made" fill-opacity="0.65" stroke-width="0.5"></circle>
+      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-made" fill-opacity="0.3" stroke="none"></circle>
       {% endfor %}
     </g>
   </svg>
