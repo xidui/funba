@@ -2442,6 +2442,64 @@ def _load_social_post_bundle(db_sess, post_id: int):
     return post, snapshot
 
 
+def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, object]]:
+    post_ids = [p.id for p in posts]
+    variants = db_sess.query(SocialPostVariant).filter(
+        SocialPostVariant.post_id.in_(post_ids)
+    ).all() if post_ids else []
+    variant_ids = [v.id for v in variants]
+    deliveries = db_sess.query(SocialPostDelivery).filter(
+        SocialPostDelivery.variant_id.in_(variant_ids)
+    ).all() if variant_ids else []
+
+    v_by_post: dict[int, list] = {}
+    for v in variants:
+        v_by_post.setdefault(v.post_id, []).append(v)
+    d_by_variant: dict[int, list] = {}
+    for d in deliveries:
+        d_by_variant.setdefault(d.variant_id, []).append(d)
+
+    rows = []
+    for p in posts:
+        pvariants = v_by_post.get(p.id, [])
+        rows.append({
+            "id": p.id,
+            "topic": p.topic,
+            "source_date": p.source_date.isoformat() if p.source_date else "",
+            "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
+            "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+            "status": p.status,
+            "priority": p.priority,
+            "admin_comments": _social_post_comments(p),
+            "llm_model": p.llm_model,
+            "created_at": p.created_at,
+            "workflow": _paperclip_workflow_view(p),
+            "variant_count": len(pvariants),
+            "variants": [
+                {
+                    "id": v.id,
+                    "title": v.title,
+                    "content_raw": v.content_raw,
+                    "audience_hint": v.audience_hint,
+                    "deliveries": [
+                        {
+                            "id": d.id,
+                            "platform": d.platform,
+                            "forum": d.forum,
+                            "is_enabled": bool(getattr(d, "is_enabled", True)),
+                            "status": d.status,
+                            "published_url": d.published_url,
+                            "error_message": d.error_message,
+                        }
+                        for d in d_by_variant.get(v.id, [])
+                    ],
+                }
+                for v in pvariants
+            ],
+        })
+    return rows
+
+
 def _apply_paperclip_issue_fields(post: SocialPost, issue: dict | None, *, sync_error: str | None = None) -> None:
     if issue:
         post.paperclip_issue_id = issue.get("id") or post.paperclip_issue_id
@@ -6004,62 +6062,7 @@ def admin_content():
         total_pages = max(1, math.ceil(total / page_size))
         page = min(page, total_pages)
         posts = q.offset((page - 1) * page_size).limit(page_size).all()
-
-        post_ids = [p.id for p in posts]
-        variants = s.query(SocialPostVariant).filter(
-            SocialPostVariant.post_id.in_(post_ids)
-        ).all() if post_ids else []
-        variant_ids = [v.id for v in variants]
-        deliveries = s.query(SocialPostDelivery).filter(
-            SocialPostDelivery.variant_id.in_(variant_ids)
-        ).all() if variant_ids else []
-
-        # Group variants by post_id, deliveries by variant_id
-        v_by_post: dict[int, list] = {}
-        for v in variants:
-            v_by_post.setdefault(v.post_id, []).append(v)
-        d_by_variant: dict[int, list] = {}
-        for d in deliveries:
-            d_by_variant.setdefault(d.variant_id, []).append(d)
-
-        post_rows = []
-        for p in posts:
-            pvariants = v_by_post.get(p.id, [])
-            post_rows.append({
-                "id": p.id,
-                "topic": p.topic,
-                "source_date": p.source_date.isoformat() if p.source_date else "",
-                "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
-                "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
-                "status": p.status,
-                "priority": p.priority,
-                "admin_comments": _social_post_comments(p),
-                "llm_model": p.llm_model,
-                "created_at": p.created_at,
-                "workflow": _paperclip_workflow_view(p),
-                "variant_count": len(pvariants),
-                "variants": [
-                    {
-                        "id": v.id,
-                        "title": v.title,
-                        "content_raw": v.content_raw,
-                        "audience_hint": v.audience_hint,
-                        "deliveries": [
-                            {
-                                "id": d.id,
-                                "platform": d.platform,
-                                "forum": d.forum,
-                                "is_enabled": bool(getattr(d, "is_enabled", True)),
-                                "status": d.status,
-                                "published_url": d.published_url,
-                                "error_message": d.error_message,
-                            }
-                            for d in d_by_variant.get(v.id, [])
-                        ],
-                    }
-                    for v in pvariants
-                ],
-            })
+        post_rows = _build_social_post_rows(s, posts)
 
     from datetime import date as _date, timedelta as _td
     yesterday = (_date.today() - _td(days=1)).isoformat()
@@ -6072,6 +6075,28 @@ def admin_content():
         status_filter=status_filter or "all",
         today=yesterday,
     )
+
+
+@app.get("/api/admin/content/<int:post_id>/card")
+def admin_content_card(post_id: int):
+    """Render one post card as HTML for partial page refreshes."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    expanded = request.args.get("expanded") in {"1", "true", "True"}
+    active_variant_id = request.args.get("active_variant_id", type=int)
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not post:
+            return jsonify({"error": "not_found"}), 404
+        row = _build_social_post_rows(s, [post])[0]
+    html = render_template(
+        "_admin_content_post_card.html",
+        p=row,
+        expanded=expanded,
+        active_variant_id=active_variant_id,
+    )
+    return jsonify({"ok": True, "html": html, "post_status": row["status"]})
 
 
 @app.get("/api/admin/content/<int:post_id>")

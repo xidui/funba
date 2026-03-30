@@ -1,0 +1,155 @@
+{% set _expanded = expanded if expanded is defined else false %}
+{% set _active_variant_id = active_variant_id if active_variant_id is defined else (p.variants[0].id if p.variants else none) %}
+<div class="post-card{% if _expanded %} expanded{% endif %}" id="post-{{ p.id }}" onclick="togglePost(event, {{ p.id }})">
+  <div class="post-top">
+    <span class="post-topic">{{ p.topic }}</span>
+    <span class="post-badge {{ p.status }}">{{ p.status.replace('_', ' ') }}</span>
+    <span class="post-priority">P{{ p.priority }}</span>
+  </div>
+
+  <div class="post-summary">
+    {{ p.variant_count }} variant{{ 's' if p.variant_count != 1 }}
+    {% if p.source_metrics %} · {{ p.source_metrics|length }} metric{{ 's' if p.source_metrics|length != 1 }}{% endif %}
+  </div>
+
+  <div class="delivery-chips">
+    {% for v in p.variants %}
+      {% for d in v.deliveries %}
+        <span class="d-chip {{ d.status }}">
+          {% if d.published_url %}<a href="{{ d.published_url }}" target="_blank">{% endif %}
+          {{ d.platform }}/{{ d.forum or '?' }}
+          {% if d.published_url %}</a>{% endif %}
+        </span>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  <div class="post-detail" id="detail-{{ p.id }}">
+    {% if p.variants %}
+    <div class="variant-tabs" id="vtabs-{{ p.id }}">
+      {% for v in p.variants %}
+      <button class="v-tab{% if v.id == _active_variant_id %} active{% endif %}"
+              onclick="event.stopPropagation(); switchVariant({{ p.id }}, {{ v.id }})">
+        {% if v.deliveries %}
+          {{ v.deliveries[0].platform }}/{{ v.deliveries[0].forum or '?' }} · {{ v.audience_hint or 'tone?' }}
+        {% else %}
+          {{ v.audience_hint or ('Variant ' ~ loop.index) }}
+        {% endif %}
+      </button>
+      {% endfor %}
+    </div>
+
+    {% for v in p.variants %}
+    <div class="variant-panel{% if v.id == _active_variant_id %} active{% endif %}" id="vpanel-{{ p.id }}-{{ v.id }}">
+      <div class="v-title" id="vt-display-{{ v.id }}">{{ v.title }}</div>
+      <input class="v-title-edit" id="vt-edit-{{ v.id }}" value="{{ v.title }}" onclick="event.stopPropagation()">
+
+      <div class="v-audience">
+        {% if v.deliveries %}
+          {{ v.deliveries[0].platform }}/{{ v.deliveries[0].forum or '?' }} · {{ v.audience_hint or 'No tone hint' }}
+        {% else %}
+          Tone: {{ v.audience_hint or 'No tone hint' }}
+        {% endif %}
+        {% if v.deliveries %}
+          · primary publish target
+        {% endif %}
+      </div>
+
+      <div class="v-content" id="vc-display-{{ v.id }}">{{ v.content_raw }}</div>
+      <textarea class="v-content-edit" id="vc-edit-{{ v.id }}" onclick="event.stopPropagation()">{{ v.content_raw }}</textarea>
+
+      <div class="dest-section">
+        <h4>Destinations</h4>
+        <div id="dests-{{ v.id }}">
+        {% for d in v.deliveries %}
+          <div class="dest-row{% if not d.is_enabled %} disabled{% endif %}" id="dest-{{ d.id }}">
+            <span class="dest-platform">{{ d.platform }}</span>
+            <span class="dest-forum">{{ d.forum or '—' }}</span>
+            <span class="dest-tone">{{ v.audience_hint or 'No tone hint' }}</span>
+            <span class="d-chip {{ d.status }}">{{ d.status }}</span>
+            <button class="act-btn" onclick="toggleDelivery({{ p.id }}, {{ d.id }}, {{ 'false' if d.is_enabled else 'true' }})">
+              {{ 'Disable' if d.is_enabled else 'Enable' }}
+            </button>
+            {% if d.published_url %}
+              <a href="{{ d.published_url }}" target="_blank" style="font-size:11px;color:var(--accent);">View</a>
+            {% endif %}
+            {% if d.error_message %}
+              <span style="font-size:10px;color:var(--loss);" title="{{ d.error_message }}">Error</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+        </div>
+
+        <div class="add-dest" onclick="event.stopPropagation()">
+          <select id="add-platform-{{ v.id }}">
+            <option value="hupu">Hupu</option>
+            <option value="reddit">Reddit</option>
+            <option value="discord">Discord</option>
+            <option value="twitter">Twitter</option>
+          </select>
+          <input id="add-forum-{{ v.id }}" placeholder="forum (e.g. 雷霆专区, 湿乎乎的话题)" style="width:160px;">
+          <button class="act-btn" onclick="addDestination({{ p.id }}, {{ v.id }})">+ Add</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="act-btn" id="edit-btn-{{ v.id }}" onclick="event.stopPropagation(); toggleVariantEdit({{ v.id }})">Edit</button>
+        <button class="act-btn save" id="save-btn-{{ v.id }}" style="display:none;" onclick="event.stopPropagation(); saveVariant({{ p.id }}, {{ v.id }})">Save</button>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state" style="padding:20px;">No variants yet.</div>
+    {% endif %}
+
+    <div class="workflow-section" onclick="event.stopPropagation()">
+      <div class="workflow-header">
+        <h4>Paperclip Workflow</h4>
+        <button class="act-btn" onclick="syncPaperclip({{ p.id }})">Sync</button>
+      </div>
+      <div id="workflow-{{ p.id }}">
+        {% if p.workflow.enabled %}
+        <div class="workflow-grid">
+          <div class="workflow-field"><strong>Issue</strong>{{ p.workflow.issue_identifier or 'Not linked' }}</div>
+          <div class="workflow-field"><strong>Status</strong>{{ p.workflow.issue_status or '—' }}</div>
+          <div class="workflow-field"><strong>Owner</strong>{{ p.workflow.owner_label or 'Unassigned' }}</div>
+          <div class="workflow-field"><strong>Last Sync</strong>{{ p.workflow.last_synced_at or 'Never' }}</div>
+        </div>
+        {% if p.workflow.sync_error %}
+        <div class="workflow-error">{{ p.workflow.sync_error }}</div>
+        {% endif %}
+        {% else %}
+        <div class="workflow-disabled">Paperclip bridge is not configured for this environment.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="comment-section" onclick="event.stopPropagation()">
+      <h4>Comments</h4>
+      <div id="comments-{{ p.id }}">
+        {% for c in p.admin_comments %}
+        <div class="comment-item">
+          {{ c.text }}
+          <div class="comment-meta">{{ c.from }} · {{ c.timestamp }} · {{ c.origin }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="comment-input">
+        <input id="comment-text-{{ p.id }}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addComment({{ p.id }})">
+        <button class="act-btn" onclick="addComment({{ p.id }})">Send</button>
+      </div>
+    </div>
+
+    <div class="post-actions" onclick="event.stopPropagation()">
+      {% if p.status == 'draft' %}
+        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'in_review')">Send to Review</button>
+      {% endif %}
+      {% if p.status == 'in_review' %}
+        <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve & Queue Publish</button>
+        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Request Revision</button>
+      {% endif %}
+      <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'archived')">Archive</button>
+      <button class="act-btn delete" onclick="deletePost({{ p.id }})">Delete</button>
+    </div>
+  </div>
+</div>
