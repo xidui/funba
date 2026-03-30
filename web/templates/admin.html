@@ -411,6 +411,17 @@
   </div>
 
   <div class="card full-width">
+    <h2 style="margin-bottom:14px;">Feature Access</h2>
+    <div id="feature-access-list" style="display:flex;flex-direction:column;gap:10px;">
+      <div style="color:var(--muted);font-size:13px;">Loading...</div>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="feature-access-save" class="llm-settings-save" aria-label="Save feature access settings">Save</button>
+    </div>
+    <div id="feature-access-status" class="llm-settings-status" role="status"></div>
+  </div>
+
+  <div class="card full-width">
     <h2 style="margin-bottom:14px;">Metric Pipeline Flags</h2>
     <div class="runtime-flag-row">
       <div class="runtime-flag-copy">
@@ -499,6 +510,105 @@
       } finally {
         searchSelect.disabled = generateSelect.disabled = false;
         saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveConfig);
+    loadConfig();
+  })();
+
+  (function () {
+    const list = document.getElementById('feature-access-list');
+    const saveBtn = document.getElementById('feature-access-save');
+    const status = document.getElementById('feature-access-status');
+    let clearTimer = null;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'llm-settings-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => {
+          status.textContent = '';
+          status.className = 'llm-settings-status';
+        }, 2000);
+      }
+    }
+
+    function setDisabled(disabled) {
+      saveBtn.disabled = disabled;
+      list.querySelectorAll('select').forEach((select) => {
+        select.disabled = disabled;
+      });
+    }
+
+    function renderFeature(feature) {
+      const options = (feature.allowed_levels || []).map((level) => {
+        const selected = level.value === feature.current_level ? ' selected' : '';
+        return `<option value="${level.value}"${selected}>${level.label}</option>`;
+      }).join('');
+      return `
+        <div class="llm-settings-row" style="align-items:flex-start;">
+          <label class="llm-settings-label" for="feature-access-${feature.key}">
+            <div style="font-weight:600;color:var(--text);">${feature.label}</div>
+            <div style="margin-top:4px;font-size:12px;color:var(--muted);line-height:1.45;">${feature.description}</div>
+          </label>
+          <select
+            id="feature-access-${feature.key}"
+            class="llm-settings-select"
+            data-feature-access-key="${feature.key}"
+            disabled
+          >
+            ${options}
+          </select>
+        </div>
+      `;
+    }
+
+    function render(features) {
+      if (!features || !features.length) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px;">No configurable feature access rules.</div>';
+        return;
+      }
+      list.innerHTML = features.map(renderFeature).join('');
+    }
+
+    async function loadConfig() {
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/feature-access');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        render(data.features || []);
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      } finally {
+        setDisabled(false);
+      }
+    }
+
+    async function saveConfig() {
+      const payload = {};
+      list.querySelectorAll('[data-feature-access-key]').forEach((select) => {
+        payload[select.dataset.featureAccessKey] = select.value;
+      });
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/feature-access', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        render(data.features || []);
+        setStatus('Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        setDisabled(false);
       }
     }
 

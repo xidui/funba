@@ -31,6 +31,13 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
+from db.feature_access import (
+    access_level_label,
+    feature_access_descriptors,
+    get_feature_access_config,
+    get_feature_access_level,
+    set_feature_access_level,
+)
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
@@ -2156,7 +2163,6 @@ def is_pro() -> bool:
     if user is None or user.subscription_tier != "pro":
         return False
     if user.subscription_expires_at is not None:
-        from datetime import datetime
         if datetime.utcnow() > user.subscription_expires_at:
             return False
     return True
@@ -2191,21 +2197,113 @@ def _require_login_page():
     return redirect(url_for("auth_login", next=_request_next_url()))
 
 
-def _require_metric_creator_json():
-    """Admin or Pro can create/edit metrics."""
-    if is_admin() or is_pro():
-        return None
+_ACCESS_LEVEL_RANK = {
+    "anonymous": 0,
+    "logged_in": 1,
+    "pro": 2,
+    "admin": 3,
+}
+
+
+def current_access_level() -> str:
+    if is_admin():
+        return "admin"
+    if is_pro():
+        return "pro"
     if _current_user():
-        return jsonify({"error": "pro_required", "upgrade_url": url_for("pricing")}), 403
-    return jsonify({"error": "login_required"}), 401
+        return "logged_in"
+    return "anonymous"
+
+
+def _has_required_access(required_level: str) -> bool:
+    return _ACCESS_LEVEL_RANK[current_access_level()] >= _ACCESS_LEVEL_RANK[required_level]
+
+
+def _feature_access_level(feature: str) -> str:
+    with SessionLocal() as session:
+        return get_feature_access_level(session, feature)
+
+
+def _build_metric_feature_context(access_config: dict | None = None) -> dict:
+    config = dict(access_config or _feature_access_config())
+    current_level = current_access_level()
+    can_search_metrics = _ACCESS_LEVEL_RANK[current_level] >= _ACCESS_LEVEL_RANK[config["metric_search"]]
+    can_create_metrics = _ACCESS_LEVEL_RANK[current_level] >= _ACCESS_LEVEL_RANK[config["metric_create"]]
+
+    metric_create_cta_href = url_for("metric_new")
+    metric_create_cta_badge = None
+    if not can_create_metrics:
+        if current_level == "anonymous":
+            metric_create_cta_href = url_for("auth_login", next=_request_next_url())
+        elif config["metric_create"] == "admin":
+            metric_create_cta_badge = "ADMIN"
+        else:
+            metric_create_cta_href = url_for("pricing")
+            metric_create_cta_badge = "PRO"
+
+    return {
+        "current_access_level": current_level,
+        "metric_search_required_level": config["metric_search"],
+        "metric_create_required_level": config["metric_create"],
+        "metric_search_required_label": access_level_label(config["metric_search"]),
+        "metric_create_required_label": access_level_label(config["metric_create"]),
+        "can_search_metrics": can_search_metrics,
+        "can_create_metrics": can_create_metrics,
+        "metric_create_cta_href": metric_create_cta_href,
+        "metric_create_cta_badge": metric_create_cta_badge,
+    }
+
+
+def _feature_access_config() -> dict[str, str]:
+    with SessionLocal() as session:
+        return get_feature_access_config(session)
+
+
+def _feature_access_denied_json(required_level: str):
+    current_level = current_access_level()
+    if current_level == "anonymous":
+        return jsonify({"error": "login_required", "required_level": required_level}), 401
+    if required_level == "admin":
+        return jsonify({"error": "admin_only", "required_level": required_level}), 403
+    return jsonify(
+        {
+            "error": "pro_required",
+            "required_level": required_level,
+            "upgrade_url": url_for("pricing"),
+        }
+    ), 403
+
+
+def _feature_access_denied_page(required_level: str):
+    current_level = current_access_level()
+    if current_level == "anonymous":
+        return redirect(url_for("auth_login", next=_request_next_url()))
+    if required_level == "admin":
+        return render_template("403.html"), 403
+    return render_template("upgrade_required.html"), 403
+
+
+def _require_feature_json(feature: str):
+    required_level = _feature_access_level(feature)
+    if _has_required_access(required_level):
+        return None
+    return _feature_access_denied_json(required_level)
+
+
+def _require_feature_page(feature: str):
+    required_level = _feature_access_level(feature)
+    if _has_required_access(required_level):
+        return None
+    return _feature_access_denied_page(required_level)
+
+
+def _require_metric_creator_json():
+    """Users meeting the configured metric-create level can create/edit metrics."""
+    return _require_feature_json("metric_create")
 
 
 def _require_metric_creator_page():
-    if is_admin() or is_pro():
-        return None
-    if _current_user():
-        return render_template("upgrade_required.html"), 403
-    return redirect(url_for("auth_login", next=request.url))
+    return _require_feature_page("metric_create")
 
 
 _VISITOR_COOKIE = "funba_visitor"
@@ -4655,6 +4753,7 @@ def metrics_browse():
         metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
         llm_default_model = get_llm_model_for_purpose(session, "search")
         top3_by_metric = _catalog_top3(session, metrics_list)
+        feature_access = get_feature_access_config(session)
 
     return render_template(
         "metrics.html",
@@ -4665,6 +4764,7 @@ def metrics_browse():
         top3_by_metric=top3_by_metric,
         llm_default_model=llm_default_model,
         llm_available_models=available_llm_models(),
+        **_build_metric_feature_context(feature_access),
     )
 
 
@@ -4679,6 +4779,7 @@ def my_metrics():
         return redirect(url_for("auth_login", next=request.url))
 
     with SessionLocal() as session:
+        feature_access = get_feature_access_config(session)
         drafts = (
             session.query(MetricDefinitionModel)
             .filter(
@@ -4711,6 +4812,7 @@ def my_metrics():
             "team": "Team",
             "game": "Game",
         },
+        **_build_metric_feature_context(feature_access),
     )
 
 
@@ -4727,6 +4829,7 @@ def metric_new():
         )
         current_season = _pick_current_season(all_seasons)
         llm_default_model = get_llm_model_for_purpose(session, "generate")
+        feature_access = get_feature_access_config(session)
     return render_template(
         "metric_new.html",
         current_season=current_season,
@@ -4735,6 +4838,7 @@ def metric_new():
         edit_metric=None,
         llm_default_model=llm_default_model,
         llm_available_models=available_llm_models(),
+        **_build_metric_feature_context(feature_access),
     )
 
 
@@ -4776,6 +4880,7 @@ def metric_edit(metric_key: str):
             "status": m.status,
         }
         llm_default_model = get_llm_model_for_purpose(session, "generate")
+        feature_access = get_feature_access_config(session)
 
     return render_template(
         "metric_new.html",
@@ -4785,13 +4890,14 @@ def metric_edit(metric_key: str):
         edit_metric=edit_data,
         llm_default_model=llm_default_model,
         llm_available_models=available_llm_models(),
+        **_build_metric_feature_context(feature_access),
     )
 
 
 @app.post("/api/metrics/search")
 @limiter.limit("30 per minute")
 def api_metric_search():
-    denied = _require_login_json()
+    denied = _require_feature_json("metric_search")
     if denied:
         return denied
     from metrics.framework.search import rank_metrics
@@ -4837,7 +4943,7 @@ def api_metric_search():
 @app.post("/api/metrics/check-similar")
 @limiter.limit("15 per minute")
 def api_metric_check_similar():
-    denied = _require_login_json()
+    denied = _require_metric_creator_json()
     if denied:
         return denied
     from metrics.framework.generator import check_similar
@@ -5284,7 +5390,7 @@ def api_metric_create():
 
 @app.post("/api/metrics/<metric_key>/publish")
 def api_metric_publish(metric_key: str):
-    denied = _require_pro_json()
+    denied = _require_metric_creator_json()
     if denied:
         return denied
     from datetime import datetime
@@ -5908,6 +6014,7 @@ def metric_detail(metric_key: str):
             .first()
         ) is not None
         metric_deep_dive = _metric_deep_dive_state(session, metric_key)
+        feature_access = get_feature_access_config(session)
 
     if is_career_metric:
         display_season_label = "Career"
@@ -5944,6 +6051,7 @@ def metric_detail(metric_key: str):
         has_drilldown=has_drilldown,
         search_q=search_q,
         metric_deep_dive=metric_deep_dive,
+        **_build_metric_feature_context(feature_access),
     )
 
 
@@ -7307,6 +7415,60 @@ def api_admin_infra_status():
         pass
 
     return jsonify({"ok": True, "broker_ok": broker_ok, "queues": queues, "workers": workers, "scheduled": scheduled})
+
+
+def _serialize_feature_access(session) -> list[dict]:
+    config = get_feature_access_config(session)
+    serialized = []
+    for descriptor in feature_access_descriptors():
+        serialized.append(
+            {
+                "key": descriptor["key"],
+                "label": descriptor["label"],
+                "description": descriptor["description"],
+                "default_level": descriptor["default_level"],
+                "current_level": config[descriptor["key"]],
+                "allowed_levels": [
+                    {"value": level, "label": access_level_label(level)}
+                    for level in descriptor["allowed_levels"]
+                ],
+            }
+        )
+    return serialized
+
+
+@app.get("/api/admin/feature-access")
+def api_admin_feature_access():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as session:
+        return jsonify({"ok": True, "features": _serialize_feature_access(session)})
+
+
+@app.post("/api/admin/feature-access")
+def api_admin_update_feature_access():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    body = request.get_json(force=True) or {}
+    try:
+        with SessionLocal() as session:
+            updated = {}
+            for descriptor in feature_access_descriptors():
+                feature_key = descriptor["key"]
+                if feature_key in body:
+                    updated[feature_key] = set_feature_access_level(
+                        session, feature_key, body[feature_key]
+                    )
+            session.commit()
+            features = _serialize_feature_access(session)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("failed to save feature access config")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "updated": updated, "features": features})
 
 
 @app.get("/api/admin/model-config")

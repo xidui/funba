@@ -364,12 +364,37 @@ class TestGoogleOAuth(unittest.TestCase):
             sess["user_id"] = "some-user-id"
 
         with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", display_name="Test User")), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.render_template", return_value="upgrade"):
             resp = self.client.get(
                 "/metrics/new",
                 environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
             )
         self.assertEqual(resp.status_code, 403)
+
+    def test_logged_in_free_user_can_access_metrics_new_when_feature_level_is_logged_in(self):
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "some-user-id"
+
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+        session.query.return_value.distinct.return_value.all.return_value = [("22025",)]
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-1", is_admin=False, subscription_tier="free", display_name="Test User")), \
+             patch("web.app._feature_access_level", return_value="logged_in"), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.get_llm_model_for_purpose", return_value="gpt-5.4"), \
+             patch("web.app.get_feature_access_config", return_value={"metric_search": "logged_in", "metric_create": "logged_in"}), \
+             patch("web.app._build_metric_feature_context", return_value={}), \
+             patch("web.app.available_llm_models", return_value=["gpt-5.4"]), \
+             patch("web.app.render_template", return_value="ok"):
+            resp = self.client.get(
+                "/metrics/new",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
 
 
 class TestMyMetricsRoute(unittest.TestCase):
@@ -398,6 +423,8 @@ class TestMyMetricsRoute(unittest.TestCase):
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="some-user-id", is_admin=False, subscription_tier="free", display_name="Test User")), \
              patch("web.app.SessionLocal", return_value=mock_session), \
+             patch("web.app.get_feature_access_config", return_value={"metric_search": "logged_in", "metric_create": "pro"}), \
+             patch("web.app._build_metric_feature_context", return_value={}), \
              patch("web.app.render_template", return_value="ok"):
             response = self.client.get(
                 "/metrics/mine",
@@ -457,6 +484,8 @@ class TestMyMetricsRoute(unittest.TestCase):
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="pro", subscription_expires_at=None)), \
              patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.get_feature_access_config", return_value={"metric_search": "logged_in", "metric_create": "pro"}), \
+             patch("web.app._build_metric_feature_context", return_value={}), \
              patch("web.app.MetricDefinitionModel", FakeMetricDefinitionModel), \
              patch("web.app.render_template", return_value="<html></html>") as mock_render:
             response = self.client.get(
@@ -618,6 +647,8 @@ class TestMetricSearchAuth(unittest.TestCase):
         with patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._current_user", return_value=None), \
              patch("web.app.get_llm_model_for_purpose", return_value="gpt-5.4"), \
+             patch("web.app.get_feature_access_config", return_value={"metric_search": "logged_in", "metric_create": "pro"}), \
+             patch("web.app._build_metric_feature_context", return_value={}), \
              patch("web.app.available_llm_models", return_value=["gpt-5.4", "gpt-5.4-mini"]), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring"}]) as mock_catalog, \
              patch("web.app.render_template", return_value="<html></html>") as mock_render:
@@ -645,14 +676,35 @@ class TestMetricSearchAuth(unittest.TestCase):
         )
 
     def test_metric_search_api_requires_login_for_external_visitors(self):
-        response = self.client.post(
-            "/api/metrics/search",
-            json={"query": "clutch shooting"},
-            environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
-        )
+        with patch("web.app._feature_access_level", return_value="logged_in"):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "clutch shooting"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
 
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.get_json(), {"error": "login_required"})
+        self.assertEqual(response.get_json()["error"], "login_required")
+
+    def test_metric_search_api_allows_anonymous_visitors_when_feature_level_is_anonymous(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=None), \
+             patch("web.app._feature_access_level", return_value="anonymous"), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
 
     def test_metric_search_api_allows_logged_in_non_pro_users(self):
         session = MagicMock()
@@ -660,6 +712,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="logged_in"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
              patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
@@ -687,6 +740,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="logged_in"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]) as mock_catalog, \
              patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
@@ -710,6 +764,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="logged_in"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
              patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6") as mock_resolve, \
@@ -729,12 +784,25 @@ class TestMetricSearchAuth(unittest.TestCase):
             model="claude-sonnet-4-6",
         )
 
+    def test_metric_search_api_blocks_free_user_when_search_requires_pro(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="pro"):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "pro_required")
+
     def test_metric_generate_api_passes_admin_model_override(self):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6") as mock_resolve, \
              patch("metrics.framework.generator.generate", return_value={"responseType": "code", "name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}) as mock_generate:
@@ -773,6 +841,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6"), \
              patch("metrics.framework.generator.generate", return_value={"responseType": "clarification", "message": "rank_order controls how results are sorted."}):
@@ -798,6 +867,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session.__exit__ = MagicMock(return_value=False)
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app.resolve_llm_model", return_value="claude-sonnet-4-6"), \
              patch("metrics.framework.generator.generate", return_value={"name": "Demo", "description": "Demo", "scope": "player", "code": "class Demo: pass"}):
@@ -867,6 +937,64 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.assertEqual(mock_set_purpose.call_count, 2)
         session.commit.assert_called_once()
 
+    def test_admin_feature_access_endpoints_require_admin(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-1", is_admin=False, subscription_tier="free")):
+            get_response = self.client.get("/api/admin/feature-access", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+            post_response = self.client.post(
+                "/api/admin/feature-access",
+                json={"metric_search": "pro"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(get_response.status_code, 403)
+        self.assertEqual(get_response.get_json(), {"error": "admin_only"})
+        self.assertEqual(post_response.status_code, 403)
+        self.assertEqual(post_response.get_json(), {"error": "admin_only"})
+
+    def test_admin_feature_access_endpoints_round_trip(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        initial_features = [
+            {
+                "key": "metric_search",
+                "label": "Find Metrics",
+                "description": "Natural-language metric search from the public catalog.",
+                "default_level": "logged_in",
+                "current_level": "logged_in",
+                "allowed_levels": [{"value": "logged_in", "label": "Signed in"}],
+            }
+        ]
+        updated_features = [
+            {
+                "key": "metric_search",
+                "label": "Find Metrics",
+                "description": "Natural-language metric search from the public catalog.",
+                "default_level": "logged_in",
+                "current_level": "pro",
+                "allowed_levels": [{"value": "pro", "label": "Pro"}],
+            }
+        ]
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._serialize_feature_access", side_effect=[initial_features, updated_features]), \
+             patch("web.app.set_feature_access_level", return_value="pro") as mock_set_feature:
+            get_response = self.client.get("/api/admin/feature-access", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+            post_response = self.client.post(
+                "/api/admin/feature-access",
+                json={"metric_search": "pro"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.get_json(), {"ok": True, "features": initial_features})
+        self.assertEqual(post_response.status_code, 200)
+        self.assertEqual(post_response.get_json()["features"], updated_features)
+        mock_set_feature.assert_called_once_with(session, "metric_search", "pro")
+        session.commit.assert_called_once()
+
 
 class TestMetricPublishAuth(unittest.TestCase):
     def setUp(self):
@@ -886,6 +1014,7 @@ class TestMetricPublishAuth(unittest.TestCase):
         session, metric = self._publish_session()
 
         with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="pro", subscription_expires_at=None)), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._metric_family_base_row", return_value=metric), \
              patch("web.app._metric_family_rows", return_value=[metric]), \
@@ -903,6 +1032,7 @@ class TestMetricPublishAuth(unittest.TestCase):
 
     def test_metric_publish_api_blocks_free_user(self):
         with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=False, subscription_tier="free", subscription_expires_at=None)), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal") as mock_session:
             response = self.client.post(
                 "/api/metrics/custom_metric/publish",
@@ -917,6 +1047,7 @@ class TestMetricPublishAuth(unittest.TestCase):
         session, metric = self._publish_session()
 
         with patch("web.app._current_user", return_value=SimpleNamespace(is_admin=True, subscription_tier="free", subscription_expires_at=None)), \
+             patch("web.app._feature_access_level", return_value="pro"), \
              patch("web.app.SessionLocal", return_value=session), \
              patch("web.app._metric_family_base_row", return_value=metric), \
              patch("web.app._metric_family_rows", return_value=[metric]), \
@@ -933,7 +1064,7 @@ class TestMetricPublishAuth(unittest.TestCase):
 
     def test_metric_detail_template_shows_edit_link_for_pro_users(self):
         template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
-        self.assertIn("{% if is_admin or is_pro %}", template)
+        self.assertIn("{% if can_create_metrics %}", template)
         self.assertIn("url_for('metric_edit', metric_key=metric_def.key)", template)
 
     def test_metric_detail_template_includes_admin_deep_dive_workflow(self):

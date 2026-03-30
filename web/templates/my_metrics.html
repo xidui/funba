@@ -231,18 +231,14 @@
       <h1 class="my-metrics-title">My Metrics</h1>
       <div class="my-metrics-subtitle">{{ total_metrics }} metric{{ 's' if total_metrics != 1 }}</div>
     </div>
-    {% if is_admin or is_pro %}
-    <a href="{{ url_for('metric_new') }}" class="my-metrics-create">Create Metric</a>
-    {% endif %}
+    <a href="{{ metric_create_cta_href }}" class="my-metrics-create"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create Metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
 
   {% if not drafts and not published %}
   <div class="my-metrics-empty">
     <h2 class="my-metrics-empty-title">You haven&apos;t created any metrics yet.</h2>
     <p class="my-metrics-empty-copy">Create your first metric to track drafts, publish new ideas, and come back here to manage everything in one place.</p>
-    {% if is_admin or is_pro %}
-    <a href="{{ url_for('metric_new') }}" class="my-metrics-create">Create your first metric</a>
-    {% endif %}
+    <a href="{{ metric_create_cta_href }}" class="my-metrics-create"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create your first metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
   {% endif %}
 
@@ -251,7 +247,7 @@
     <h2 id="my-metrics-drafts" class="my-metrics-section-title">Drafts · {{ drafts|length }}</h2>
     <div class="my-metrics-list">
       {% for metric in drafts %}
-      <a href="{{ url_for('metric_edit', metric_key=metric.key) if (is_admin or is_pro) else '#' }}" class="my-metric-card"{% if not is_admin and not is_pro %} style="cursor:default;"{% endif %}>
+      <a href="{% if can_create_metrics or metric_create_required_level == 'admin' %}{{ url_for('metric_edit', metric_key=metric.key) }}{% else %}{{ url_for('pricing') }}{% endif %}" class="my-metric-card"{% if not can_create_metrics %} style="cursor:pointer;"{% endif %}>
         <div class="my-metric-card-header">
           <div class="my-metric-card-main">
             <h3 class="my-metric-card-name">{{ metric.name }}</h3>
@@ -268,10 +264,12 @@
         <p class="my-metric-description">{{ metric.description or 'No description yet.' }}</p>
         <div class="my-metric-footer">
           <div class="my-metric-meta">{{ clean_key(metric.key) }}</div>
-          {% if is_admin or is_pro %}
+          {% if can_create_metrics %}
           <div class="my-metric-cta">Continue editing &rarr;</div>
+          {% elif metric_create_required_level == 'admin' %}
+          <div class="my-metric-cta" style="color:var(--accent);">Admin only &rarr;</div>
           {% else %}
-          <div class="my-metric-cta" style="color:var(--accent);" onclick="event.preventDefault();window.location='{{ url_for('pricing') }}';">Resubscribe to edit &rarr;</div>
+          <div class="my-metric-cta" style="color:var(--accent);">Upgrade to edit &rarr;</div>
           {% endif %}
         </div>
       </a>

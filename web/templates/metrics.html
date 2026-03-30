@@ -294,11 +294,7 @@
     </select>
     {% endif %}
     <button id="metric-search-btn" class="search-btn">Find Metrics</button>
-    {% if is_admin or is_pro %}
-    <a id="metric-create-cta-inline" class="create-cta" href="{{ url_for('metric_new') }}">Create Metric</a>
-    {% else %}
-    <a id="metric-create-cta-inline" class="create-cta" href="{{ url_for('pricing') }}" style="color:var(--muted-2);">Create Metric <span style="font-size:10px;color:var(--accent);">PRO</span></a>
-    {% endif %}
+    <a id="metric-create-cta-inline" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create Metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
   <div id="metric-search-status" class="search-status">Search in any language. If nothing fits, create a new metric from the same query.</div>
 </div>
@@ -309,11 +305,7 @@
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Best matches</div>
       <div id="metric-search-subtitle" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
     </div>
-    {% if is_admin or is_pro %}
-    <a id="metric-create-cta" class="create-cta" href="{{ url_for('metric_new') }}">Create this metric</a>
-    {% else %}
-    <a id="metric-create-cta" class="create-cta" href="{{ url_for('pricing') }}" style="color:var(--muted-2);">Create this metric <span style="font-size:10px;color:var(--accent);">PRO</span></a>
-    {% endif %}
+    <a id="metric-create-cta" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create this metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
   <div id="metric-search-cards" class="metrics-catalog"></div>
 </div>
@@ -422,7 +414,7 @@
 
   async function runSearch() {
     const query = input.value.trim();
-    {% if is_admin or is_pro %}
+    {% if can_create_metrics %}
     createCta.href = `/metrics/new?expression=${encodeURIComponent(query)}`;
     createInline.href = `/metrics/new?expression=${encodeURIComponent(query)}`;
     {% endif %}
@@ -450,6 +442,10 @@
       const data = await res.json().catch(() => null);
       if (res.status === 401 && data && data.error === 'login_required') {
         window.location.href = loginUrl();
+        return;
+      }
+      if (res.status === 403 && data && data.error === 'pro_required' && data.upgrade_url) {
+        window.location.href = data.upgrade_url;
         return;
       }
       if (!res.ok || !data || !data.ok) {
