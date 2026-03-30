@@ -456,12 +456,16 @@ Paperclip uses `tools/hupu_post.py` (in the funba repo) for Hupu browser automat
 python -m tools.hupu_post check
 
 # Post (dry run)
-python -m tools.hupu_post post --title "标题" --content "正文" --forum thunder
+python -m tools.hupu_post post --title "标题" --content "正文" --forum "雷霆专区"
 
 # Post (submit for real)
-python -m tools.hupu_post post --title "标题" --content "正文" --forum thunder --submit
+python -m tools.hupu_post post --title "标题" --content "正文" --forum "76人专区" --submit
 
-# Available forums: nba (179), cba (346), thunder (129)
+# Examples:
+#   NBA版 -> nba
+#   CBA版 -> cba
+#   any NBA team forum can be passed as its Chinese label, e.g. 雷霆专区 / 76人专区 / 老鹰专区
+#   common English team aliases may also work and are normalized by the tool
 ```
 
 Cookie file: `.hupu_cookies.json` (refresh with `python -m tools.hupu_post login --chrome-profile "Profile 1"`).

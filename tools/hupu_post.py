@@ -734,7 +734,11 @@ def main() -> None:
     p_post = sub.add_parser("post", help="Create a post on Hupu.")
     p_post.add_argument("--title", required=True, help="Post title")
     p_post.add_argument("--content", required=True, help="Post content (newlines become paragraphs)")
-    p_post.add_argument("--forum", default="nba", help=f"Forum name ({', '.join(FORUMS)})")
+    p_post.add_argument(
+        "--forum",
+        default="nba",
+        help="Forum name or label (for example: nba, CBA版, 雷霆专区, 76人专区, hawks)",
+    )
     p_post.add_argument("--image", action="append", help="Image file to upload (repeatable)")
     p_post.add_argument("--link-text", help="Display text for footer link")
     p_post.add_argument("--link-url", help="URL for footer link")
