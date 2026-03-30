@@ -80,7 +80,7 @@ _PBP_EVENT_TYPE_LABELS = {
     13: "Period End",
     18: "Replay",
 }
-_SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE = "metric_deep_dive"
+_SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF = "metric_deep_dive_brief"
 
 
 def _make_draft_key(user_id: str, key: str) -> str:
@@ -1951,42 +1951,42 @@ SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
         "label": "Left Above Break 3",
         "x": -170.0,
         "y": 285.0,
-        "path_d": "M -220 92.5 L -220 375 L -90 375 L -90 219.8 A 237.5 237.5 0 0 1 -220 92.5 Z",
+        "path_d": "M -220 92.5 L -220 375 L -90 375 L -90 222.8 A 237.5 237.5 0 0 1 -220 92.5 Z",
     },
     {
         "key": "center_above_break_3",
         "label": "Center Above Break 3",
         "x": 0.0,
         "y": 305.0,
-        "path_d": "M -90 219.8 L -90 375 L 90 375 L 90 219.8 A 237.5 237.5 0 0 0 -90 219.8 Z",
+        "path_d": "M -90 222.8 L -90 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 0 -90 222.8 Z",
     },
     {
         "key": "right_above_break_3",
         "label": "Right Above Break 3",
         "x": 170.0,
         "y": 285.0,
-        "path_d": "M 220 92.5 L 220 375 L 90 375 L 90 219.8 A 237.5 237.5 0 0 0 220 92.5 Z",
+        "path_d": "M 220 92.5 L 220 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 0 220 92.5 Z",
     },
     {
         "key": "left_mid_range",
         "label": "Left Mid-Range",
         "x": -145.0,
         "y": 145.0,
-        "path_d": "M -220 -47.5 L -80 -47.5 L -80 142.5 L -154 180.8 A 237.5 237.5 0 0 1 -220 92.5 Z",
+        "path_d": "M -220 -47.5 L -80 -47.5 L -80 142.5 L -154 183.8 A 237.5 237.5 0 0 1 -220 92.5 Z",
     },
     {
         "key": "center_mid_range",
         "label": "Center Mid-Range",
         "x": 0.0,
         "y": 192.0,
-        "path_d": "M -154 180.8 L -80 142.5 L 80 142.5 L 154 180.8 A 237.5 237.5 0 0 1 -154 180.8 Z",
+        "path_d": "M -154 183.8 L -80 142.5 L 80 142.5 L 154 183.8 A 237.5 237.5 0 0 1 -154 183.8 Z",
     },
     {
         "key": "right_mid_range",
         "label": "Right Mid-Range",
         "x": 145.0,
         "y": 145.0,
-        "path_d": "M 220 -47.5 L 80 -47.5 L 80 142.5 L 154 180.8 A 237.5 237.5 0 0 0 220 92.5 Z",
+        "path_d": "M 220 -47.5 L 80 -47.5 L 80 142.5 L 154 183.8 A 237.5 237.5 0 0 0 220 92.5 Z",
     },
     {
         "key": "paint_non_ra",
@@ -2410,7 +2410,8 @@ def _social_post_source_metrics(post: SocialPost) -> list[str]:
 
 
 def _is_metric_deep_dive_post(post: SocialPost, metric_key: str) -> bool:
-    if getattr(post, "workflow_type", None) != _SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE:
+    comments = _social_post_comments(post)
+    if not any(str(comment.get("event_type") or "") == _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF for comment in comments):
         return False
     return metric_key in _social_post_source_metrics(post)
 
@@ -2428,7 +2429,6 @@ def _metric_deep_dive_post_view(post: SocialPost) -> dict[str, object]:
         "id": post.id,
         "topic": post.topic,
         "status": post.status,
-        "workflow_type": getattr(post, "workflow_type", None),
         "created_at": post.created_at.isoformat() if post.created_at else None,
         "created_at_label": _format_backfill_timestamp(post.created_at),
         "workflow": workflow,
@@ -2439,7 +2439,6 @@ def _metric_deep_dive_post_view(post: SocialPost) -> dict[str, object]:
 def _metric_deep_dive_state(session, metric_key: str) -> dict[str, object]:
     posts = (
         session.query(SocialPost)
-        .filter(SocialPost.workflow_type == _SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE)
         .order_by(SocialPost.created_at.desc(), SocialPost.id.desc())
         .all()
     )
@@ -2518,7 +2517,6 @@ def _load_social_post_bundle(db_sess, post_id: int):
         "id": post.id,
         "topic": post.topic,
         "source_date": post.source_date.isoformat() if post.source_date else None,
-        "workflow_type": getattr(post, "workflow_type", None),
         "status": post.status,
         "priority": post.priority,
         "source_metrics": source_metrics,
@@ -2568,7 +2566,6 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
             "id": p.id,
             "topic": p.topic,
             "source_date": p.source_date.isoformat() if p.source_date else "",
-            "workflow_type": getattr(p, "workflow_type", None),
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
             "status": p.status,
@@ -6284,7 +6281,6 @@ def admin_content_detail(post_id: int):
             "id": p.id,
             "topic": p.topic,
             "source_date": p.source_date.isoformat() if p.source_date else None,
-            "workflow_type": getattr(p, "workflow_type", None),
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
             "status": p.status,
@@ -6485,7 +6481,7 @@ def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str,
         text=brief_text,
         author=_paperclip_actor_name(),
         origin="system",
-        event_type="brief",
+        event_type=_SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF,
     )
     placeholder_title = f"[funba] {metric_name} 深度分析"
     placeholder_body = (
@@ -6499,7 +6495,6 @@ def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str,
             source_date=date.today(),
             source_metrics=json.dumps([metric_key], ensure_ascii=False),
             source_game_ids=json.dumps([], ensure_ascii=False),
-            workflow_type=_SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE,
             status="draft",
             priority=35,
             llm_model=None,
@@ -6888,13 +6883,12 @@ def api_content_list_posts():
             "total": total,
             "posts": [
                 {
-                    "id": p.id,
-                    "topic": p.topic,
-                    "source_date": p.source_date.isoformat() if p.source_date else None,
-                    "workflow_type": getattr(p, "workflow_type", None),
-                    "status": p.status,
-                    "priority": p.priority,
-                    "created_at": p.created_at.isoformat() if p.created_at else None,
+            "id": p.id,
+            "topic": p.topic,
+            "source_date": p.source_date.isoformat() if p.source_date else None,
+            "status": p.status,
+            "priority": p.priority,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
                 }
                 for p in posts
             ],
