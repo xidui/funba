@@ -2080,10 +2080,25 @@ def _build_shot_zone_heatmap(
         attempts = int(b.get("attempts", 0))
         made = int(b.get("made", 0))
         fg_rate = (made / attempts) if attempts > 0 else 0.0
-        # Red (0) at 0% → Yellow (55) at 40% → Green (130) at 60%+
-        hue = int(min(fg_rate / 0.6, 1.0) * 130)
-        lightness = int(38 + 15 * fg_rate)
-        alpha = 0.8 if attempts > 0 else 0.035
+        # 5-tier color scale: cold blue → ice → warm yellow → orange → hot red
+        if attempts == 0:
+            color = "rgba(255,255,255,0.04)"
+            alpha = 0.04
+        elif fg_rate < 0.30:
+            color = "#3b82f6"   # blue — cold
+            alpha = 0.82
+        elif fg_rate < 0.38:
+            color = "#7dd3fc"   # sky — cool
+            alpha = 0.72
+        elif fg_rate < 0.46:
+            color = "#fde68a"   # amber — average
+            alpha = 0.68
+        elif fg_rate < 0.54:
+            color = "#fb923c"   # orange — warm
+            alpha = 0.78
+        else:
+            color = "#ef4444"   # red — hot
+            alpha = 0.85
         zones.append(
             {
                 "zone_key": key,
@@ -2094,7 +2109,7 @@ def _build_shot_zone_heatmap(
                 "attempts": attempts,
                 "made": made,
                 "fg_pct": _pct_text(made, attempts),
-                "color": f"hsl({hue} 86% {lightness}%)",
+                "color": color,
                 "alpha": alpha,
             }
         )
