@@ -226,6 +226,30 @@
   .stat-view { display: none; }
   .stat-view.active { display: block; }
 
+  /* ── Game log team logos & score links ────────────────────────── */
+  .gl-team-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .gl-team-link:hover { color: var(--accent); }
+
+  .gl-team-logo {
+    width: 18px;
+    height: 18px;
+    vertical-align: middle;
+  }
+
+  .gl-score-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .gl-score-link:hover { text-decoration: underline; }
+
   /* Heatmap legend */
   .heatmap-legend {
     display: flex;
@@ -710,20 +734,41 @@
         <tr>
           <th>Date</th>
           <th>Matchup</th>
+          <th>Score</th>
           <th>Result</th>
           <th>Status</th>
           <th>Min</th>
           <th>PTS</th>
           <th>REB</th>
           <th>AST</th>
-          <th>Game</th>
         </tr>
       </thead>
       <tbody>
         {% for row in game_rows %}
         <tr class="{% if row.result == 'W' %}row-win{% elif row.result == 'L' %}row-loss{% endif %}">
           <td class="nowrap meta">{{ row.game_date }}</td>
-          <td class="nowrap">{{ row.matchup }}</td>
+          <td class="nowrap">
+            <a href="{{ url_for('team_page', team_id=row.player_team_id) }}" class="gl-team-link">
+              <img src="https://cdn.nba.com/logos/nba/{{ row.player_team_id }}/global/L/logo.svg"
+                   class="gl-team-logo" alt="" onerror="this.style.display='none'">
+              {{ row.player_team_abbr }}
+            </a>
+            {{ 'vs' if row.is_home else '@' }}
+            <a href="{{ url_for('team_page', team_id=row.opponent_id) }}" class="gl-team-link">
+              <img src="https://cdn.nba.com/logos/nba/{{ row.opponent_id }}/global/L/logo.svg"
+                   class="gl-team-logo" alt="" onerror="this.style.display='none'">
+              {{ row.opponent_abbr }}
+            </a>
+          </td>
+          <td class="nowrap">
+            <a href="{{ url_for('game_page', game_id=row.game_id) }}" class="gl-score-link">
+              {% if row.player_team_score is not none and row.opponent_score is not none %}
+              {{ row.player_team_score }}–{{ row.opponent_score }}
+              {% else %}
+              —
+              {% endif %}
+            </a>
+          </td>
           <td>
             {% if row.result == 'W' %}
             <span class="badge badge-win">W</span>
@@ -738,7 +783,6 @@
           <td><strong>{{ row.pts }}</strong></td>
           <td>{{ row.reb }}</td>
           <td>{{ row.ast }}</td>
-          <td><a href="{{ url_for('game_page', game_id=row.game_id) }}">↗</a></td>
         </tr>
         {% endfor %}
       </tbody>

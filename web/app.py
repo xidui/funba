@@ -4077,6 +4077,10 @@ def player_page(player_id: str):
                 else:
                     result = "-"
 
+                is_home = stat.team_id == game.home_team_id
+                player_team_score = game.home_team_score if is_home else game.road_team_score
+                opponent_score = game.road_team_score if is_home else game.home_team_score
+
                 game_rows.append(
                     {
                         "game_id": game.game_id,
@@ -4088,6 +4092,13 @@ def player_page(player_id: str):
                         "pts": stat.pts if stat.pts is not None else "-",
                         "reb": stat.reb if stat.reb is not None else "-",
                         "ast": stat.ast if stat.ast is not None else "-",
+                        "player_team_id": stat.team_id,
+                        "player_team_abbr": _team_abbr(teams, stat.team_id),
+                        "opponent_id": opponent_id,
+                        "opponent_abbr": _team_abbr(teams, opponent_id),
+                        "is_home": is_home,
+                        "player_team_score": player_team_score,
+                        "opponent_score": opponent_score,
                     }
                 )
 
