@@ -390,15 +390,15 @@
 
     <!-- Totals / Per Game toggle (JS, no page reload) -->
     <div class="tab-bar" id="stat-kind-bar">
-      <button class="tab-btn active" data-view="totals">Totals</button>
-      <button class="tab-btn" data-view="pergame">Per Game</button>
+      <button class="tab-btn" data-view="totals">Totals</button>
+      <button class="tab-btn active" data-view="pergame">Per Game</button>
     </div>
   </div>
 
   {% if career_season_rows %}
 
   <!-- Totals view -->
-  <div id="view-totals" class="stat-view active">
+  <div id="view-totals" class="stat-view">
     <div class="table-wrap">
       <table>
         <thead>
@@ -462,7 +462,7 @@
   </div>
 
   <!-- Per-Game view -->
-  <div id="view-pergame" class="stat-view">
+  <div id="view-pergame" class="stat-view active">
     <div class="table-wrap">
       <table>
         <thead>
