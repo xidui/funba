@@ -185,11 +185,23 @@
 <div class="content-header">
   <div>
     <h1>Content Pipeline</h1>
-    <p class="meta">{{ total }} post{{ 's' if total != 1 }} total</p>
+    <p class="meta">
+      {% if single_post_view %}
+      Focused post view
+      {% else %}
+      {{ total }} post{{ 's' if total != 1 }} total
+      {% endif %}
+    </p>
   </div>
-  <a href="{{ url_for('admin_pipeline') }}" class="act-btn" style="text-decoration:none;">← Admin</a>
+  <div style="display:flex;gap:8px;align-items:center;">
+    {% if single_post_view %}
+    <a href="{{ url_for('admin_content') }}" class="act-btn" style="text-decoration:none;">All Posts</a>
+    {% endif %}
+    <a href="{{ url_for('admin_pipeline') }}" class="act-btn" style="text-decoration:none;">← Admin</a>
+  </div>
 </div>
 
+{% if not single_post_view %}
 <div class="gen-bar" onclick="event.stopPropagation()">
   <label for="daily-analysis-date">Daily Analysis</label>
   <input id="daily-analysis-date" type="date" value="{{ today }}">
@@ -200,8 +212,10 @@
   <button class="gen-btn" onclick="triggerDailyAnalysis()">Trigger</button>
   <span class="gen-status" id="daily-analysis-status">Create or re-check the daily content analysis issue for this date.</span>
 </div>
+{% endif %}
 
 <!-- Status tabs -->
+{% if not single_post_view %}
 <div class="status-tabs">
   {% for s in ['all', 'draft', 'in_review', 'approved', 'archived'] %}
   <a class="status-tab{% if status_filter == s %} active{% endif %}"
@@ -210,15 +224,17 @@
   </a>
   {% endfor %}
 </div>
+{% endif %}
 
 <!-- Post list -->
 {% if posts %}
   {% set ns = namespace(current_date='') %}
   {% for p in posts %}
-    {% if p.source_date != ns.current_date %}
+    {% if not single_post_view and p.source_date != ns.current_date %}
       {% set ns.current_date = p.source_date %}
       <div class="date-group">{{ p.source_date }}</div>
     {% endif %}
+    {% set expanded = single_post_view or (focused_post_id is defined and focused_post_id == p.id) %}
     {% include "_admin_content_post_card.html" %}
   {% endfor %}
 {% else %}
@@ -226,7 +242,7 @@
 {% endif %}
 
 <!-- Pagination -->
-{% if total_pages > 1 %}
+{% if total_pages > 1 and not single_post_view %}
 <div class="pager">
   {% for p in range(1, total_pages + 1) %}
   <a href="{{ url_for('admin_content', page=p, status=status_filter if status_filter != 'all' else None) }}"
@@ -447,6 +463,12 @@ function toggleDelivery(postId, deliveryId, isEnabled) {
     refreshPostCard(postId, { expanded: true, activeVariantId });
   });
 }
+
+{% if single_post_view and focused_post_id is defined %}
+window.addEventListener('load', () => {
+  syncPaperclip({{ focused_post_id }});
+});
+{% endif %}
 
 </script>
 {% endblock %}

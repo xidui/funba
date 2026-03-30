@@ -935,11 +935,111 @@ class TestMetricPublishAuth(unittest.TestCase):
         self.assertIn("{% if is_admin or is_pro %}", template)
         self.assertIn("url_for('metric_edit', metric_key=metric_def.key)", template)
 
+    def test_metric_detail_template_includes_admin_deep_dive_workflow(self):
+        template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
+        self.assertIn("metric-deep-dive-panel", template)
+        self.assertIn("admin_metric_trigger_deep_dive_post", template)
+        self.assertIn("Content Deep Dive", template)
+
     def test_base_template_shows_my_metrics_link_for_all_logged_in_users(self):
         template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()
         self.assertIn("url_for('my_metrics')", template)
         # Link is no longer gated behind is_pro
         self.assertNotIn("{% if is_pro %}\n              <a href=\"{{ url_for('my_metrics')", template)
+
+
+class TestMetricDeepDiveWorkflow(unittest.TestCase):
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def test_metric_deep_dive_trigger_creates_placeholder_and_returns_state(self):
+        runtime_metric = SimpleNamespace(
+            key="blowout_rate",
+            name="Blowout Rate",
+            scope="team",
+            category="results",
+            description="How often a team wins big.",
+            trigger="game",
+        )
+        metric_query = MagicMock()
+        metric_query.filter.return_value.first.return_value = None
+
+        created_post = SimpleNamespace(
+            id=91,
+            paperclip_issue_id="issue-1",
+            paperclip_sync_error=None,
+        )
+        post_query = MagicMock()
+        post_query.filter.return_value.first.return_value = created_post
+
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+        session.query.side_effect = [metric_query, post_query]
+
+        final_state = {
+            "can_trigger": False,
+            "active_post": {
+                "id": 91,
+                "topic": "Blowout Rate 深度分析",
+                "status": "draft",
+                "created_at": "2026-03-30T12:00:00",
+                "created_at_label": "2026-03-30 12:00:00",
+                "workflow": {
+                    "enabled": True,
+                    "issue_identifier": "XIX-999",
+                    "issue_status": "todo",
+                    "owner_label": "Content Analyst",
+                    "sync_error": None,
+                },
+                "admin_url": "/admin/content/91",
+            },
+            "latest_post": {
+                "id": 91,
+                "topic": "Blowout Rate 深度分析",
+                "status": "draft",
+                "created_at": "2026-03-30T12:00:00",
+                "created_at_label": "2026-03-30 12:00:00",
+                "workflow": {
+                    "enabled": True,
+                    "issue_identifier": "XIX-999",
+                    "issue_status": "todo",
+                    "owner_label": "Content Analyst",
+                    "sync_error": None,
+                },
+                "admin_url": "/admin/content/91",
+            },
+        }
+
+        with patch("web.app._is_bot", return_value=False), \
+             patch("web.app._paperclip_client_or_raise", return_value=(MagicMock(), SimpleNamespace())), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("metrics.framework.runtime.get_metric", return_value=runtime_metric), \
+             patch("web.app._metric_deep_dive_state", side_effect=[{"can_trigger": True, "active_post": None, "latest_post": None}, final_state]), \
+             patch("web.app._create_metric_deep_dive_placeholder_post", return_value=(91, "2026-03-30T12:00:00Z")) as mock_create, \
+             patch("web.app._ensure_paperclip_issue_for_post") as mock_ensure, \
+             patch("web.app._mirror_paperclip_comment") as mock_mirror, \
+             patch("web.app._sync_social_post_from_paperclip", return_value={"workflow": {"issue_identifier": "XIX-999"}}):
+            response = self.client.post(
+                "/api/admin/metrics/blowout_rate/deep-dive-post",
+                json={
+                    "selected_view_label": "2024-25 Regular Season",
+                    "current_season_label": "2025-26 Regular Season",
+                    "metric_page_url": "/metrics/blowout_rate?season=22024",
+                },
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["post_id"], 91)
+        self.assertEqual(payload["metric_deep_dive"]["active_post"]["id"], 91)
+        mock_create.assert_called_once()
+        mock_ensure.assert_called_once_with(91)
+        mock_mirror.assert_called_once()
 
 
 if __name__ == "__main__":

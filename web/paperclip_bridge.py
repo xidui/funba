@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -64,7 +64,7 @@ def load_paperclip_bridge_config(environ: Mapping[str, str] | None = None) -> Pa
 
 
 def iso_utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def normalize_admin_comments(raw_comments: Any) -> list[dict[str, Any]]:

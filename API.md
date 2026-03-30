@@ -375,6 +375,13 @@ Get full post detail with all variants and deliveries. (Uses admin session auth 
 }
 ```
 
+Some posts may be metric-page placeholder workflows. You can identify them from the Funba admin comments / linked issue brief:
+
+- treat the existing variant as a placeholder draft to replace, not final copy
+- read the issue thread plus Funba admin comments for the LLM brief and digging direction
+- keep season/view framing in the generated content only; it is not a persistent SocialPost metadata field
+- add any needed destinations through the admin destination API before moving the post to `in_review`
+
 ---
 
 ### POST /api/content/deliveries/{delivery_id}/status
@@ -419,6 +426,19 @@ These endpoints are also available from localhost. Used by the admin kanban UI a
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/update` | Update variant title/content/audience |
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/destinations` | Add delivery destination `{platform, forum}` |
 | POST | `/api/admin/content/{post_id}/paperclip/sync` | Pull latest Paperclip issue status + comments into Funba |
+| POST | `/api/admin/metrics/{metric_key}/deep-dive-post` | Admin-only trigger for a metric-page placeholder post + Paperclip handoff |
+
+Metric deep-dive trigger body:
+
+```json
+{
+  "selected_view_label": "2024-25 Regular Season",
+  "current_season_label": "2025-26 Regular Season",
+  "metric_page_url": "/metrics/blowout_rate?season=22024"
+}
+```
+
+This endpoint is used by the Funba admin metric page. It creates a placeholder `SocialPost`, mirrors a brief to Paperclip, and assigns the issue to `Content Analyst`.
 
 ### Paperclip Workflow Bridge
 

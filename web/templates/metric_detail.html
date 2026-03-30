@@ -157,6 +157,9 @@
   .status-pill.queued   { background: color-mix(in srgb, #facc15 15%, transparent); color: #facc15; }
   .status-pill.failed   { background: color-mix(in srgb, #f87171 15%, transparent); color: #f87171; }
   .status-pill.draft    { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
+  .status-pill.in_review { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
+  .status-pill.approved { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
+  .status-pill.archived { background: color-mix(in srgb, #94a3b8 15%, transparent); color: #94a3b8; }
   .status-pill.not_started { background: color-mix(in srgb, #94a3b8 15%, transparent); color: #94a3b8; }
 
   .run-timeline {
@@ -589,6 +592,75 @@
     padding: 0 4px;
     user-select: none;
   }
+
+  .content-workflow-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 8px;
+    margin-bottom: 18px;
+  }
+  .content-workflow-body {
+    padding: 0 18px 16px;
+  }
+  .content-workflow-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .content-workflow-meta {
+    font-size: 12px;
+    color: var(--muted-2);
+    line-height: 1.5;
+  }
+  .content-workflow-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .content-workflow-btn,
+  .content-workflow-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid var(--border-2);
+  }
+  .content-workflow-btn {
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .content-workflow-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .content-workflow-link {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .content-workflow-link:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .content-workflow-note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .content-workflow-note.error {
+    color: var(--loss);
+  }
 </style>
 
 <a class="detail-back" href="{{ url_for('metrics_browse') }}">← All Metrics</a>
@@ -783,6 +855,87 @@
     </div>
   </div>
   </div>{# backfill-details #}
+  </div>
+</div>
+{% endif %}
+
+{% if is_admin %}
+{% set _deep_dive_post = metric_deep_dive.active_post or metric_deep_dive.latest_post %}
+{% set _deep_dive_workflow = _deep_dive_post.workflow if _deep_dive_post else none %}
+<div
+  id="metric-deep-dive-panel"
+  class="content-workflow-panel"
+  data-trigger-url="{{ url_for('admin_metric_trigger_deep_dive_post', metric_key=metric_def.key) }}"
+  data-selected-view-label="{{ season_label }}"
+  data-current-season-label="{{ current_metric_season_label or '' }}"
+  data-metric-page-url="{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season) }}"
+>
+  <div class="backfill-summary" style="cursor:default;">
+    <div class="backfill-summary-main">
+      <span class="backfill-summary-title">Content Deep Dive</span>
+      <span
+        id="metric-deep-dive-pill"
+        class="status-pill {{ 'running' if metric_deep_dive.active_post else (_deep_dive_post.status if _deep_dive_post else 'not_started') }}"
+      >
+        {{ 'running' if metric_deep_dive.active_post else ((_deep_dive_post.status if _deep_dive_post else 'idle')|replace('_', ' ')) }}
+      </span>
+      <span id="metric-deep-dive-summary" class="backfill-summary-meta">
+        {% if metric_deep_dive.active_post %}
+          Running deep-dive request started {{ metric_deep_dive.active_post.created_at_label }}.
+        {% elif metric_deep_dive.latest_post %}
+          Last triggered {{ metric_deep_dive.latest_post.created_at_label }}.
+        {% else %}
+          No deep-dive post has been triggered for this metric yet.
+        {% endif %}
+      </span>
+    </div>
+  </div>
+  <div class="content-workflow-body">
+    <div id="metric-deep-dive-meta" class="content-workflow-meta">
+      {% if _deep_dive_post %}
+        Post #{{ _deep_dive_post.id }}
+        {% if _deep_dive_workflow and _deep_dive_workflow.issue_identifier %}
+          · {{ _deep_dive_workflow.issue_identifier }}
+        {% endif %}
+        {% if _deep_dive_workflow and _deep_dive_workflow.owner_label %}
+          · Owner: {{ _deep_dive_workflow.owner_label }}
+        {% endif %}
+      {% else %}
+        Triggering creates a placeholder Funba post, assigns it to Content Analyst through Paperclip, and keeps the result in the normal review pipeline.
+      {% endif %}
+    </div>
+    <div class="content-workflow-actions">
+      <button
+        id="metric-deep-dive-trigger"
+        class="content-workflow-btn"
+        type="button"
+        {% if not metric_deep_dive.can_trigger %}disabled{% endif %}
+      >
+        {% if metric_deep_dive.can_trigger %}Trigger Post{% else %}Post Running…{% endif %}
+      </button>
+      <a
+        id="metric-deep-dive-open"
+        class="content-workflow-link"
+        href="{{ _deep_dive_post.admin_url if _deep_dive_post else '#' }}"
+        {% if not _deep_dive_post %}style="display:none"{% endif %}
+      >
+        Open Post
+      </a>
+    </div>
+    <div
+      id="metric-deep-dive-note"
+      class="content-workflow-note{% if _deep_dive_workflow and _deep_dive_workflow.sync_error %} error{% endif %}"
+    >
+      {% if _deep_dive_workflow and _deep_dive_workflow.sync_error %}
+        {{ _deep_dive_workflow.sync_error }}
+      {% elif metric_deep_dive.active_post %}
+        Wait for the current content-analysis run to finish before triggering another one for this metric.
+      {% elif metric_deep_dive.latest_post %}
+        You can trigger again later if this metric's rankings or story angle have changed.
+      {% else %}
+        The agent will decide what related metrics to dig into and which Hupu destination(s) fit the story best.
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endif %}
@@ -1138,6 +1291,116 @@
   syncPolling(panel.dataset.status);
 })();
 </script>
+{% if is_admin %}
+<script>
+(() => {
+  const panel = document.getElementById('metric-deep-dive-panel');
+  if (!panel) return;
+
+  const triggerUrl = panel.dataset.triggerUrl;
+  const selectedViewLabel = panel.dataset.selectedViewLabel || 'Current view';
+  const currentSeasonLabel = panel.dataset.currentSeasonLabel || '';
+  const metricPageUrl = panel.dataset.metricPageUrl || window.location.pathname;
+  const button = document.getElementById('metric-deep-dive-trigger');
+  const openLink = document.getElementById('metric-deep-dive-open');
+  const pill = document.getElementById('metric-deep-dive-pill');
+  const summary = document.getElementById('metric-deep-dive-summary');
+  const meta = document.getElementById('metric-deep-dive-meta');
+  const note = document.getElementById('metric-deep-dive-note');
+
+  function setPill(statusClass, text) {
+    if (!pill) return;
+    pill.className = `status-pill ${statusClass}`;
+    pill.textContent = text;
+  }
+
+  function renderDeepDive(state, errorText = '') {
+    const activePost = state && state.active_post ? state.active_post : null;
+    const latestPost = state && state.latest_post ? state.latest_post : null;
+    const post = activePost || latestPost;
+    const workflow = post && post.workflow ? post.workflow : null;
+
+    if (activePost) {
+      setPill('running', 'running');
+      summary.textContent = `Running deep-dive request started ${activePost.created_at_label || activePost.created_at || ''}.`;
+    } else if (latestPost) {
+      const statusLabel = (latestPost.status || 'draft').replaceAll('_', ' ');
+      setPill(latestPost.status || 'draft', statusLabel);
+      summary.textContent = `Last triggered ${latestPost.created_at_label || latestPost.created_at || ''}.`;
+    } else {
+      setPill('not_started', 'idle');
+      summary.textContent = 'No deep-dive post has been triggered for this metric yet.';
+    }
+
+    if (post) {
+      const parts = [`Post #${post.id}`];
+      if (workflow && workflow.issue_identifier) parts.push(workflow.issue_identifier);
+      if (workflow && workflow.owner_label) parts.push(`Owner: ${workflow.owner_label}`);
+      meta.textContent = parts.join(' · ');
+      openLink.href = post.admin_url;
+      openLink.style.display = '';
+    } else {
+      meta.textContent = 'Triggering creates a placeholder Funba post, assigns it to Content Analyst through Paperclip, and keeps the result in the normal review pipeline.';
+      openLink.href = '#';
+      openLink.style.display = 'none';
+    }
+
+    const canTrigger = state ? !!state.can_trigger : true;
+    button.disabled = !canTrigger;
+    button.textContent = canTrigger ? 'Trigger Post' : 'Post Running…';
+
+    if (errorText) {
+      note.className = 'content-workflow-note error';
+      note.textContent = errorText;
+      return;
+    }
+    if (workflow && workflow.sync_error) {
+      note.className = 'content-workflow-note error';
+      note.textContent = workflow.sync_error;
+      return;
+    }
+    note.className = 'content-workflow-note';
+    if (activePost) {
+      note.textContent = 'Wait for the current content-analysis run to finish before triggering another one for this metric.';
+    } else if (latestPost) {
+      note.textContent = 'You can trigger again later if this metric has developed into a meaningfully new story.';
+    } else {
+      note.textContent = 'The agent will decide what related metrics to dig into and which Hupu destination(s) fit the story best.';
+    }
+  }
+
+  button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Triggering…';
+    note.className = 'content-workflow-note';
+    note.textContent = 'Creating placeholder post and handing it to Content Analyst…';
+    try {
+      const response = await fetch(triggerUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          selected_view_label: selectedViewLabel,
+          current_season_label: currentSeasonLabel || null,
+          metric_page_url: metricPageUrl,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        renderDeepDive(data.metric_deep_dive || null, data.error || `HTTP ${response.status}`);
+        return;
+      }
+      renderDeepDive(data.metric_deep_dive || null);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = 'Trigger Post';
+      note.className = 'content-workflow-note error';
+      note.textContent = `Trigger failed: ${error.message}`;
+    }
+  });
+})();
+</script>
+{% endif %}
 {% if has_drilldown %}
 <script>
 (() => {
