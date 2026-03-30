@@ -1951,7 +1951,7 @@ SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
         "label": "Left Above Break 3",
         "x": -170.0,
         "y": 285.0,
-        "path_d": "M -220 92.5 L -220 375 L -90 375 L -90 222.8 A 237.5 237.5 0 0 1 -220 92.5 Z",
+        "path_d": "M -250 92.5 L -250 375 L -90 375 L -90 222.8 A 237.5 237.5 0 0 1 -220 92.5 L -250 92.5 Z",
     },
     {
         "key": "center_above_break_3",
@@ -1965,7 +1965,7 @@ SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
         "label": "Right Above Break 3",
         "x": 170.0,
         "y": 285.0,
-        "path_d": "M 220 92.5 L 220 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 0 220 92.5 Z",
+        "path_d": "M 250 92.5 L 250 375 L 90 375 L 90 222.8 A 237.5 237.5 0 0 0 220 92.5 L 250 92.5 Z",
     },
     {
         "key": "left_mid_range",
@@ -2006,7 +2006,7 @@ SHOT_ZONE_LAYOUT: list[dict[str, str | float]] = [
         "key": "backcourt",
         "label": "Backcourt",
         "x": 0.0,
-        "y": 372.0,
+        "y": 399.0,
         "path_d": "M -250 375 L 250 375 L 250 422.5 L -250 422.5 Z",
     },
 ]
@@ -2080,25 +2080,15 @@ def _build_shot_zone_heatmap(
         attempts = int(b.get("attempts", 0))
         made = int(b.get("made", 0))
         fg_rate = (made / attempts) if attempts > 0 else 0.0
-        # 5-tier color scale: cold blue → ice → warm yellow → orange → hot red
         if attempts == 0:
             color = "rgba(255,255,255,0.04)"
             alpha = 0.04
-        elif fg_rate < 0.30:
-            color = "#3b82f6"   # blue — cold
-            alpha = 0.82
-        elif fg_rate < 0.38:
-            color = "#7dd3fc"   # sky — cool
-            alpha = 0.72
-        elif fg_rate < 0.46:
-            color = "#fde68a"   # amber — average
-            alpha = 0.68
-        elif fg_rate < 0.54:
-            color = "#fb923c"   # orange — warm
-            alpha = 0.78
         else:
-            color = "#ef4444"   # red — hot
-            alpha = 0.85
+            # Smooth gradient: light red (0%) → light green (60%+)
+            t = min(fg_rate / 0.6, 1.0)
+            hue = int(t * 130)  # 0=red → 65=yellow → 130=green
+            color = f"hsl({hue}, 60%, 58%)"
+            alpha = 0.78
         zones.append(
             {
                 "zone_key": key,
