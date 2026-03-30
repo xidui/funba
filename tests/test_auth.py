@@ -639,6 +639,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             scope_filter="player",
             status_filter="published",
             search_query="late",
+            top3_by_metric={},
             llm_default_model="gpt-5.4",
             llm_available_models=["gpt-5.4", "gpt-5.4-mini"],
         )
