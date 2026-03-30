@@ -17,7 +17,7 @@ def _make_app_module():
     fake_models = types.ModuleType("db.models")
     for name in (
         "Award", "Feedback", "Game", "GameLineScore", "GamePlayByPlay", "MagicToken",
-        "MetricComputeRun", "MetricDefinition", "MetricResult", "MetricRunLog", "PageView",
+        "MetricComputeRun", "MetricDefinition", "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView",
         "Player", "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostVariant", "SocialPostDelivery",
     ):
         setattr(fake_models, name, MagicMock())

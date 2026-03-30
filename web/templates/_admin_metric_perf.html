@@ -1,0 +1,42 @@
+<div id="metric-perf-card" class="card">
+  <h2>Metric Performance</h2>
+  {% if perf_data %}
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Avg</th>
+        <th>Latest</th>
+        <th>Range</th>
+        <th>Recent 5</th>
+        <th>DB R/W</th>
+        <th>Last Run</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in perf_data %}
+      <tr class="recent-row">
+        <td class="mono">{{ row.metric_key }}</td>
+        <td><strong>{{ row.avg_ms }}ms</strong> <span class="mono">(n={{ row.sample_count }})</span></td>
+        <td>{{ row.latest_ms ~ 'ms' if row.latest_ms is not none else '—' }}</td>
+        <td>{{ row.min_ms }}ms / {{ row.max_ms }}ms</td>
+        <td class="mono">{{ row.samples_ms|join('ms, ') ~ 'ms' if row.samples_ms else '—' }}</td>
+        <td class="mono">{{ row.db_reads if row.db_reads is not none else '—' }} / {{ row.db_writes if row.db_writes is not none else '—' }}</td>
+        <td>{{ row.last_run_at.strftime('%m/%d %H:%M:%S') if row.last_run_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if perf_has_prev or perf_has_next %}
+  <div class="pager">
+    <span>Page {{ perf_page }} / {{ perf_total_pages }}</span>
+    <div class="pager-links">
+      <a class="pager-link js-admin-pager {{ 'disabled' if not perf_has_prev }}" data-target-card="metric-perf-card" data-fragment-url="{{ admin_fragment_url('metric-perf', 'perf_page', perf_page - 1) }}" href="{{ admin_page_url('perf_page', perf_page - 1) }}">Prev</a>
+      <a class="pager-link js-admin-pager {{ 'disabled' if not perf_has_next }}" data-target-card="metric-perf-card" data-fragment-url="{{ admin_fragment_url('metric-perf', 'perf_page', perf_page + 1) }}" href="{{ admin_page_url('perf_page', perf_page + 1) }}">Next</a>
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">No metric performance samples recorded yet</div>
+  {% endif %}
+</div>

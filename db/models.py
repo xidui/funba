@@ -352,6 +352,21 @@ class MetricRunLog(Base):
     )
 
 
+class MetricPerfLog(Base):
+    __tablename__ = "MetricPerfLog"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    metric_key = Column(String(64), nullable=False)
+    recorded_at = Column(DateTime, nullable=False)
+    duration_ms = Column(Integer, nullable=False)
+    db_reads = Column(Integer, nullable=True)
+    db_writes = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_MetricPerfLog_metric_key_recorded_at", "metric_key", "recorded_at"),
+    )
+
+
 class MetricComputeRun(Base):
     """Coarse-grained orchestration state for one metric compute/backfill run."""
     __tablename__ = "MetricComputeRun"

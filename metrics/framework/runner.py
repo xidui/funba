@@ -5,20 +5,23 @@ Phase 2 (Reduce): aggregate all deltas per entity → write MetricResult once.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import logging
 from datetime import datetime
+import time
 
-from sqlalchemy import func
+from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
-from db.models import Game, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
+from db.models import Game, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
 from metrics.framework.base import MetricResult, career_season_for, merge_totals
 from metrics.framework.runtime import get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
 
 _BULK_WRITE_BATCH_SIZE = 1000
+_PERF_WINDOW = 5
 
 
 def _batched(rows: list, batch_size: int = _BULK_WRITE_BATCH_SIZE):
@@ -118,6 +121,71 @@ def _flush_run_logs(session: Session, rows: list[dict]) -> None:
             qualified=stmt.inserted.qualified,
         )
         session.execute(stmt)
+
+
+def _classify_sql_statement(statement: str) -> str | None:
+    normalized = (statement or "").lstrip().upper()
+    if normalized.startswith("SELECT"):
+        return "read"
+    if normalized.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")):
+        return "write"
+    return None
+
+
+@contextmanager
+def _count_db_ops(session: Session):
+    reads = 0
+    writes = 0
+    connection = session.connection()
+
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        nonlocal reads, writes
+        statement_kind = _classify_sql_statement(statement)
+        if statement_kind == "read":
+            reads += 1
+        elif statement_kind == "write":
+            writes += 1
+
+    event.listen(connection, "before_cursor_execute", _before_cursor_execute)
+    try:
+        yield lambda: (reads, writes)
+    finally:
+        event.remove(connection, "before_cursor_execute", _before_cursor_execute)
+
+
+def _record_metric_perf(
+    session: Session,
+    metric_key: str,
+    duration_ms: int,
+    *,
+    db_reads: int | None = None,
+    db_writes: int | None = None,
+) -> None:
+    session.add(
+        MetricPerfLog(
+            metric_key=metric_key,
+            recorded_at=datetime.utcnow(),
+            duration_ms=duration_ms,
+            db_reads=db_reads,
+            db_writes=db_writes,
+        )
+    )
+    session.flush()
+
+    overflow_ids = [
+        row.id
+        for row in (
+            session.query(MetricPerfLog.id)
+            .filter(MetricPerfLog.metric_key == metric_key)
+            .order_by(MetricPerfLog.recorded_at.desc(), MetricPerfLog.id.desc())
+            .offset(_PERF_WINDOW)
+            .all()
+        )
+    ]
+    if overflow_ids:
+        session.query(MetricPerfLog).filter(MetricPerfLog.id.in_(overflow_ids)).delete(
+            synchronize_session=False
+        )
 
 
 def _get_targets(session: Session, scope: str, game: Game, player_ids: list[str], team_ids: list[str]):
@@ -289,68 +357,80 @@ def reduce_metric(
         # Non-incremental metrics are fully computed in Phase 1; nothing to reduce.
         return 0
 
-    # Find all distinct entities that have deltas for this (metric, season).
-    # Order by (entity_type, entity_id) so concurrent reduces on different metrics
-    # acquire InnoDB gap locks in the same order, avoiding deadlocks.
-    entity_rows = (
-        session.query(MetricRunLog.entity_type, MetricRunLog.entity_id)
-        .filter(
-            MetricRunLog.metric_key == metric_key,
-            MetricRunLog.season == season,
-        )
-        .distinct()
-        .order_by(MetricRunLog.entity_type, MetricRunLog.entity_id)
-        .all()
-    )
-
-    results_written = 0
-    for entity_type, entity_id in entity_rows:
-        # Read all deltas for this entity, ordered by game_id (chronological)
-        delta_rows = (
-            session.query(MetricRunLog.delta_json)
+    started_at = time.perf_counter()
+    with _count_db_ops(session) as get_counts:
+        # Find all distinct entities that have deltas for this (metric, season).
+        # Order by (entity_type, entity_id) so concurrent reduces on different metrics
+        # acquire InnoDB gap locks in the same order, avoiding deadlocks.
+        entity_rows = (
+            session.query(MetricRunLog.entity_type, MetricRunLog.entity_id)
             .filter(
                 MetricRunLog.metric_key == metric_key,
-                MetricRunLog.entity_type == entity_type,
-                MetricRunLog.entity_id == entity_id,
                 MetricRunLog.season == season,
-                MetricRunLog.delta_json.isnot(None),
             )
-            .order_by(MetricRunLog.game_id)
+            .distinct()
+            .order_by(MetricRunLog.entity_type, MetricRunLog.entity_id)
             .all()
         )
 
-        # Merge all deltas into final totals
-        totals: dict = {}
-        for (delta_json,) in delta_rows:
+        results_written = 0
+        for entity_type, entity_id in entity_rows:
+            # Read all deltas for this entity, ordered by game_id (chronological)
+            delta_rows = (
+                session.query(MetricRunLog.delta_json)
+                .filter(
+                    MetricRunLog.metric_key == metric_key,
+                    MetricRunLog.entity_type == entity_type,
+                    MetricRunLog.entity_id == entity_id,
+                    MetricRunLog.season == season,
+                    MetricRunLog.delta_json.isnot(None),
+                )
+                .order_by(MetricRunLog.game_id)
+                .all()
+            )
+
+            # Merge all deltas into final totals
+            totals: dict = {}
+            for (delta_json,) in delta_rows:
+                try:
+                    delta = json.loads(delta_json)
+                except (ValueError, TypeError):
+                    continue
+                totals = merge_totals(totals, delta)
+
+            # Compute final value
             try:
-                delta = json.loads(delta_json)
-            except (ValueError, TypeError):
+                result = metric_def.compute_value(totals, season, entity_id)
+            except Exception as exc:
+                logger.error("reduce compute_value %s failed for %s %s: %s",
+                             metric_key, entity_type, entity_id, exc, exc_info=True)
                 continue
-            totals = merge_totals(totals, delta)
 
-        # Compute final value
-        try:
-            result = metric_def.compute_value(totals, season, entity_id)
-        except Exception as exc:
-            logger.error("reduce compute_value %s failed for %s %s: %s",
-                         metric_key, entity_type, entity_id, exc, exc_info=True)
-            continue
+            if result:
+                result.context = totals
+                _upsert_result(session, result)
+                results_written += 1
+            else:
+                # Below min_sample — persist totals so they are visible
+                _upsert_result(session, MetricResult(
+                    metric_key=metric_key,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    season=season,
+                    game_id=None,
+                    value_num=None,
+                    context=totals,
+                ))
 
-        if result:
-            result.context = totals
-            _upsert_result(session, result)
-            results_written += 1
-        else:
-            # Below min_sample — persist totals so they are visible
-            _upsert_result(session, MetricResult(
-                metric_key=metric_key,
-                entity_type=entity_type,
-                entity_id=entity_id,
-                season=season,
-                game_id=None,
-                value_num=None,
-                context=totals,
-            ))
+    duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
+    db_reads, db_writes = get_counts()
+    _record_metric_perf(
+        session,
+        metric_key,
+        duration_ms,
+        db_reads=db_reads,
+        db_writes=db_writes,
+    )
 
     if commit:
         session.commit()
@@ -386,63 +466,75 @@ def run_season_metric(
         logger.warning("run_season_metric: metric %r is not trigger=season; skipping.", metric_key)
         return 0
 
-    try:
-        results = metric_def.compute_season(session, season)
-    except Exception as exc:
-        logger.error("run_season_metric %s failed for season %s: %s",
-                     metric_key, season, exc, exc_info=True)
-        return 0
+    started_at = time.perf_counter()
+    with _count_db_ops(session) as get_counts:
+        try:
+            results = metric_def.compute_season(session, season)
+        except Exception as exc:
+            logger.error("run_season_metric %s failed for season %s: %s",
+                         metric_key, season, exc, exc_info=True)
+            return 0
 
-    try:
-        qualifications = metric_def.compute_qualifications(session, season)
-    except Exception as exc:
-        logger.error("run_season_metric %s compute_qualifications failed: %s",
-                     metric_key, exc, exc_info=True)
-        qualifications = None
+        try:
+            qualifications = metric_def.compute_qualifications(session, season)
+        except Exception as exc:
+            logger.error("run_season_metric %s compute_qualifications failed: %s",
+                         metric_key, exc, exc_info=True)
+            qualifications = None
 
-    if replace_existing:
-        # Only delete MetricRunLog (small table, no contention).
-        # MetricResult rows are upserted by _flush_results (INSERT ON DUPLICATE KEY
-        # UPDATE), so DELETE is unnecessary and causes InnoDB deadlocks when multiple
-        # Celery workers process different seasons of the same metric concurrently
-        # (gap locks on the metric_key index overlap across seasons).
-        session.query(MetricRunLog).filter(
-            MetricRunLog.metric_key == metric_key,
-            MetricRunLog.season == season,
-        ).delete(synchronize_session=False)
+        if replace_existing:
+            # Only delete MetricRunLog (small table, no contention).
+            # MetricResult rows are upserted by _flush_results (INSERT ON DUPLICATE KEY
+            # UPDATE), so DELETE is unnecessary and causes InnoDB deadlocks when multiple
+            # Celery workers process different seasons of the same metric concurrently
+            # (gap locks on the metric_key index overlap across seasons).
+            session.query(MetricRunLog).filter(
+                MetricRunLog.metric_key == metric_key,
+                MetricRunLog.season == season,
+            ).delete(synchronize_session=False)
 
-    persisted_results = [
-        r for r in (results or [])
-        if r and r.value_num is not None and r.value_num != 0
-    ]
-
-    # Trim to max_results_per_season if set, keeping the best-ranked results.
-    cap = getattr(metric_def, "max_results_per_season", None)
-    if cap and len(persisted_results) > cap:
-        reverse = getattr(metric_def, "rank_order", "desc") == "desc"
-        persisted_results.sort(key=lambda r: r.value_num, reverse=reverse)
-        persisted_results = persisted_results[:cap]
-
-    _flush_results(session, persisted_results)
-    count = len(persisted_results)
-
-    if qualifications:
-        run_log_rows = [
-            _log_run(
-                game_id=q["game_id"],
-                metric_key=metric_key,
-                entity_type=q.get("entity_type", "player"),
-                entity_id=q["entity_id"],
-                season=season,
-                delta=None,
-                produced=True,
-                qualified=q.get("qualified", True),
-            )
-            for q in qualifications
+        persisted_results = [
+            r for r in (results or [])
+            if r and r.value_num is not None and r.value_num != 0
         ]
-        _flush_run_logs(session, run_log_rows)
-        logger.info("run_season_metric %s season=%s: %d qualification records written.",
-                     metric_key, season, len(run_log_rows))
+
+        # Trim to max_results_per_season if set, keeping the best-ranked results.
+        cap = getattr(metric_def, "max_results_per_season", None)
+        if cap and len(persisted_results) > cap:
+            reverse = getattr(metric_def, "rank_order", "desc") == "desc"
+            persisted_results.sort(key=lambda r: r.value_num, reverse=reverse)
+            persisted_results = persisted_results[:cap]
+
+        _flush_results(session, persisted_results)
+        count = len(persisted_results)
+
+        if qualifications:
+            run_log_rows = [
+                _log_run(
+                    game_id=q["game_id"],
+                    metric_key=metric_key,
+                    entity_type=q.get("entity_type", "player"),
+                    entity_id=q["entity_id"],
+                    season=season,
+                    delta=None,
+                    produced=True,
+                    qualified=q.get("qualified", True),
+                )
+                for q in qualifications
+            ]
+            _flush_run_logs(session, run_log_rows)
+            logger.info("run_season_metric %s season=%s: %d qualification records written.",
+                         metric_key, season, len(run_log_rows))
+
+    duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
+    db_reads, db_writes = get_counts()
+    _record_metric_perf(
+        session,
+        metric_key,
+        duration_ms,
+        db_reads=db_reads,
+        db_writes=db_writes,
+    )
 
     if commit:
         session.commit()
