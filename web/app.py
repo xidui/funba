@@ -2334,6 +2334,15 @@ def _request_visitor_id(*, ensure_cookie: bool = False) -> str | None:
     return visitor_id
 
 
+def _ai_usage_preview(text: str | None, limit: int = 240) -> str | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if len(raw) <= limit:
+        return raw
+    return raw[: limit - 15].rstrip() + " ...[truncated]"
+
+
 def _record_ai_usage_event(
     *,
     feature: str,
@@ -5019,6 +5028,7 @@ def api_metric_search():
             error_code=type(exc).__name__,
             metadata={
                 "query_chars": len(query),
+                "query_text": _ai_usage_preview(query),
                 "candidate_count": candidate_count,
                 "scope_filter": scope_filter,
                 "status_filter": status_filter,
@@ -5038,6 +5048,7 @@ def api_metric_search():
             error_code=type(exc).__name__,
             metadata={
                 "query_chars": len(query),
+                "query_text": _ai_usage_preview(query),
                 "candidate_count": candidate_count,
                 "scope_filter": scope_filter,
                 "status_filter": status_filter,
@@ -5063,6 +5074,7 @@ def api_metric_search():
         http_status=200,
         metadata={
             "query_chars": len(query),
+            "query_text": _ai_usage_preview(query),
             "candidate_count": candidate_count,
             "match_count": len(matches),
             "scope_filter": scope_filter,
@@ -5121,6 +5133,7 @@ def api_metric_check_similar():
         conversation_id=conversation_id,
         metadata={
             "input_chars": len(expression),
+            "input_text": _ai_usage_preview(expression),
             "candidate_count": candidate_count,
             "similar_count": len(similar),
         },
@@ -5171,6 +5184,7 @@ def api_metric_generate():
                 conversation_id=conversation_id,
                 metadata={
                     "input_chars": len(expression),
+                    "input_text": _ai_usage_preview(expression),
                     "history_turn_count": len(history or []),
                     "is_edit": bool(existing),
                     "response_type": "clarification",
@@ -5193,6 +5207,7 @@ def api_metric_generate():
             conversation_id=conversation_id,
             metadata={
                 "input_chars": len(expression),
+                "input_text": _ai_usage_preview(expression),
                 "history_turn_count": len(history or []),
                 "is_edit": bool(existing),
                 "response_type": "code",
@@ -5217,6 +5232,7 @@ def api_metric_generate():
             conversation_id=conversation_id,
             metadata={
                 "input_chars": len(expression),
+                "input_text": _ai_usage_preview(expression),
                 "history_turn_count": len(history or []),
                 "is_edit": bool(existing),
                 "metric_key": (existing or {}).get("key"),
@@ -5237,6 +5253,7 @@ def api_metric_generate():
             conversation_id=conversation_id,
             metadata={
                 "input_chars": len(expression),
+                "input_text": _ai_usage_preview(expression),
                 "history_turn_count": len(history or []),
                 "is_edit": bool(existing),
                 "metric_key": (existing or {}).get("key"),

@@ -521,6 +521,12 @@
     const panel = document.getElementById('ai-usage-panel');
     if (!panel) return;
 
+    function esc(value) {
+      const div = document.createElement('div');
+      div.textContent = String(value || '');
+      return div.innerHTML;
+    }
+
     function num(value) {
       return Number(value || 0).toLocaleString();
     }
@@ -592,13 +598,16 @@
         html += section(
           'Recent Calls',
           recent.length
-            ? `<table class="usage-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Model</th><th>Status</th><th>Tokens</th></tr></thead><tbody>${
+            ? `<table class="usage-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Input</th><th>Model</th><th>Status</th><th>Tokens</th></tr></thead><tbody>${
                 recent.map((row) => {
                   const when = row.created_at ? new Date(row.created_at).toLocaleString() : 'Unknown';
                   const status = row.success
                     ? '<span class="usage-status-pill ok">ok</span>'
                     : `<span class="usage-status-pill error">${row.error_code || 'error'}</span>`;
-                  return `<tr><td>${when}</td><td>${row.label}</td><td>${row.feature} / ${row.operation}</td><td>${row.model}</td><td>${status}</td><td>${num(row.total_tokens)}</td></tr>`;
+                  const input = row.input_preview
+                    ? `<div style="max-width:320px;white-space:normal;line-height:1.35;">${esc(row.input_preview)}</div>`
+                    : '<span style="color:var(--muted);">—</span>';
+                  return `<tr><td>${when}</td><td>${esc(row.label)}</td><td>${esc(row.feature)} / ${esc(row.operation)}</td><td>${input}</td><td>${esc(row.model)}</td><td>${status}</td><td>${num(row.total_tokens)}</td></tr>`;
                 }).join('')
               }</tbody></table>`
             : '<div style="color:var(--muted);font-size:12px;">No recent calls.</div>'

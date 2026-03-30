@@ -1040,6 +1040,27 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("funba_visitor=", response.headers.get("Set-Cookie", ""))
 
+    def test_metric_search_api_logs_query_preview(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="free")), \
+             patch("web.app._feature_access_level", return_value="logged_in"), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]), \
+             patch("web.app._record_ai_usage_event") as mock_log:
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_log.call_args.kwargs["metadata"]["query_text"], "late game scoring")
+
     def test_metric_generate_api_logs_conversation_id(self):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)
@@ -1063,6 +1084,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.assertEqual(kwargs["feature"], "metric_create")
         self.assertEqual(kwargs["operation"], "generate")
         self.assertEqual(kwargs["conversation_id"], "conv-123")
+        self.assertEqual(kwargs["metadata"]["input_text"], "clutch scoring")
 
 
 class TestMetricPublishAuth(unittest.TestCase):

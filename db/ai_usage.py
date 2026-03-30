@@ -190,6 +190,16 @@ def get_ai_usage_dashboard(session, *, recent_limit: int = 20) -> dict:
             return f"Visitor {visitor_id[:8]}"
         return "Unknown"
 
+    def metadata_dict(row) -> dict:
+        raw = getattr(row, "metadata_json", None)
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
     return {
         "window_24h": _aggregate_window(session, usage_model, cutoff_24h),
         "window_7d": _aggregate_window(session, usage_model, cutoff_7d),
@@ -224,6 +234,7 @@ def get_ai_usage_dashboard(session, *, recent_limit: int = 20) -> dict:
                 "completion_tokens": int(row.completion_tokens or 0),
                 "success": bool(row.success),
                 "error_code": row.error_code,
+                "input_preview": (metadata_dict(row).get("query_text") or metadata_dict(row).get("input_text")),
             }
             for row in recent_rows
         ],
