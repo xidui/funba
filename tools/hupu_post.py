@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
+from hupu_forums import normalize_hupu_forum
 
 COOKIE_FILE = Path(__file__).resolve().parent.parent / ".hupu_cookies.json"
 
@@ -40,13 +41,9 @@ REAL_BROWSER_UA = (
 NBA_COMPOSER_FORUM_ID = 179
 CBA_COMPOSER_FORUM_ID = 346
 
-# Hupu team forums are selected dynamically through the composer picker. These
-# aliases only preserve backward compatibility with existing English keys.
 FORUMS = {
     "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "NBA版", "aliases": ("nba", "NBA版")},
     "cba": {"composer_id": CBA_COMPOSER_FORUM_ID, "label": "CBA版", "aliases": ("cba", "CBA版")},
-    "thunder": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "雷霆专区", "aliases": ("thunder", "雷霆专区")},
-    "lakers": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "湖人专区", "aliases": ("lakers", "湖人专区")},
 }
 
 
@@ -126,10 +123,11 @@ def _fill_editor(page: Page, paragraphs: list[str], footer_html: str | None = No
 
 def _resolve_forum(forum: str) -> tuple[str, int, str]:
     """Resolve an input forum alias into (key, composer_page_id, label)."""
-    normalized = (forum or "").strip()
+    raw = (forum or "").strip()
+    normalized = normalize_hupu_forum(raw) or raw
     for key, meta in FORUMS.items():
         aliases = meta.get("aliases") or ()
-        if normalized == key or normalized in aliases:
+        if raw == key or raw in aliases or normalized == key or normalized in aliases or normalized == meta["label"]:
             return key, int(meta["composer_id"]), str(meta["label"])
     if normalized.endswith("专区"):
         return normalized, NBA_COMPOSER_FORUM_ID, normalized

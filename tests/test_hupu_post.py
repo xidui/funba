@@ -38,7 +38,7 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
 
     def test_resolve_forum_supports_chinese_alias(self):
         key, forum_id, label = _resolve_forum("湖人专区")
-        self.assertEqual(key, "lakers")
+        self.assertEqual(key, "湖人专区")
         self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "湖人专区")
 
@@ -49,7 +49,7 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
 
     def test_resolve_forum_supports_existing_english_key(self):
         key, forum_id, label = _resolve_forum("thunder")
-        self.assertEqual(key, "thunder")
+        self.assertEqual(key, "雷霆专区")
         self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "雷霆专区")
 
@@ -58,6 +58,12 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(key, "勇士专区")
         self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "勇士专区")
+
+    def test_resolve_forum_supports_english_team_key_alias(self):
+        key, forum_id, label = _resolve_forum("76ers")
+        self.assertEqual(key, "76人专区")
+        self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
+        self.assertEqual(label, "76人专区")
 
     def test_forum_label_matches_treats_basketball_court_as_nba_board(self):
         self.assertTrue(_forum_label_matches("篮球场", "NBA版"))

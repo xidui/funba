@@ -21,6 +21,7 @@ from flask_limiter import Limiter
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
+from hupu_forums import normalize_hupu_forum
 
 from db.llm_models import (
     available_llm_models,
@@ -6350,6 +6351,8 @@ def admin_content_add_destination(post_id: int, variant_id: int):
     data = request.get_json(force=True) or {}
     platform = (data.get("platform") or "").strip()
     forum = (data.get("forum") or "").strip() or None
+    if platform.lower() == "hupu":
+        forum = normalize_hupu_forum(forum)
     if not platform:
         return jsonify({"error": "platform required"}), 400
     now = datetime.utcnow()
@@ -6430,7 +6433,7 @@ def api_content_create_post():
           "content_raw": "...",
           "audience_hint": "thunder fans",
           "destinations": [
-            {"platform": "hupu", "forum": "thunder"}
+            {"platform": "hupu", "forum": "雷霆专区"}
           ]
         }
       ]
@@ -6486,6 +6489,8 @@ def api_content_create_post():
             for dest in vd.get("destinations", []):
                 platform = (dest.get("platform") or "").strip()
                 forum = (dest.get("forum") or "").strip() or None
+                if platform.lower() == "hupu":
+                    forum = normalize_hupu_forum(forum)
                 if platform:
                     s.add(SocialPostDelivery(
                         variant_id=sv.id,
