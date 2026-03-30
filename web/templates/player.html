@@ -280,6 +280,31 @@
   .shot-legend-dot.missed { background: var(--shot-missed); }
 
   .player-heat-court .shot-dot { stroke: none; }
+
+  /* Two-chart layout */
+  .shot-charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .shot-chart-col h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .shot-chart-col .player-heat-court {
+    height: auto;
+    max-width: none;
+    width: 100%;
+  }
+
+  @media (max-width: 800px) {
+    .shot-charts-row { grid-template-columns: 1fr; }
+  }
 </style>
 
 <!-- ── Player header ──────────────────────────────────────────────── -->
@@ -654,53 +679,105 @@
     FG%: <strong style="color:var(--text);">{% if shot_attempts > 0 %}{{ "%.1f"|format(shot_made_count / shot_attempts * 100) }}%{% else %}—{% endif %}</strong>
   </p>
 
-  {% if shot_dots %}
-  <div class="shot-chart-legend">
-    <label class="shot-toggle">
-      <input type="checkbox" id="toggle-made" checked>
-      <span class="shot-legend-dot made"></span> Made
-    </label>
-    <label class="shot-toggle">
-      <input type="checkbox" id="toggle-missed" checked>
-      <span class="shot-legend-dot missed"></span> Missed
-    </label>
+  {% if shot_dots or heatmap_zones %}
+  <div class="shot-charts-row">
+
+    <!-- Scatter plot -->
+    <div class="shot-chart-col">
+      <h3>Shot Plot</h3>
+      {% if shot_dots %}
+      <div class="shot-chart-legend">
+        <label class="shot-toggle">
+          <input type="checkbox" id="toggle-made" checked>
+          <span class="shot-legend-dot made"></span> Made
+        </label>
+        <label class="shot-toggle">
+          <input type="checkbox" id="toggle-missed" checked>
+          <span class="shot-legend-dot missed"></span> Missed
+        </label>
+      </div>
+      <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
+        <g transform="scale(1,-1)">
+          <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
+          <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
+          <rect x="-80" y="-47.5" width="160" height="190" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="142.5" r="60" fill="none" class="court-line" stroke-width="2"></circle>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
+          <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
+          {% for dot in shot_dots if not dot.made %}
+          <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-missed" fill-opacity="0.3" stroke="none"></circle>
+          {% endfor %}
+          {% for dot in shot_dots if dot.made %}
+          <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-made" fill-opacity="0.3" stroke="none"></circle>
+          {% endfor %}
+        </g>
+      </svg>
+      <script>
+        (function () {
+          var made = document.getElementById('toggle-made');
+          var missed = document.getElementById('toggle-missed');
+          if (!made || !missed) return;
+          function apply() {
+            document.querySelectorAll('.shot-dot.is-made').forEach(function (d) { d.style.display = made.checked ? '' : 'none'; });
+            document.querySelectorAll('.shot-dot.is-missed').forEach(function (d) { d.style.display = missed.checked ? '' : 'none'; });
+          }
+          made.addEventListener('change', apply);
+          missed.addEventListener('change', apply);
+        })();
+      </script>
+      {% else %}
+      <p class="meta">No shot location data.</p>
+      {% endif %}
+    </div>
+
+    <!-- Zone FG% -->
+    <div class="shot-chart-col">
+      <h3>Zone FG%</h3>
+      {% if heatmap_zones %}
+      <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
+        <g transform="scale(1,-1)">
+          {% for zone in heatmap_zones %}
+          <path
+            d="{{ zone.path_d }}"
+            class="player-heat-zone"
+            data-zone="{{ zone.zone_label }}"
+            data-attempts="{{ zone.attempts }}"
+            data-made="{{ zone.made }}"
+            data-fg="{{ zone.fg_pct }}"
+            fill="{{ zone.color }}"
+            fill-opacity="{{ zone.alpha }}"
+            stroke-opacity="0.7"
+            stroke-width="1.4"
+            vector-effect="non-scaling-stroke"
+          >
+            <title>{{ zone.zone_label }} | {{ zone.made }}/{{ zone.attempts }} | FG%: {{ zone.fg_pct }}</title>
+          </path>
+          {% endfor %}
+          <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
+          <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
+          <rect x="-80" y="-47.5" width="160" height="190" fill="none" class="court-line" stroke-width="2"></rect>
+          <circle cx="0" cy="142.5" r="60" fill="none" class="court-line" stroke-width="2"></circle>
+          <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
+          <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
+          <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
+          {% for zone in heatmap_zones if zone.attempts > 0 %}
+          <text x="{{ zone.x }}" y="{{ -zone.y }}" text-anchor="middle" dominant-baseline="central"
+                fill="#fff" font-size="14" font-weight="700" font-family="Outfit, sans-serif"
+                style="paint-order:stroke;stroke:rgba(0,0,0,0.6);stroke-width:3px;">{{ zone.fg_pct }}</text>
+          {% endfor %}
+        </g>
+      </svg>
+      {% else %}
+      <p class="meta">No zone data.</p>
+      {% endif %}
+    </div>
+
   </div>
-
-  <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
-    <g transform="scale(1,-1)">
-      <!-- Court lines -->
-      <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
-      <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
-      <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
-      <rect x="-80" y="-47.5" width="160" height="190" fill="none" class="court-line" stroke-width="2"></rect>
-      <circle cx="0" cy="142.5" r="60" fill="none" class="court-line" stroke-width="2"></circle>
-      <line x1="-220" y1="-47.5" x2="-220" y2="92.5" class="court-line" stroke-width="2"></line>
-      <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
-      <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
-      <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
-
-      <!-- Missed shots first (under), then made shots on top -->
-      {% for dot in shot_dots if not dot.made %}
-      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-missed" fill-opacity="0.3" stroke="none"></circle>
-      {% endfor %}
-      {% for dot in shot_dots if dot.made %}
-      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-made" fill-opacity="0.3" stroke="none"></circle>
-      {% endfor %}
-    </g>
-  </svg>
-  <script>
-    (function () {
-      var made = document.getElementById('toggle-made');
-      var missed = document.getElementById('toggle-missed');
-      if (!made || !missed) return;
-      function apply() {
-        document.querySelectorAll('.shot-dot.is-made').forEach(function (d) { d.style.display = made.checked ? '' : 'none'; });
-        document.querySelectorAll('.shot-dot.is-missed').forEach(function (d) { d.style.display = missed.checked ? '' : 'none'; });
-      }
-      made.addEventListener('change', apply);
-      missed.addEventListener('change', apply);
-    })();
-  </script>
   {% else %}
   <p class="meta">No shot records found for this scope.</p>
   {% endif %}

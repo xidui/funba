@@ -80,6 +80,7 @@ _PBP_EVENT_TYPE_LABELS = {
     13: "Period End",
     18: "Replay",
 }
+_SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE = "metric_deep_dive"
 
 
 def _make_draft_key(user_id: str, key: str) -> str:
@@ -2384,6 +2385,89 @@ def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
     }
 
 
+def _social_post_source_metrics(post: SocialPost) -> list[str]:
+    try:
+        value = json.loads(post.source_metrics) if post.source_metrics else []
+    except Exception:
+        return []
+    return [str(item) for item in value if item]
+
+
+def _is_metric_deep_dive_post(post: SocialPost, metric_key: str) -> bool:
+    if getattr(post, "workflow_type", None) != _SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE:
+        return False
+    return metric_key in _social_post_source_metrics(post)
+
+
+def _is_active_metric_deep_dive_post(post: SocialPost) -> bool:
+    if str(getattr(post, "status", "") or "").strip() != "draft":
+        return False
+    issue_status = str(getattr(post, "paperclip_issue_status", "") or "").strip()
+    return issue_status not in {"done", "cancelled", "blocked"}
+
+
+def _metric_deep_dive_post_view(post: SocialPost) -> dict[str, object]:
+    workflow = _paperclip_workflow_view(post)
+    return {
+        "id": post.id,
+        "topic": post.topic,
+        "status": post.status,
+        "workflow_type": getattr(post, "workflow_type", None),
+        "created_at": post.created_at.isoformat() if post.created_at else None,
+        "created_at_label": _format_backfill_timestamp(post.created_at),
+        "workflow": workflow,
+        "admin_url": url_for("admin_content_post", post_id=post.id),
+    }
+
+
+def _metric_deep_dive_state(session, metric_key: str) -> dict[str, object]:
+    posts = (
+        session.query(SocialPost)
+        .filter(SocialPost.workflow_type == _SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE)
+        .order_by(SocialPost.created_at.desc(), SocialPost.id.desc())
+        .all()
+    )
+    metric_posts = [post for post in posts if _is_metric_deep_dive_post(post, metric_key)]
+    active_post = next((post for post in metric_posts if _is_active_metric_deep_dive_post(post)), None)
+    latest_post = metric_posts[0] if metric_posts else None
+    return {
+        "can_trigger": active_post is None,
+        "active_post": _metric_deep_dive_post_view(active_post) if active_post else None,
+        "latest_post": _metric_deep_dive_post_view(latest_post) if latest_post else None,
+    }
+
+
+def _build_metric_deep_dive_brief(
+    *,
+    metric_name: str,
+    metric_key: str,
+    metric_page_url: str,
+    selected_view_label: str,
+    current_season_label: str | None,
+) -> str:
+    lines = [
+        "Metric deep-dive brief",
+        "",
+        f"Primary metric: {metric_name} ({metric_key})",
+        f"Metric page: {metric_page_url}",
+        f"Admin-selected view: {selected_view_label}",
+    ]
+    if current_season_label:
+        lines.append(f"Current season to compare against: {current_season_label}")
+    lines.extend(
+        [
+            "",
+            "Required work:",
+            "1. Write one professional Chinese post around 1000-2000 Chinese characters.",
+            "2. Deeply analyze this metric first, then expand into the most relevant supporting or contrasting Funba metrics.",
+            "3. Use the selected view above as the main digging direction. If current-season framing matters, compare it against the current season as well.",
+            "4. Decide which Hupu destination(s) make sense and add them in Funba yourself.",
+            "5. Replace the placeholder draft in Funba and move the post to in_review when ready.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _load_social_post_bundle(db_sess, post_id: int):
     post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
     if not post:
@@ -2418,6 +2502,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
         "id": post.id,
         "topic": post.topic,
         "source_date": post.source_date.isoformat() if post.source_date else None,
+        "workflow_type": getattr(post, "workflow_type", None),
         "status": post.status,
         "priority": post.priority,
         "source_metrics": source_metrics,
@@ -2467,6 +2552,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
             "id": p.id,
             "topic": p.topic,
             "source_date": p.source_date.isoformat() if p.source_date else "",
+            "workflow_type": getattr(p, "workflow_type", None),
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
             "status": p.status,
@@ -4022,23 +4108,30 @@ def player_page(player_id: str):
         if selected_heatmap_season != "overall" and selected_heatmap_season not in heatmap_season_options:
             selected_heatmap_season = "overall"
 
+        shot_base_filter = [
+            ShotRecord.player_id == player_id,
+            Game.season.like(f"{season_prefix}%"),
+        ]
+
         shot_query = (
             session.query(ShotRecord.loc_x, ShotRecord.loc_y, ShotRecord.shot_made)
             .join(Game, ShotRecord.game_id == Game.game_id)
-            .filter(
-                ShotRecord.player_id == player_id,
-                Game.season.like(f"{season_prefix}%"),
-                ShotRecord.loc_x.isnot(None),
-                ShotRecord.loc_y.isnot(None),
-            )
+            .filter(*shot_base_filter, ShotRecord.loc_x.isnot(None), ShotRecord.loc_y.isnot(None))
+        )
+        zone_query = (
+            session.query(ShotRecord.shot_zone_basic, ShotRecord.shot_zone_area, ShotRecord.shot_made)
+            .join(Game, ShotRecord.game_id == Game.game_id)
+            .filter(*shot_base_filter, ShotRecord.shot_zone_basic.isnot(None))
         )
         if selected_heatmap_season != "overall":
             shot_query = shot_query.filter(Game.season == selected_heatmap_season)
+            zone_query = zone_query.filter(Game.season == selected_heatmap_season)
 
         shot_rows = shot_query.all()
         shot_dots = [{"x": r.loc_x, "y": r.loc_y, "made": bool(r.shot_made)} for r in shot_rows]
         shot_attempts = len(shot_dots)
         shot_made_count = sum(1 for d in shot_dots if d["made"])
+        heatmap_zones, _, _ = _build_shot_zone_heatmap(zone_query.all())
         heatmap_scope_label = (
             f"Overall {career_kind_label}" if selected_heatmap_season == "overall" else _season_label(selected_heatmap_season)
         )
@@ -4136,6 +4229,7 @@ def player_page(player_id: str):
         shot_dots=shot_dots,
         shot_attempts=shot_attempts,
         shot_made_count=shot_made_count,
+        heatmap_zones=heatmap_zones,
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,
@@ -5567,6 +5661,7 @@ def metric_detail(metric_key: str):
         )
         is_career_metric = bool(getattr(runtime_metric, "career", False))
         related_metrics = _related_metric_links(session, metric_key, runtime_metric, db_metric)
+        current_metric_season = None
 
         # Available seasons for this metric
         season_rows = (
@@ -5595,6 +5690,7 @@ def metric_detail(metric_key: str):
                 key=_season_sort_key,
                 reverse=True,
             )
+            current_metric_season = _pick_current_season(season_options)
             if not is_pro():
                 _cur = _pick_current_season(season_options)
                 if _cur:
@@ -5792,6 +5888,7 @@ def metric_detail(metric_key: str):
             .limit(1)
             .first()
         ) is not None
+        metric_deep_dive = _metric_deep_dive_state(session, metric_key)
 
     if is_career_metric:
         display_season_label = "Career"
@@ -5800,6 +5897,7 @@ def metric_detail(metric_key: str):
         display_season_label = f"All {_type_name}"
     else:
         display_season_label = _season_label(selected_season)
+    current_metric_season_label = _season_label(current_metric_season) if current_metric_season else None
     is_player_scope = metric_def.scope in ("player", "player_franchise")
     return render_template(
         "metric_detail.html",
@@ -5816,6 +5914,7 @@ def metric_detail(metric_key: str):
         is_career_metric=is_career_metric,
         related_metrics=related_metrics,
         season_label=display_season_label,
+        current_metric_season_label=current_metric_season_label,
         fmt_season=_season_label,
         fmt_season_short=_season_year_label,
         page=page,
@@ -5825,6 +5924,7 @@ def metric_detail(metric_key: str):
         backfill=backfill,
         has_drilldown=has_drilldown,
         search_q=search_q,
+        metric_deep_dive=metric_deep_dive,
     )
 
 
@@ -6090,6 +6190,34 @@ def admin_content():
         total=total,
         status_filter=status_filter or "all",
         today=yesterday,
+        single_post_view=False,
+    )
+
+
+@app.get("/admin/content/<int:post_id>")
+def admin_content_post(post_id: int):
+    """Single-post management view for a SocialPost."""
+    denied = _require_admin_page()
+    if denied:
+        return denied
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not post:
+            abort(404)
+        post_rows = _build_social_post_rows(s, [post])
+
+    from datetime import date as _date, timedelta as _td
+    yesterday = (_date.today() - _td(days=1)).isoformat()
+    return render_template(
+        "admin_content.html",
+        posts=post_rows,
+        page=1,
+        total_pages=1,
+        total=1,
+        status_filter="all",
+        today=yesterday,
+        single_post_view=True,
+        focused_post_id=post_id,
     )
 
 
@@ -6140,6 +6268,7 @@ def admin_content_detail(post_id: int):
             "id": p.id,
             "topic": p.topic,
             "source_date": p.source_date.isoformat() if p.source_date else None,
+            "workflow_type": getattr(p, "workflow_type", None),
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
             "status": p.status,
@@ -6330,6 +6459,129 @@ def admin_content_sync_paperclip(post_id: int):
     if result is None:
         return jsonify({"error": "not_found"}), 404
     return jsonify({"ok": True, **result})
+
+
+def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str, brief_text: str) -> tuple[int, str]:
+    now = datetime.utcnow()
+    comments: list[dict[str, object]] = []
+    brief_timestamp = append_admin_comment(
+        comments,
+        text=brief_text,
+        author=_paperclip_actor_name(),
+        origin="system",
+        event_type="brief",
+    )
+    placeholder_title = f"[funba] {metric_name} 深度分析"
+    placeholder_body = (
+        "Placeholder draft.\n\n"
+        "Content Analyst should replace this with one professional 1000-2000字中文深度分析。"
+        "具体挖掘方向见 comments / Paperclip brief。"
+    )
+    with SessionLocal() as s:
+        post = SocialPost(
+            topic=f"{metric_name} 深度分析",
+            source_date=date.today(),
+            source_metrics=json.dumps([metric_key], ensure_ascii=False),
+            source_game_ids=json.dumps([], ensure_ascii=False),
+            workflow_type=_SOCIAL_POST_WORKFLOW_METRIC_DEEP_DIVE,
+            status="draft",
+            priority=35,
+            llm_model=None,
+            admin_comments=json.dumps(comments, ensure_ascii=False),
+            created_at=now,
+            updated_at=now,
+        )
+        s.add(post)
+        s.flush()
+        s.add(
+            SocialPostVariant(
+                post_id=post.id,
+                title=placeholder_title,
+                content_raw=placeholder_body,
+                audience_hint="general nba",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        s.commit()
+        return post.id, brief_timestamp
+
+
+@app.post("/api/admin/metrics/<metric_key>/deep-dive-post")
+def admin_metric_trigger_deep_dive_post(metric_key: str):
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    selected_view_label = (data.get("selected_view_label") or "").strip() or "Current view"
+    current_season_label = (data.get("current_season_label") or "").strip() or None
+    metric_page_url = (data.get("metric_page_url") or "").strip()
+    if metric_page_url.startswith("/"):
+        metric_page_url = request.url_root.rstrip("/") + metric_page_url
+    if not metric_page_url:
+        metric_page_url = url_for("metric_detail", metric_key=metric_key, _external=True)
+
+    try:
+        _paperclip_client_or_raise()
+    except PaperclipBridgeError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    with SessionLocal() as s:
+        from metrics.framework.runtime import get_metric as _get_metric
+
+        runtime_metric = _get_metric(metric_key, session=s)
+        db_metric = (
+            s.query(MetricDefinitionModel)
+            .filter(MetricDefinitionModel.key == metric_key, MetricDefinitionModel.status != "archived")
+            .first()
+        )
+        if runtime_metric is None and db_metric is None:
+            return jsonify({"error": "metric_not_found"}), 404
+
+        metric_def = _metric_def_view(
+            runtime_metric or db_metric,
+            source_type=getattr(db_metric, "source_type", None),
+        )
+        deep_dive_state = _metric_deep_dive_state(s, metric_key)
+        if not deep_dive_state["can_trigger"]:
+            return jsonify({"error": "already_running", "metric_deep_dive": deep_dive_state}), 409
+
+    brief_text = _build_metric_deep_dive_brief(
+        metric_name=metric_def.name,
+        metric_key=metric_key,
+        metric_page_url=metric_page_url,
+        selected_view_label=selected_view_label,
+        current_season_label=current_season_label,
+    )
+    post_id, brief_timestamp = _create_metric_deep_dive_placeholder_post(metric_key, metric_def.name, brief_text)
+    _ensure_paperclip_issue_for_post(post_id)
+
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if post is None or not post.paperclip_issue_id:
+            error_message = (post.paperclip_sync_error if post is not None else None) or "Failed to create Paperclip issue for this deep-dive post."
+            variant_ids = [v.id for v in s.query(SocialPostVariant.id).filter(SocialPostVariant.post_id == post_id).all()]
+            if variant_ids:
+                s.query(SocialPostDelivery).filter(SocialPostDelivery.variant_id.in_(variant_ids)).delete(synchronize_session=False)
+            s.query(SocialPostVariant).filter(SocialPostVariant.post_id == post_id).delete(synchronize_session=False)
+            s.query(SocialPost).filter(SocialPost.id == post_id).delete(synchronize_session=False)
+            s.commit()
+            return jsonify({"error": error_message}), 500
+
+    _mirror_paperclip_comment(post_id, text=brief_text, local_comment_timestamp=brief_timestamp)
+    sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
+
+    with SessionLocal() as s:
+        deep_dive_state = _metric_deep_dive_state(s, metric_key)
+
+    response = {
+        "ok": True,
+        "post_id": post_id,
+        "metric_deep_dive": deep_dive_state,
+    }
+    if sync_result:
+        response.update(sync_result)
+    return jsonify(response)
 
 
 @app.post("/api/admin/content/daily-analysis/trigger")
@@ -6623,6 +6875,7 @@ def api_content_list_posts():
                     "id": p.id,
                     "topic": p.topic,
                     "source_date": p.source_date.isoformat() if p.source_date else None,
+                    "workflow_type": getattr(p, "workflow_type", None),
                     "status": p.status,
                     "priority": p.priority,
                     "created_at": p.created_at.isoformat() if p.created_at else None,
