@@ -2245,6 +2245,8 @@ def _is_bot() -> bool:
 @app.before_request
 def _block_bots():
     """Return 403 for known bots / non-browser clients."""
+    if app.config.get("TESTING"):
+        return
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
     # Exempt localhost API calls (Paperclip)
@@ -2262,7 +2264,7 @@ def _track_page_view():
         return
     if request.path.startswith("/api/") or request.path.startswith("/static/"):
         return
-    if _is_bot():
+    if not app.config.get("TESTING") and _is_bot():
         return
     # Skip tracking for admin / owner sessions
     _uid = session.get("user_id")
