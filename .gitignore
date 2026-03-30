@@ -20,3 +20,11 @@ backups
 backups/
 .paperclip/
 .rabbitmq/
+.hupu_browser_data/
+.hupu_cookies.json
+social_media/hupu/.hupu_browser_data/
+social_media/hupu/.hupu_cookies.json
+.tmp_audit/
+.tmp_qa/
+.tmp_awards_models.sqlite
+test-results/

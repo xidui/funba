@@ -21,7 +21,7 @@ from flask_limiter import Limiter
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
-from hupu_forums import normalize_hupu_forum
+from social_media.hupu.forums import normalize_hupu_forum
 
 from db.llm_models import (
     available_llm_models,

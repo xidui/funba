@@ -2,16 +2,16 @@
 
 Usage:
     # Import cookies from Chrome (after logging in via normal Chrome)
-    python -m tools.hupu_post login --chrome-profile "Profile 1"
+    python -m social_media.hupu.post login --chrome-profile "Profile 1"
 
     # Check login status
-    python -m tools.hupu_post check
+    python -m social_media.hupu.post check
 
     # Post with plain text (dry run by default)
-    python -m tools.hupu_post post --title "xxx" --content "xxx" --forum "nba"
+    python -m social_media.hupu.post post --title "xxx" --content "xxx" --forum "nba"
 
     # Post with images and links
-    python -m tools.hupu_post post --title "xxx" --content "xxx" --forum "thunder" \\
+    python -m social_media.hupu.post post --title "xxx" --content "xxx" --forum "雷霆专区" \\
         --image /tmp/screenshot.png \\
         --link-text "funba.app" --link-url "https://funba.app" \\
         --submit
@@ -28,9 +28,11 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
-from hupu_forums import normalize_hupu_forum
+from .forums import normalize_hupu_forum
 
-COOKIE_FILE = Path(__file__).resolve().parent.parent / ".hupu_cookies.json"
+MODULE_DIR = Path(__file__).resolve().parent
+COOKIE_FILE = MODULE_DIR / ".hupu_cookies.json"
+BROWSER_DATA_DIR = MODULE_DIR / ".hupu_browser_data"
 
 HUPU_HOME = "https://bbs.hupu.com"
 FUNBA_LOCAL_BASE = "http://127.0.0.1:5001"
@@ -653,6 +655,7 @@ def cmd_login(args: argparse.Namespace) -> None:
             for c in cj
         ]
 
+        COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(COOKIE_FILE, "w") as f:
             json.dump(cookies, f, indent=2)
         print(f"Imported {len(cookies)} cookies from Chrome {profile}")
@@ -675,7 +678,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     """Check if saved cookies are still valid."""
     cookies = _load_cookies()
     if not cookies:
-        print("No cookies found. Run: python -m tools.hupu_post login")
+        print("No cookies found. Run: python -m social_media.hupu.post login")
         sys.exit(1)
 
     with sync_playwright() as pw:
@@ -688,7 +691,7 @@ def cmd_check(args: argparse.Namespace) -> None:
             print("Logged in.")
         else:
             print("Not logged in. Cookies may have expired.")
-            print("Log in via Chrome and run: python -m tools.hupu_post login")
+            print("Log in via Chrome and run: python -m social_media.hupu.post login")
             sys.exit(1)
 
         context.close()
@@ -731,7 +734,7 @@ def cmd_post(args: argparse.Namespace) -> None:
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
         time.sleep(2)
         if not _is_logged_in(page):
-            print("ERROR: Not logged in. Run: python -m tools.hupu_post login")
+            print("ERROR: Not logged in. Run: python -m social_media.hupu.post login")
             context.close()
             sys.exit(1)
         print("Logged in.")
@@ -788,7 +791,7 @@ def cmd_post(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="python -m tools.hupu_post",
+        prog="python -m social_media.hupu.post",
         description="Auto-post to Hupu forums.",
     )
     sub = parser.add_subparsers(dest="command", required=True)

@@ -9,7 +9,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-from tools.hupu_post import (  # noqa: E402
+from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
     _extract_thread_url_from_html,
     _forum_label_matches,
@@ -87,7 +87,7 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(parsed["type"], "game_boxscore")
         self.assertEqual(parsed["target"], "https://funba.app/games/0022501077")
 
-    @patch("tools.hupu_post._capture_compact_screenshot")
+    @patch("social_media.hupu.post._capture_compact_screenshot")
     def test_prepare_placeholder_images_autogenerates_missing_images(self, capture_mock):
         content = "[[IMAGE: type=game_boxscore; target=https://funba.app/games/0022501077; note=test]]"
         resolved, temp_paths = _prepare_placeholder_images(content, [])

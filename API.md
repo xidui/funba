@@ -441,7 +441,7 @@ When the Paperclip env vars are configured, Funba mirrors workflow signals into 
 4. GET  /api/data/metrics/{key}/top                → get rankings
 5. [Paperclip generates content with LLM]
 6. POST /api/content/posts                         → create SocialPost + variants + deliveries
-7. [Paperclip publishes to Hupu via tools/hupu_post.py]
+7. [Paperclip publishes to Hupu via social_media/hupu/post.py]
 8. POST /api/content/deliveries/{id}/status        → report published_url or error
 ```
 
@@ -449,17 +449,17 @@ When the Paperclip env vars are configured, Funba mirrors workflow signals into 
 
 ## Hupu Publishing Tool
 
-Paperclip uses `tools/hupu_post.py` (in the funba repo) for Hupu browser automation:
+Paperclip uses `social_media/hupu/post.py` for Hupu browser automation:
 
 ```bash
 # Check login status
-python -m tools.hupu_post check
+python -m social_media.hupu.post check
 
 # Post (dry run)
-python -m tools.hupu_post post --title "标题" --content "正文" --forum "雷霆专区"
+python -m social_media.hupu.post post --title "标题" --content "正文" --forum "雷霆专区"
 
 # Post (submit for real)
-python -m tools.hupu_post post --title "标题" --content "正文" --forum "76人专区" --submit
+python -m social_media.hupu.post post --title "标题" --content "正文" --forum "76人专区" --submit
 
 # Examples:
 #   NBA版 -> nba
@@ -468,7 +468,7 @@ python -m tools.hupu_post post --title "标题" --content "正文" --forum "76�
 #   common English team aliases may also work and are normalized by the tool
 ```
 
-Cookie file: `.hupu_cookies.json` (refresh with `python -m tools.hupu_post login --chrome-profile "Profile 1"`).
+Cookie file: `social_media/hupu/.hupu_cookies.json` (refresh with `python -m social_media.hupu.post login --chrome-profile "Profile 1"`).
 
 ---
 
