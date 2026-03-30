@@ -705,9 +705,9 @@
 <div class="card">
   <h2>Shot Chart</h2>
 
-  {% if shot_backfill_status == "ok" %}
+  {% if shot_backfill_status == "ok" and (shot_backfill_count|int > 0) %}
   <p class="meta" style="color:var(--win); font-weight:600; margin-bottom:8px;">
-    Shot chart loaded{% if shot_backfill_count %} ({{ shot_backfill_count }} shots){% endif %}.
+    Shot chart loaded ({{ shot_backfill_count }} shots).
   </p>
   {% elif shot_backfill_status == "error" %}
   <p class="meta" style="color:var(--loss); font-weight:600; margin-bottom:8px;">
@@ -800,8 +800,14 @@
   <div id="shot-tooltip"></div>
 
   {% else %}
-  {% if is_admin %}
-  <p id="shot-fetch-status" class="meta" style="font-weight:600;">Fetching shot chart from NBA API…</p>
+  {% if shot_backfill_status == "ok" %}
+  {% if shot_backfill_count|int > 0 %}
+  <p class="meta" style="font-weight:600;">Shot chart fetch completed, but no renderable shots were returned.</p>
+  {% else %}
+  <p class="meta" style="font-weight:600;">No shot data available for this game.</p>
+  {% endif %}
+  {% elif is_admin %}
+  <p id="shot-fetch-status" data-autofetch="1" class="meta" style="font-weight:600;">Fetching shot chart from NBA API…</p>
   {% else %}
   <p class="meta" style="color:var(--muted);">No shot data available for this game.</p>
   {% endif %}
@@ -917,7 +923,7 @@
 
     /* Auto-fetch shot chart if empty */
     const statusEl = document.getElementById('shot-fetch-status');
-    if (statusEl) {
+    if (statusEl && statusEl.dataset.autofetch === '1') {
       (async function () {
         try {
           const resp = await fetch('{{ url_for("game_shotchart_backfill_api", game_id=game.game_id) }}', {
@@ -931,6 +937,12 @@
             return;
           }
           const n = Number(data.shot_count || 0);
+          if (n <= 0) {
+            statusEl.textContent = 'No shot data available for this game.';
+            statusEl.style.color = 'var(--muted)';
+            delete statusEl.dataset.autofetch;
+            return;
+          }
           statusEl.textContent = 'Fetched ' + n + ' shots. Reloading…';
           setTimeout(() => {
             window.location.href = '{{ url_for("game_page", game_id=game.game_id) }}?shot_backfill=ok&shot_count=' + n;
