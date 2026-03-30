@@ -29,6 +29,7 @@ def _import_web_helpers():
         "GamePlayByPlay",
         "MetricComputeRun",
         "MetricDefinition",
+        "MetricPerfLog",
         "MetricResult",
         "MetricRunLog",
         "PageView",

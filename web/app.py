@@ -31,7 +31,7 @@ from db.llm_models import (
     set_default_llm_model,
     set_llm_model_for_purpose,
 )
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -6153,6 +6153,70 @@ def _load_admin_recent_runs_panel(session, *, recent_page: int, recent_page_size
     }
 
 
+def _load_admin_metric_perf_panel(session, *, perf_page: int, perf_page_size: int) -> dict:
+    metric_perf_q = (
+        session.query(
+            MetricPerfLog.metric_key.label("metric_key"),
+            func.avg(MetricPerfLog.duration_ms).label("avg_ms"),
+            func.min(MetricPerfLog.duration_ms).label("min_ms"),
+            func.max(MetricPerfLog.duration_ms).label("max_ms"),
+            func.count(MetricPerfLog.id).label("sample_count"),
+        )
+        .group_by(MetricPerfLog.metric_key)
+        .order_by(func.avg(MetricPerfLog.duration_ms).desc(), MetricPerfLog.metric_key.asc())
+    )
+    perf_total = metric_perf_q.count()
+    perf_total_pages = max(1, (perf_total + perf_page_size - 1) // perf_page_size)
+    perf_page = min(perf_page, perf_total_pages)
+    metric_stats = (
+        metric_perf_q
+        .offset((perf_page - 1) * perf_page_size)
+        .limit(perf_page_size)
+        .all()
+    )
+
+    metric_keys = [row.metric_key for row in metric_stats]
+    perf_rows = []
+    if metric_keys:
+        perf_rows = (
+            session.query(MetricPerfLog)
+            .filter(MetricPerfLog.metric_key.in_(metric_keys))
+            .order_by(MetricPerfLog.metric_key.asc(), MetricPerfLog.recorded_at.desc(), MetricPerfLog.id.desc())
+            .all()
+        )
+
+    rows_by_metric: dict[str, list[MetricPerfLog]] = {metric_key: [] for metric_key in metric_keys}
+    for row in perf_rows:
+        rows_by_metric.setdefault(row.metric_key, []).append(row)
+
+    perf_data = []
+    for stat in metric_stats:
+        metric_rows = rows_by_metric.get(stat.metric_key, [])
+        latest = metric_rows[0] if metric_rows else None
+        perf_data.append(
+            {
+                "metric_key": stat.metric_key,
+                "avg_ms": int(round(stat.avg_ms or 0)),
+                "min_ms": stat.min_ms or 0,
+                "max_ms": stat.max_ms or 0,
+                "latest_ms": latest.duration_ms if latest else None,
+                "last_run_at": latest.recorded_at if latest else None,
+                "db_reads": latest.db_reads if latest else None,
+                "db_writes": latest.db_writes if latest else None,
+                "sample_count": stat.sample_count,
+                "samples_ms": [row.duration_ms for row in metric_rows[:5]],
+            }
+        )
+
+    return {
+        "perf_data": perf_data,
+        "perf_page": perf_page,
+        "perf_total_pages": perf_total_pages,
+        "perf_has_prev": perf_page > 1,
+        "perf_has_next": perf_page < perf_total_pages,
+    }
+
+
 
 
 @app.get("/admin")
@@ -7017,6 +7081,7 @@ def admin_fragment(section: str):
     section = (section or "").strip().lower()
     runs_page_size = 25
     recent_page_size = 25
+    perf_page_size = 20
 
     with SessionLocal() as session:
         if section == "visitor-stats":
@@ -7106,6 +7171,23 @@ def admin_fragment(section: str):
                 recent_page=panel["recent_page"],
                 recent_has_prev=panel["recent_has_prev"],
                 recent_has_next=panel["recent_has_next"],
+                admin_page_url=_admin_page_url,
+                admin_fragment_url=_admin_fragment_url,
+            )
+
+        if section == "metric-perf":
+            panel = _load_admin_metric_perf_panel(
+                session,
+                perf_page=_admin_page_arg("perf_page"),
+                perf_page_size=perf_page_size,
+            )
+            return render_template(
+                "_admin_metric_perf.html",
+                perf_data=panel["perf_data"],
+                perf_page=panel["perf_page"],
+                perf_total_pages=panel["perf_total_pages"],
+                perf_has_prev=panel["perf_has_prev"],
+                perf_has_next=panel["perf_has_next"],
                 admin_page_url=_admin_page_url,
                 admin_fragment_url=_admin_fragment_url,
             )
