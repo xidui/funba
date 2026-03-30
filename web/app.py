@@ -4203,6 +4203,19 @@ def player_page(player_id: str):
                     }
                 )
 
+        # Current team from most recent game
+        player_current_team_id = game_rows[0]["player_team_id"] if game_rows else None
+        if not player_current_team_id:
+            latest_team = (
+                session.query(PlayerGameStats.team_id)
+                .join(Game, PlayerGameStats.game_id == Game.game_id)
+                .filter(PlayerGameStats.player_id == player_id)
+                .order_by(Game.game_date.desc())
+                .first()
+            )
+            if latest_team:
+                player_current_team_id = latest_team[0]
+
         player_metrics = _get_metric_results(session, "player", player_id, selected_season)
         salary_records = (
             session.query(PlayerSalary)
@@ -4233,6 +4246,7 @@ def player_page(player_id: str):
         shot_attempts=shot_attempts,
         shot_made_count=shot_made_count,
         heatmap_zones=heatmap_zones,
+        player_current_team_id=player_current_team_id,
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,

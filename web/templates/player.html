@@ -700,6 +700,7 @@
       </div>
       <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
         <g transform="scale(1,-1)">
+          <!-- Court lines -->
           <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
           <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
           <rect x="-30" y="-7.5" width="60" height="0" fill="none" class="court-line" stroke-width="2"></rect>
@@ -716,6 +717,14 @@
           <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="1.8" class="shot-dot is-made" fill-opacity="0.3" stroke="none"></circle>
           {% endfor %}
         </g>
+        <!-- Team logo centered on court -->
+        {% if player_current_team_id %}
+        <image
+          href="https://cdn.nba.com/logos/nba/{{ player_current_team_id }}/global/L/logo.svg"
+          x="-90" y="-280" width="180" height="180"
+          opacity="0.10"
+        />
+        {% endif %}
       </svg>
       <script>
         (function () {
