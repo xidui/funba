@@ -34,7 +34,10 @@ NBA_TEAM_FORUM_LABELS = {
 }
 
 _ALIAS_TO_LABEL = {
-    "nba": "NBA版",
+    "nba": "湿乎乎的话题",
+    "nba版": "湿乎乎的话题",
+    "篮球场": "湿乎乎的话题",
+    "湿乎乎的话题": "湿乎乎的话题",
     "cba": "CBA版",
     "hawks": "老鹰专区",
     "atl": "老鹰专区",
@@ -141,6 +144,6 @@ def normalize_hupu_forum(forum: str | None) -> str | None:
     raw = forum.strip()
     if not raw:
         return None
-    if raw in {"NBA版", "CBA版"} or raw.endswith("专区"):
+    if raw in {"湿乎乎的话题", "CBA版"} or raw.endswith("专区"):
         return raw
     return _ALIAS_TO_LABEL.get(raw.lower(), raw)

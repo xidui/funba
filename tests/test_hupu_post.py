@@ -75,10 +75,10 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(forum_id, NBA_COMPOSER_FORUM_ID)
         self.assertEqual(label, "76人专区")
 
-    def test_forum_label_matches_treats_basketball_court_as_nba_board(self):
-        self.assertTrue(_forum_label_matches("篮球场", "NBA版"))
-        self.assertTrue(_forum_label_matches("NBA版", "NBA版"))
-        self.assertFalse(_forum_label_matches("湖人专区", "NBA版"))
+    def test_forum_label_matches_uses_exact_label_for_general_board(self):
+        self.assertTrue(_forum_label_matches("湿乎乎的话题", "湿乎乎的话题"))
+        self.assertFalse(_forum_label_matches("篮球场", "湿乎乎的话题"))
+        self.assertFalse(_forum_label_matches("湖人专区", "湿乎乎的话题"))
 
     def test_parse_image_placeholder_extracts_target(self):
         parsed = _parse_image_placeholder(

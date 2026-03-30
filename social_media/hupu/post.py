@@ -44,7 +44,7 @@ NBA_COMPOSER_FORUM_ID = 179
 CBA_COMPOSER_FORUM_ID = 346
 
 FORUMS = {
-    "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "NBA版", "aliases": ("nba", "NBA版")},
+    "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "湿乎乎的话题", "aliases": ("nba", "NBA版", "湿乎乎的话题", "篮球场")},
     "cba": {"composer_id": CBA_COMPOSER_FORUM_ID, "label": "CBA版", "aliases": ("cba", "CBA版")},
 }
 
@@ -243,8 +243,6 @@ def _forum_label_matches(current_label: str | None, target_label: str) -> bool:
     target = (target_label or "").strip()
     if not current or not target:
         return False
-    if target == "NBA版":
-        return current in {"NBA版", "篮球场"}
     return current == target
 
 

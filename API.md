@@ -247,7 +247,7 @@ Create a SocialPost with variants and delivery destinations.
       "content_raw": "中立角度正文...",
       "audience_hint": "general nba",
       "destinations": [
-        {"platform": "hupu", "forum": "nba"}
+        {"platform": "hupu", "forum": "湿乎乎的话题"}
       ]
     }
   ]
@@ -269,7 +269,7 @@ Create a SocialPost with variants and delivery destinations.
 | `variants[].audience_hint` | string | no | null | e.g. "thunder fans", "general nba" |
 | `variants[].destinations` | object[] | no | [] | Suggested delivery targets |
 | `variants[].destinations[].platform` | string | yes | | `hupu`, `reddit`, `discord`, `twitter` |
-| `variants[].destinations[].forum` | string | no | null | Platform-specific target, e.g. `thunder`, `nba`, `r/nba` |
+| `variants[].destinations[].forum` | string | no | null | Platform-specific target, e.g. `雷霆专区`, `湿乎乎的话题`, `r/nba` |
 
 **Response:**
 
@@ -462,7 +462,7 @@ python -m social_media.hupu.post post --title "标题" --content "正文" --foru
 python -m social_media.hupu.post post --title "标题" --content "正文" --forum "76人专区" --submit
 
 # Examples:
-#   NBA版 -> nba
+#   `nba` / `NBA版` -> `湿乎乎的话题`
 #   CBA版 -> cba
 #   any NBA team forum can be passed as its Chinese label, e.g. 雷霆专区 / 76人专区 / 老鹰专区
 #   common English team aliases may also work and are normalized by the tool
