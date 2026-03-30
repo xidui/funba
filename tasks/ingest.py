@@ -4,7 +4,7 @@ Flow per task:
   ingest_game(game_id)
     1. Check what data is already present (game detail, PBP, shot records)
     2. Fetch only what's missing from NBA API
-    3. On success → fan out compute_game_delta for every registered metric key
+    3. Legacy-only: optional game fan-out for deprecated per-game metric pipeline
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from db.backfill_nba_player_shot_detail import (
 )
 from db.models import Game, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
+from runtime_flags import get_runtime_flag
 
 logger = logging.getLogger(__name__)
 
@@ -188,23 +189,33 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                     exc,
                 )
 
-    # Step 4: fan out — only reached after all ingestion steps succeed.
-    # Use chord so reduce fires automatically after all deltas complete.
+    # Step 4: legacy fan-out — retained only as an optional fallback for the
+    # deprecated per-game metric pipeline. Current production metrics are
+    # season-triggered, so this path is off by default.
     from celery import chord
     from tasks.metrics import compute_game_delta, reduce_after_ingest  # local import avoids circular at module load
 
-    keys_to_run = (
-        expand_metric_keys(metric_keys)
-        if metric_keys is not None
-        else [m.key for m in get_all_metrics() if getattr(m, "trigger", "game") != "season"]
-    )
+    legacy_game_metric_fanout = get_runtime_flag("legacy_game_metric_fanout")
+    keys_to_run = []
+    if legacy_game_metric_fanout:
+        keys_to_run = (
+            expand_metric_keys(metric_keys)
+            if metric_keys is not None
+            else [m.key for m in get_all_metrics() if getattr(m, "trigger", "game") != "season"]
+        )
     if keys_to_run:
         map_tasks = [compute_game_delta.s(game_id, key) for key in keys_to_run]
         chord(map_tasks)(reduce_after_ingest.s(game_id=game_id))
+    elif metric_keys is not None and not legacy_game_metric_fanout:
+        logger.info(
+            "ingest_game %s: legacy game metric fan-out disabled; skipped explicit metric_keys=%s",
+            game_id,
+            metric_keys,
+        )
 
     logger.info(
-        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d) → %d metric tasks enqueued.",
-        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, len(keys_to_run),
+        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
+        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
     )
     return {
         "game_id": game_id,

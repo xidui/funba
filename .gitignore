@@ -20,6 +20,7 @@ backups
 backups/
 .paperclip/
 .rabbitmq/
+.runtime_flags.json
 .hupu_browser_data/
 .hupu_cookies.json
 social_media/hupu/.hupu_browser_data/

@@ -60,6 +60,7 @@ from web.paperclip_bridge import (
     merge_paperclip_comments,
     normalize_admin_comments,
 )
+from runtime_flags import load_runtime_flags, set_runtime_flag
 from tasks.content import ensure_daily_content_analysis_issue
 
 _DRAFT_KEY_PREFIX = "_d_"
@@ -6997,6 +6998,29 @@ def api_admin_update_model_config():
             "available_models": available_llm_models(),
         }
     )
+
+
+@app.get("/api/admin/runtime-flags")
+def api_admin_runtime_flags():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    return jsonify({"ok": True, "flags": load_runtime_flags()})
+
+
+@app.post("/api/admin/runtime-flags")
+def api_admin_update_runtime_flags():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    body = request.get_json(force=True) or {}
+    if "legacy_game_metric_fanout" not in body:
+        return jsonify({"ok": False, "error": "legacy_game_metric_fanout required"}), 400
+    try:
+        flags = set_runtime_flag("legacy_game_metric_fanout", body.get("legacy_game_metric_fanout"))
+    except KeyError:
+        return jsonify({"ok": False, "error": "unknown runtime flag"}), 400
+    return jsonify({"ok": True, "flags": flags})
 
 
 @app.post("/admin/backfill/<season>")

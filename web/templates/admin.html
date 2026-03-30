@@ -160,6 +160,48 @@
   .llm-settings-status.success { color: var(--win); }
   .llm-settings-status.error { color: var(--loss); }
 
+  .runtime-flag-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .runtime-flag-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .runtime-flag-label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .runtime-flag-help {
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 720px;
+    line-height: 1.45;
+  }
+  .runtime-flag-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+  .runtime-flag-switch input {
+    width: 18px;
+    height: 18px;
+  }
+  .runtime-flag-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .runtime-flag-status.success { color: var(--win); }
+  .runtime-flag-status.error { color: var(--loss); }
+
   .pager {
     display: flex;
     align-items: center;
@@ -362,6 +404,24 @@
     <div id="llm-model-status" class="llm-settings-status" role="status"></div>
   </div>
 
+  <div class="card full-width">
+    <h2 style="margin-bottom:14px;">Metric Pipeline Flags</h2>
+    <div class="runtime-flag-row">
+      <div class="runtime-flag-copy">
+        <div class="runtime-flag-label">Legacy game metric fan-out</div>
+        <div class="runtime-flag-help">
+          Default off. Current production metrics are season-triggered only. Enable this only if you intentionally want `ingest_game`
+          to revive the deprecated per-game `compute_game_delta -> reduce_after_ingest` path for legacy experiments.
+        </div>
+      </div>
+      <label class="runtime-flag-switch" for="legacy-game-fanout-toggle">
+        <input id="legacy-game-fanout-toggle" type="checkbox">
+        <span id="legacy-game-fanout-label">Off</span>
+      </label>
+    </div>
+    <div id="runtime-flag-status" class="runtime-flag-status" role="status"></div>
+  </div>
+
 </div>
 <script>
   (function () {
@@ -438,6 +498,63 @@
 
     saveBtn.addEventListener('click', saveConfig);
     loadConfig();
+  })();
+
+  (function () {
+    const toggle = document.getElementById('legacy-game-fanout-toggle');
+    const label = document.getElementById('legacy-game-fanout-label');
+    const status = document.getElementById('runtime-flag-status');
+    if (!toggle || !label || !status) return;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'runtime-flag-status' + (type ? ' ' + type : '');
+    }
+
+    function render(value) {
+      toggle.checked = !!value;
+      label.textContent = value ? 'On' : 'Off';
+    }
+
+    async function loadFlags() {
+      toggle.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/runtime-flags');
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load flags.');
+        render(Boolean(data.flags && data.flags.legacy_game_metric_fanout));
+      } catch (err) {
+        setStatus(err.message || 'Failed to load flags.', 'error');
+      } finally {
+        toggle.disabled = false;
+      }
+    }
+
+    async function saveFlag() {
+      toggle.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/runtime-flags', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({legacy_game_metric_fanout: toggle.checked}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error((data && data.error) || 'Failed to save flag.');
+        render(Boolean(data.flags && data.flags.legacy_game_metric_fanout));
+        setStatus('Saved', 'success');
+      } catch (err) {
+        toggle.checked = !toggle.checked;
+        render(toggle.checked);
+        setStatus(err.message || 'Failed to save flag.', 'error');
+      } finally {
+        toggle.disabled = false;
+      }
+    }
+
+    toggle.addEventListener('change', saveFlag);
+    loadFlags();
   })();
 
   (function () {
