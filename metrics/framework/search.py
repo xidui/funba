@@ -28,10 +28,10 @@ _FIELD_ORDER = (
     "expression",
     "module_doc",
     "definition_json",
-    "code_python",
     "source_excerpt",
 )
 _LONG_TEXT_FIELDS = {"expression", "module_doc", "definition_json", "code_python", "source_excerpt"}
+_EXCLUDED_SEARCH_FIELDS = {"code_python"}
 _MAX_FIELD_CHARS = 2400
 _MAX_DOCUMENT_CHARS = 8000
 
@@ -65,6 +65,8 @@ def _candidate_search_document(candidate: dict) -> str:
 
     def _append(key: str) -> None:
         seen.add(key)
+        if key in _EXCLUDED_SEARCH_FIELDS:
+            return
         text = _stringify_candidate_value(key, candidate.get(key))
         if text:
             lines.append(f"{key}: {text}")

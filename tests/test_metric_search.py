@@ -20,6 +20,7 @@ def test_candidate_search_document_includes_rich_fields_and_truncates_long_text(
             "min_sample": 5,
             "supports_career": True,
             "expression": "shooting in the final five minutes with score within five" * 80,
+            "source_excerpt": "late game shot profile " * 300,
             "code_python": "class Demo:\n    pass\n" * 400,
         }
     )
@@ -27,7 +28,8 @@ def test_candidate_search_document_includes_rich_fields_and_truncates_long_text(
     assert "min_sample: 5" in doc
     assert "supports_career: yes" in doc
     assert "expression:" in doc
-    assert "code_python:" in doc
+    assert "source_excerpt:" in doc
+    assert "code_python:" not in doc
     assert "[truncated]" in doc
 
 
