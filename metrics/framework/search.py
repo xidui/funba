@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 
+from db.ai_usage import extract_provider_usage
 from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
 _FIELD_ORDER = (
@@ -79,7 +81,13 @@ def _candidate_search_document(candidate: dict) -> str:
     return _truncate_text(document, _MAX_DOCUMENT_CHARS)
 
 
-def rank_metrics(query: str, candidates: list[dict], limit: int = 8, model: str | None = None) -> list[dict]:
+def rank_metrics(
+    query: str,
+    candidates: list[dict],
+    limit: int = 8,
+    model: str | None = None,
+    usage_recorder: Callable[[dict], None] | None = None,
+) -> list[dict]:
     """Return ranked metric keys + reasons using an LLM."""
     if not query.strip():
         return []
@@ -122,6 +130,8 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8, model: str 
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
+        if usage_recorder:
+            usage_recorder(extract_provider_usage(provider, response, selected_model))
         raw = response.choices[0].message.content.strip()
     else:
         import anthropic
@@ -132,6 +142,8 @@ def rank_metrics(query: str, candidates: list[dict], limit: int = 8, model: str 
             max_tokens=1200,
             messages=[{"role": "user", "content": prompt}],
         )
+        if usage_recorder:
+            usage_recorder(extract_provider_usage(provider, message, selected_model))
         raw = message.content[0].text.strip()
 
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

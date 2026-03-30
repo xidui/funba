@@ -38,6 +38,7 @@ from db.feature_access import (
     get_feature_access_level,
     set_feature_access_level,
 )
+from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
@@ -2308,6 +2309,78 @@ def _require_metric_creator_page():
 
 _VISITOR_COOKIE = "funba_visitor"
 _VISITOR_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year in seconds
+
+
+def _request_visitor_id(*, ensure_cookie: bool = False) -> str | None:
+    visitor_id = request.cookies.get(_VISITOR_COOKIE)
+    if visitor_id:
+        return visitor_id
+    if not ensure_cookie:
+        return None
+
+    visitor_id = str(_uuid_mod.uuid4())
+
+    @after_this_request
+    def _set_cookie(response):
+        response.set_cookie(
+            _VISITOR_COOKIE,
+            visitor_id,
+            max_age=_VISITOR_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="Lax",
+        )
+        return response
+
+    return visitor_id
+
+
+def _record_ai_usage_event(
+    *,
+    feature: str,
+    operation: str,
+    model: str,
+    usage: dict | None,
+    started_at: float,
+    success: bool,
+    http_status: int,
+    error_code: str | None = None,
+    conversation_id: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    current_user = _current_user()
+    visitor_id = _request_visitor_id(ensure_cookie=current_user is None)
+    usage_payload = dict(usage or {})
+    provider = str(usage_payload.get("provider") or "").strip()
+    selected_model = str(usage_payload.get("model") or model or "").strip()
+    prompt_tokens = usage_payload.get("prompt_tokens")
+    completion_tokens = usage_payload.get("completion_tokens")
+    total_tokens = usage_payload.get("total_tokens")
+    latency_ms = int(round((time.perf_counter() - started_at) * 1000))
+
+    try:
+        with SessionLocal() as session:
+            log_ai_usage_event(
+                session,
+                user_id=getattr(current_user, "id", None),
+                visitor_id=visitor_id,
+                feature=feature,
+                operation=operation,
+                endpoint=request.path,
+                provider=provider or "unknown",
+                model=selected_model or "unknown",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency_ms=latency_ms,
+                success=success,
+                error_code=error_code,
+                http_status=http_status,
+                conversation_id=conversation_id,
+                metadata=metadata,
+            )
+            session.commit()
+    except Exception:
+        logger.exception("AI usage logging failed for %s/%s", feature, operation)
 
 
 _BOT_SIGNATURES = (
@@ -4914,19 +4987,62 @@ def api_metric_search():
     if len(query) > 200:
         return jsonify({"ok": False, "error": "query too long (max 200 characters)"}), 400
 
+    usage_payload: dict = {}
+    started_at = time.perf_counter()
+    candidate_count = 0
+
     with SessionLocal() as session:
         catalog = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter)
+        candidate_count = len(catalog)
         try:
             llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="search")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
     try:
-        ranked = rank_metrics(query, catalog, limit=8, model=llm_model)
+        ranked = rank_metrics(
+            query,
+            catalog,
+            limit=8,
+            model=llm_model,
+            usage_recorder=usage_payload.update,
+        )
     except ValueError as exc:
+        _record_ai_usage_event(
+            feature="metric_search",
+            operation="rank",
+            model=llm_model,
+            usage=usage_payload,
+            started_at=started_at,
+            success=False,
+            http_status=400,
+            error_code=type(exc).__name__,
+            metadata={
+                "query_chars": len(query),
+                "candidate_count": candidate_count,
+                "scope_filter": scope_filter,
+                "status_filter": status_filter,
+            },
+        )
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric search failed")
+        _record_ai_usage_event(
+            feature="metric_search",
+            operation="rank",
+            model=llm_model,
+            usage=usage_payload,
+            started_at=started_at,
+            success=False,
+            http_status=500,
+            error_code=type(exc).__name__,
+            metadata={
+                "query_chars": len(query),
+                "candidate_count": candidate_count,
+                "scope_filter": scope_filter,
+                "status_filter": status_filter,
+            },
+        )
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     by_key = {metric["key"]: metric for metric in catalog}
@@ -4937,6 +5053,22 @@ def api_metric_search():
             continue
         matches.append({**metric, "reason": ranked_item["reason"]})
 
+    _record_ai_usage_event(
+        feature="metric_search",
+        operation="rank",
+        model=llm_model,
+        usage=usage_payload,
+        started_at=started_at,
+        success=True,
+        http_status=200,
+        metadata={
+            "query_chars": len(query),
+            "candidate_count": candidate_count,
+            "match_count": len(matches),
+            "scope_filter": scope_filter,
+            "status_filter": status_filter,
+        },
+    )
     return jsonify({"ok": True, "matches": matches})
 
 
@@ -4949,20 +5081,50 @@ def api_metric_check_similar():
     from metrics.framework.generator import check_similar
     body = request.get_json(force=True) or {}
     expression = (body.get("expression") or "").strip()
+    conversation_id = (body.get("conversationId") or "").strip() or None
     requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
+    usage_payload: dict = {}
+    started_at = time.perf_counter()
+    candidate_count = 0
     with SessionLocal() as session:
         try:
             llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="search")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         catalog = _catalog_metrics(session, status_filter="published")
+        candidate_count = len(catalog)
     try:
-        similar = check_similar(expression, catalog, model=llm_model)
+        similar = check_similar(
+            expression,
+            catalog,
+            model=llm_model,
+            usage_recorder=usage_payload.update,
+        )
+        success = True
+        error_code = None
     except Exception as exc:
         logger.exception("check-similar failed")
         similar = []
+        success = False
+        error_code = type(exc).__name__
+    _record_ai_usage_event(
+        feature="metric_create",
+        operation="check_similar",
+        model=llm_model,
+        usage=usage_payload,
+        started_at=started_at,
+        success=success,
+        http_status=200,
+        error_code=error_code,
+        conversation_id=conversation_id,
+        metadata={
+            "input_chars": len(expression),
+            "candidate_count": candidate_count,
+            "similar_count": len(similar),
+        },
+    )
     return jsonify({"ok": True, "similar": similar})
 
 
@@ -4977,32 +5139,109 @@ def api_metric_generate():
     expression = body.get("expression", "").strip()
     history = body.get("history")  # list of {"role", "content"} or None
     existing = body.get("existing")  # dict with current metric info for edit mode
+    conversation_id = (body.get("conversationId") or "").strip() or None
     requested_model = (body.get("model") or "").strip() if is_admin() else None
     if not expression:
         return jsonify({"ok": False, "error": "expression is required"}), 400
+    usage_payload: dict = {}
+    started_at = time.perf_counter()
     with SessionLocal() as session:
         try:
             llm_model = resolve_llm_model(session, requested_model=requested_model, purpose="generate")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
     try:
-        spec = generate(expression, history=history, existing=existing, model=llm_model)
+        spec = generate(
+            expression,
+            history=history,
+            existing=existing,
+            model=llm_model,
+            usage_recorder=usage_payload.update,
+        )
         response_type = (spec.get("responseType") or "code") if isinstance(spec, dict) else "code"
         if response_type == "clarification":
+            _record_ai_usage_event(
+                feature="metric_create",
+                operation="generate",
+                model=llm_model,
+                usage=usage_payload,
+                started_at=started_at,
+                success=True,
+                http_status=200,
+                conversation_id=conversation_id,
+                metadata={
+                    "input_chars": len(expression),
+                    "history_turn_count": len(history or []),
+                    "is_edit": bool(existing),
+                    "response_type": "clarification",
+                    "metric_key": (existing or {}).get("key"),
+                },
+            )
             return jsonify({
                 "ok": True,
                 "responseType": "clarification",
                 "message": spec.get("message", ""),
             })
+        _record_ai_usage_event(
+            feature="metric_create",
+            operation="generate",
+            model=llm_model,
+            usage=usage_payload,
+            started_at=started_at,
+            success=True,
+            http_status=200,
+            conversation_id=conversation_id,
+            metadata={
+                "input_chars": len(expression),
+                "history_turn_count": len(history or []),
+                "is_edit": bool(existing),
+                "response_type": "code",
+                "metric_key": (existing or {}).get("key") or (spec or {}).get("key"),
+            },
+        )
         return jsonify({
             "ok": True,
             "responseType": "code",
             "spec": spec,
         })
     except ValueError as exc:
+        _record_ai_usage_event(
+            feature="metric_create",
+            operation="generate",
+            model=llm_model,
+            usage=usage_payload,
+            started_at=started_at,
+            success=False,
+            http_status=400,
+            error_code=type(exc).__name__,
+            conversation_id=conversation_id,
+            metadata={
+                "input_chars": len(expression),
+                "history_turn_count": len(history or []),
+                "is_edit": bool(existing),
+                "metric_key": (existing or {}).get("key"),
+            },
+        )
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.exception("metric generate failed")
+        _record_ai_usage_event(
+            feature="metric_create",
+            operation="generate",
+            model=llm_model,
+            usage=usage_payload,
+            started_at=started_at,
+            success=False,
+            http_status=500,
+            error_code=type(exc).__name__,
+            conversation_id=conversation_id,
+            metadata={
+                "input_chars": len(expression),
+                "history_turn_count": len(history or []),
+                "is_edit": bool(existing),
+                "metric_key": (existing or {}).get("key"),
+            },
+        )
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -7523,6 +7762,15 @@ def api_admin_runtime_flags():
     if denied:
         return denied
     return jsonify({"ok": True, "flags": load_runtime_flags()})
+
+
+@app.get("/api/admin/ai-usage")
+def api_admin_ai_usage():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as session:
+        return jsonify({"ok": True, "dashboard": get_ai_usage_dashboard(session)})
 
 
 @app.post("/api/admin/runtime-flags")

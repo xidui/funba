@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 
+from db.ai_usage import extract_provider_usage
 from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
 logger = logging.getLogger(__name__)
@@ -390,6 +392,7 @@ def _call_llm_with_system(
     messages: list[dict],
     model: str | None = None,
     max_tokens: int = 4096,
+    usage_recorder: Callable[[dict], None] | None = None,
 ) -> str:
     """Call OpenAI or Anthropic with an explicit system prompt."""
     selected_model = model or env_default_llm_model()
@@ -411,6 +414,8 @@ def _call_llm_with_system(
                 *messages,
             ],
         )
+        if usage_recorder:
+            usage_recorder(extract_provider_usage(provider, response, selected_model))
         return response.choices[0].message.content.strip()
     elif provider == "anthropic":
         import anthropic
@@ -421,19 +426,34 @@ def _call_llm_with_system(
             system=system_prompt,
             messages=messages,
         )
+        if usage_recorder:
+            usage_recorder(extract_provider_usage(provider, message, selected_model))
         return message.content[0].text.strip()
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
 
-def _call_llm(messages: list[dict], model: str | None = None) -> str:
+def _call_llm(
+    messages: list[dict],
+    model: str | None = None,
+    usage_recorder: Callable[[dict], None] | None = None,
+) -> str:
     """Call LLM with the metric-generator system prompt."""
-    return _call_llm_with_system(_build_system_prompt(), messages, model=model)
+    return _call_llm_with_system(
+        _build_system_prompt(),
+        messages,
+        model=model,
+        usage_recorder=usage_recorder,
+    )
 
 
-def generate(expression: str, history: list[dict] | None = None,
-             existing: dict | None = None,
-             model: str | None = None) -> dict:
+def generate(
+    expression: str,
+    history: list[dict] | None = None,
+    existing: dict | None = None,
+    model: str | None = None,
+    usage_recorder: Callable[[dict], None] | None = None,
+) -> dict:
     """Convert a plain-English expression into a metric spec with Python code.
 
     Args:
@@ -476,7 +496,7 @@ def generate(expression: str, history: list[dict] | None = None,
         else:
             messages = [{"role": "user", "content": _initial_user_message(expression)}]
 
-    raw = _call_llm(messages, model=model)
+    raw = _call_llm(messages, model=model, usage_recorder=usage_recorder)
 
     # Strip markdown code fences if the model wrapped the response
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -521,7 +541,12 @@ def generate(expression: str, history: list[dict] | None = None,
     return spec
 
 
-def check_similar(expression: str, catalog: list[dict], model: str | None = None) -> list[dict]:
+def check_similar(
+    expression: str,
+    catalog: list[dict],
+    model: str | None = None,
+    usage_recorder: Callable[[dict], None] | None = None,
+) -> list[dict]:
     """Check if any existing metrics are similar to the user's description.
 
     Args:
@@ -561,6 +586,7 @@ def check_similar(expression: str, catalog: list[dict], model: str | None = None
         [{"role": "user", "content": expression}],
         model=model,
         max_tokens=512,
+        usage_recorder=usage_recorder,
     )
 
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

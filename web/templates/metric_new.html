@@ -746,6 +746,7 @@
   let turnCount = 0;
   let isSubmitting = false;
   let limitLocked = false;
+  let conversationId = null;
 
   // Pre-populate in edit mode
   if (EDIT_MODE) {
@@ -761,6 +762,15 @@
       group_key: {{ edit_metric.group_key | tojson if edit_metric else 'null' }},
     };
   }
+
+  function newConversationId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'conv-' + Date.now() + '-' + Math.random().toString(16).slice(2, 10);
+  }
+
+  if (!conversationId) conversationId = newConversationId();
 
   const chatMessages = document.getElementById('chat-messages');
   const chatEmpty    = document.getElementById('chat-empty');
@@ -959,6 +969,7 @@
     turnCount = 0;
     isSubmitting = false;
     limitLocked = false;
+    conversationId = newConversationId();
     chatInput.value = '';
     chatMessages.querySelectorAll('.msg').forEach(el => el.remove());
     if (chatEmpty) chatEmpty.style.display = 'flex';
@@ -983,6 +994,7 @@
 
   // ── Edit mode init ────────────────────────────────────────────────
   if (EDIT_MODE && currentSpec) {
+    conversationId = newConversationId();
     originalCode = currentSpec.code || '';
     document.getElementById('f-name').value = currentSpec.name || '';
     document.getElementById('f-desc').value = currentSpec.description || '';
@@ -1098,6 +1110,7 @@
 
     const payload = { expression: expr };
     if (modelSelect) payload.model = modelSelect.value;
+    payload.conversationId = conversationId;
     if (isFollowup) payload.history = chatHistory;
     if (EDIT_MODE && currentSpec) {
       payload.existing = {
@@ -1204,6 +1217,7 @@
       if (!isFollowup && !EDIT_MODE) {
         const checkPayload = { expression: expr };
         if (modelSelect) checkPayload.model = modelSelect.value;
+        checkPayload.conversationId = conversationId;
         const checkRes = await fetch('/api/metrics/check-similar', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},

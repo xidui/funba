@@ -202,6 +202,77 @@
   .runtime-flag-status.success { color: var(--win); }
   .runtime-flag-status.error { color: var(--loss); }
 
+  .usage-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .usage-stat-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    padding: 12px 14px;
+  }
+  .usage-stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .usage-stat-value {
+    margin-top: 6px;
+    font-family: Outfit, sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .usage-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .usage-table th {
+    text-align: left;
+    padding: 6px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .usage-table td {
+    padding: 7px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+    color: var(--text);
+  }
+  .usage-table td:last-child,
+  .usage-table th:last-child {
+    text-align: right;
+  }
+  .usage-status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .usage-status-pill.ok {
+    color: var(--win);
+    background: rgba(74, 222, 128, .12);
+  }
+  .usage-status-pill.error {
+    color: var(--loss);
+    background: rgba(239, 68, 68, .12);
+  }
+
   .pager {
     display: flex;
     align-items: center;
@@ -411,6 +482,11 @@
   </div>
 
   <div class="card full-width">
+    <h2 style="margin-bottom:14px;">AI Usage</h2>
+    <div id="ai-usage-panel" style="color:var(--muted);font-size:13px;">Loading...</div>
+  </div>
+
+  <div class="card full-width">
     <h2 style="margin-bottom:14px;">Feature Access</h2>
     <div id="feature-access-list" style="display:flex;flex-direction:column;gap:10px;">
       <div style="color:var(--muted);font-size:13px;">Loading...</div>
@@ -441,6 +517,103 @@
 
 </div>
 <script>
+  (function () {
+    const panel = document.getElementById('ai-usage-panel');
+    if (!panel) return;
+
+    function num(value) {
+      return Number(value || 0).toLocaleString();
+    }
+
+    function section(title, inner) {
+      return `
+        <div style="margin-top:16px;">
+          <div class="section-label" style="margin-bottom:8px;">${title}</div>
+          ${inner}
+        </div>
+      `;
+    }
+
+    async function loadUsage() {
+      try {
+        const res = await fetch('/api/admin/ai-usage');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        const dashboard = data.dashboard || {};
+        const w24 = dashboard.window_24h || {};
+        const w7 = dashboard.window_7d || {};
+        const byFeature = dashboard.by_feature || [];
+        const topActors = dashboard.top_actors || [];
+        const recent = dashboard.recent || [];
+
+        let html = `
+          <div class="usage-stat-grid">
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">Last 24h</div>
+              <div class="usage-stat-value">${num(w24.total_tokens)}</div>
+              <div class="usage-stat-sub">${num(w24.calls)} calls</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">Last 7d</div>
+              <div class="usage-stat-value">${num(w7.total_tokens)}</div>
+              <div class="usage-stat-sub">${num(w7.calls)} calls</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">7d Prompt</div>
+              <div class="usage-stat-value">${num(w7.prompt_tokens)}</div>
+              <div class="usage-stat-sub">input tokens</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">7d Completion</div>
+              <div class="usage-stat-value">${num(w7.completion_tokens)}</div>
+              <div class="usage-stat-sub">output tokens</div>
+            </div>
+          </div>
+        `;
+
+        html += section(
+          'By Feature',
+          byFeature.length
+            ? `<table class="usage-table"><thead><tr><th>Feature</th><th>Operation</th><th>Calls</th><th>Tokens</th></tr></thead><tbody>${
+                byFeature.map((row) => `<tr><td>${row.feature}</td><td>${row.operation}</td><td>${num(row.calls)}</td><td>${num(row.total_tokens)}</td></tr>`).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No AI usage recorded yet.</div>'
+        );
+
+        html += section(
+          'Top Actors',
+          topActors.length
+            ? `<table class="usage-table"><thead><tr><th>Actor</th><th>Calls</th><th>Tokens</th></tr></thead><tbody>${
+                topActors.map((row) => `<tr><td>${row.label}</td><td>${num(row.calls)}</td><td>${num(row.total_tokens)}</td></tr>`).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No actors to show.</div>'
+        );
+
+        html += section(
+          'Recent Calls',
+          recent.length
+            ? `<table class="usage-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Model</th><th>Status</th><th>Tokens</th></tr></thead><tbody>${
+                recent.map((row) => {
+                  const when = row.created_at ? new Date(row.created_at).toLocaleString() : 'Unknown';
+                  const status = row.success
+                    ? '<span class="usage-status-pill ok">ok</span>'
+                    : `<span class="usage-status-pill error">${row.error_code || 'error'}</span>`;
+                  return `<tr><td>${when}</td><td>${row.label}</td><td>${row.feature} / ${row.operation}</td><td>${row.model}</td><td>${status}</td><td>${num(row.total_tokens)}</td></tr>`;
+                }).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No recent calls.</div>'
+        );
+
+        panel.innerHTML = html;
+      } catch (err) {
+        panel.textContent = err.message || 'Failed to load.';
+        panel.style.color = 'var(--loss)';
+      }
+    }
+
+    loadUsage();
+  })();
+
   (function () {
     const searchSelect = document.getElementById('llm-search-model');
     const generateSelect = document.getElementById('llm-generate-model');

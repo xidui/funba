@@ -459,6 +459,37 @@ class PageView(Base):
     )
 
 
+class AiUsageLog(Base):
+    __tablename__ = "AiUsageLog"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False)
+    user_id = Column(String(36), ForeignKey("User.id"), nullable=True, index=True)
+    visitor_id = Column(String(36), nullable=True, index=True)
+    feature = Column(String(32), nullable=False)
+    operation = Column(String(32), nullable=False)
+    endpoint = Column(String(128), nullable=False)
+    provider = Column(String(32), nullable=False)
+    model = Column(String(64), nullable=False)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+    success = Column(Boolean, nullable=False, default=True)
+    error_code = Column(String(64), nullable=True)
+    http_status = Column(Integer, nullable=True)
+    conversation_id = Column(String(36), nullable=True, index=True)
+    metadata_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_AiUsageLog_created_at", "created_at"),
+        Index("ix_AiUsageLog_feature_created_at", "feature", "created_at"),
+        Index("ix_AiUsageLog_user_created_at", "user_id", "created_at"),
+        Index("ix_AiUsageLog_visitor_created_at", "visitor_id", "created_at"),
+        Index("ix_AiUsageLog_conversation_created_at", "conversation_id", "created_at"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Content pipeline: SocialPost → SocialPostVariant → SocialPostDelivery
 # ---------------------------------------------------------------------------

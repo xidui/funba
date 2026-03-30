@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
-from unittest.mock import patch, MagicMock
+from unittest.mock import ANY, patch, MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -732,6 +732,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             [{"key": "late_game_scoring", "name": "Late Game Scoring"}],
             limit=8,
             model="gpt-5.4",
+            usage_recorder=ANY,
         )
 
     def test_metric_search_api_ignores_explicit_draft_status(self):
@@ -782,6 +783,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             [{"key": "late_game_scoring", "name": "Late Game Scoring"}],
             limit=8,
             model="claude-sonnet-4-6",
+            usage_recorder=ANY,
         )
 
     def test_metric_search_api_blocks_free_user_when_search_requires_pro(self):
@@ -833,6 +835,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             history=None,
             existing=None,
             model="claude-sonnet-4-6",
+            usage_recorder=ANY,
         )
 
     def test_metric_generate_api_returns_clarification_payload(self):
@@ -994,6 +997,72 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.assertEqual(post_response.get_json()["features"], updated_features)
         mock_set_feature.assert_called_once_with(session, "metric_search", "pro")
         session.commit.assert_called_once()
+
+    def test_admin_ai_usage_endpoint_requires_admin(self):
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-1", is_admin=False, subscription_tier="free")):
+            response = self.client.get("/api/admin/ai-usage", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json(), {"error": "admin_only"})
+
+    def test_admin_ai_usage_endpoint_returns_dashboard(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+        dashboard = {"window_24h": {"calls": 1, "total_tokens": 100}, "window_7d": {"calls": 2, "total_tokens": 300}}
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.get_ai_usage_dashboard", return_value=dashboard) as mock_dashboard:
+            response = self.client.get("/api/admin/ai-usage", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"ok": True, "dashboard": dashboard})
+        mock_dashboard.assert_called_once_with(session)
+
+    def test_metric_search_api_sets_visitor_cookie_for_anonymous_usage(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=None), \
+             patch("web.app._feature_access_level", return_value="anonymous"), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring", "name": "Late Game Scoring"}]), \
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.search.rank_metrics", return_value=[{"key": "late_game_scoring", "reason": "Best fit"}]):
+            response = self.client.post(
+                "/api/metrics/search",
+                json={"query": "late game scoring"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("funba_visitor=", response.headers.get("Set-Cookie", ""))
+
+    def test_metric_generate_api_logs_conversation_id(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app._current_user", return_value=SimpleNamespace(id="user-123", is_admin=False, subscription_tier="pro", subscription_expires_at=None)), \
+             patch("web.app._feature_access_level", return_value="pro"), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app.resolve_llm_model", return_value="gpt-5.4"), \
+             patch("metrics.framework.generator.generate", return_value={"responseType": "clarification", "message": "Need more detail."}), \
+             patch("web.app._record_ai_usage_event") as mock_log:
+            response = self.client.post(
+                "/api/metrics/generate",
+                json={"expression": "clutch scoring", "conversationId": "conv-123"},
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["responseType"], "clarification")
+        kwargs = mock_log.call_args.kwargs
+        self.assertEqual(kwargs["feature"], "metric_create")
+        self.assertEqual(kwargs["operation"], "generate")
+        self.assertEqual(kwargs["conversation_id"], "conv-123")
 
 
 class TestMetricPublishAuth(unittest.TestCase):
