@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,8 @@ from tools.hupu_post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
     _extract_thread_url_from_html,
     _forum_label_matches,
+    _parse_image_placeholder,
+    _prepare_placeholder_images,
     _render_inline_html,
     _resolve_forum,
 )
@@ -47,6 +50,13 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertIn("<strong>关键数字</strong>", rendered)
         self.assertIn('<a href="https://funba.app" target="_blank">funba</a>', rendered)
 
+    def test_render_inline_html_linkifies_bare_urls(self):
+        rendered = _render_inline_html("详见 https://funba.app/metrics/scoring_consistency")
+        self.assertIn(
+            '<a href="https://funba.app/metrics/scoring_consistency" target="_blank">https://funba.app/metrics/scoring_consistency</a>',
+            rendered,
+        )
+
     def test_resolve_forum_supports_existing_english_key(self):
         key, forum_id, label = _resolve_forum("thunder")
         self.assertEqual(key, "雷霆专区")
@@ -69,6 +79,21 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertTrue(_forum_label_matches("篮球场", "NBA版"))
         self.assertTrue(_forum_label_matches("NBA版", "NBA版"))
         self.assertFalse(_forum_label_matches("湖人专区", "NBA版"))
+
+    def test_parse_image_placeholder_extracts_target(self):
+        parsed = _parse_image_placeholder(
+            "[[IMAGE: type=game_boxscore; target=https://funba.app/games/0022501077; note=PHI vs CHA 比赛数据]]"
+        )
+        self.assertEqual(parsed["type"], "game_boxscore")
+        self.assertEqual(parsed["target"], "https://funba.app/games/0022501077")
+
+    @patch("tools.hupu_post._capture_compact_screenshot")
+    def test_prepare_placeholder_images_autogenerates_missing_images(self, capture_mock):
+        content = "[[IMAGE: type=game_boxscore; target=https://funba.app/games/0022501077; note=test]]"
+        resolved, temp_paths = _prepare_placeholder_images(content, [])
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(len(temp_paths), 1)
+        capture_mock.assert_called_once()
 
 
 if __name__ == "__main__":

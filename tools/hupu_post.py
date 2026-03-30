@@ -23,6 +23,7 @@ import html
 import json
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -136,20 +137,65 @@ def _resolve_forum(forum: str) -> tuple[str, int, str]:
 
 def _render_inline_html(text: str) -> str:
     """Render a limited markdown-like subset into editor-safe HTML."""
-    pattern = re.compile(r"\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^)]+)\)")
+    pattern = re.compile(r"\*\*(.+?)\*\*|\[([^\]]+)\]\((https?://[^)]+)\)|(https?://[^\s<>()]+)")
     parts: list[str] = []
     cursor = 0
     for match in pattern.finditer(text):
         parts.append(html.escape(text[cursor:match.start()]))
         if match.group(1) is not None:
             parts.append(f"<strong>{html.escape(match.group(1))}</strong>")
-        else:
+        elif match.group(2) is not None:
             label = html.escape(match.group(2))
             url = html.escape(match.group(3), quote=True)
             parts.append(f'<a href="{url}" target="_blank">{label}</a>')
+        else:
+            url = html.escape(match.group(4), quote=True)
+            parts.append(f'<a href="{url}" target="_blank">{url}</a>')
         cursor = match.end()
     parts.append(html.escape(text[cursor:]))
     return "".join(parts)
+
+
+def _parse_image_placeholder(line: str) -> dict[str, str] | None:
+    """Parse one placeholder line into a key/value mapping."""
+    match = re.match(r"^\s*\[\[IMAGE:(.+?)\]\]\s*$", line)
+    if not match:
+        return None
+    payload = match.group(1)
+    parsed: dict[str, str] = {}
+    for part in payload.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            parsed[key] = value
+    return parsed
+
+
+def _prepare_placeholder_images(content: str, images: list[str]) -> tuple[list[str], list[str]]:
+    """Return resolved images plus any temporary screenshots created from placeholders."""
+    resolved_images = list(images)
+    temp_paths: list[str] = []
+    placeholder_specs = [
+        spec
+        for spec in (_parse_image_placeholder(line) for line in content.split("\n"))
+        if spec is not None
+    ]
+    if len(resolved_images) >= len(placeholder_specs):
+        return resolved_images, temp_paths
+
+    for spec in placeholder_specs[len(resolved_images):]:
+        target = spec.get("target")
+        if not target:
+            continue
+        tmp = tempfile.NamedTemporaryFile(prefix="funba_hupu_", suffix=".png", delete=False)
+        tmp.close()
+        _capture_compact_screenshot(target, tmp.name)
+        temp_paths.append(tmp.name)
+        resolved_images.append(tmp.name)
+    return resolved_images, temp_paths
 
 
 def _append_paragraph(page: Page, line: str) -> None:
@@ -648,11 +694,13 @@ def cmd_post(args: argparse.Namespace) -> None:
         print(f"Unknown forum: {forum!r}. Available aliases: {available} or any Chinese Hupu forum label like '勇士专区'")
         sys.exit(1)
 
+    resolved_images, temp_images = _prepare_placeholder_images(content, images)
+
     print(f"Forum: {forum_key} / {forum_label} (composer page {composer_id})")
     print(f"Title: {title}")
     print(f"Content: {content[:100]}{'...' if len(content) > 100 else ''}")
-    if images:
-        print(f"Images: {len(images)}")
+    if resolved_images:
+        print(f"Images: {len(resolved_images)}")
     if link_url:
         print(f"Link: {link_text or link_url} -> {link_url}")
     print(f"Submit: {'YES' if submit else 'NO (dry run)'}")
@@ -697,7 +745,7 @@ def cmd_post(args: argparse.Namespace) -> None:
             )
         footer_html = "".join(footer_parts) if footer_parts else None
 
-        _fill_editor_with_content_blocks(page, content, images=images, footer_html=footer_html)
+        _fill_editor_with_content_blocks(page, content, images=resolved_images, footer_html=footer_html)
         print(f"Content filled.")
 
         time.sleep(1)
@@ -713,6 +761,12 @@ def cmd_post(args: argparse.Namespace) -> None:
             print("Pass --submit to actually post.")
 
         context.close()
+
+    for path in temp_images:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def main() -> None:
