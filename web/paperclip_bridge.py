@@ -407,6 +407,26 @@ class PaperclipClient:
     def add_comment(self, issue_id: str, body: str) -> dict[str, Any]:
         return self._request("POST", f"/api/issues/{issue_id}/comments", json_body={"body": body})
 
+    def wake_agent(
+        self,
+        agent_id: str,
+        *,
+        reason: str,
+        payload: Mapping[str, Any] | None = None,
+        force_fresh_session: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/agents/{agent_id}/wakeup",
+            json_body={
+                "source": "on_demand",
+                "triggerDetail": "manual",
+                "reason": reason,
+                "payload": payload or None,
+                "forceFreshSession": force_fresh_session,
+            },
+        )
+
     def get_issue(self, issue_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/issues/{issue_id}")
 

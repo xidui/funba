@@ -546,18 +546,35 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
             try:
                 if locator.count() == 0:
                     continue
-                locator.scroll_into_view_if_needed(timeout=1000)
-                time.sleep(0.3)
+                ranking_selector = selector in {'.rankings-table-wrap', '.rankings-table', '[class*="rankings-table"]'}
+                if not ranking_selector:
+                    locator.scroll_into_view_if_needed(timeout=1000)
+                    time.sleep(0.3)
                 box = locator.bounding_box()
                 if not box:
                     continue
+                clip_x = max(box["x"], 0)
+                clip_y = max(box["y"], 0)
                 width = min(max(box["width"], 720), 1100)
                 height = min(max(box["height"], 320), 720)
+
+                # For ranking pages, keep the page at the original scroll position so
+                # the metric header/title remains visible above the table.
+                if ranking_selector:
+                    header = page.locator('[class*="header"]').first
+                    if header.count() > 0:
+                        header_box = header.bounding_box()
+                        if header_box:
+                            clip_x = max(min(box["x"], header_box["x"]) - 8, 0)
+                            clip_y = max(header_box["y"] - 16, 0)
+                            width = min(max(max(box["width"], header_box["width"]), 760), 1180)
+                            desired_bottom = min(box["y"] + 260, clip_y + 840)
+                            height = max(520, desired_bottom - clip_y)
                 page.screenshot(
                     path=output_path,
                     clip={
-                        "x": max(box["x"], 0),
-                        "y": max(box["y"], 0),
+                        "x": clip_x,
+                        "y": clip_y,
                         "width": width,
                         "height": height,
                     },

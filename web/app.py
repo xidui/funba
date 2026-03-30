@@ -6389,7 +6389,12 @@ def admin_content_toggle_delivery(post_id: int, delivery_id: int):
     if "is_enabled" not in data:
         return jsonify({"error": "is_enabled required"}), 400
     enabled = bool(data.get("is_enabled"))
+    handoff_action = None
+    handoff_comment_text = None
+    handoff_comment_timestamp = None
+    retry_issue_id = None
     with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
         d = (
             s.query(SocialPostDelivery)
             .join(SocialPostVariant, SocialPostVariant.id == SocialPostDelivery.variant_id)
@@ -6406,8 +6411,45 @@ def admin_content_toggle_delivery(post_id: int, delivery_id: int):
         if not enabled and d.status == "publishing":
             d.status = "failed"
             d.error_message = "Delivery disabled while publishing"
+        elif enabled and d.status == "failed":
+            d.status = "pending"
+            d.error_message = None
+            d.published_url = None
+            d.published_at = None
+        if enabled and post and post.status == "approved":
+            comments = _social_post_comments(post)
+            handoff_action = "retry_enabled_delivery"
+            handoff_comment_text = f"Re-enabled delivery {delivery_id} for retry from Funba."
+            handoff_comment_timestamp = append_admin_comment(
+                comments,
+                text=handoff_comment_text,
+                author=_paperclip_actor_name(),
+                origin="system",
+                event_type="handoff",
+            )
+            _write_social_post_comments(post, comments)
+            retry_issue_id = post.paperclip_issue_id
         s.commit()
-    _ensure_paperclip_issue_for_post(post_id)
+    if handoff_action and handoff_comment_timestamp and handoff_comment_text:
+        _handoff_social_post(
+            post_id,
+            action=handoff_action,
+            local_comment_timestamp=handoff_comment_timestamp,
+            local_comment_text=handoff_comment_text,
+        )
+        try:
+            client, cfg = _paperclip_client_or_raise()
+            if cfg.delivery_publisher_agent_id and retry_issue_id:
+                client.wake_agent(
+                    cfg.delivery_publisher_agent_id,
+                    reason="retry_enabled_delivery",
+                    payload={"issueId": retry_issue_id},
+                    force_fresh_session=True,
+                )
+        except Exception as exc:
+            logger.warning("Failed to explicitly wake Delivery Publisher for post %s retry: %s", post_id, exc)
+    else:
+        _ensure_paperclip_issue_for_post(post_id)
     return jsonify({"ok": True, "delivery_id": delivery_id, "is_enabled": enabled})
 
 
