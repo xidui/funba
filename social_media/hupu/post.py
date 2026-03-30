@@ -527,6 +527,37 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
         page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
         time.sleep(wait_ms / 1000)
 
+        # Hide admin/backfill-only panels so ranking screenshots look like user-facing
+        # product views rather than operator dashboards.
+        page.evaluate(
+            """() => {
+            const markers = [
+              'BACKFILL DETAILS',
+              'Last compute activity',
+              'DONE JOBS',
+              'IN PROGRESS JOBS',
+              'PENDING JOBS',
+              'TOTAL JOBS',
+            ];
+            const all = Array.from(document.querySelectorAll('div, section, aside'));
+            for (const el of all) {
+              const text = (el.innerText || '').trim();
+              if (!text) continue;
+              if (!markers.some(marker => text.includes(marker))) continue;
+              let node = el;
+              for (let i = 0; i < 3 && node && node.parentElement; i += 1) {
+                const parent = node.parentElement;
+                const parentText = (parent.innerText || '').trim();
+                if (!parentText) break;
+                if (parentText.length > text.length * 3) break;
+                node = parent;
+              }
+              node.style.display = 'none';
+            }
+        }"""
+        )
+        time.sleep(0.2)
+
         # Prefer a meaningful in-page section instead of full-page screenshots.
         selectors = [
             '.rankings-table-wrap',
