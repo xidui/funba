@@ -4022,19 +4022,23 @@ def player_page(player_id: str):
         if selected_heatmap_season != "overall" and selected_heatmap_season not in heatmap_season_options:
             selected_heatmap_season = "overall"
 
-        heatmap_query = (
-            session.query(ShotRecord.shot_zone_basic, ShotRecord.shot_zone_area, ShotRecord.shot_made)
+        shot_query = (
+            session.query(ShotRecord.loc_x, ShotRecord.loc_y, ShotRecord.shot_made)
             .join(Game, ShotRecord.game_id == Game.game_id)
             .filter(
                 ShotRecord.player_id == player_id,
                 Game.season.like(f"{season_prefix}%"),
-                ShotRecord.shot_zone_basic.isnot(None),
+                ShotRecord.loc_x.isnot(None),
+                ShotRecord.loc_y.isnot(None),
             )
         )
         if selected_heatmap_season != "overall":
-            heatmap_query = heatmap_query.filter(Game.season == selected_heatmap_season)
+            shot_query = shot_query.filter(Game.season == selected_heatmap_season)
 
-        heatmap_zones, heatmap_attempts, heatmap_made = _build_shot_zone_heatmap(heatmap_query.all())
+        shot_rows = shot_query.all()
+        shot_dots = [{"x": r.loc_x, "y": r.loc_y, "made": bool(r.shot_made)} for r in shot_rows]
+        shot_attempts = len(shot_dots)
+        shot_made_count = sum(1 for d in shot_dots if d["made"])
         heatmap_scope_label = (
             f"Overall {career_kind_label}" if selected_heatmap_season == "overall" else _season_label(selected_heatmap_season)
         )
@@ -4129,9 +4133,9 @@ def player_page(player_id: str):
         selected_heatmap_season=selected_heatmap_season,
         heatmap_season_options=heatmap_season_options,
         heatmap_scope_label=heatmap_scope_label,
-        heatmap_zones=heatmap_zones,
-        heatmap_attempts=heatmap_attempts,
-        heatmap_made=heatmap_made,
+        shot_dots=shot_dots,
+        shot_attempts=shot_attempts,
+        shot_made_count=shot_made_count,
         season_options=season_options,
         selected_season=selected_season,
         game_rows=game_rows,

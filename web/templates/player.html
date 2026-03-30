@@ -250,21 +250,30 @@
   }
   .gl-score-link:hover { text-decoration: underline; }
 
-  /* Heatmap legend */
-  .heatmap-legend {
+  /* Shot chart legend */
+  .shot-chart-legend {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 16px;
     margin: 8px 0 10px;
   }
 
-  .heatmap-legend-bar {
-    width: 160px;
-    height: 9px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, hsl(210 80% 80%), hsl(0 80% 55%));
-    border: 1px solid var(--border-2);
+  .shot-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
   }
+
+  .shot-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .shot-legend-dot.made { background: var(--shot-made); }
+  .shot-legend-dot.missed { background: var(--shot-missed); }
 </style>
 
 <!-- ── Player header ──────────────────────────────────────────────── -->
@@ -611,9 +620,9 @@
 </div>
 {% endif %}
 
-<!-- ── Shot Heatmap ───────────────────────────────────────────────── -->
+<!-- ── Shot Chart ─────────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Shot Heatmap</h2>
+  <h2>Shot Chart</h2>
   <form method="get" class="control-row" style="margin-bottom: 10px;">
     <label for="heatmap-season-picker">Scope:</label>
     <select id="heatmap-season-picker" name="heatmap_season" onchange="this.form.submit()">
@@ -634,38 +643,19 @@
 
   <p class="meta">
     {{ heatmap_scope_label }} &nbsp;·&nbsp;
-    <strong style="color:var(--text);">{{ heatmap_attempts }}</strong> attempts &nbsp;·&nbsp;
-    <strong style="color:var(--text);">{{ heatmap_made }}</strong> made &nbsp;·&nbsp;
-    FG%: <strong style="color:var(--text);">{% if heatmap_attempts > 0 %}{{ "%.1f"|format(heatmap_made / heatmap_attempts * 100) }}%{% else %}—{% endif %}</strong>
+    <strong style="color:var(--text);">{{ shot_attempts }}</strong> attempts &nbsp;·&nbsp;
+    <strong style="color:var(--text);">{{ shot_made_count }}</strong> made &nbsp;·&nbsp;
+    FG%: <strong style="color:var(--text);">{% if shot_attempts > 0 %}{{ "%.1f"|format(shot_made_count / shot_attempts * 100) }}%{% else %}—{% endif %}</strong>
   </p>
 
-  {% if heatmap_zones %}
-  <div class="heatmap-legend">
-    <span class="meta" style="font-size:11px;">Low density</span>
-    <div class="heatmap-legend-bar"></div>
-    <span class="meta" style="font-size:11px;">High density</span>
+  {% if shot_dots %}
+  <div class="shot-chart-legend">
+    <span class="shot-legend-item"><span class="shot-legend-dot made"></span> Made</span>
+    <span class="shot-legend-item"><span class="shot-legend-dot missed"></span> Missed</span>
   </div>
 
   <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
     <g transform="scale(1,-1)">
-      {% for zone in heatmap_zones %}
-      <path
-        d="{{ zone.path_d }}"
-        class="player-heat-zone"
-        data-zone="{{ zone.zone_label }}"
-        data-attempts="{{ zone.attempts }}"
-        data-made="{{ zone.made }}"
-        data-fg="{{ zone.fg_pct }}"
-        fill="{{ zone.color }}"
-        fill-opacity="{{ zone.alpha }}"
-        stroke-opacity="0.7"
-        stroke-width="1.4"
-        vector-effect="non-scaling-stroke"
-      >
-        <title>{{ zone.zone_label }} | Attempts: {{ zone.attempts }} | Made: {{ zone.made }} | FG%: {{ zone.fg_pct }}</title>
-      </path>
-      {% endfor %}
-
       <!-- Court lines -->
       <rect x="-250" y="-47.5" width="500" height="470" fill="none" class="court-line" stroke-width="2"></rect>
       <circle cx="0" cy="0" r="7.5" fill="none" class="court-line" stroke-width="2"></circle>
@@ -676,34 +666,18 @@
       <line x1="220" y1="-47.5" x2="220" y2="92.5" class="court-line" stroke-width="2"></line>
       <path d="M -220 92.5 A 237.5 237.5 0 0 0 220 92.5" fill="none" class="court-line" stroke-width="2"></path>
       <line x1="-250" y1="375" x2="250" y2="375" class="court-line" stroke-width="2"></line>
+
+      <!-- Missed shots first (under), then made shots on top -->
+      {% for dot in shot_dots if not dot.made %}
+      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="3" class="shot-dot is-missed" fill-opacity="0.55" stroke-width="0.5"></circle>
+      {% endfor %}
+      {% for dot in shot_dots if dot.made %}
+      <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="3" class="shot-dot is-made" fill-opacity="0.65" stroke-width="0.5"></circle>
+      {% endfor %}
     </g>
   </svg>
-  <div id="player-heat-tooltip"></div>
-  <script>
-    (function () {
-      const zones   = Array.from(document.querySelectorAll('.player-heat-zone'));
-      const tooltip = document.getElementById('player-heat-tooltip');
-      if (!zones.length || !tooltip) return;
-      zones.forEach(z => {
-        z.addEventListener('mouseenter', () => {
-          tooltip.style.display = 'block';
-          const pct = z.dataset.fg || '-';
-          const att = z.dataset.attempts || '0';
-          tooltip.innerHTML =
-            '<strong>' + z.dataset.zone + '</strong><br>' +
-            att + ' attempts &nbsp; ' + z.dataset.made + ' made<br>' +
-            'FG%: ' + pct;
-        });
-        z.addEventListener('mousemove', e => {
-          tooltip.style.left = (e.clientX + 14) + 'px';
-          tooltip.style.top  = (e.clientY + 14) + 'px';
-        });
-        z.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-      });
-    })();
-  </script>
   {% else %}
-  <p class="meta">No shot zone records found for this scope.</p>
+  <p class="meta">No shot records found for this scope.</p>
   {% endif %}
 </div>
 
