@@ -29,3 +29,4 @@ social_media/hupu/.hupu_cookies.json
 .tmp_qa/
 .tmp_awards_models.sqlite
 test-results/
+.DS_Store

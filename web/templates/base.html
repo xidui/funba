@@ -177,20 +177,13 @@
         flex-shrink: 0;
       }
 
-      .brand-ball {
-        width: 30px;
-        height: 30px;
-        background: var(--accent);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: 'Outfit', sans-serif;
-        font-weight: 800;
-        font-size: 13px;
-        color: #fff;
-        letter-spacing: -0.02em;
-        box-shadow: 0 0 14px var(--brand-glow);
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        display: block;
+        border-radius: 10px;
+        filter: drop-shadow(0 0 16px var(--brand-glow));
       }
 
       .brand-name {
@@ -1021,6 +1014,12 @@
         margin-bottom: 14px;
       }
 
+      .footer-brand-link .brand-mark {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+      }
+
       .footer-brand-link:hover { text-decoration: none; }
 
       .footer-desc {
@@ -1289,8 +1288,12 @@
   <body>
     <header class="topbar">
       <div class="topbar-inner">
-        <a href="{{ url_for('home') }}" class="brand">
-          <div class="brand-ball">F</div>
+        <a href="{{ url_for('home') }}" class="brand" aria-label="FUNBA home">
+          <img
+            class="brand-mark"
+            src="{{ url_for('static', filename='branding/funba-icon-rim-arc.svg') }}"
+            alt=""
+          />
           <span class="brand-name">FUNBA</span>
         </a>
 
@@ -1495,8 +1498,12 @@
     <footer class="site-footer">
       <div class="footer-inner">
         <div class="footer-brand-col">
-          <a href="{{ url_for('home') }}" class="brand footer-brand-link">
-            <div class="brand-ball">F</div>
+          <a href="{{ url_for('home') }}" class="brand footer-brand-link" aria-label="FUNBA home">
+            <img
+              class="brand-mark"
+              src="{{ url_for('static', filename='branding/funba-icon-rim-arc.svg') }}"
+              alt=""
+            />
             <span class="brand-name">FUNBA</span>
           </a>
           <p class="footer-desc">Independent NBA analytics — shot quality, behavioral metrics, and play-by-play breakdowns for every game.</p>
