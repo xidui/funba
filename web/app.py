@@ -7772,14 +7772,18 @@ def admin_fragment(section: str):
                     SELECT
                         g.season,
                         COUNT(DISTINCT g.game_id)   AS total,
-                        COUNT(DISTINCT pgs.game_id) AS has_detail,
+                        COUNT(DISTINCT box.game_id) AS has_detail,
                         COUNT(DISTINCT pbp.game_id) AS has_pbp,
                         COUNT(DISTINCT gls.game_id) AS has_line,
                         COUNT(DISTINCT sr.game_id)  AS has_shot,
                         COALESCE(SUM(mrl_agg.metric_cnt > 0), 0) AS has_metrics,
                         0                                        AS active_claims
                     FROM Game g
-                    LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+                    LEFT JOIN (
+                        SELECT DISTINCT game_id FROM TeamGameStats
+                        UNION
+                        SELECT DISTINCT game_id FROM PlayerGameStats
+                    ) box ON box.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
@@ -7799,7 +7803,11 @@ def admin_fragment(section: str):
                         COALESCE(g.data_source, 'unknown') AS data_source,
                         COUNT(DISTINCT g.game_id) AS detail_games
                     FROM Game g
-                    JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+                    JOIN (
+                        SELECT DISTINCT game_id FROM TeamGameStats
+                        UNION
+                        SELECT DISTINCT game_id FROM PlayerGameStats
+                    ) box ON box.game_id = g.game_id
                     WHERE g.game_date IS NOT NULL
                     GROUP BY g.season, COALESCE(g.data_source, 'unknown')
                     ORDER BY g.season DESC, data_source ASC
