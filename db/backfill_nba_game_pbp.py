@@ -2,7 +2,7 @@ import requests
 
 from nba_api.stats.library.http import STATS_HEADERS
 from sqlalchemy.orm import sessionmaker
-from db.models import Game, GamePlayByPlay, engine
+from db.models import Game, GamePlayByPlay, Player, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 from static_numbers.event_msg_type import EventMsgType
@@ -106,9 +106,9 @@ def _normalize_pbp(raw):
             'VISITORDESCRIPTION': visitor_description,
             'SCORE': score,
             'SCOREMARGIN': score_margin,
-            # Keep player refs empty for V3: many rows point to coaches/officials,
-            # which violates Player FK and is not used by current analytics.
-            'PLAYER1_ID': 0,
+            # V3 exposes only one actor id. Team/coaches/officials still need to
+            # be filtered against Player before insert to avoid FK violations.
+            'PLAYER1_ID': action.get('personId') or 0,
             'PLAYER2_ID': 0,
             'PLAYER3_ID': 0,
             'ACTIONTYPE': action.get('actionType'),
@@ -190,8 +190,13 @@ def back_fill_pbp(game_id, sess, commit, force=False):
             logger.info(f'Deleted {deleted} existing PBP rows for {game_id}')
 
     pbp = fetch_game_play_by_play(game_id)
+    valid_player_ids = {str(pid) for (pid,) in sess.query(Player.player_id).all()}
 
     for event in pbp['PlayByPlay']:
+        player1_id = str(event['PLAYER1_ID']) if event['PLAYER1_ID'] else None
+        if player1_id not in valid_player_ids:
+            player1_id = None
+
         sess.add(GamePlayByPlay(
             game_id=str(game_id),
             event_num=event['EVENTNUM'],
@@ -205,7 +210,7 @@ def back_fill_pbp(game_id, sess, commit, force=False):
             visitor_description=event['VISITORDESCRIPTION'],
             score=event['SCORE'],
             score_margin=event['SCOREMARGIN'],
-            player1_id=str(event['PLAYER1_ID']) if event['PLAYER1_ID'] else None,
+            player1_id=player1_id,
             player2_id=str(event['PLAYER2_ID']) if event['PLAYER2_ID'] else None,
             player3_id=str(event['PLAYER3_ID']) if event['PLAYER3_ID'] else None,
         ))
