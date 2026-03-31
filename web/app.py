@@ -1935,6 +1935,18 @@ def _pick_current_season(season_ids: list[str]) -> str | None:
     return max(season_ids, key=_season_sort_key)
 
 
+def _non_pro_metric_detail_season_options(season_ids: list[str]) -> list[str]:
+    regular = sorted(
+        [s for s in season_ids if _season_type_prefix(s) == "2"],
+        key=_season_sort_key,
+        reverse=True,
+    )
+    if regular:
+        return regular[:2]
+    current = _pick_current_season(season_ids)
+    return [current] if current else []
+
+
 def _pct_text(made: int, attempted: int) -> str:
     if attempted <= 0:
         return "-"
@@ -6075,10 +6087,8 @@ def metric_detail(metric_key: str):
             )
             current_metric_season = _pick_current_season(season_options)
             if not is_pro():
-                _cur = _pick_current_season(season_options)
-                if _cur:
-                    season_options = [_cur]
-                    show_all_seasons = False
+                season_options = _non_pro_metric_detail_season_options(season_options)
+                show_all_seasons = False
             # Group seasons by type for the dropdown
             from collections import defaultdict
             _type_buckets = defaultdict(list)

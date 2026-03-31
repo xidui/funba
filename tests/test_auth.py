@@ -1265,5 +1265,30 @@ class TestMetricDeepDiveWorkflow(unittest.TestCase):
         mock_mirror.assert_called_once()
 
 
+class TestMetricDetailSeasonOptions(unittest.TestCase):
+    def setUp(self):
+        _make_app()
+
+    def test_non_pro_metric_detail_season_options_keep_two_newest_regular_seasons(self):
+        from web.app import _non_pro_metric_detail_season_options
+
+        season_options = ["52025", "42025", "22025", "22024", "22023", "12025"]
+
+        self.assertEqual(
+            _non_pro_metric_detail_season_options(season_options),
+            ["22025", "22024"],
+        )
+
+    def test_non_pro_metric_detail_season_options_falls_back_to_latest_available_season(self):
+        from web.app import _non_pro_metric_detail_season_options
+
+        season_options = ["42025", "52025", "42024"]
+
+        self.assertEqual(
+            _non_pro_metric_detail_season_options(season_options),
+            ["52025"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
