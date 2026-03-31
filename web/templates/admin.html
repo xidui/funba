@@ -9,6 +9,7 @@
     gap: 1.25rem;
   }
   .admin-grid .full-width { grid-column: 1 / -1; }
+  .admin-grid > * { min-width: 0; overflow: hidden; }
 
   .coverage-bar-wrap { display: flex; align-items: center; gap: 8px; }
   .coverage-bar {
@@ -152,7 +153,7 @@
   }
 
   /* Responsive table wrapper — catch-all horizontal scroll */
-  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; max-width: 100%; }
 
   @media (max-width: 768px) {
     .admin-grid {
@@ -199,7 +200,7 @@
 </div>
 
 <!-- ── Infrastructure ─────────────────────────────────────────────── -->
-<div id="infra-card" class="card" style="margin-bottom:18px;">
+<div id="infra-card" class="card" style="margin-bottom:18px;overflow:hidden;">
   <h2 style="margin-bottom:14px;">Infrastructure</h2>
   <div style="display:flex;flex-direction:column;gap:16px;">
     {# Workers #}
