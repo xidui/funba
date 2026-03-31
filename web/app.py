@@ -125,6 +125,19 @@ def _pbp_event_type_label(event_type):
     return _PBP_EVENT_TYPE_LABELS.get(event_type, str(event_type))
 
 
+def _box_score_source_label(value: str | None) -> str:
+    source = (value or "").strip()
+    if not source:
+        return "Unknown"
+    mapping = {
+        "nba_api_box_scores": "NBA API box scores",
+        "kaggle_box_scores": "Kaggle box scores",
+    }
+    if source in mapping:
+        return mapping[source]
+    return source.replace("_", " ").strip().title()
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
@@ -7512,16 +7525,48 @@ def admin_fragment(section: str):
                     GROUP BY g.season
                     ORDER BY g.season DESC
                 """)).fetchall()
-                _admin_cache["coverage"] = coverage_rows
+                coverage_source_rows = session.execute(sa_text("""
+                    SELECT
+                        g.season,
+                        COALESCE(g.data_source, 'unknown') AS data_source,
+                        COUNT(DISTINCT g.game_id) AS detail_games
+                    FROM Game g
+                    JOIN (SELECT DISTINCT game_id FROM PlayerGameStats) pgs ON pgs.game_id = g.game_id
+                    WHERE g.game_date IS NOT NULL
+                    GROUP BY g.season, COALESCE(g.data_source, 'unknown')
+                    ORDER BY g.season DESC, data_source ASC
+                """)).fetchall()
+                _admin_cache["coverage"] = {
+                    "rows": coverage_rows,
+                    "sources": coverage_source_rows,
+                }
                 _admin_cache["ts"] = now
             else:
-                coverage_rows = _admin_cache["coverage"]
+                cached_coverage = _admin_cache["coverage"]
+                if isinstance(cached_coverage, list):
+                    coverage_rows = cached_coverage
+                    coverage_source_rows = []
+                else:
+                    coverage_rows = cached_coverage["rows"]
+                    coverage_source_rows = cached_coverage["sources"]
+            source_counts_by_season: dict[str, list[dict[str, object]]] = defaultdict(list)
+            for row in coverage_source_rows:
+                season_key = str(row.season)
+                source_counts_by_season[season_key].append(
+                    {
+                        "source": row.data_source,
+                        "label": _box_score_source_label(row.data_source),
+                        "count": int(row.detail_games or 0),
+                    }
+                )
             coverage = [
                 {
                     "season": _season_label(row.season),
                     "season_raw": row.season,
                     "total": row.total,
                     "detail": row.has_detail,
+                    "detail_sources": source_counts_by_season.get(str(row.season), []),
+                    "detail_remaining": max(int(row.total or 0) - int(row.has_detail or 0), 0),
                     "pbp": row.has_pbp,
                     "line": row.has_line,
                     "shot": row.has_shot,

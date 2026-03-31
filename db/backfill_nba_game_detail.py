@@ -10,6 +10,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+NBA_API_BOX_SCORE_SOURCE = "nba_api_box_scores"
+
 
 def _to_int(value, default=0):
     if value is None or value == '':
@@ -186,6 +188,7 @@ def create_team_game_stats(session, game_id, team_stats, on_road, win):
             game_id=game_id,
             team_id=team_id,
         )
+    team_game_status_record.data_source = NBA_API_BOX_SCORE_SOURCE
     team_game_status_record.on_road = on_road
     team_game_status_record.win = win
     team_game_status_record.min = min_value
@@ -240,6 +243,7 @@ def create_player_game_stats(session, player_stats):
             team_id=str(player_stats['TEAM_ID']),
             player_id=str(player_stats['PLAYER_ID']),
         )
+    player_game_status_record.data_source = NBA_API_BOX_SCORE_SOURCE
     player_game_status_record.comment = player_stats['COMMENT']
     player_game_status_record.min = min_value
     player_game_status_record.sec = sec_value
@@ -316,6 +320,7 @@ def back_fill_game_detail(game, game_record, sess, commit):
 
     # store to the Game table
     game_record.season = game['SEASON_ID']
+    game_record.data_source = NBA_API_BOX_SCORE_SOURCE
     game_record.game_date = datetime.strptime(game['GAME_DATE'], '%Y-%m-%d')
     game_record.home_team_id = home_team_id
     game_record.road_team_id = road_team_id
