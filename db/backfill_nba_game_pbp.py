@@ -80,6 +80,51 @@ def _build_score_and_margin(action):
     return score, margin
 
 
+def _build_player_name_index(sess):
+    """Build a name→[player_id] index for resolving PBP description names."""
+    from collections import defaultdict
+    index = defaultdict(list)
+    for pid, full_name in sess.query(Player.player_id, Player.full_name).all():
+        if not full_name or not pid:
+            continue
+        pid_str = str(pid)
+        fn = full_name.strip()
+        parts = fn.split()
+        index[fn.lower()].append(pid_str)
+        if parts:
+            index[parts[-1].lower()].append(pid_str)
+        if len(parts) >= 2 and parts[-1].rstrip('.') in ('Jr', 'II', 'III', 'IV', 'Sr'):
+            index[' '.join(parts[-2:]).lower()].append(pid_str)
+            index[parts[-2].lower()].append(pid_str)
+        if len(parts) >= 2:
+            initial_key = f'{parts[0][0].lower()}. {parts[-1].lower()}'
+            index[initial_key].append(pid_str)
+    return {k: list(set(v)) for k, v in index.items()}
+
+
+def _resolve_player_name(name, name_index, roster, valid_ids):
+    """Resolve a player name to a player_id using the name index and game roster."""
+    candidates = name_index.get(name.strip().lower(), [])
+    if not candidates:
+        return None
+    if roster:
+        filtered = [c for c in candidates if c in roster]
+        if len(filtered) == 1:
+            return filtered[0]
+    if len(candidates) == 1 and candidates[0] in valid_ids:
+        return candidates[0]
+    return None
+
+
+def _parse_sub_incoming_name(description):
+    """Extract the incoming player's name from 'SUB: Incoming FOR Outgoing'."""
+    if not description:
+        return None
+    import re
+    m = re.match(r'SUB:\s*(.+?)\s+FOR\s+', description, re.IGNORECASE)
+    return m.group(1).strip() if m else None
+
+
 def _normalize_pbp(raw):
     game = raw.get('game') or {}
     actions = game.get('actions') or []
@@ -94,6 +139,12 @@ def _normalize_pbp(raw):
 
         score, score_margin = _build_score_and_margin(action)
 
+        # V3 substitution: personId = outgoing player.
+        # Parse description to get incoming player name (resolved to ID later).
+        player2_name = None
+        if action.get('actionType') == 'Substitution':
+            player2_name = _parse_sub_incoming_name(description)
+
         rows.append({
             'EVENTNUM': action.get('actionNumber') or action.get('actionId'),
             'EVENTMSGTYPE': _event_msg_type_from_action(action),
@@ -106,10 +157,10 @@ def _normalize_pbp(raw):
             'VISITORDESCRIPTION': visitor_description,
             'SCORE': score,
             'SCOREMARGIN': score_margin,
-            # V3 exposes only one actor id. Team/coaches/officials still need to
-            # be filtered against Player before insert to avoid FK violations.
+            # V3 exposes only one actor id (outgoing for subs).
             'PLAYER1_ID': action.get('personId') or 0,
             'PLAYER2_ID': 0,
+            'PLAYER2_NAME': player2_name,  # resolved to ID in back_fill_pbp
             'PLAYER3_ID': 0,
             'ACTIONTYPE': action.get('actionType'),
             'SUBTYPE': action.get('subType'),
@@ -191,11 +242,28 @@ def back_fill_pbp(game_id, sess, commit, force=False):
 
     pbp = fetch_game_play_by_play(game_id)
     valid_player_ids = {str(pid) for (pid,) in sess.query(Player.player_id).all()}
+    name_index = _build_player_name_index(sess)
+
+    # Game roster for disambiguation
+    from db.models import PlayerGameStats
+    roster = {
+        str(r.player_id)
+        for r in sess.query(PlayerGameStats.player_id).filter(
+            PlayerGameStats.game_id == str(game_id),
+            PlayerGameStats.player_id.isnot(None),
+        ).all()
+    }
 
     for event in pbp['PlayByPlay']:
         player1_id = str(event['PLAYER1_ID']) if event['PLAYER1_ID'] else None
         if player1_id not in valid_player_ids:
             player1_id = None
+
+        # Resolve incoming player name for substitutions
+        player2_id = str(event['PLAYER2_ID']) if event['PLAYER2_ID'] else None
+        p2_name = event.get('PLAYER2_NAME')
+        if not player2_id and p2_name:
+            player2_id = _resolve_player_name(p2_name, name_index, roster, valid_player_ids)
 
         sess.add(GamePlayByPlay(
             game_id=str(game_id),
@@ -211,7 +279,7 @@ def back_fill_pbp(game_id, sess, commit, force=False):
             score=event['SCORE'],
             score_margin=event['SCOREMARGIN'],
             player1_id=player1_id,
-            player2_id=str(event['PLAYER2_ID']) if event['PLAYER2_ID'] else None,
+            player2_id=player2_id,
             player3_id=str(event['PLAYER3_ID']) if event['PLAYER3_ID'] else None,
         ))
 
