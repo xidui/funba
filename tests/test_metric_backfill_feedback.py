@@ -288,6 +288,63 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(metric["scope"], "game")
         self.assertEqual(metric["category"], "scoring")
 
+    def test_catalog_preserves_localized_name_and_description_over_search_field_english(self):
+        row = SimpleNamespace(
+            key="single_quarter_team_scoring",
+            name="英文名称",
+            description="英文描述",
+            name_zh="数据库中文名",
+            description_zh="数据库中文描述",
+            scope="team",
+            category="old",
+            status="published",
+            source_type="code",
+            group_key=None,
+            min_sample=1,
+            expression="",
+            code_python="fake code",
+            created_at=1,
+            created_by_user_id=None,
+        )
+
+        counts_query = MagicMock()
+        counts_query.group_by.return_value.all.return_value = [
+            SimpleNamespace(metric_key="single_quarter_team_scoring", count=12)
+        ]
+        db_query = MagicMock()
+        db_query.filter.return_value = db_query
+        db_query.order_by.return_value.all.return_value = [row]
+
+        session = MagicMock()
+        session.query.side_effect = [counts_query, db_query]
+
+        with patch.object(
+            self.web_app,
+            "_safe_code_metric_metadata",
+            return_value={
+                "key": "single_quarter_team_scoring",
+                "name": "Single-Quarter Team Scoring",
+                "name_zh": "单节球队得分",
+                "description": "Per-quarter team points.",
+                "description_zh": "球队每节得分表现。",
+                "scope": "game",
+                "category": "scoring",
+                "min_sample": 1,
+                "career_min_sample": None,
+                "supports_career": False,
+                "career": False,
+                "incremental": False,
+                "rank_order": "desc",
+            },
+        ), patch.object(self.web_app, "_is_zh", return_value=True):
+            catalog = self.web_app._catalog_metrics(session)
+
+        metric = next(m for m in catalog if m["key"] == "single_quarter_team_scoring")
+        self.assertEqual(metric["name"], "单节球队得分")
+        self.assertEqual(metric["description"], "球队每节得分表现。")
+        self.assertEqual(metric["name_zh"], "单节球队得分")
+        self.assertEqual(metric["description_zh"], "球队每节得分表现。")
+
     def test_create_uses_latest_code_metric_key(self):
         class FakeMetricDefinitionModel:
             key = MagicMock()
