@@ -1237,7 +1237,7 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
                 "source_type": m.source_type,
                 "result_count": counts.get(m.key, 0),
                 "is_mine": is_mine,
-                **search_fields,
+                **{k: v for k, v in search_fields.items() if k not in ("name", "description")},
             }
         )
         if (
