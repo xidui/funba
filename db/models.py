@@ -107,6 +107,7 @@ class Game(Base):
     __tablename__ = 'Game'
 
     game_id = Column(String(50), primary_key=True)
+    data_source = Column(String(64), nullable=False, default='nba_api_box_scores')
     season = Column(String(50))
     game_date = Column(DATE)
     highlight = Column(BLOB, default=None)
@@ -127,6 +128,7 @@ class TeamGameStats(Base):
 
     game_id = Column(String(50), ForeignKey('Game.game_id'), primary_key=True)
     team_id = Column(String(50), ForeignKey('Team.team_id'), primary_key=True)
+    data_source = Column(String(64), nullable=False, default='nba_api_box_scores')
     on_road = Column(Boolean)
     win = Column(Boolean)
     min = Column(Integer)
@@ -156,6 +158,7 @@ class PlayerGameStats(Base):
     game_id = Column(String(50), ForeignKey('Game.game_id'), primary_key=True)
     team_id = Column(String(50), ForeignKey('Team.team_id'), primary_key=True)
     player_id = Column(String(50), ForeignKey('Player.player_id'), primary_key=True)
+    data_source = Column(String(64), nullable=False, default='nba_api_box_scores')
     comment = Column(String(500))
     min = Column(Integer)
     sec = Column(Integer)

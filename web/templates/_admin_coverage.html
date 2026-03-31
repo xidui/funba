@@ -23,6 +23,7 @@
       <th>Season</th>
       <th style="text-align:center">Games</th>
       <th>Stats</th>
+      <th>Stats Source</th>
       <th>PBP</th>
       <th>Line</th>
       <th>Shots</th>
@@ -41,7 +42,40 @@
         <span class="stype-badge stype-{{ stype }}">{{ 'Playoffs' if stype == 'playoffs' else ('Play-In' if stype == 'playin' else ('Regular' if stype == 'regular' else 'Other')) }}</span>
       </td>
       <td style="text-align:center; color:var(--muted-2); font-size:12px;">{{ row.total }}</td>
-      {% for val in [row.detail, row.pbp, row.line, row.shot, row.metrics] %}
+      {% set val = row.detail %}
+      {% if row.total %}
+        {% set pct = (val / row.total * 100) %}
+        {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
+      {% else %}
+        {% set pct = 0 %}{% set css = '' %}
+      {% endif %}
+      <td>
+        {% if val == row.total %}
+          <span style="color:var(--win); font-size:13px; font-weight:700;">&#10003; {{ val }}</span>
+        {% else %}
+          <div class="coverage-bar-wrap">
+            <div class="coverage-bar">
+              <div class="coverage-bar-fill {{ css }}" style="width:{{ pct }}%"></div>
+            </div>
+            <span class="coverage-pct" style="width:60px;">{{ val }}/{{ row.total }}</span>
+          </div>
+        {% endif %}
+      </td>
+      <td style="min-width:220px;">
+        {% if row.detail_sources %}
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+            {% for source in row.detail_sources %}
+              <span class="age-chip" title="{{ source.label }}">{{ source.label }}: {{ source.count }}</span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <span style="color:var(--muted); font-size:12px;">No box scores yet</span>
+        {% endif %}
+        {% if row.detail_remaining %}
+          <div style="font-size:11px; color:var(--muted);">Remaining: {{ row.detail_remaining }}</div>
+        {% endif %}
+      </td>
+      {% for val in [row.pbp, row.line, row.shot, row.metrics] %}
       {% if row.total %}
         {% set pct = (val / row.total * 100) %}
         {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
