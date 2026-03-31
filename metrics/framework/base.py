@@ -96,7 +96,9 @@ class MetricDefinition(ABC):
     """
     key: str
     name: str
+    name_zh: str = ""
     description: str
+    description_zh: str = ""
     scope: str       # 'player' | 'player_franchise' | 'team' | 'game' | 'league'
     category: str
     min_sample: int = 10

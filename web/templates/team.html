@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ team.full_name }} — FUNBA{% endblock %}
-{% block meta_description %}{{ team.full_name }} season record, game log, and advanced metrics on FUNBA.{% endblock %}
-{% block og_title %}{{ team.full_name }} — FUNBA{% endblock %}
-{% block og_description %}{{ team.full_name }} season record, game log, and advanced metrics.{% endblock %}
-{% block tw_title %}{{ team.full_name }} — FUNBA{% endblock %}
-{% block tw_description %}{{ team.full_name }} season record and game log.{% endblock %}
+{% set team_name = display_team_name(team) %}
+{% block title %}{{ team_name }} — FUNBA{% endblock %}
+{% block meta_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block og_title %}{{ team_name }} — FUNBA{% endblock %}
+{% block og_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block tw_title %}{{ team_name }} — FUNBA{% endblock %}
+{% block tw_description %}{{ team_name }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
 {% block content %}
 <style>
   .team-header-meta {
@@ -104,7 +105,7 @@
          src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
          alt="{{ team.abbr }} logo"
          onerror="this.style.display='none'">
-    <h1 style="margin:0;">{{ team.full_name }}</h1>
+    <h1 style="margin:0;">{{ team_name }}</h1>
   </div>
   <div class="team-header-meta">
     {% if season_summary %}
@@ -122,14 +123,14 @@
     {% endif %}
     <span class="meta">
       {% if team.city %}{{ team.city }}{% endif %}
-      {% if team.year_founded %}&nbsp;· Est. {{ team.year_founded }}{% endif %}
+      {% if team.year_founded %}&nbsp;· {{ t('Est.', '建队') }} {{ team.year_founded }}{% endif %}
     </span>
   </div>
 </div>
 
 {% if team_championships %}
 <div class="card">
-  <h2>Championships</h2>
+  <h2>{{ t('Championships', '总冠军') }}</h2>
   <div class="team-championship-row">
     {% for championship in team_championships %}
     <a
@@ -148,7 +149,7 @@
 {% set alltime_metrics = team_metrics.alltime %}
 {% if season_metrics or alltime_metrics %}
 <section class="section metrics-section">
-  <h2 class="section-title">Analytics Insights</h2>
+  <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
   {% if season_metrics %}
   <h3 class="metrics-sub-title">{{ season_label(current_season) }}</h3>
@@ -156,12 +157,12 @@
     {% for m in season_metrics %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
-      <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
+      <div class="metric-key">{{ m.metric_name }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Season</span>
-        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} Career</span>{% endif %}
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
+        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
       </div>
     </a>
     {% endfor %}
@@ -173,17 +174,17 @@
   {% for m in alltime_metrics|sort(attribute='career_type_label') %}
     {% if m.career_type_label != ns.last_type %}
       {% if ns.last_type %}</div>{% endif %}
-      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }} Career</h3>
+      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
       <div class="metrics-grid">
       {% set ns.last_type = m.career_type_label %}
     {% endif %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-      <div class="metric-key">{{ m.metric_key | replace('_career','') | replace('_', ' ') | title }}</div>
+      <div class="metric-key">{{ m.metric_name }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Career</span>
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Career', '生涯') }}</span>
       </div>
     </a>
   {% endfor %}
@@ -195,7 +196,7 @@
 <!-- ── Season Game Log ─────────────────────────────────────────────── -->
 <div class="card">
   <h2>
-    Season Games
+    {{ t('Season Games', '赛季比赛') }}
     {% if selected_games_season %}
     <span class="meta" style="font-weight:400; font-size:13px;">— {{ season_label(selected_games_season) }}</span>
     {% endif %}
@@ -203,7 +204,7 @@
 
   {% if season_options %}
   <div class="control-row">
-    <label for="games-season-picker">Season:</label>
+    <label for="games-season-picker">{{ t('Season:', '赛季：') }}</label>
     <select
       id="games-season-picker"
       onchange="updateQuery('games_season', this.value)"
@@ -222,11 +223,11 @@
     <table>
       <thead>
         <tr>
-          <th>Date</th>
-          <th>Opponent</th>
+          <th>{{ t('Date', '日期') }}</th>
+          <th>{{ t('Opponent', '对手') }}</th>
           <th class="mobile-hide">H/A</th>
-          <th>Result</th>
-          <th>Score</th>
+          <th>{{ t('Result', '结果') }}</th>
+          <th>{{ t('Score', '比分') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -239,9 +240,9 @@
           <td class="mobile-hide meta">{{ row.where }}</td>
           <td>
             {% if row.result == 'W' %}
-            <span class="badge badge-win">W</span>
+            <span class="badge badge-win">{{ t('W', '胜') }}</span>
             {% elif row.result == 'L' %}
-            <span class="badge badge-loss">L</span>
+            <span class="badge badge-loss">{{ t('L', '负') }}</span>
             {% else %}
             <span class="meta">—</span>
             {% endif %}
@@ -253,7 +254,7 @@
     </table>
   </div>
   {% else %}
-  <p class="meta">No games found for the selected season.</p>
+  <p class="meta">{{ t('No games found for the selected season.', '所选赛季没有比赛。') }}</p>
   {% endif %}
 </div>
 
@@ -267,17 +268,17 @@
 
 <!-- ── Season Win/Loss ─────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Season Win / Loss</h2>
+  <h2>{{ t('Season Win / Loss', '赛季胜负') }}</h2>
 
   <div class="tab-bar">
     <a
       href="?season_kind=regular&games_season={{ selected_games_season or '' }}"
       class="tab-btn {{ 'active' if season_kind == 'regular' }}"
-    >Regular Season</a>
+    >{{ t('Regular Season', '常规赛') }}</a>
     <a
       href="?season_kind=playoffs&games_season={{ selected_games_season or '' }}"
       class="tab-btn {{ 'active' if season_kind == 'playoffs' }}"
-    >Playoffs</a>
+    >{{ t('Playoffs', '季后赛') }}</a>
   </div>
 
   {% if season_summary %}

@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ player.full_name }} — FUNBA{% endblock %}
-{% block meta_description %}{{ player.full_name }} career stats, shot charts, game log, and advanced metrics on FUNBA.{% endblock %}
-{% block og_title %}{{ player.full_name }} — FUNBA{% endblock %}
-{% block og_description %}{{ player.full_name }} career stats, shot charts, game log, and advanced metrics.{% endblock %}
+{% set player_name = display_player_name(player) %}
+{% block title %}{{ player_name }} — FUNBA{% endblock %}
+{% block meta_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics on FUNBA.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
+{% block og_title %}{{ player_name }} — FUNBA{% endblock %}
+{% block og_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
 {% block og_type %}profile{% endblock %}
-{% block tw_title %}{{ player.full_name }} — FUNBA{% endblock %}
-{% block tw_description %}{{ player.full_name }} career stats, shot charts, and game log.{% endblock %}
+{% block tw_title %}{{ player_name }} — FUNBA{% endblock %}
+{% block tw_description %}{{ player_name }} {{ t('career stats, shot charts, and game log.', '球员生涯数据、投篮图和比赛日志。') }}{% endblock %}
 {% block content %}
 <style>
   /* ── Player header ─────────────────────────────────────────────── */
@@ -333,7 +334,7 @@
       <img
         class="player-avatar"
         src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png"
-        alt="{{ player.full_name }}"
+        alt="{{ player_name }}"
         loading="lazy"
         onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
       />
@@ -346,7 +347,7 @@
       <div class="player-top-line">
         <div class="player-status">
           <span class="player-status-dot {{ 'active' if player.is_active else '' }}"></span>
-          {{ "Active" if player.is_active else "Inactive" }}
+          {{ t("Active", "现役") if player.is_active else t("Inactive", "非现役") }}
         </div>
         {% if player.position %}
         <span class="player-pos-badge">{{ player.position }}</span>
@@ -356,58 +357,58 @@
         {% endif %}
       </div>
 
-      <h1>{{ player.full_name }}</h1>
+      <h1>{{ player_name }}</h1>
 
       {% if player.birth_date or player.height or player.weight or player.country or player.school or player.draft_year or (player.from_year and player.to_year) or player.season_exp %}
       <div class="player-bio-grid">
         {% if player.birth_date %}
         <div class="bio-item">
-          <span class="bio-label">Born</span>
+          <span class="bio-label">{{ t('Born', '出生') }}</span>
           <span class="bio-value">{{ player.birth_date.strftime('%b %d, %Y').replace(' 0', ' ') }}</span>
         </div>
         {% endif %}
         {% if player.height %}
         <div class="bio-item">
-          <span class="bio-label">Height</span>
+          <span class="bio-label">{{ t('Height', '身高') }}</span>
           <span class="bio-value">{{ player.height }}</span>
         </div>
         {% endif %}
         {% if player.weight %}
         <div class="bio-item">
-          <span class="bio-label">Weight</span>
+          <span class="bio-label">{{ t('Weight', '体重') }}</span>
           <span class="bio-value">{{ player.weight }} lbs</span>
         </div>
         {% endif %}
         {% if player.country %}
         <div class="bio-item">
-          <span class="bio-label">Country</span>
+          <span class="bio-label">{{ t('Country', '国家') }}</span>
           <span class="bio-value">{{ player.country }}</span>
         </div>
         {% endif %}
         {% if player.school %}
         <div class="bio-item">
-          <span class="bio-label">School</span>
+          <span class="bio-label">{{ t('School', '学校') }}</span>
           <span class="bio-value">{{ player.school }}</span>
         </div>
         {% endif %}
         {% if player.draft_year %}
         <div class="bio-item">
-          <span class="bio-label">Draft</span>
-          <a href="/draft/{{ player.draft_year }}" class="bio-value draft-link">
+          <span class="bio-label">{{ t('Draft', '选秀') }}</span>
+          <a href="{{ url_for('draft_page', year=player.draft_year) }}" class="bio-value draft-link">
             {{ player.draft_year }} R{{ player.draft_round }} Pick {{ player.draft_number }}
           </a>
         </div>
         {% endif %}
         {% if player.from_year and player.to_year %}
         <div class="bio-item">
-          <span class="bio-label">Career</span>
+          <span class="bio-label">{{ t('Career', '生涯') }}</span>
           <span class="bio-value">{{ player.from_year }}–{{ player.to_year }}</span>
         </div>
         {% endif %}
         {% if player.season_exp is not none %}
         <div class="bio-item">
-          <span class="bio-label">Experience</span>
-          <span class="bio-value">{{ player.season_exp }} {{ 'season' if player.season_exp == 1 else 'seasons' }}</span>
+          <span class="bio-label">{{ t('Experience', '球龄') }}</span>
+          <span class="bio-value">{{ player.season_exp }} {{ t('season', '赛季') if player.season_exp == 1 else t('seasons', '赛季') }}</span>
         </div>
         {% endif %}
       </div>
@@ -448,7 +449,7 @@
         <a
           class="compare-link-btn"
           href="{{ url_for('players_compare', ids=player.player_id) }}"
-        >Compare</a>
+        >{{ t('Compare', '对比') }}</a>
       </div>
     </div>
   </div>
@@ -456,7 +457,7 @@
 
 <!-- ── Career Summary ─────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Career Summary</h2>
+  <h2>{{ t('Career Summary', '生涯概览') }}</h2>
 
   <!-- Season type tabs (link-based, preserves other params) -->
   <div class="career-controls">
@@ -464,17 +465,17 @@
       <a
         href="?career_kind=regular&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
         class="tab-btn {{ 'active' if selected_career_kind == 'regular' }}"
-      >Regular Season</a>
+      >{{ t('Regular Season', '常规赛') }}</a>
       <a
         href="?career_kind=playoffs&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
         class="tab-btn {{ 'active' if selected_career_kind == 'playoffs' }}"
-      >Playoffs</a>
+      >{{ t('Playoffs', '季后赛') }}</a>
     </div>
 
     <!-- Totals / Per Game toggle (JS, no page reload) -->
     <div class="tab-bar" id="stat-kind-bar">
-      <button class="tab-btn" data-view="totals">Totals</button>
-      <button class="tab-btn active" data-view="pergame">Per Game</button>
+      <button class="tab-btn" data-view="totals">{{ t('Totals', '总数') }}</button>
+      <button class="tab-btn active" data-view="pergame">{{ t('Per Game', '场均') }}</button>
     </div>
   </div>
 
@@ -602,7 +603,7 @@
 {% set alltime_metrics = player_metrics.alltime %}
 {% if season_metrics or alltime_metrics %}
 <section class="section metrics-section">
-  <h2 class="section-title">Analytics Insights</h2>
+  <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
   {% if season_metrics %}
   <h3 class="metrics-sub-title">{{ season_label(selected_season) }}</h3>
@@ -610,12 +611,12 @@
     {% for m in season_metrics %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
-      <div class="metric-key">{{ m.metric_key | replace('_', ' ') | title }}</div>
+      <div class="metric-key">{{ m.metric_name }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Season</span>
-        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} Career</span>{% endif %}
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
+        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
       </div>
     </a>
     {% endfor %}
@@ -627,17 +628,17 @@
   {% for m in alltime_metrics|sort(attribute='career_type_label') %}
     {% if m.career_type_label != ns.last_type %}
       {% if ns.last_type %}</div>{% endif %}
-      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }} Career</h3>
+      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
       <div class="metrics-grid">
       {% set ns.last_type = m.career_type_label %}
     {% endif %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-      <div class="metric-key">{{ m.metric_key | replace('_career','') | replace('_', ' ') | title }}</div>
+      <div class="metric-key">{{ m.metric_name }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} Career</span>
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Career', '生涯') }}</span>
       </div>
     </a>
   {% endfor %}
@@ -648,7 +649,7 @@
 
 {% if salary_rows %}
 <div class="card">
-  <h2>Salary History</h2>
+  <h2>{{ t('Salary History', '薪资历史') }}</h2>
   <div class="table-wrap">
     <table>
       <thead>
@@ -672,12 +673,12 @@
 
 <!-- ── Shot Chart ─────────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Shot Chart</h2>
+  <h2>{{ t('Shot Chart', '投篮图') }}</h2>
   <form method="get" class="control-row" style="margin-bottom: 10px;">
-    <label for="heatmap-season-picker">Scope:</label>
+    <label for="heatmap-season-picker">{{ t('Scope:', '范围：') }}</label>
     <select id="heatmap-season-picker" name="heatmap_season" onchange="this.form.submit()">
       <option value="overall" {% if selected_heatmap_season == "overall" %}selected{% endif %}>
-        Overall {{ career_kind_label }}
+        {{ t('Overall', '整体') }} {{ career_kind_label }}
       </option>
       {% for season in heatmap_season_options %}
       <option value="{{ season }}" {% if season == selected_heatmap_season %}selected{% endif %}>
@@ -693,8 +694,8 @@
 
   <p class="meta">
     {{ heatmap_scope_label }} &nbsp;·&nbsp;
-    <strong style="color:var(--text);">{{ shot_attempts }}</strong> attempts &nbsp;·&nbsp;
-    <strong style="color:var(--text);">{{ shot_made_count }}</strong> made &nbsp;·&nbsp;
+    <strong style="color:var(--text);">{{ shot_attempts }}</strong> {{ t('attempts', '次出手') }} &nbsp;·&nbsp;
+    <strong style="color:var(--text);">{{ shot_made_count }}</strong> {{ t('made', '命中') }} &nbsp;·&nbsp;
     FG%: <strong style="color:var(--text);">{% if shot_attempts > 0 %}{{ "%.1f"|format(shot_made_count / shot_attempts * 100) }}%{% else %}—{% endif %}</strong>
   </p>
 
@@ -703,16 +704,16 @@
 
     <!-- Scatter plot -->
     <div class="shot-chart-col">
-      <h3>Shot Plot</h3>
+      <h3>{{ t('Shot Plot', '投篮分布') }}</h3>
       {% if shot_dots %}
       <div class="shot-chart-legend">
         <label class="shot-toggle">
           <input type="checkbox" id="toggle-made" checked>
-          <span class="shot-legend-dot made"></span> Made
+          <span class="shot-legend-dot made"></span> {{ t('Made', '命中') }}
         </label>
         <label class="shot-toggle">
           <input type="checkbox" id="toggle-missed" checked>
-          <span class="shot-legend-dot missed"></span> Missed
+          <span class="shot-legend-dot missed"></span> {{ t('Missed', '打铁') }}
         </label>
       </div>
       <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court">
@@ -757,13 +758,13 @@
         })();
       </script>
       {% else %}
-      <p class="meta">No shot location data.</p>
+      <p class="meta">{{ t('No shot location data.', '暂无投篮位置数据。') }}</p>
       {% endif %}
     </div>
 
     <!-- Zone FG% -->
     <div class="shot-chart-col">
-      <h3>Zone FG%</h3>
+      <h3>{{ t('Zone FG%', '分区命中率') }}</h3>
       {% if heatmap_zones %}
       <svg viewBox="-250 -422.5 500 470" preserveAspectRatio="xMidYMid meet" class="player-heat-court zone-court">
         <g transform="scale(1,-1)">
@@ -805,22 +806,22 @@
         {% endfor %}
       </svg>
       {% else %}
-      <p class="meta">No zone data.</p>
+      <p class="meta">{{ t('No zone data.', '暂无分区数据。') }}</p>
       {% endif %}
     </div>
 
   </div>
   {% else %}
-  <p class="meta">No shot records found for this scope.</p>
+  <p class="meta">{{ t('No shot records found for this scope.', '当前范围内没有投篮记录。') }}</p>
   {% endif %}
 </div>
 
 <!-- ── Season Game Log ────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Season Games</h2>
+  <h2>{{ t('Season Games', '赛季比赛') }}</h2>
   {% if season_options %}
   <form method="get" class="control-row" style="margin-bottom: 10px;">
-    <label for="season-picker">Season:</label>
+    <label for="season-picker">{{ t('Season:', '赛季：') }}</label>
     <select id="season-picker" name="season" onchange="this.form.submit()">
       {% for season in season_options %}
       <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>
@@ -832,7 +833,7 @@
     <input type="hidden" name="heatmap_season" value="{{ selected_heatmap_season }}" />
   </form>
   {% else %}
-  <p class="meta">No game stats found for this player.</p>
+  <p class="meta">{{ t('No game stats found for this player.', '没有找到这名球员的比赛数据。') }}</p>
   {% endif %}
 
   {% if game_rows %}
@@ -840,12 +841,12 @@
     <table>
       <thead>
         <tr>
-          <th>Date</th>
-          <th>Matchup</th>
-          <th class="mobile-hide">Score</th>
-          <th>Result</th>
-          <th class="mobile-hide">Status</th>
-          <th class="mobile-hide">Min</th>
+          <th>{{ t('Date', '日期') }}</th>
+          <th>{{ t('Matchup', '对阵') }}</th>
+          <th class="mobile-hide">{{ t('Score', '比分') }}</th>
+          <th>{{ t('Result', '结果') }}</th>
+          <th class="mobile-hide">{{ t('Status', '状态') }}</th>
+          <th class="mobile-hide">{{ t('Min', '时间') }}</th>
           <th>PTS</th>
           <th>REB</th>
           <th>AST</th>
@@ -879,9 +880,9 @@
           </td>
           <td>
             {% if row.result == 'W' %}
-            <span class="badge badge-win">W</span>
+            <span class="badge badge-win">{{ t('W', '胜') }}</span>
             {% elif row.result == 'L' %}
-            <span class="badge badge-loss">L</span>
+            <span class="badge badge-loss">{{ t('L', '负') }}</span>
             {% else %}
             <span class="meta">—</span>
             {% endif %}

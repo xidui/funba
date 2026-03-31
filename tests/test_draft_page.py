@@ -167,12 +167,12 @@ class TestDraftPage(unittest.TestCase):
 
     def test_player_template_contains_draft_link_markup(self):
         player_template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
-        self.assertIn('href="/draft/{{ player.draft_year }}"', player_template)
+        self.assertIn("href=\"{{ url_for('draft_page', year=player.draft_year) }}\"", player_template)
         self.assertIn('class="bio-value draft-link"', player_template)
 
     def test_player_template_contains_salary_history_markup(self):
         player_template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
-        self.assertIn("<h2>Salary History</h2>", player_template)
+        self.assertIn("<h2>{{ t('Salary History', '薪资历史') }}</h2>", player_template)
         self.assertIn('{{ row.season_label }}', player_template)
         self.assertIn('${{ "{:,}".format(row.salary_usd) }}', player_template)
 

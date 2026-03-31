@@ -268,24 +268,24 @@
 
 <div class="metrics-header">
   <div>
-    <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">Metrics</h1>
-    <div style="font-size:13px;color:var(--muted);">{{ metrics_list|length }} metric{{ 's' if metrics_list|length != 1 }}</div>
+    <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Metrics', '指标') }}</h1>
+    <div style="font-size:13px;color:var(--muted);">{{ metrics_list|length }} {{ t('metric' if metrics_list|length == 1 else 'metrics', '项指标') }}</div>
   </div>
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <div class="scope-filters">
-      <a href="{{ url_for('metrics_browse') }}" class="filter-chip{% if not scope_filter %} active{% endif %}">All</a>
-      <a href="{{ url_for('metrics_browse', scope='player') }}" class="filter-chip{% if scope_filter == 'player' %} active{% endif %}">Player</a>
-      <a href="{{ url_for('metrics_browse', scope='team') }}" class="filter-chip{% if scope_filter == 'team' %} active{% endif %}">Team</a>
-      <a href="{{ url_for('metrics_browse', scope='game') }}" class="filter-chip{% if scope_filter == 'game' %} active{% endif %}">Game</a>
+      <a href="{{ url_for('metrics_browse') }}" class="filter-chip{% if not scope_filter %} active{% endif %}">{{ t('All', '全部') }}</a>
+      <a href="{{ url_for('metrics_browse', scope='player') }}" class="filter-chip{% if scope_filter == 'player' %} active{% endif %}">{{ t('Player', '球员') }}</a>
+      <a href="{{ url_for('metrics_browse', scope='team') }}" class="filter-chip{% if scope_filter == 'team' %} active{% endif %}">{{ t('Team', '球队') }}</a>
+      <a href="{{ url_for('metrics_browse', scope='game') }}" class="filter-chip{% if scope_filter == 'game' %} active{% endif %}">{{ t('Game', '比赛') }}</a>
     </div>
   </div>
 </div>
 
 <div class="search-panel">
-  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Search with natural language</div>
+  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">{{ t('Search with natural language', '自然语言搜索') }}</div>
   <div class="search-row">
-    <input id="metric-search-input" class="search-input" type="text" maxlength="200" value="{{ search_query or '' }}" placeholder="e.g. highest scoring games by a player, clutch shooting, bench scoring" />
+    <input id="metric-search-input" class="search-input" type="text" maxlength="200" value="{{ search_query or '' }}" placeholder="{{ t('e.g. highest scoring games by a player, clutch shooting, bench scoring', '例如：球员单场最高得分、关键时刻投篮、替补得分') }}" />
     {% if is_admin %}
     <select id="metric-search-model" class="admin-model-select" aria-label="Select LLM model">
       {% for model_name in llm_available_models %}
@@ -293,19 +293,19 @@
       {% endfor %}
     </select>
     {% endif %}
-    <button id="metric-search-btn" class="search-btn">Find Metrics</button>
-    <a id="metric-create-cta-inline" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create Metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
+    <button id="metric-search-btn" class="search-btn">{{ t('Find Metrics', '查找指标') }}</button>
+    <a id="metric-create-cta-inline" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>{{ t('Create Metric', '创建指标') }}{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
-  <div id="metric-search-status" class="search-status">Search in any language. If nothing fits, create a new metric from the same query.</div>
+  <div id="metric-search-status" class="search-status">{{ t('Search in any language. If nothing fits, create a new metric from the same query.', '支持任意语言搜索。如果没有合适的指标，可以直接用同一条描述创建新指标。') }}</div>
 </div>
 
 <div id="metric-search-results" class="search-results" style="display:none;">
   <div class="search-result-header">
     <div>
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Best matches</div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">{{ t('Best matches', '最佳匹配') }}</div>
       <div id="metric-search-subtitle" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
     </div>
-    <a id="metric-create-cta" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>Create this metric{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
+    <a id="metric-create-cta" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>{{ t('Create this metric', '创建这个指标') }}{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
   <div id="metric-search-cards" class="metrics-catalog"></div>
 </div>
@@ -384,20 +384,21 @@
   }
 
   function metricCard(metric) {
+    const metricDetailBase = "{{ url_for('metric_detail', metric_key='__METRIC_KEY__') }}";
     const draftBadge = metric.status === 'draft'
-      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;\">draft</span>"
+      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;\">{{ t('draft', '草稿') }}</span>"
       : "";
     const careerBadge = metric.career
-      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);\">career</span>"
+      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);\">{{ t('career', '生涯') }}</span>"
       : "";
     const reason = metric.reason
       ? `<div class="result-reason">${esc(metric.reason)}</div>`
       : "";
     const count = metric.result_count > 0
-      ? `<span>${metric.result_count}</span> result${metric.result_count !== 1 ? 's' : ''}`
-      : 'No data yet';
+      ? `<span>${metric.result_count}</span> {{ t('results', '条结果') }}`
+      : '{{ t("No data yet", "暂无数据") }}';
     return `
-      <a class="catalog-card" href="/metrics/${encodeURIComponent(metric.key)}">
+      <a class="catalog-card" href="${metricDetailBase.replace('__METRIC_KEY__', encodeURIComponent(metric.key))}">
         <div class="catalog-card-header">
           <div class="catalog-name">${esc(metric.name)}</div>
           <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">${careerBadge}${draftBadge}${scopeBadge(metric.scope)}</div>
@@ -415,18 +416,18 @@
   async function runSearch() {
     const query = input.value.trim();
     {% if can_create_metrics %}
-    createCta.href = `/metrics/new?expression=${encodeURIComponent(query)}`;
-    createInline.href = `/metrics/new?expression=${encodeURIComponent(query)}`;
+    createCta.href = `{{ url_for('metric_new') }}?expression=${encodeURIComponent(query)}`;
+    createInline.href = `{{ url_for('metric_new') }}?expression=${encodeURIComponent(query)}`;
     {% endif %}
     if (!query) {
       resultsWrap.style.display = 'none';
       fullCatalog.style.display = '';
-      status.textContent = 'Search in any language. If nothing fits, create a new metric from the same query.';
+      status.textContent = '{{ t("Search in any language. If nothing fits, create a new metric from the same query.", "支持任意语言搜索。如果没有合适的指标，可以直接用同一条描述创建新指标。") }}';
       return;
     }
 
     btn.disabled = true;
-    status.textContent = 'Searching existing metrics…';
+    status.textContent = '{{ t("Searching existing metrics…", "正在搜索现有指标…") }}';
 
     try {
       const res = await fetch('/api/metrics/search', {
@@ -449,7 +450,7 @@
         return;
       }
       if (!res.ok || !data || !data.ok) {
-        status.textContent = (data && data.error) || 'Search failed.';
+        status.textContent = (data && data.error) || '{{ t("Search failed.", "搜索失败。") }}';
         resultsWrap.style.display = 'none';
         return;
       }

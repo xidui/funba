@@ -475,11 +475,11 @@
         <div class="sb-abbr">{{ team_abbr(game.road_team_id) }}</div>
         <div class="sb-name">{{ team_name(game.road_team_id) }}</div>
       </a>
-      <div class="sb-side">Away</div>
+      <div class="sb-side">{{ t('Away', '客场') }}</div>
       {% if road_won %}
-      <div style="margin-top:8px;"><span class="badge badge-win">WIN</span></div>
+      <div style="margin-top:8px;"><span class="badge badge-win">{{ t('WIN', '胜') }}</span></div>
       {% elif home_won %}
-      <div style="margin-top:8px;"><span class="badge badge-loss">L</span></div>
+      <div style="margin-top:8px;"><span class="badge badge-loss">{{ t('L', '负') }}</span></div>
       {% endif %}
     </div>
 
@@ -494,7 +494,7 @@
           {{ game.home_team_score if game.home_team_score is not none else '—' }}
         </span>
       </div>
-      <div class="sb-final">Final</div>
+      <div class="sb-final">{{ t('Final', '最终') }}</div>
       <div class="sb-meta">
         {{ fmt_date(game.game_date) }}&nbsp;·&nbsp;{{ season_label(game.season) }}
       </div>
@@ -512,11 +512,11 @@
         <div class="sb-abbr">{{ team_abbr(game.home_team_id) }}</div>
         <div class="sb-name">{{ team_name(game.home_team_id) }}</div>
       </a>
-      <div class="sb-side">Home</div>
+      <div class="sb-side">{{ t('Home', '主场') }}</div>
       {% if home_won %}
-      <div style="margin-top:8px;"><span class="badge badge-win">WIN</span></div>
+      <div style="margin-top:8px;"><span class="badge badge-win">{{ t('WIN', '胜') }}</span></div>
       {% elif road_won %}
-      <div style="margin-top:8px;"><span class="badge badge-loss">L</span></div>
+      <div style="margin-top:8px;"><span class="badge badge-loss">{{ t('L', '负') }}</span></div>
       {% endif %}
     </div>
   </div>
@@ -532,13 +532,13 @@
 <!-- ── Game Metrics (async) ──────────────────────────────────────── -->
 <div id="game-metrics-panel" data-game-id="{{ game.game_id }}">
   <div class="card">
-    <div style="color:var(--muted);font-size:13px;padding:16px;">Loading metrics…</div>
+    <div style="color:var(--muted);font-size:13px;padding:16px;">{{ t('Loading metrics…', '指标加载中…') }}</div>
   </div>
 </div>
 <script>
 (function(){
   var el = document.getElementById('game-metrics-panel');
-  fetch('/games/' + el.dataset.gameId + '/fragment/metrics', {
+  fetch('{{ url_for("game_fragment_metrics", game_id="__GAME_ID__") }}'.replace('__GAME_ID__', el.dataset.gameId), {
     headers: {'X-Requested-With': 'fetch'},
     credentials: 'same-origin',
   })
@@ -555,15 +555,15 @@
     });
     if(above){ window.scrollBy(0, el.offsetHeight - oldH); }
   })
-  .catch(function(){ el.innerHTML = '<div class="card"><div style="color:var(--loss);font-size:13px;padding:16px;">Failed to load metrics</div></div>'; });
+  .catch(function(){ el.innerHTML = '<div class="card"><div style="color:var(--loss);font-size:13px;padding:16px;">{{ t("Failed to load metrics", "指标加载失败") }}</div></div>'; });
 })();
 </script>
 
 <!-- ── Box Score (Team + Players unified) ─────────────────────────── -->
 <div class="card">
   <div class="boxscore-tabs">
-    <button class="bs-tab active" onclick="showBsTab('team', this)">Team Stats</button>
-    <button class="bs-tab" onclick="showBsTab('players', this)">Player Stats</button>
+    <button class="bs-tab active" onclick="showBsTab('team', this)">{{ t('Team Stats', '球队数据') }}</button>
+    <button class="bs-tab" onclick="showBsTab('players', this)">{{ t('Player Stats', '球员数据') }}</button>
   </div>
 
   <!-- Team Stats tab -->
@@ -573,7 +573,7 @@
       <table style="min-width:0;">
         <thead>
           <tr>
-            <th>Team</th>
+            <th>{{ t('Team', '球队') }}</th>
             {% for qs in quarter_scores %}
             <th style="text-align:center;">{{ 'Q' ~ qs.period if qs.period <= 4 else 'OT' ~ (qs.period - 4) }}</th>
             {% endfor %}
@@ -601,14 +601,14 @@
       <table>
         <thead>
           <tr>
-            <th>Team</th>
+            <th>{{ t('Team', '球队') }}</th>
             <th>PTS</th>
             <th>REB</th>
             <th>AST</th>
             <th>FG%</th>
             <th>3P%</th>
             <th>FT%</th>
-            <th>Result</th>
+            <th>{{ t('Result', '结果') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -627,9 +627,9 @@
               {% if row.win is none %}
               <span class="meta">—</span>
               {% elif row.win %}
-              <span class="badge badge-win">W</span>
+              <span class="badge badge-win">{{ t('W', '胜') }}</span>
               {% else %}
-              <span class="badge badge-loss">L</span>
+              <span class="badge badge-loss">{{ t('L', '负') }}</span>
               {% endif %}
             </td>
           </tr>
@@ -638,7 +638,7 @@
       </table>
     </div>
     {% else %}
-    <p class="meta">No team stats found.</p>
+    <p class="meta">{{ t('No team stats found.', '暂无球队数据。') }}</p>
     {% endif %}
   </div>
 
@@ -654,9 +654,9 @@
           <table>
             <thead>
               <tr>
-                <th>Player</th>
-                <th class="mobile-hide">Status</th>
-                <th class="mobile-hide">Min</th>
+                <th>{{ t('Player', '球员') }}</th>
+                <th class="mobile-hide">{{ t('Status', '状态') }}</th>
+                <th class="mobile-hide">{{ t('Min', '时间') }}</th>
                 <th>PTS</th>
                 <th>REB</th>
                 <th>AST</th>
@@ -693,7 +693,7 @@
           </table>
         </div>
         {% else %}
-        <p class="meta">No player stats found.</p>
+        <p class="meta">{{ t('No player stats found.', '暂无球员数据。') }}</p>
         {% endif %}
       </div>
       {% endfor %}
@@ -703,7 +703,7 @@
 
 <!-- ── Shot Chart ─────────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Shot Chart</h2>
+  <h2>{{ t('Shot Chart', '投篮图') }}</h2>
 
   {% if shot_backfill_status == "ok" and (shot_backfill_count|int > 0) %}
   <p class="meta" style="color:var(--win); font-weight:600; margin-bottom:8px;">
@@ -802,21 +802,21 @@
   {% else %}
   {% if shot_backfill_status == "ok" %}
   {% if shot_backfill_count|int > 0 %}
-  <p class="meta" style="font-weight:600;">Shot chart fetch completed, but no renderable shots were returned.</p>
+  <p class="meta" style="font-weight:600;">{{ t('Shot chart fetch completed, but no renderable shots were returned.', '投篮图抓取完成，但没有可渲染的出手数据。') }}</p>
   {% else %}
-  <p class="meta" style="font-weight:600;">No shot data available for this game.</p>
+  <p class="meta" style="font-weight:600;">{{ t('No shot data available for this game.', '这场比赛暂无投篮数据。') }}</p>
   {% endif %}
   {% elif is_admin %}
-  <p id="shot-fetch-status" data-autofetch="1" class="meta" style="font-weight:600;">Fetching shot chart from NBA API…</p>
+  <p id="shot-fetch-status" data-autofetch="1" class="meta" style="font-weight:600;">{{ t('Fetching shot chart from NBA API…', '正在从 NBA API 获取投篮图…') }}</p>
   {% else %}
-  <p class="meta" style="color:var(--muted);">No shot data available for this game.</p>
+  <p class="meta" style="color:var(--muted);">{{ t('No shot data available for this game.', '这场比赛暂无投篮数据。') }}</p>
   {% endif %}
   {% endif %}
 </div>
 
 <!-- ── Play By Play ───────────────────────────────────────────────── -->
 <div class="card">
-  <h2>Play by Play</h2>
+  <h2>{{ t('Play by Play', '逐回合') }}</h2>
   {% if pbp_rows %}
   <div class="pbp-wrap table-wrap" data-mobile-key="game-play-by-play">
     <table class="pbp-table">
@@ -865,7 +865,7 @@
     </table>
   </div>
   {% else %}
-  <p class="meta">No play-by-play records found for this game.</p>
+  <p class="meta">{{ t('No play-by-play records found for this game.', '这场比赛暂无逐回合记录。') }}</p>
   {% endif %}
 </div>
 
