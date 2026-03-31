@@ -222,10 +222,6 @@ q1_pts, q2_pts, q3_pts, q4_pts, ot1_pts, ot2_pts, ot3_pts,
 first_half_pts, second_half_pts, regulation_total_pts, total_pts.
 Use these directly instead of parsing PBP cumulative scores.
 
-### PBP score parsing helper
-`pbp_clock_seconds_left(pc_time) -> int | None` — parses "1:23" into seconds remaining.
-Import from metrics.helpers if needed for PBP clock parsing.
-
 ## Real examples from production
 
 Below are real, tested metric implementations from the codebase. Study them carefully
@@ -361,13 +357,6 @@ def _load_example_metrics() -> str:
                 if not line.strip().startswith("register(")
             )
             examples.append(f"### {key}\n```python\n{cleaned.strip()}\n```")
-
-    # Also include helpers source so LLM can see how they work
-    from pathlib import Path
-    helpers_path = Path(__file__).parent.parent / "helpers.py"
-    if helpers_path.exists():
-        helpers_code = helpers_path.read_text()
-        examples.append(f"### metrics/helpers.py (available utility functions)\n```python\n{helpers_code.strip()}\n```")
 
     return "\n\n".join(examples) if examples else "(no examples found)"
 
