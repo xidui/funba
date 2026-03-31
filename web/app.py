@@ -6623,6 +6623,16 @@ def admin_pipeline():
         "admin.html",
         admin_page_url=_admin_page_url,
         admin_fragment_url=_admin_fragment_url,
+    )
+
+
+@app.get("/admin/settings")
+def admin_settings():
+    denied = _require_admin_page()
+    if denied:
+        return denied
+    return render_template(
+        "admin_settings.html",
         llm_available_models=available_llm_models(),
     )
 

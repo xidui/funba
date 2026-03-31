@@ -1338,7 +1338,7 @@
           <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if request.endpoint == 'pricing' }}">Pricing</a>
           {% if is_admin %}
           <div class="admin-menu-wrap" id="admin-menu-wrap">
-            <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback') }}" id="admin-menu-btn">
+            <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback', 'admin_settings') }}" id="admin-menu-btn">
               Admin
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-left:3px;vertical-align:middle;opacity:0.5;">
                 <path d="M2 3.5l3 3 3-3"/>
@@ -1346,6 +1346,7 @@
             </a>
             <div class="admin-dropdown" id="admin-dropdown">
               <a href="{{ url_for('admin_pipeline') }}">Pipeline Status</a>
+              <a href="{{ url_for('admin_settings') }}">Settings</a>
               <a href="{{ url_for('admin_content') }}">Content Pipeline</a>
               <a href="{{ url_for('admin_feedback') }}">User Feedback</a>
             </div>
@@ -1419,6 +1420,7 @@
             {% if is_admin %}
             <div class="mobile-nav-section">
               <a href="{{ url_for('admin_pipeline') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}" role="menuitem">Pipeline Status</a>
+              <a href="{{ url_for('admin_settings') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_settings' }}" role="menuitem">Settings</a>
               <a href="{{ url_for('admin_content') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_content' }}" role="menuitem">Content Pipeline</a>
               <a href="{{ url_for('admin_feedback') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_feedback' }}" role="menuitem">User Feedback</a>
             </div>

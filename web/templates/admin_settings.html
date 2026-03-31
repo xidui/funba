@@ -1,0 +1,663 @@
+{% extends "base.html" %}
+{% block title %}Admin — Settings{% endblock %}
+
+{% block content %}
+<style>
+  .llm-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .llm-settings-label {
+    min-width: 180px;
+    font-size: 13px;
+    color: var(--muted-2);
+  }
+
+  .llm-settings-select {
+    min-width: 220px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+  }
+
+  .llm-settings-save {
+    height: 36px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .llm-settings-save:disabled,
+  .llm-settings-select:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+
+  .llm-settings-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .llm-settings-status.success { color: var(--win); }
+  .llm-settings-status.error { color: var(--loss); }
+
+  .runtime-flag-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .runtime-flag-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .runtime-flag-label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .runtime-flag-help {
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 720px;
+    line-height: 1.45;
+  }
+  .runtime-flag-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+  .runtime-flag-switch input {
+    width: 18px;
+    height: 18px;
+  }
+  .runtime-flag-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .runtime-flag-status.success { color: var(--win); }
+  .runtime-flag-status.error { color: var(--loss); }
+
+  .usage-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .usage-stat-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    padding: 12px 14px;
+  }
+  .usage-stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .usage-stat-value {
+    margin-top: 6px;
+    font-family: Outfit, sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .usage-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .usage-table th {
+    text-align: left;
+    padding: 6px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .usage-table td {
+    padding: 7px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+    color: var(--text);
+  }
+  .usage-table td:last-child,
+  .usage-table th:last-child {
+    text-align: right;
+  }
+  .usage-status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .usage-status-pill.ok {
+    color: var(--win);
+    background: rgba(74, 222, 128, .12);
+  }
+  .usage-status-pill.error {
+    color: var(--loss);
+    background: rgba(239, 68, 68, .12);
+  }
+
+  .cov-toggle {
+    font-size: 11px; font-family: Outfit, sans-serif; font-weight: 700;
+    padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border-2);
+    background: var(--surface-3); color: var(--muted); cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    text-decoration: none;
+  }
+  .cov-toggle.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  .section-label {
+    font-size: 10px; font-family: Outfit, sans-serif; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin-bottom: 10px;
+  }
+
+  @media (max-width: 768px) {
+    .settings-stack {
+      gap: 1rem;
+    }
+    .llm-settings-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .llm-settings-label {
+      min-width: auto;
+    }
+    .llm-settings-select {
+      min-width: auto;
+      width: 100%;
+    }
+    .runtime-flag-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .usage-table {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+</style>
+
+<nav style="display:flex;gap:6px;margin-bottom:1rem;">
+  <a href="{{ url_for('admin_pipeline') }}" class="cov-toggle {{ 'active' if request.endpoint == 'admin_pipeline' else '' }}">Pipeline</a>
+  <a href="{{ url_for('admin_settings') }}" class="cov-toggle {{ 'active' if request.endpoint == 'admin_settings' else '' }}">Settings</a>
+</nav>
+
+<div style="margin-bottom:1.25rem;">
+  <h1 style="margin:0;">Settings</h1>
+</div>
+
+<div class="settings-stack" style="display:flex;flex-direction:column;gap:1.25rem;">
+
+  <!-- Visitor Stats -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Visitor Stats</h2>
+    <div class="async-panel" data-fragment="visitor-stats">
+      <div style="color:var(--muted);font-size:13px;">Loading&hellip;</div>
+    </div>
+  </div>
+
+  <!-- LLM Model Settings -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">LLM Model Settings</h2>
+    <div class="llm-settings-row">
+      <label class="llm-settings-label" for="llm-search-model">Find Metric</label>
+      <select id="llm-search-model" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+    </div>
+    <div class="llm-settings-row" style="margin-top:8px;">
+      <label class="llm-settings-label" for="llm-generate-model">Create / Edit Metric</label>
+      <select id="llm-generate-model" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="llm-model-save" class="llm-settings-save" aria-label="Save model settings">Save</button>
+    </div>
+    <div id="llm-model-status" class="llm-settings-status" role="status"></div>
+  </div>
+
+  <!-- AI Usage -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">AI Usage</h2>
+    <div id="ai-usage-panel" style="color:var(--muted);font-size:13px;">Loading...</div>
+  </div>
+
+  <!-- Feature Access -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Feature Access</h2>
+    <div id="feature-access-list" style="display:flex;flex-direction:column;gap:10px;">
+      <div style="color:var(--muted);font-size:13px;">Loading...</div>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="feature-access-save" class="llm-settings-save" aria-label="Save feature access settings">Save</button>
+    </div>
+    <div id="feature-access-status" class="llm-settings-status" role="status"></div>
+  </div>
+
+  <!-- Metric Pipeline Flags -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Metric Pipeline Flags</h2>
+    <div class="runtime-flag-row">
+      <div class="runtime-flag-copy">
+        <div class="runtime-flag-label">Legacy game metric fan-out</div>
+        <div class="runtime-flag-help">
+          Default off. Current production metrics are season-triggered only. Enable this only if you intentionally want `ingest_game`
+          to revive the deprecated per-game `compute_game_delta -> reduce_after_ingest` path for legacy experiments.
+        </div>
+      </div>
+      <label class="runtime-flag-switch" for="legacy-game-fanout-toggle">
+        <input id="legacy-game-fanout-toggle" type="checkbox">
+        <span id="legacy-game-fanout-label">Off</span>
+      </label>
+    </div>
+    <div id="runtime-flag-status" class="runtime-flag-status" role="status"></div>
+  </div>
+
+</div>
+
+<script>
+  /* ── AI Usage ───────────────────────────────────────────────────── */
+  (function () {
+    const panel = document.getElementById('ai-usage-panel');
+    if (!panel) return;
+
+    function esc(value) {
+      const div = document.createElement('div');
+      div.textContent = String(value || '');
+      return div.innerHTML;
+    }
+
+    function num(value) {
+      return Number(value || 0).toLocaleString();
+    }
+
+    function section(title, inner) {
+      return `
+        <div style="margin-top:16px;">
+          <div class="section-label" style="margin-bottom:8px;">${title}</div>
+          ${inner}
+        </div>
+      `;
+    }
+
+    async function loadUsage() {
+      try {
+        const res = await fetch('/api/admin/ai-usage');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        const dashboard = data.dashboard || {};
+        const w24 = dashboard.window_24h || {};
+        const w7 = dashboard.window_7d || {};
+        const byFeature = dashboard.by_feature || [];
+        const topActors = dashboard.top_actors || [];
+        const recent = dashboard.recent || [];
+
+        let html = `
+          <div class="usage-stat-grid">
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">Last 24h</div>
+              <div class="usage-stat-value">${num(w24.total_tokens)}</div>
+              <div class="usage-stat-sub">${num(w24.calls)} calls</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">Last 7d</div>
+              <div class="usage-stat-value">${num(w7.total_tokens)}</div>
+              <div class="usage-stat-sub">${num(w7.calls)} calls</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">7d Prompt</div>
+              <div class="usage-stat-value">${num(w7.prompt_tokens)}</div>
+              <div class="usage-stat-sub">input tokens</div>
+            </div>
+            <div class="usage-stat-card">
+              <div class="usage-stat-label">7d Completion</div>
+              <div class="usage-stat-value">${num(w7.completion_tokens)}</div>
+              <div class="usage-stat-sub">output tokens</div>
+            </div>
+          </div>
+        `;
+
+        html += section(
+          'By Feature',
+          byFeature.length
+            ? `<table class="usage-table"><thead><tr><th>Feature</th><th>Operation</th><th>Calls</th><th>Tokens</th></tr></thead><tbody>${
+                byFeature.map((row) => `<tr><td>${row.feature}</td><td>${row.operation}</td><td>${num(row.calls)}</td><td>${num(row.total_tokens)}</td></tr>`).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No AI usage recorded yet.</div>'
+        );
+
+        html += section(
+          'Top Actors',
+          topActors.length
+            ? `<table class="usage-table"><thead><tr><th>Actor</th><th>Calls</th><th>Tokens</th></tr></thead><tbody>${
+                topActors.map((row) => `<tr><td>${row.label}</td><td>${num(row.calls)}</td><td>${num(row.total_tokens)}</td></tr>`).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No actors to show.</div>'
+        );
+
+        html += section(
+          'Recent Calls',
+          recent.length
+            ? `<table class="usage-table"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Input</th><th>Model</th><th>Status</th><th>Tokens</th></tr></thead><tbody>${
+                recent.map((row) => {
+                  const when = row.created_at ? new Date(row.created_at).toLocaleString() : 'Unknown';
+                  const status = row.success
+                    ? '<span class="usage-status-pill ok">ok</span>'
+                    : `<span class="usage-status-pill error">${row.error_code || 'error'}</span>`;
+                  const input = row.input_preview
+                    ? `<div style="max-width:320px;white-space:normal;line-height:1.35;">${esc(row.input_preview)}</div>`
+                    : '<span style="color:var(--muted);">—</span>';
+                  return `<tr><td>${when}</td><td>${esc(row.label)}</td><td>${esc(row.feature)} / ${esc(row.operation)}</td><td>${input}</td><td>${esc(row.model)}</td><td>${status}</td><td>${num(row.total_tokens)}</td></tr>`;
+                }).join('')
+              }</tbody></table>`
+            : '<div style="color:var(--muted);font-size:12px;">No recent calls.</div>'
+        );
+
+        panel.innerHTML = html;
+      } catch (err) {
+        panel.textContent = err.message || 'Failed to load.';
+        panel.style.color = 'var(--loss)';
+      }
+    }
+
+    loadUsage();
+  })();
+
+  /* ── LLM Model Settings ─────────────────────────────────────────── */
+  (function () {
+    const searchSelect = document.getElementById('llm-search-model');
+    const generateSelect = document.getElementById('llm-generate-model');
+    const saveBtn = document.getElementById('llm-model-save');
+    const status = document.getElementById('llm-model-status');
+    let clearTimer = null;
+
+    function renderOptions(selectEl, models, selected) {
+      selectEl.innerHTML = '';
+      models.forEach((model) => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        option.selected = model === selected;
+        selectEl.appendChild(option);
+      });
+    }
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'llm-settings-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => {
+          status.textContent = '';
+          status.className = 'llm-settings-status';
+        }, 2000);
+      }
+    }
+
+    async function loadConfig() {
+      searchSelect.disabled = generateSelect.disabled = true;
+      saveBtn.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/model-config');
+        const data = await res.json();
+        if (!res.ok) throw new Error((data && data.error) || 'Failed to load.');
+        const models = data.available_models || {{ llm_available_models | tojson }};
+        renderOptions(searchSelect, models, data.search_model);
+        renderOptions(generateSelect, models, data.generate_model);
+        searchSelect.disabled = generateSelect.disabled = false;
+        saveBtn.disabled = false;
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      }
+    }
+
+    async function saveConfig() {
+      searchSelect.disabled = generateSelect.disabled = true;
+      saveBtn.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/model-config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({search_model: searchSelect.value, generate_model: generateSelect.value}),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        const models = data.available_models || {{ llm_available_models | tojson }};
+        if (data.search_model) renderOptions(searchSelect, models, data.search_model);
+        if (data.generate_model) renderOptions(generateSelect, models, data.generate_model);
+        setStatus('Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        searchSelect.disabled = generateSelect.disabled = false;
+        saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveConfig);
+    loadConfig();
+  })();
+
+  /* ── Feature Access ─────────────────────────────────────────────── */
+  (function () {
+    const list = document.getElementById('feature-access-list');
+    const saveBtn = document.getElementById('feature-access-save');
+    const status = document.getElementById('feature-access-status');
+    let clearTimer = null;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'llm-settings-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => {
+          status.textContent = '';
+          status.className = 'llm-settings-status';
+        }, 2000);
+      }
+    }
+
+    function setDisabled(disabled) {
+      saveBtn.disabled = disabled;
+      list.querySelectorAll('select').forEach((select) => {
+        select.disabled = disabled;
+      });
+    }
+
+    function renderFeature(feature) {
+      const options = (feature.allowed_levels || []).map((level) => {
+        const selected = level.value === feature.current_level ? ' selected' : '';
+        return `<option value="${level.value}"${selected}>${level.label}</option>`;
+      }).join('');
+      return `
+        <div class="llm-settings-row" style="align-items:flex-start;">
+          <label class="llm-settings-label" for="feature-access-${feature.key}">
+            <div style="font-weight:600;color:var(--text);">${feature.label}</div>
+            <div style="margin-top:4px;font-size:12px;color:var(--muted);line-height:1.45;">${feature.description}</div>
+          </label>
+          <select
+            id="feature-access-${feature.key}"
+            class="llm-settings-select"
+            data-feature-access-key="${feature.key}"
+            disabled
+          >
+            ${options}
+          </select>
+        </div>
+      `;
+    }
+
+    function render(features) {
+      if (!features || !features.length) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px;">No configurable feature access rules.</div>';
+        return;
+      }
+      list.innerHTML = features.map(renderFeature).join('');
+    }
+
+    async function loadConfig() {
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/feature-access');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        render(data.features || []);
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      } finally {
+        setDisabled(false);
+      }
+    }
+
+    async function saveConfig() {
+      const payload = {};
+      list.querySelectorAll('[data-feature-access-key]').forEach((select) => {
+        payload[select.dataset.featureAccessKey] = select.value;
+      });
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/feature-access', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        render(data.features || []);
+        setStatus('Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        setDisabled(false);
+      }
+    }
+
+    saveBtn.addEventListener('click', saveConfig);
+    loadConfig();
+  })();
+
+  /* ── Pipeline Flags ─────────────────────────────────────────────── */
+  (function () {
+    const toggle = document.getElementById('legacy-game-fanout-toggle');
+    const label = document.getElementById('legacy-game-fanout-label');
+    const status = document.getElementById('runtime-flag-status');
+    if (!toggle || !label || !status) return;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'runtime-flag-status' + (type ? ' ' + type : '');
+    }
+
+    function render(value) {
+      toggle.checked = !!value;
+      label.textContent = value ? 'On' : 'Off';
+    }
+
+    async function loadFlags() {
+      toggle.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/runtime-flags');
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load flags.');
+        render(Boolean(data.flags && data.flags.legacy_game_metric_fanout));
+      } catch (err) {
+        setStatus(err.message || 'Failed to load flags.', 'error');
+      } finally {
+        toggle.disabled = false;
+      }
+    }
+
+    async function saveFlag() {
+      toggle.disabled = true;
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/runtime-flags', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({legacy_game_metric_fanout: toggle.checked}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error((data && data.error) || 'Failed to save flag.');
+        render(Boolean(data.flags && data.flags.legacy_game_metric_fanout));
+        setStatus('Saved', 'success');
+      } catch (err) {
+        toggle.checked = !toggle.checked;
+        render(toggle.checked);
+        setStatus(err.message || 'Failed to save flag.', 'error');
+      } finally {
+        toggle.disabled = false;
+      }
+    }
+
+    toggle.addEventListener('change', saveFlag);
+    loadFlags();
+  })();
+
+  /* ── Async panel loader (visitor-stats fragment) ────────────────── */
+  (function () {
+    document.querySelectorAll('.async-panel[data-fragment]').forEach(function (el) {
+      var section = el.dataset.fragment;
+      fetch('/admin/fragment/' + section, {
+        headers: {'X-Requested-With': 'fetch'},
+        credentials: 'same-origin',
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function (html) {
+          var oldH = el.offsetHeight;
+          var rect = el.getBoundingClientRect();
+          var above = rect.top < 0;
+          el.innerHTML = html;
+          el.querySelectorAll('script').forEach(function (oldScript) {
+            var newScript = document.createElement('script');
+            newScript.textContent = oldScript.textContent;
+            oldScript.replaceWith(newScript);
+          });
+          if(above){ window.scrollBy(0, el.offsetHeight - oldH); }
+        })
+        .catch(function () {
+          el.innerHTML = '<div style="color:var(--loss);font-size:13px;">Failed to load</div>';
+        });
+    });
+  })();
+</script>
+{% endblock %}
