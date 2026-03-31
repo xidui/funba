@@ -343,6 +343,7 @@
         const nextCard = wrapper.querySelector('#' + cardId);
         if (!nextCard) throw new Error('Missing card');
         currentCard.replaceWith(nextCard);
+        convertLocalTimes(nextCard);
         window.history.replaceState({}, '', link.href);
       } catch (error) {
         window.location.href = link.href;
@@ -356,6 +357,18 @@
       swapAdminCard(link);
     });
   })();
+
+  // Convert UTC timestamps to browser local time
+  function convertLocalTimes(root) {
+    (root || document).querySelectorAll('.js-local-time[data-utc]').forEach(function (el) {
+      var utc = el.dataset.utc;
+      if (!utc) return;
+      try {
+        var d = new Date(utc);
+        el.textContent = d.toLocaleString(undefined, {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
+      } catch (e) {}
+    });
+  }
 
   // Async panel loader — fetches all fragments in parallel on page load
   (function () {
@@ -380,6 +393,7 @@
             newScript.textContent = oldScript.textContent;
             oldScript.replaceWith(newScript);
           });
+          convertLocalTimes(el);
           if(above){ window.scrollBy(0, el.offsetHeight - oldH); }
         })
         .catch(function () {

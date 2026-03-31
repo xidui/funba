@@ -22,7 +22,7 @@
         <td>{{ row.min_ms }}ms / {{ row.max_ms }}ms</td>
         <td class="mono">{{ row.samples_ms|join('ms, ') ~ 'ms' if row.samples_ms else '—' }}</td>
         <td class="mono">{{ row.db_reads if row.db_reads is not none else '—' }} / {{ row.db_writes if row.db_writes is not none else '—' }}</td>
-        <td>{{ row.last_run_at.strftime('%m/%d %H:%M:%S') if row.last_run_at else '—' }}</td>
+        <td class="js-local-time" data-utc="{{ row.last_run_at.strftime('%Y-%m-%dT%H:%M:%SZ') if row.last_run_at else '' }}">{{ row.last_run_at.strftime('%m/%d %H:%M:%S') if row.last_run_at else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
