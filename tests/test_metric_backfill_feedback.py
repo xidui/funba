@@ -345,6 +345,85 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(metric["name_zh"], "单节球队得分")
         self.assertEqual(metric["description_zh"], "球队每节得分表现。")
 
+    def test_catalog_falls_back_to_db_localization_when_code_metadata_lacks_zh(self):
+        row = SimpleNamespace(
+            key="largest_in_game_lead",
+            name="Largest In-Game Lead",
+            description="Largest lead held in a game.",
+            name_zh="比赛中最大领先分差",
+            description_zh="球队在比赛任意时刻保持的最大领先分差，无论最终结果。",
+            scope="team",
+            category="record",
+            status="published",
+            source_type="code",
+            group_key=None,
+            min_sample=1,
+            expression="",
+            code_python="fake code",
+            created_at=1,
+            created_by_user_id=None,
+        )
+        career_metric = SimpleNamespace(
+            key="largest_in_game_lead_career",
+            name="Largest In-Game Lead (All-Time)",
+            description="All-time largest lead held in a game.",
+            scope="team",
+            category="record",
+            supports_career=False,
+            career=True,
+            incremental=False,
+            rank_order="desc",
+            source_type="code",
+        )
+
+        counts_query = MagicMock()
+        counts_query.group_by.return_value.all.return_value = [
+            SimpleNamespace(metric_key="largest_in_game_lead", count=12),
+            SimpleNamespace(metric_key="largest_in_game_lead_career", count=8),
+        ]
+        db_query = MagicMock()
+        db_query.filter.return_value = db_query
+        db_query.order_by.return_value.all.return_value = [row]
+
+        session = MagicMock()
+        session.query.side_effect = [counts_query, db_query]
+
+        with patch.object(
+            self.web_app,
+            "_safe_code_metric_metadata",
+            return_value={
+                "key": "largest_in_game_lead",
+                "name": "Largest In-Game Lead",
+                "name_zh": "",
+                "description": "Largest lead held in a game.",
+                "description_zh": "",
+                "scope": "team",
+                "category": "record",
+                "min_sample": 1,
+                "career_min_sample": None,
+                "supports_career": True,
+                "career": False,
+                "incremental": False,
+                "rank_order": "desc",
+            },
+        ), patch(
+            "metrics.framework.runtime.get_metric",
+            return_value=career_metric,
+        ), patch.object(
+            self.web_app, "_is_zh", return_value=True
+        ):
+            catalog = self.web_app._catalog_metrics(session)
+
+        base_metric = next(m for m in catalog if m["key"] == "largest_in_game_lead")
+        career_metric = next(m for m in catalog if m["key"] == "largest_in_game_lead_career")
+
+        self.assertEqual(base_metric["name"], "比赛中最大领先分差")
+        self.assertEqual(base_metric["description"], "球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+        self.assertEqual(base_metric["name_zh"], "比赛中最大领先分差")
+        self.assertEqual(base_metric["description_zh"], "球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+        self.assertEqual(career_metric["name"], "比赛中最大领先分差（生涯）")
+        self.assertEqual(career_metric["description"], "生涯球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+
     def test_create_uses_latest_code_metric_key(self):
         class FakeMetricDefinitionModel:
             key = MagicMock()

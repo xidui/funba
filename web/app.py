@@ -945,6 +945,8 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
         return details
 
     if code_metadata:
+        row_name_zh = getattr(row, "name_zh", "") or ""
+        row_description_zh = getattr(row, "description_zh", "") or ""
         details.update(
             min_sample=code_metadata["min_sample"],
             career_min_sample=code_metadata["career_min_sample"],
@@ -953,9 +955,9 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             incremental=code_metadata["incremental"],
             rank_order=code_metadata["rank_order"],
             name=code_metadata["name"],
-            name_zh=code_metadata.get("name_zh", ""),
+            name_zh=code_metadata.get("name_zh", "") or row_name_zh,
             description=code_metadata["description"],
-            description_zh=code_metadata.get("description_zh", ""),
+            description_zh=code_metadata.get("description_zh", "") or row_description_zh,
             scope=code_metadata["scope"],
             category=code_metadata["category"],
         )
@@ -1245,15 +1247,19 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
             and not search_fields.get("career")
             and search_fields.get("supports_career")
         ):
-            career_key = f"{m.key}_career"
-            if career_key not in existing_keys:
-                career_metric = _get_metric(career_key, session=session)
-                if career_metric is not None:
-                    db_metrics.append(
+                career_key = f"{m.key}_career"
+                if career_key not in existing_keys:
+                    career_metric = _get_metric(career_key, session=session)
+                    if career_metric is not None:
+                        base_name_zh = search_fields.get("name_zh", "")
+                        base_description_zh = search_fields.get("description_zh", "")
+                        career_name_zh = getattr(career_metric, "name_zh", "") or (f"{base_name_zh}（生涯）" if base_name_zh else "")
+                        career_description_zh = getattr(career_metric, "description_zh", "") or (f"生涯{base_description_zh}" if base_description_zh else "")
+                        db_metrics.append(
                         {
                             "key": career_metric.key,
-                            "name": _localized_metric_name(career_metric.name, getattr(career_metric, "name_zh", "")),
-                            "description": _localized_metric_description(getattr(career_metric, "description", "") or "", getattr(career_metric, "description_zh", "")),
+                            "name": _localized_metric_name(career_metric.name, career_name_zh),
+                            "description": _localized_metric_description(getattr(career_metric, "description", "") or "", career_description_zh),
                             "scope": career_metric.scope,
                             "category": getattr(career_metric, "category", "") or "",
                             "status": "published",
