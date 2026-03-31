@@ -1,6 +1,7 @@
 <div id="recent-runs-card" class="card">
   <h2>Recent Metric Runs</h2>
   {% if recent %}
+  <div class="table-scroll">
   <table>
     <thead><tr><th>Game</th><th>Metric</th><th>Computed at</th></tr></thead>
     <tbody>
@@ -13,6 +14,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% if recent_has_prev or recent_has_next %}
   <div class="pager">
     <span>Page {{ recent_page }}</span>

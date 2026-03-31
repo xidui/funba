@@ -1,9 +1,9 @@
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+<div class="cov-header" style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
   <h2 style="margin:0">Data Coverage</h2>
   <span style="font-size:12px; color:var(--muted)">
     {{ coverage | selectattr('complete') | list | length }} / {{ coverage | length }} seasons fully covered
   </span>
-  <div style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+  <div class="cov-header-right" style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
     <div class="cov-toggles">
       <button class="cov-toggle active" data-type="regular" onclick="covToggle(this)">Regular Season</button>
       <button class="cov-toggle"        data-type="playoffs" onclick="covToggle(this)">Playoffs</button>
@@ -23,10 +23,10 @@
       <th>Season</th>
       <th style="text-align:center">Games</th>
       <th>Stats</th>
-      <th>Stats Source</th>
-      <th>PBP</th>
-      <th>Line</th>
-      <th>Shots</th>
+      <th class="hide-mobile">Stats Source</th>
+      <th class="hide-mobile">PBP</th>
+      <th class="hide-mobile">Line</th>
+      <th class="hide-mobile">Shots</th>
       <th>Metrics</th>
       <th style="text-align:center">Status</th>
       <th></th>
@@ -61,7 +61,7 @@
           </div>
         {% endif %}
       </td>
-      <td style="min-width:220px;">
+      <td class="hide-mobile" style="min-width:220px;">
         {% if row.detail_sources %}
           <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
             {% for source in row.detail_sources %}
@@ -75,14 +75,14 @@
           <div style="font-size:11px; color:var(--muted);">Remaining: {{ row.detail_remaining }}</div>
         {% endif %}
       </td>
-      {% for val in [row.pbp, row.line, row.shot, row.metrics] %}
+      {% for val, hide in [(row.pbp, true), (row.line, true), (row.shot, true), (row.metrics, false)] %}
       {% if row.total %}
         {% set pct = (val / row.total * 100) %}
         {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}
       {% else %}
         {% set pct = 0 %}{% set css = '' %}
       {% endif %}
-      <td>
+      <td{{ ' class="hide-mobile"' if hide else '' }}>
         {% if val == row.total %}
           <span style="color:var(--win); font-size:13px; font-weight:700;">&#10003; {{ val }}</span>
         {% else %}

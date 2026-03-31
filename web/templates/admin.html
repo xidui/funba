@@ -151,6 +151,9 @@
     transition: opacity 0.15s ease;
   }
 
+  /* Responsive table wrapper — catch-all horizontal scroll */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
   @media (max-width: 768px) {
     .admin-grid {
       grid-template-columns: 1fr;
@@ -159,17 +162,30 @@
       gap: 8px;
     }
     .claim-pill {
-      min-width: 70px;
-      padding: 8px 12px;
+      min-width: 0;
+      flex: 1 1 0;
+      padding: 8px 6px;
     }
     .claim-pill .pill-val {
-      font-size: 1.2rem;
+      font-size: 1.1rem;
     }
-    .usage-table {
-      display: block;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
+    .claim-pill .pill-label {
+      font-size: 8px;
     }
+    /* Hide non-essential columns */
+    .hide-mobile { display: none !important; }
+    /* Stack coverage filter row */
+    .cov-header { flex-direction: column; align-items: flex-start !important; gap: 8px !important; }
+    .cov-header-right { margin-left: 0 !important; width: 100%; }
+    .cov-toggles { flex-wrap: wrap; }
+    /* Compact tables */
+    table { font-size: 12px; }
+    table th, table td { padding: 5px 6px; }
+    .mono { font-size: 11px; word-break: break-all; }
+    /* Infrastructure inline tables */
+    #infra-card table { font-size: 11px; }
+    /* Pager */
+    .pager { flex-wrap: wrap; }
   }
 </style>
 
