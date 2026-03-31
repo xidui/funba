@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Funba logo concept: Rim Arc</title>
+  <desc id="desc">A shot arc landing on a rim inside a rounded square badge.</desc>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="#0d1c2e" stroke="#22384e" stroke-width="2"/>
+  <circle cx="64" cy="64" r="36" fill="none" stroke="#f97316" stroke-opacity="0.14" stroke-width="6"/>
+  <path d="M28 83c18-34 46-54 74-36" fill="none" stroke="#f97316" stroke-linecap="round" stroke-width="8"/>
+  <circle cx="102" cy="47" r="6" fill="#f8fafc"/>
+  <path d="M44 84h40" fill="none" stroke="#f8fafc" stroke-linecap="round" stroke-width="7"/>
+  <path d="M48 84l8 13 8-13 8 13 8-13" fill="none" stroke="#93c5fd" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+  <path d="M56 97l8 12 8-12" fill="none" stroke="#93c5fd" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+  <path d="M32 99c10 4 20 6 30 5" fill="none" stroke="#f97316" stroke-linecap="round" stroke-opacity="0.7" stroke-width="4"/>
+</svg>
