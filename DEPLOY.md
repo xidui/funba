@@ -7,7 +7,7 @@ Use the company delivery workflow:
 - Implement on a ticket feature branch, not on `origin/main`.
 - Keep exactly one GitHub PR per ticket.
 - If the work does not fit cleanly in one PR, split it into child tickets before continuing.
-- After review approval, merge or cherry-pick into `origin/main`.
+- After review approval, squash-merge the ticket PR into `origin/main` (no cherry-pick).
 - DevOps deploys only the latest `origin/main`, never a feature branch.
 
 The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed, but feature branches stay on the PR until mainline integration.
@@ -106,7 +106,7 @@ It runs from the deploy worktree:
 
 That path is the `WorkingDirectory` in `~/Library/LaunchAgents/app.funba.web.plist`.
 
-This means a normal `git push origin main` does **not** update the running app by itself.
+This means normal pushes to `origin/main` do **not** update the running app by itself.
 Deploying the latest `main` requires two explicit steps:
 
 ```bash
