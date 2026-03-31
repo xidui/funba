@@ -117,15 +117,37 @@ CRITICAL: career seasons must NOT query all games unfiltered. Each career bucket
 corresponds to a specific season type.
 NEVER return [] for career seasons — always compute the career aggregation.
 
-For NEW season metrics with supports_career=True, prefer season-result aggregation:
+For NEW season metrics with supports_career=True, choose ONE of three career modes:
+
+**Mode A — Accumulate (sum/rate metrics, most common):**
+Use when career = sum of season values (total wins, career FG%, etc.).
 - Add `career_aggregate_mode = "season_results"`
 - Add `career_sum_keys = ("...", "...")` for additive context fields
-- Add `career_max_keys = ("...",)` only when a max reducer is needed
-- Implement `compute_career_value(self, totals, season, entity_id)` to build the
-  career MetricResult from aggregated season contexts
-- Store enough raw state in each season result's `context` to recompute the career
-  metric exactly. For percentages/ratios, store numerator and denominator inputs,
-  not just the final percentage.
+- Implement `compute_career_value(self, totals, season, entity_id)`
+- Store numerator/denominator inputs in context, not just the final rate.
+
+**Mode B — Extrema (max/min of a single number):**
+Use when career = best single-season value (highest scoring game, most assists, etc.).
+- Add `career_aggregate_mode = "season_results"`
+- Add `career_max_keys = ("...",)` for highest-is-best, or `career_min_keys = ("...",)` for lowest-is-best
+- Implement `compute_career_value(self, totals, season, entity_id)`
+- NOTE: only the aggregated numeric keys survive; other context fields are lost.
+  Use this only when the career result needs just the number, not the full context.
+
+**Mode C — Pick-best-row (record-type metrics):**
+Use when the career result must preserve the FULL context from the best season (e.g.
+fastest double-double: need the game_id, player stats, time, not just the number).
+- Do NOT set `career_aggregate_mode`, `career_sum_keys`, `career_max_keys`, or
+  `compute_career_value`. Leave them all out.
+- Your `compute_season()` already handles career seasons via `is_career_season()`,
+  so the framework will call it directly for career — no extra code needed.
+- This scans all historical games for the career bucket, which is slower than Mode A/B
+  but produces complete results.
+
+ONLY these three modes exist. Do NOT invent new attributes — the framework will
+silently ignore unknown fields like `career_min_sample_keys`, `career_pick_keys`, etc.
+
+For all modes:
 - `compute_qualifications()` for career variants should be derivable from season
   MetricRunLog rows; do NOT rescan raw PBP/ShotRecord/Game tables for career.
 

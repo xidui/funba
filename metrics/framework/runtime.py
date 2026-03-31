@@ -328,9 +328,11 @@ def _aggregate_contexts(
     *,
     sum_keys: tuple[str, ...],
     max_keys: tuple[str, ...] = (),
+    min_keys: tuple[str, ...] = (),
 ) -> dict[str, dict]:
     sum_key_set = set(sum_keys)
     max_key_set = set(max_keys)
+    min_key_set = set(min_keys)
     totals_by_entity: dict[str, dict] = {}
     for entity_id, context in rows:
         totals = totals_by_entity.setdefault(entity_id, {})
@@ -345,6 +347,12 @@ def _aggregate_contexts(
                 continue
             current = totals.get(key)
             totals[key] = number if current is None else max(current, number)
+        for key in min_key_set:
+            number = _coerce_number(context.get(key))
+            if number is None:
+                continue
+            current = totals.get(key)
+            totals[key] = number if current is None else min(current, number)
     return totals_by_entity
 
 
@@ -355,6 +363,7 @@ def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
         getattr(metric, "career_aggregate_mode", None) == "season_results"
         or bool(getattr(metric, "career_sum_keys", ()))
         or bool(getattr(metric, "career_max_keys", ()))
+        or bool(getattr(metric, "career_min_keys", ()))
         or has_custom_method
     )
 
@@ -366,6 +375,7 @@ def _aggregate_declared_career_metric(session: Session, metric: MetricDefinition
         rows,
         sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
         max_keys=tuple(getattr(metric, "career_max_keys", ()) or ()),
+        min_keys=tuple(getattr(metric, "career_min_keys", ()) or ()),
     )
 
     results: list[MetricResult] = []
@@ -389,13 +399,16 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
     if not _metric_declares_career_reducer(metric) or not prefix:
         return None
     max_keys = tuple(getattr(metric, "career_max_keys", ()) or ())
+    min_keys = tuple(getattr(metric, "career_min_keys", ()) or ())
+    extrema_keys = max_keys + min_keys
     eligible_entity_seasons: set[tuple[str, str]] | None = None
-    if max_keys:
+    if extrema_keys:
         context_rows = _career_context_rows_by_season(session, base_key, season)
         totals_by_entity = _aggregate_contexts(
             [(entity_id, context) for entity_id, _, context in context_rows],
             sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
             max_keys=max_keys,
+            min_keys=min_keys,
         )
         eligible_entity_seasons = set()
         for entity_id, season_value, context in context_rows:
@@ -403,7 +416,7 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
             if all(
                 _coerce_number(context.get(key)) is not None
                 and _coerce_number(context.get(key)) == _coerce_number(totals.get(key))
-                for key in max_keys
+                for key in extrema_keys
             ):
                 eligible_entity_seasons.add((entity_id, season_value))
     rows = (
@@ -592,6 +605,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_aggregate_mode = getattr(self._inner, "career_aggregate_mode", None)
         self.career_sum_keys = tuple(getattr(self._inner, "career_sum_keys", ()) or ())
         self.career_max_keys = tuple(getattr(self._inner, "career_max_keys", ()) or ())
+        self.career_min_keys = tuple(getattr(self._inner, "career_min_keys", ()) or ())
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)
@@ -628,8 +642,15 @@ class CodeMetricDefinition(MetricDefinition):
 
     def compute_season(self, session, season):
         if self.career and self.trigger == "season" and is_career_season(season):
-            return _aggregate_career_metric_from_season_results(session, self, season)
-        return self._inner.compute_season(ReadOnlySession(session), season)
+            if _metric_declares_career_reducer(self):
+                return _aggregate_career_metric_from_season_results(session, self, season)
+            # No career reducer declared — let the inner handle career directly
+        results = self._inner.compute_season(ReadOnlySession(session), season)
+        if self.career and results:
+            for r in (results if isinstance(results, list) else [results]):
+                if r:
+                    r.metric_key = self.key
+        return results
 
     def compute_qualifications(self, session, season):
         if self.career and self.trigger == "season" and is_career_season(season):
