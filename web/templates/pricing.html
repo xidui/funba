@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set title = "Pricing — FUNBA" %}
+{% set title = t("Pricing — FUNBA", "价格 — FUNBA") %}
 {% block content %}
 <style>
   .pricing-wrap { max-width: 800px; margin: 48px auto; padding: 0 16px; }
@@ -66,19 +66,19 @@
 </style>
 
 <div class="pricing-wrap">
-  <h1 class="pricing-title">Choose your plan</h1>
-  <p class="pricing-subtitle">Unlock the full power of NBA analytics</p>
+  <h1 class="pricing-title">{{ t('Choose your plan', '选择你的方案') }}</h1>
+  <p class="pricing-subtitle">{{ t('Unlock the full power of NBA analytics', '解锁完整的 NBA 数据分析能力') }}</p>
   <div style="text-align:center;margin-bottom:24px;">
-    <span style="display:inline-block;padding:6px 16px;border-radius:8px;background:rgba(249,115,22,0.12);color:var(--accent);font-size:12px;font-weight:600;letter-spacing:0.04em;">BETA PRICING — Early adopter rate. Price may change for new subscribers in the future.</span>
+    <span style="display:inline-block;padding:6px 16px;border-radius:8px;background:rgba(249,115,22,0.12);color:var(--accent);font-size:12px;font-weight:600;letter-spacing:0.04em;">{{ t('BETA PRICING — Early adopter rate. Price may change for new subscribers in the future.', '测试期价格：早期用户优惠价，未来新订阅用户价格可能调整。') }}</span>
   </div>
 
   <div class="pricing-grid">
     <!-- Free -->
     <div class="plan-card">
-      <span class="plan-badge plan-badge-free">Free</span>
+      <span class="plan-badge plan-badge-free">{{ t('Free', '免费') }}</span>
       <div class="plan-name">Explorer</div>
       <div class="plan-price">$0<span> / forever</span></div>
-      <div class="plan-desc">Browse stats for the current season.</div>
+      <div class="plan-desc">{{ t('Browse stats for the current season.', '浏览当前赛季数据。') }}</div>
       <ul class="plan-features">
         <li>Player, team, and game pages</li>
         <li>Current season data</li>
@@ -89,9 +89,9 @@
         <li class="disabled">Data export (CSV)</li>
       </ul>
       {% if current_user %}
-      <span class="plan-cta plan-cta-free">Current Plan</span>
+      <span class="plan-cta plan-cta-free">{{ t('Current Plan', '当前方案') }}</span>
       {% else %}
-      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-free">Sign in</a>
+      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-free">{{ t('Sign in', '登录') }}</a>
       {% endif %}
     </div>
 
@@ -104,7 +104,7 @@
       {% else %}
       <div class="plan-price">Pro<span> / month</span></div>
       {% endif %}
-      <div class="plan-desc">Full access to every feature and all historical data.</div>
+      <div class="plan-desc">{{ t('Full access to every feature and all historical data.', '完整访问全部功能和历史数据。') }}</div>
       <ul class="plan-features">
         <li>Everything in Free</li>
         <li>AI-powered custom metric creation</li>
@@ -114,13 +114,13 @@
         <li>Priority support</li>
       </ul>
       {% if is_pro %}
-      <span class="plan-cta plan-cta-free">Current Plan</span>
+      <span class="plan-cta plan-cta-free">{{ t('Current Plan', '当前方案') }}</span>
       {% elif current_user %}
       <form method="post" action="{{ url_for('subscribe_checkout') }}" style="margin:0;">
-        <button type="submit" class="plan-cta plan-cta-pro">Upgrade to Pro</button>
+        <button type="submit" class="plan-cta plan-cta-pro">{{ t('Upgrade to Pro', '升级到 Pro') }}</button>
       </form>
       {% else %}
-      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-pro">Sign in to upgrade</a>
+      <a href="{{ url_for('auth_login', next=url_for('pricing')) }}" class="plan-cta plan-cta-pro">{{ t('Sign in to upgrade', '登录后升级') }}</a>
       {% endif %}
     </div>
   </div>

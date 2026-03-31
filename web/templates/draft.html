@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ year }} NBA Draft — FUNBA{% endblock %}
-{% block meta_description %}{{ year }} NBA Draft picks and player links on FUNBA.{% endblock %}
-{% block og_title %}{{ year }} NBA Draft — FUNBA{% endblock %}
-{% block og_description %}Browse the full {{ year }} NBA Draft class on FUNBA.{% endblock %}
-{% block tw_title %}{{ year }} NBA Draft — FUNBA{% endblock %}
-{% block tw_description %}Browse the full {{ year }} NBA Draft class on FUNBA.{% endblock %}
+{% block title %}{{ year }} {{ t('NBA Draft', 'NBA 选秀') }} — FUNBA{% endblock %}
+{% block meta_description %}{{ year }} {{ t('NBA Draft picks and player links on FUNBA.', 'NBA 选秀顺位与球员页面。') }}{% endblock %}
+{% block og_title %}{{ year }} {{ t('NBA Draft', 'NBA 选秀') }} — FUNBA{% endblock %}
+{% block og_description %}{{ t('Browse the full', '浏览完整的') }} {{ year }} {{ t('NBA Draft class on FUNBA.', 'NBA 选秀名单。') }}{% endblock %}
+{% block tw_title %}{{ year }} {{ t('NBA Draft', 'NBA 选秀') }} — FUNBA{% endblock %}
+{% block tw_description %}{{ t('Browse the full', '浏览完整的') }} {{ year }} {{ t('NBA Draft class on FUNBA.', 'NBA 选秀名单。') }}{% endblock %}
 {% block content %}
 <style>
   .draft-hero {
@@ -116,15 +116,15 @@
 <div class="card">
   <div class="draft-hero">
     <div>
-      <h1>{{ year }} NBA Draft</h1>
-      <p class="draft-subtitle">{{ draft_count }} picks</p>
+      <h1>{{ year }} {{ t('NBA Draft', 'NBA 选秀') }}</h1>
+      <p class="draft-subtitle">{{ draft_count }} {{ t('picks', '个签位') }}</p>
     </div>
     <div class="draft-nav" aria-label="Draft year navigation">
       <select
         id="draft-year-select"
         class="draft-year-select"
-        aria-label="Select draft year"
-        onchange="window.location.href='/draft/' + this.value"
+        aria-label="{{ t('Select draft year', '选择选秀年份') }}"
+        onchange="window.location.href='{{ url_for('draft_page', year=0)[:-1] }}' + this.value"
       >
         {% for draft_year in range(max_year, min_year - 1, -1) %}
         <option value="{{ draft_year }}" {% if draft_year == year %}selected{% endif %}>{{ draft_year }}</option>
@@ -138,10 +138,10 @@
     <table class="draft-table">
       <thead>
         <tr>
-          <th style="width: 60px;">Round</th>
-          <th style="width: 60px;">Pick</th>
-          <th>Player</th>
-          <th style="width: 80px;">Position</th>
+          <th style="width: 60px;">{{ t('Round', '轮次') }}</th>
+          <th style="width: 60px;">{{ t('Pick', '顺位') }}</th>
+          <th>{{ t('Player', '球员') }}</th>
+          <th style="width: 80px;">{{ t('Position', '位置') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -150,7 +150,7 @@
         {% if player.draft_round != ns.last_round %}
         <tr class="row-overall">
           <td colspan="4">
-            <span class="draft-round-label">Round {{ player.draft_round or "?" }}</span>
+              <span class="draft-round-label">{{ t('Round', '第') }} {{ player.draft_round or "?" }} {{ t('', '轮') }}</span>
           </td>
         </tr>
         {% set ns.last_round = player.draft_round %}
@@ -159,16 +159,16 @@
           <td>{{ player.draft_round or "—" }}</td>
           <td>{{ player.draft_number or "—" }}</td>
           <td class="player-cell">
-            <a class="draft-player-link" href="/players/{{ player.player_id }}">
+            <a class="draft-player-link" href="{{ url_for('player_page', player_id=player.player_id) }}">
               <img
                 class="draft-player-headshot"
                 src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ player.player_id }}.png"
-                alt="{{ player.full_name or player.player_id }}"
+                alt="{{ display_player_name(player) or player.player_id }}"
                 loading="lazy"
                 onerror="this.onerror=null;this.src='{{ placeholder_headshot }}';"
               >
-              <span class="player-name">{{ player.full_name or player.player_id }}</span>
-              <span class="draft-active-dot{% if player.is_active %} active{% endif %}" title="{% if player.is_active %}Active{% else %}Inactive{% endif %}"></span>
+              <span class="player-name">{{ display_player_name(player) or player.player_id }}</span>
+              <span class="draft-active-dot{% if player.is_active %} active{% endif %}" title="{% if player.is_active %}{{ t('Active', '现役') }}{% else %}{{ t('Inactive', '非现役') }}{% endif %}"></span>
             </a>
           </td>
           <td>{{ player.position or "—" }}</td>
@@ -178,7 +178,7 @@
     </table>
   </div>
   {% else %}
-  <p class="draft-empty">No draft data available for {{ year }}</p>
+  <p class="draft-empty">{{ year }} {{ t('has no draft data available.', '暂无选秀数据。') }}</p>
   {% endif %}
 </div>
 {% endblock %}

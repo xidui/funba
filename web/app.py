@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 import uuid as _uuid_mod
 
-from flask import Flask, abort, after_this_request, flash, get_flashed_messages, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask import Flask, abort, after_this_request, flash, g, get_flashed_messages, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 
 from authlib.integrations.flask_client import OAuth
@@ -142,6 +142,97 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 SessionLocal = sessionmaker(bind=engine)
 
+_LOCALIZED_PUBLIC_ENDPOINTS = {
+    "home": "home_zh",
+    "games_list": "games_list_zh",
+    "awards_page": "awards_page_zh",
+    "players_compare": "players_compare_zh",
+    "draft_page": "draft_page_zh",
+    "player_page": "player_page_zh",
+    "team_page": "team_page_zh",
+    "game_page": "game_page_zh",
+    "game_fragment_metrics": "game_fragment_metrics_zh",
+    "metrics_browse": "metrics_browse_zh",
+    "metric_detail": "metric_detail_zh",
+    "my_metrics": "my_metrics_zh",
+    "metric_new": "metric_new_zh",
+    "metric_edit": "metric_edit_zh",
+    "pricing": "pricing_zh",
+    "account_page": "account_page_zh",
+}
+_ZH_TO_BASE_ENDPOINT = {zh_endpoint: endpoint for endpoint, zh_endpoint in _LOCALIZED_PUBLIC_ENDPOINTS.items()}
+
+
+def _current_lang() -> str:
+    if not has_request_context():
+        return "en"
+    return getattr(g, "lang", "en")
+
+
+def _is_zh(lang: str | None = None) -> bool:
+    return (lang or _current_lang()) == "zh"
+
+
+def _t(en_text: str, zh_text: str | None = None) -> str:
+    if _is_zh() and zh_text is not None:
+        return zh_text
+    return en_text
+
+
+def _base_public_endpoint(endpoint: str | None) -> str | None:
+    if endpoint in _ZH_TO_BASE_ENDPOINT:
+        return _ZH_TO_BASE_ENDPOINT[endpoint]
+    return endpoint
+
+
+def _localized_url_for(endpoint: str, **values) -> str:
+    lang = values.pop("_lang", None) or _current_lang()
+    base_endpoint = _base_public_endpoint(endpoint)
+    if base_endpoint in _LOCALIZED_PUBLIC_ENDPOINTS:
+        endpoint = _LOCALIZED_PUBLIC_ENDPOINTS[base_endpoint] if lang == "zh" else base_endpoint
+    return url_for(endpoint, **values)
+
+
+def _language_toggle_url() -> str | None:
+    if not has_request_context() or not request.endpoint:
+        return None
+    base_endpoint = _base_public_endpoint(request.endpoint)
+    if base_endpoint not in _LOCALIZED_PUBLIC_ENDPOINTS:
+        return None
+    values = dict(request.view_args or {})
+    values.update(request.args.to_dict(flat=True))
+    return _localized_url_for(base_endpoint, _lang="en" if _is_zh() else "zh", **values)
+
+
+def _localized_metric_name(name: str | None, name_zh: str | None = None) -> str:
+    localized = (name_zh or "").strip()
+    if _is_zh() and localized:
+        return localized
+    return (name or "").strip()
+
+
+def _localized_metric_description(description: str | None, description_zh: str | None = None) -> str:
+    localized = (description_zh or "").strip()
+    if _is_zh() and localized:
+        return localized
+    return (description or "").strip()
+
+
+def _display_team_name(team: Team | None) -> str:
+    if team is None:
+        return "-"
+    if _is_zh() and getattr(team, "full_name_zh", None):
+        return team.full_name_zh
+    return team.full_name or team.abbr or team.team_id or "-"
+
+
+def _display_player_name(player: Player | None) -> str:
+    if player is None:
+        return "-"
+    if _is_zh() and getattr(player, "full_name_zh", None):
+        return player.full_name_zh
+    return player.full_name or player.player_id or "-"
+
 def _real_ip() -> str:
     """Return the real client IP, preferring Cloudflare header."""
     return (
@@ -157,6 +248,12 @@ limiter = Limiter(
     default_limits=["200 per minute"],
     storage_uri="memory://",
 )
+
+
+@app.before_request
+def set_request_language():
+    path = request.path or "/"
+    g.lang = "zh" if path == "/cn" or path.startswith("/cn/") else "en"
 
 
 @app.template_filter("pct_fmt")
@@ -296,7 +393,7 @@ _FRANCHISE_NAME_HISTORY: dict[str, list[tuple[int, str, str]]] = {
 def _franchise_display(team_id: str, season: str | None, team: Team | None) -> tuple[str, str]:
     """Return (abbr, full_name) for a team in a given season, applying historical overrides."""
     default_abbr = team.abbr if team else team_id
-    default_name = team.full_name if team else team_id
+    default_name = _display_team_name(team) if team else team_id
     if season and team_id in _FRANCHISE_NAME_HISTORY:
         try:
             season_year = int(season[1:])  # e.g. "22012" -> 2012
@@ -319,7 +416,7 @@ def _team_name(teams: dict[str, Team], team_id: str | None) -> str:
     team = teams.get(team_id)
     if team is None:
         return team_id
-    return team.full_name or team_id
+    return _display_team_name(team)
 
 
 def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
@@ -438,12 +535,42 @@ _GRID_AWARD_PREFIXES = ("all_nba_", "all_defensive_", "all_rookie_")
 def _award_type_label(award_type: str, *, short: bool = False) -> str:
     meta = _AWARD_TYPE_META.get(award_type, {})
     key = "short_label" if short else "label"
-    return meta.get(key, award_type.replace("_", " ").title())
+    label = meta.get(key, award_type.replace("_", " ").title())
+    zh_labels = {
+        "Champions": "总冠军",
+        "Champion": "总冠军",
+        "MVP": "最有价值球员",
+        "Finals MVP": "总决赛 MVP",
+        "Scoring Champion": "得分王",
+        "DPOY": "最佳防守球员",
+        "ROY": "最佳新秀",
+        "MIP": "最快进步球员",
+        "Sixth Man": "最佳第六人",
+        "6th Man": "第六人",
+        "All-NBA 1st": "最佳阵容一阵",
+        "All-NBA 2nd": "最佳阵容二阵",
+        "All-NBA 3rd": "最佳阵容三阵",
+        "All-Def 1st": "最佳防守一阵",
+        "All-Def 2nd": "最佳防守二阵",
+        "All-Rookie 1st": "最佳新秀一阵",
+        "All-Rookie 2nd": "最佳新秀二阵",
+        "All-Rk 1st": "新秀一阵",
+        "All-Rk 2nd": "新秀二阵",
+    }
+    return zh_labels.get(label, label) if _is_zh() else label
 
 
 def _award_badge_label(award_type: str) -> str:
     meta = _AWARD_TYPE_META.get(award_type, {})
-    return meta.get("badge_label", _award_type_label(award_type, short=True))
+    label = meta.get("badge_label", _award_type_label(award_type, short=True))
+    zh_labels = {
+        "Champion": "总冠军",
+        "1st Team": "一阵",
+        "2nd Team": "二阵",
+        "3rd Team": "三阵",
+        "6th Man": "第六人",
+    }
+    return zh_labels.get(label, label) if _is_zh() else label
 
 
 def _award_order_case(column):
@@ -484,7 +611,7 @@ def _award_entry_from_row(row, teams: dict[str, Team]) -> dict[str, object]:
         "season": season_value or 0,
         "season_label": _season_year_label(season_token),
         "player_id": row.player_id,
-        "player_name": row.player_name or row.player_id,
+        "player_name": (row.player_name_zh if _is_zh() and getattr(row, "player_name_zh", None) else row.player_name) or row.player_id,
         "player_headshot_url": _player_headshot_url(row.player_id),
         "team_id": row.team_id,
         "team_abbr": team_abbr,
@@ -567,10 +694,16 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
 
 def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
     """Normalize runtime and DB metric objects for template rendering."""
+    name_zh = getattr(metric_def, "name_zh", "") or ""
+    description_zh = getattr(metric_def, "description_zh", "") or ""
     return SimpleNamespace(
         key=metric_def.key,
-        name=metric_def.name,
-        description=getattr(metric_def, "description", "") or "",
+        name=_localized_metric_name(metric_def.name, name_zh),
+        name_en=metric_def.name,
+        name_zh=name_zh,
+        description=_localized_metric_description(getattr(metric_def, "description", "") or "", description_zh),
+        description_en=getattr(metric_def, "description", "") or "",
+        description_zh=description_zh,
         scope=metric_def.scope,
         category=getattr(metric_def, "category", "") or "",
         status=status or getattr(metric_def, "status", "published"),
@@ -581,6 +714,28 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         supports_career=bool(getattr(metric_def, "supports_career", False)),
         trigger=getattr(metric_def, "trigger", "game"),
     )
+
+
+def _metric_name_for_key(session, metric_key: str) -> str:
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    base_key = metric_key.removesuffix("_career")
+    db_metric = (
+        session.query(MetricDefinitionModel)
+        .filter(MetricDefinitionModel.key.in_([metric_key, base_key]))
+        .order_by(MetricDefinitionModel.key.desc())
+        .first()
+    )
+    runtime_metric = _get_metric(metric_key, session=session)
+    if runtime_metric is None and metric_key.endswith("_career"):
+        runtime_metric = _get_metric(base_key, session=session)
+
+    name = getattr(db_metric, "name", None) or getattr(runtime_metric, "name", None) or base_key.replace("_", " ").title()
+    name_zh = getattr(db_metric, "name_zh", None) or getattr(runtime_metric, "name_zh", None)
+    localized = _localized_metric_name(name, name_zh)
+    if metric_key.endswith("_career") and localized == _localized_metric_name(base_key.replace("_", " ").title(), name_zh):
+        return f"{localized}{_t(' (Career)', '（生涯）')}"
+    return localized
 
 
 def _truncate_search_text(text: str | None, limit: int = 2400) -> str:
@@ -726,7 +881,9 @@ def _code_metric_metadata_from_code(
     metadata = {
         "key": metric.key,
         "name": metric.name,
+        "name_zh": getattr(metric, "name_zh", "") or "",
         "description": metric.description,
+        "description_zh": getattr(metric, "description_zh", "") or "",
         "scope": metric.scope,
         "category": getattr(metric, "category", "") or "",
         "min_sample": int(getattr(metric, "min_sample", 1) or 1),
@@ -796,7 +953,9 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             incremental=code_metadata["incremental"],
             rank_order=code_metadata["rank_order"],
             name=code_metadata["name"],
+            name_zh=code_metadata.get("name_zh", ""),
             description=code_metadata["description"],
+            description_zh=code_metadata.get("description_zh", ""),
             scope=code_metadata["scope"],
             category=code_metadata["category"],
         )
@@ -861,7 +1020,9 @@ def _sync_metric_family(
     *,
     source_type: str,
     name: str,
+    name_zh: str,
     description: str,
+    description_zh: str,
     scope: str,
     category: str,
     group_key: str | None,
@@ -884,7 +1045,9 @@ def _sync_metric_family(
     base_row.base_metric_key = None
     base_row.managed_family = bool(supports_career and not career_only)
     base_row.name = name
+    base_row.name_zh = name_zh or None
     base_row.description = description
+    base_row.description_zh = description_zh or None
     base_row.scope = scope
     base_row.category = category
     base_row.group_key = group_key
@@ -917,6 +1080,8 @@ def _sync_metric_family(
         ) or " (Career)"
         career_name = derive_career_name(name, career_suffix)
         career_description = derive_career_description(description)
+        career_name_zh = f"{name_zh}（生涯）" if name_zh else ""
+        career_description_zh = f"生涯{description_zh}" if description_zh else ""
         career_min_sample_value = derive_career_min_sample(min_sample, career_min_sample)
 
         if existing_sibling is None:
@@ -933,7 +1098,9 @@ def _sync_metric_family(
         existing_sibling.base_metric_key = base_row.key
         existing_sibling.managed_family = True
         existing_sibling.name = career_name
+        existing_sibling.name_zh = career_name_zh or None
         existing_sibling.description = career_description
+        existing_sibling.description_zh = career_description_zh or None
         existing_sibling.scope = scope
         existing_sibling.category = category
         existing_sibling.group_key = group_key
@@ -1062,8 +1229,8 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
         db_metrics.append(
             {
                 "key": m.key,
-                "name": search_fields.get("name", m.name),
-                "description": search_fields.get("description", m.description),
+                "name": _localized_metric_name(search_fields.get("name", m.name), search_fields.get("name_zh", getattr(m, "name_zh", ""))),
+                "description": _localized_metric_description(search_fields.get("description", m.description), search_fields.get("description_zh", getattr(m, "description_zh", ""))),
                 "scope": search_fields.get("scope", m.scope),
                 "category": search_fields.get("category", m.category or ""),
                 "status": m.status,
@@ -1085,8 +1252,8 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
                     db_metrics.append(
                         {
                             "key": career_metric.key,
-                            "name": career_metric.name,
-                            "description": getattr(career_metric, "description", "") or "",
+                            "name": _localized_metric_name(career_metric.name, getattr(career_metric, "name_zh", "")),
+                            "description": _localized_metric_description(getattr(career_metric, "description", "") or "", getattr(career_metric, "description_zh", "")),
                             "scope": career_metric.scope,
                             "category": getattr(career_metric, "category", "") or "",
                             "status": "published",
@@ -1192,13 +1359,13 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     # Bulk resolve names
     player_names = {}
     if player_ids:
-        for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(player_ids)).all():
-            player_names[p.player_id] = p.full_name
+        for p in session.query(Player.player_id, Player.full_name, Player.full_name_zh).filter(Player.player_id.in_(player_ids)).all():
+            player_names[p.player_id] = p.full_name_zh if _is_zh() and getattr(p, "full_name_zh", None) else p.full_name
 
-    team_abbrs = {}
+    team_labels = {}
     if team_ids:
-        for t in session.query(Team.team_id, Team.abbr).filter(Team.team_id.in_(team_ids)).all():
-            team_abbrs[t.team_id] = t.abbr
+        for t in session.query(Team.team_id, Team.abbr, Team.full_name, Team.full_name_zh).filter(Team.team_id.in_(team_ids)).all():
+            team_labels[t.team_id] = t.full_name_zh if _is_zh() and getattr(t, "full_name_zh", None) else (t.full_name or t.abbr)
 
     # Build final output
     result: dict[str, list[dict]] = {}
@@ -1217,7 +1384,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
                     "headshot_url": f"https://cdn.nba.com/headshots/nba/latest/260x190/{pid}.png",
                 }
             elif scope == "team":
-                label = team_abbrs.get(eid, eid)
+                label = team_labels.get(eid, eid)
                 entry = {
                     "entity_id": eid,
                     "label": label,
@@ -1249,10 +1416,10 @@ def _player_status(stat: PlayerGameStats) -> str:
     if comment:
         return comment
     if stat.min is None and stat.sec is None:
-        return "Did not play"
+        return _t("Did not play", "未出场")
     if stat.starter:
-        return "Starter"
-    return "Played"
+        return _t("Starter", "首发")
+    return _t("Played", "出场")
 
 
 def _fmt_date(d: date | None) -> str:
@@ -1418,7 +1585,11 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     from sqlalchemy import func
     from metrics.framework.base import CAREER_SEASON, CAREER_SEASON_PREFIX, is_career_season, SEASON_TYPE_TO_CAREER
 
-    _CAREER_TYPE_LABEL = {"all_regular": "Regular Season", "all_playoffs": "Playoffs", "all_playin": "Play-In"}
+    _CAREER_TYPE_LABEL = {
+        "all_regular": _t("Regular Season", "常规赛"),
+        "all_playoffs": _t("Playoffs", "季后赛"),
+        "all_playin": _t("Play-In", "附加赛"),
+    }
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
     _asc_keys = _asc_metric_keys(session)
@@ -1491,6 +1662,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         is_notable = total > 0 and rank / total <= 0.25
         entry = {
             "metric_key": r.metric_key,
+            "metric_name": _metric_name_for_key(session, r.metric_key),
             "entity_id": r.entity_id,
             "value_num": r.value_num,
             "value_str": r.value_str,
@@ -1857,11 +2029,11 @@ def _season_label(season_id: str | None) -> str:
 
     if len(s) == 5 and s.isdigit():
         season_type_map = {
-            "1": "Pre Season",
-            "2": "Regular Season",
-            "3": "All Star",
-            "4": "Playoffs",
-            "5": "PlayIn",
+            "1": _t("Pre Season", "季前赛"),
+            "2": _t("Regular Season", "常规赛"),
+            "3": _t("All Star", "全明星"),
+            "4": _t("Playoffs", "季后赛"),
+            "5": _t("PlayIn", "附加赛"),
         }
         season_type = season_type_map.get(s[0], f"Type {s[0]}")
         year = s[1:]
@@ -2198,7 +2370,7 @@ def is_pro() -> bool:
 
 def _require_pro_json():
     if not is_pro():
-        return jsonify({"error": "pro_required", "upgrade_url": url_for("pricing")}), 403
+        return jsonify({"error": "pro_required", "upgrade_url": _localized_url_for("pricing")}), 403
     return None
 
 
@@ -2258,7 +2430,7 @@ def _build_metric_feature_context(access_config: dict | None = None) -> dict:
     can_search_metrics = _ACCESS_LEVEL_RANK[current_level] >= _ACCESS_LEVEL_RANK[config["metric_search"]]
     can_create_metrics = _ACCESS_LEVEL_RANK[current_level] >= _ACCESS_LEVEL_RANK[config["metric_create"]]
 
-    metric_create_cta_href = url_for("metric_new")
+    metric_create_cta_href = _localized_url_for("metric_new")
     metric_create_cta_badge = None
     if not can_create_metrics:
         if current_level == "anonymous":
@@ -2266,7 +2438,7 @@ def _build_metric_feature_context(access_config: dict | None = None) -> dict:
         elif config["metric_create"] == "admin":
             metric_create_cta_badge = "ADMIN"
         else:
-            metric_create_cta_href = url_for("pricing")
+            metric_create_cta_href = _localized_url_for("pricing")
             metric_create_cta_badge = "PRO"
 
     return {
@@ -2297,7 +2469,7 @@ def _feature_access_denied_json(required_level: str):
         {
             "error": "pro_required",
             "required_level": required_level,
-            "upgrade_url": url_for("pricing"),
+            "upgrade_url": _localized_url_for("pricing"),
         }
     ), 403
 
@@ -2987,6 +3159,14 @@ def inject_template_helpers():
     from datetime import date
     return {
         "season_label": _season_label,
+        "lang": _current_lang(),
+        "t": _t,
+        "url_for": _localized_url_for,
+        "display_player_name": _display_player_name,
+        "display_team_name": _display_team_name,
+        "toggle_language_url": _language_toggle_url(),
+        "toggle_language_label": _t("中文", "EN"),
+        "active_public_endpoint": _base_public_endpoint(request.endpoint) if has_request_context() else None,
         "is_admin": is_admin(),
         "is_pro": is_pro(),
         "current_user": _current_user(),
@@ -3259,17 +3439,19 @@ def _get_stripe_price() -> dict | None:
         return cached  # return stale cache if available
 
 
+@app.route("/cn/pricing", endpoint="pricing_zh")
 @app.route("/pricing")
 def pricing():
     price_info = _get_stripe_price()
     return render_template("pricing.html", price_info=price_info)
 
 
+@app.route("/cn/account", endpoint="account_page_zh")
 @app.route("/account")
 def account_page():
     user = _current_user()
     if not user:
-        return redirect(url_for("auth_login", next=url_for("account_page")))
+        return redirect(url_for("auth_login", next=_localized_url_for("account_page")))
     return render_template("account.html", user=user, checkout=request.args.get("checkout"))
 
 
@@ -3278,12 +3460,12 @@ def subscribe_checkout():
     import stripe
     user = _current_user()
     if not user:
-        return redirect(url_for("auth_login", next=url_for("pricing")))
+        return redirect(url_for("auth_login", next=_localized_url_for("pricing")))
 
     stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
     if not stripe.api_key:
         flash("Payment is not configured yet.", "error")
-        return redirect(url_for("pricing"))
+        return redirect(_localized_url_for("pricing"))
 
     # Create or retrieve Stripe Customer
     if not user.stripe_customer_id:
@@ -3303,14 +3485,14 @@ def subscribe_checkout():
     price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
     if not price_id:
         flash("Payment is not configured yet.", "error")
-        return redirect(url_for("pricing"))
+        return redirect(_localized_url_for("pricing"))
 
     checkout_session = stripe.checkout.Session.create(
         customer=customer_id,
         mode="subscription",
         line_items=[{"price": price_id, "quantity": 1}],
-        success_url=url_for("account_page", checkout="success", _external=True),
-        cancel_url=url_for("pricing", _external=True),
+        success_url=_localized_url_for("account_page", checkout="success", _external=True),
+        cancel_url=_localized_url_for("pricing", _external=True),
     )
     return redirect(checkout_session.url, code=303)
 
@@ -3320,12 +3502,12 @@ def subscribe_portal():
     import stripe
     user = _current_user()
     if not user or not user.stripe_customer_id:
-        return redirect(url_for("pricing"))
+        return redirect(_localized_url_for("pricing"))
 
     stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
     portal_session = stripe.billing_portal.Session.create(
         customer=user.stripe_customer_id,
-        return_url=url_for("account_page", _external=True),
+        return_url=_localized_url_for("account_page", _external=True),
     )
     return redirect(portal_session.url, code=303)
 
@@ -3465,6 +3647,7 @@ def admin_feedback():
 
 # ── Page routes ───────────────────────────────────────────────────────────────
 
+@app.route("/cn/", endpoint="home_zh")
 @app.route("/")
 def home():
     with SessionLocal() as session:
@@ -3537,7 +3720,7 @@ def home():
         if pos:
             team_map_data.append({
                 "abbr": team.abbr,
-                "full_name": team.full_name,
+                "full_name": _display_team_name(team),
                 "team_id": team.team_id,
                 "lat": pos[0],
                 "lon": pos[1],
@@ -3555,6 +3738,7 @@ def home():
     )
 
 
+@app.route("/cn/games", endpoint="games_list_zh")
 @app.route("/games")
 def games_list():
     PAGE_SIZE = 30
@@ -3612,6 +3796,7 @@ def games_list():
     )
 
 
+@app.route("/cn/awards", endpoint="awards_page_zh")
 @app.route("/awards")
 def awards_page():
     selected_award_type = request.args.get("type", "champion")
@@ -3634,7 +3819,9 @@ def awards_page():
                 Award.team_id,
                 Award.notes,
                 Player.full_name.label("player_name"),
+                Player.full_name_zh.label("player_name_zh"),
                 Team.full_name.label("team_name"),
+                Team.full_name_zh.label("team_name_zh"),
                 Team.abbr.label("team_abbr"),
             )
             .outerjoin(Player, Award.player_id == Player.player_id)
@@ -3680,10 +3867,22 @@ def player_hints_api():
     with SessionLocal() as session:
         q = session.query(Player).filter(Player.full_name.isnot(None))
         if query:
-            q = q.filter(Player.full_name.ilike(f"%{query}%"))
+            q = q.filter(
+                or_(
+                    Player.full_name.ilike(f"%{query}%"),
+                    Player.full_name_zh.ilike(f"%{query}%"),
+                )
+            )
         players = q.order_by(Player.is_active.desc(), Player.full_name.asc()).limit(limit).all()
 
-    items = [{"player_id": p.player_id, "full_name": p.full_name} for p in players if p.player_id and p.full_name]
+    items = [
+        {
+            "player_id": p.player_id,
+            "full_name": p.full_name_zh if _is_zh() and getattr(p, "full_name_zh", None) else p.full_name,
+        }
+        for p in players
+        if p.player_id and p.full_name
+    ]
     return jsonify({"items": items})
 
 
@@ -3853,24 +4052,7 @@ def _latest_regular_season(session) -> str | None:
 
 
 def _compare_metric_label(session, metric_key: str) -> str:
-    from metrics.framework.runtime import get_metric as _get_metric
-
-    runtime_metric = _get_metric(metric_key, session=session)
-    if runtime_metric is None and metric_key.endswith("_career"):
-        runtime_metric = _get_metric(metric_key.removesuffix("_career"), session=session)
-    if runtime_metric is not None and getattr(runtime_metric, "name", None):
-        return runtime_metric.name
-
-    base_key = metric_key.removesuffix("_career")
-    db_metric = (
-        session.query(MetricDefinitionModel)
-        .filter(MetricDefinitionModel.key == base_key)
-        .first()
-    )
-    if db_metric is not None and db_metric.name:
-        return db_metric.name
-
-    return base_key.replace("_", " ").title()
+    return _metric_name_for_key(session, metric_key)
 
 
 def _compare_metric_value_text(entry: dict | None, missing: str = "N/A") -> str:
@@ -3919,13 +4101,13 @@ def _compare_metric_scope_label(entry: dict) -> str:
     if len(season) == 5 and season.isdigit():
         return _season_label(season)
     career_labels = {
-        "all_regular": "Regular Season Career",
-        "all_playoffs": "Playoffs Career",
-        "all_playin": "Play-In Career",
+        "all_regular": _t("Regular Season Career", "常规赛生涯"),
+        "all_playoffs": _t("Playoffs Career", "季后赛生涯"),
+        "all_playin": _t("Play-In Career", "附加赛生涯"),
     }
     if season in career_labels:
         return career_labels[season]
-    return entry.get("career_type_label") or "Career"
+    return entry.get("career_type_label") or _t("Career", "生涯")
 
 
 def _build_compare_stat_rows(player_cards: list[dict]) -> list[dict]:
@@ -3972,7 +4154,7 @@ def _build_compare_metric_sections(session, player_cards: list[dict]) -> list[di
                     {
                         "metric_key": entry["metric_key"],
                         "label": _compare_metric_label(session, entry["metric_key"]),
-                        "href": url_for("metric_detail", metric_key=entry["metric_key"]),
+                        "href": _localized_url_for("metric_detail", metric_key=entry["metric_key"]),
                         "values": [None] * len(player_cards),
                         "ascending": entry["metric_key"].removesuffix("_career") in asc_keys,
                     },
@@ -4018,18 +4200,18 @@ def _build_compare_metric_sections(session, player_cards: list[dict]) -> list[di
     for card in player_cards:
         grouped: dict[str, list[dict]] = defaultdict(list)
         for entry in card["metrics"]["alltime"]:
-            grouped[entry.get("career_type_label") or "Career"].append(entry)
+            grouped[entry.get("career_type_label") or _t("Career", "生涯")].append(entry)
         for title in grouped:
             grouped_alltime.setdefault(title, [[] for _ in player_cards])
     for idx, card in enumerate(player_cards):
         grouped: dict[str, list[dict]] = defaultdict(list)
         for entry in card["metrics"]["alltime"]:
-            grouped[entry.get("career_type_label") or "Career"].append(entry)
+            grouped[entry.get("career_type_label") or _t("Career", "生涯")].append(entry)
         for title, lists in grouped_alltime.items():
             lists[idx] = grouped.get(title, [])
 
     for title in sorted(grouped_alltime.keys()):
-        section = build_rows(grouped_alltime[title], group_title=f"{title} Career")
+        section = build_rows(grouped_alltime[title], group_title=f"{title}{_t(' Career', '生涯')}")
         if section is not None:
             sections.append(section)
 
@@ -4156,14 +4338,15 @@ def _get_player_top_rankings(
                 "label": label,
                 "badge": badge,
                 "scope_label": scope_label,
-                "href": url_for("metric_detail", metric_key=metric_key, season=row.season)
+                "href": _localized_url_for("metric_detail", metric_key=metric_key, season=row.season)
                 if row.season
-                else url_for("metric_detail", metric_key=metric_key),
+                else _localized_url_for("metric_detail", metric_key=metric_key),
             }
         )
     return rankings
 
 
+@app.route("/cn/players/compare", endpoint="players_compare_zh")
 @app.route("/players/compare")
 def players_compare():
     raw_ids = [part.strip() for part in (request.args.get("ids") or "").split(",") if part.strip()]
@@ -4224,6 +4407,7 @@ def players_compare():
     )
 
 
+@app.route("/cn/draft/<int:year>", endpoint="draft_page_zh")
 @app.route("/draft/<int:year>")
 def draft_page(year: int):
     current_year = date.today().year
@@ -4264,6 +4448,7 @@ def draft_page(year: int):
     )
 
 
+@app.route("/cn/players/<player_id>", endpoint="player_page_zh")
 @app.route("/players/<player_id>")
 def player_page(player_id: str):
     with SessionLocal() as session:
@@ -4465,6 +4650,7 @@ def player_page(player_id: str):
     )
 
 
+@app.route("/cn/teams/<team_id>", endpoint="team_page_zh")
 @app.route("/teams/<team_id>")
 def team_page(team_id: str):
     with SessionLocal() as session:
@@ -4609,6 +4795,7 @@ def team_page(team_id: str):
     )
 
 
+@app.route("/cn/games/<game_id>", endpoint="game_page_zh")
 @app.route("/games/<game_id>")
 def game_page(game_id: str):
     with SessionLocal() as session:
@@ -4643,7 +4830,7 @@ def game_page(game_id: str):
         )
         players_by_team: dict[str, list[dict[str, str | int]]] = defaultdict(list)
         for stat, player in player_rows:
-            player_name = player.full_name if player is not None and player.full_name else stat.player_id
+            player_name = _display_player_name(player) if player is not None else stat.player_id
             players_by_team[stat.team_id].append(
                 {
                     "player_id": stat.player_id,
@@ -4689,7 +4876,7 @@ def game_page(game_id: str):
 
         # Player name map from already-fetched player_rows (no extra query)
         _player_name_map = {
-            str(stat.player_id): (player.full_name if player and player.full_name else str(stat.player_id))
+            str(stat.player_id): (_display_player_name(player) if player else str(stat.player_id))
             for stat, player in player_rows
         }
 
@@ -4758,7 +4945,7 @@ def game_page(game_id: str):
         if shot_player_ids:
             shot_players = session.query(Player).filter(Player.player_id.in_(shot_player_ids)).all()
             shot_player_map = {
-                str(player.player_id): (player.full_name or str(player.player_id))
+                str(player.player_id): (_display_player_name(player) or str(player.player_id))
                 for player in shot_players
             }
         shot_rows = []
@@ -4840,6 +5027,7 @@ def game_page(game_id: str):
     )
 
 
+@app.get("/cn/games/<game_id>/fragment/metrics", endpoint="game_fragment_metrics_zh")
 @app.get("/games/<game_id>/fragment/metrics")
 def game_fragment_metrics(game_id: str):
     """Async fragment: game metrics section."""
@@ -4851,6 +5039,7 @@ def game_fragment_metrics(game_id: str):
     return render_template("_game_metrics.html", game_metrics=game_metrics)
 
 
+@app.route("/cn/metrics", endpoint="metrics_browse_zh")
 @app.route("/metrics")
 def metrics_browse():
     scope_filter = request.args.get("scope", "")
@@ -4877,6 +5066,7 @@ def metrics_browse():
     )
 
 
+@app.route("/cn/metrics/mine", endpoint="my_metrics_zh")
 @app.route("/metrics/mine")
 def my_metrics():
     denied = _require_login_page()
@@ -4925,6 +5115,7 @@ def my_metrics():
     )
 
 
+@app.route("/cn/metrics/new", endpoint="metric_new_zh")
 @app.route("/metrics/new")
 def metric_new():
     denied = _require_metric_creator_page()
@@ -4951,6 +5142,7 @@ def metric_new():
     )
 
 
+@app.route("/cn/metrics/<metric_key>/edit", endpoint="metric_edit_zh")
 @app.route("/metrics/<metric_key>/edit")
 def metric_edit(metric_key: str):
     denied = _require_metric_creator_page()
@@ -4977,7 +5169,9 @@ def metric_edit(metric_key: str):
         edit_data = {
             "key": m.key,
             "name": m.name,
+            "name_zh": m.name_zh or "",
             "description": m.description or "",
+            "description_zh": m.description_zh or "",
             "scope": m.scope,
             "category": m.category or "",
             "code": m.code_python or "",
@@ -5557,6 +5751,7 @@ def api_metric_create():
 
     key = (body.get("key") or "").strip().lower().replace(" ", "_")
     name = (body.get("name") or "").strip()
+    name_zh = (body.get("name_zh") or "").strip()
     scope = (body.get("scope") or "").strip()
     code_python = (body.get("code") or "").strip()
     definition = body.get("definition")
@@ -5581,8 +5776,10 @@ def api_metric_create():
         code_python = code_metadata["code_python"]
         key = code_metadata["key"]
         name = code_metadata["name"]
+        name_zh = code_metadata.get("name_zh", "")
         scope = code_metadata["scope"]
         description = code_metadata["description"]
+        description_zh = code_metadata.get("description_zh", "")
         category = code_metadata["category"]
         min_sample = code_metadata["min_sample"]
     else:
@@ -5591,6 +5788,7 @@ def api_metric_create():
         if not name or not scope:
             return jsonify({"ok": False, "error": "name and scope are required"}), 400
         description = body.get("description", "")
+        description_zh = body.get("description_zh", "")
         category = body.get("category", "")
         min_sample = int(body.get("min_sample", 1))
         definition = definition or {}
@@ -5635,7 +5833,9 @@ def api_metric_create():
             base_metric_key=None,
             managed_family=False,
             name=name,
+            name_zh=name_zh or None,
             description=description,
+            description_zh=description_zh or None,
             scope=scope,
             category=category,
             group_key=body.get("group_key"),
@@ -5656,7 +5856,9 @@ def api_metric_create():
             m,
             source_type=source_type,
             name=name,
+            name_zh=name_zh,
             description=description,
+            description_zh=description_zh,
             scope=scope,
             category=category,
             group_key=body.get("group_key"),
@@ -5876,7 +6078,7 @@ def api_metric_update(metric_key: str):
                 return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
             code_python = code_metadata["code_python"]
 
-        metadata_fields = {"code", "definition", "name", "description", "scope", "category", "min_sample", "group_key", "expression", "rank_order"}
+        metadata_fields = {"code", "definition", "name", "name_zh", "description", "description_zh", "scope", "category", "min_sample", "group_key", "expression", "rank_order"}
         if not any(field in body for field in metadata_fields):
             m.updated_at = datetime.utcnow()
             session.commit()
@@ -5893,7 +6095,9 @@ def api_metric_update(metric_key: str):
                     source_code = code_metadata["code_python"]
                 source_definition = None
                 name = body.get("name") or code_metadata["name"]
+                name_zh = body.get("name_zh") if body.get("name_zh") is not None else code_metadata.get("name_zh", "")
                 description = body.get("description") if body.get("description") is not None else code_metadata["description"]
+                description_zh = body.get("description_zh") if body.get("description_zh") is not None else code_metadata.get("description_zh", "")
                 scope = body.get("scope") or code_metadata["scope"]
                 category = body.get("category") or code_metadata["category"]
                 min_sample = int(body.get("min_sample") or code_metadata["min_sample"])
@@ -5908,7 +6112,9 @@ def api_metric_update(metric_key: str):
                     except Exception:
                         source_definition = {}
                 name = body.get("name", getattr(m, "name", metric_key))
+                name_zh = body.get("name_zh", getattr(m, "name_zh", "") or "")
                 description = body["description"] if body.get("description") is not None else (getattr(m, "description", "") or "")
+                description_zh = body.get("description_zh", getattr(m, "description_zh", "") or "")
                 scope = body.get("scope", getattr(m, "scope", "player"))
                 category = body.get("category", getattr(m, "category", "") or "")
                 min_sample = int(body.get("min_sample", getattr(m, "min_sample", 1) or 1))
@@ -5919,7 +6125,9 @@ def api_metric_update(metric_key: str):
                 m,
                 source_type=source_type,
                 name=name,
+                name_zh=name_zh or "",
                 description=description,
+                description_zh=description_zh or "",
                 scope=scope,
                 category=category,
                 group_key=body.get("group_key", getattr(m, "group_key", None)),
@@ -5981,8 +6189,11 @@ def _resolve_entity_labels(session, rows):
     game_ids   = {r.entity_id.split(":")[0] for r in rows if r.entity_type == "game" and r.entity_id}
 
     player_info = {
-        p.player_id: (p.full_name, bool(p.is_active))
-        for p in session.query(Player.player_id, Player.full_name, Player.is_active).filter(Player.player_id.in_(player_ids)).all()
+        p.player_id: (
+            p.full_name_zh if _is_zh() and getattr(p, "full_name_zh", None) else p.full_name,
+            bool(p.is_active),
+        )
+        for p in session.query(Player.player_id, Player.full_name, Player.full_name_zh, Player.is_active).filter(Player.player_id.in_(player_ids)).all()
     } if player_ids else {}
     player_names = {pid: info[0] for pid, info in player_info.items()}
     player_active = {pid: info[1] for pid, info in player_info.items()}
@@ -6003,7 +6214,7 @@ def _resolve_entity_labels(session, rows):
             return f"{player_name} — {franchise_name}"
         if entity_type == "team":
             t = team_map.get(entity_id)
-            return (t.full_name or t.abbr) if t else entity_id
+            return (_display_team_name(t) or t.abbr) if t else entity_id
         if entity_type == "game":
             parts = entity_id.split(":")
             gid = parts[0]
@@ -6024,6 +6235,7 @@ def _resolve_entity_labels(session, rows):
     return labels, player_active, game_info
 
 
+@app.route("/cn/metrics/<metric_key>", endpoint="metric_detail_zh")
 @app.route("/metrics/<metric_key>")
 def metric_detail(metric_key: str):
     import json
@@ -6113,8 +6325,20 @@ def metric_detail(metric_key: str):
                 if type_code in _type_buckets:
                     season_groups.append({
                         "type_code": type_code,
-                        "type_name": _SEASON_TYPE_NAMES.get(type_code, type_code),
-                        "type_name_plural": _SEASON_TYPE_PLURAL.get(type_code, type_code),
+                        "type_name": _t(_SEASON_TYPE_NAMES.get(type_code, type_code), {
+                            "Regular Season": "常规赛",
+                            "Playoffs": "季后赛",
+                            "PlayIn": "附加赛",
+                            "Pre Season": "季前赛",
+                            "All Star": "全明星",
+                        }.get(_SEASON_TYPE_NAMES.get(type_code, type_code), _SEASON_TYPE_NAMES.get(type_code, type_code))),
+                        "type_name_plural": _t(_SEASON_TYPE_PLURAL.get(type_code, type_code), {
+                            "Regular Seasons": "常规赛",
+                            "Playoffs": "季后赛",
+                            "PlayIn": "附加赛",
+                            "Pre Seasons": "季前赛",
+                            "All Star": "全明星",
+                        }.get(_SEASON_TYPE_PLURAL.get(type_code, type_code), _SEASON_TYPE_PLURAL.get(type_code, type_code))),
                         "all_value": f"all_{type_code}",
                         "seasons": _type_buckets[type_code],
                     })
@@ -6182,11 +6406,21 @@ def metric_detail(metric_key: str):
         if search_q:
             matching_player_ids = [
                 r[0] for r in session.query(Player.player_id)
-                .filter(Player.full_name.ilike(f"%{search_q}%")).all()
+                .filter(
+                    or_(
+                        Player.full_name.ilike(f"%{search_q}%"),
+                        Player.full_name_zh.ilike(f"%{search_q}%"),
+                    )
+                ).all()
             ]
             matching_team_ids = [
                 r[0] for r in session.query(Team.team_id)
-                .filter(Team.full_name.ilike(f"%{search_q}%")).all()
+                .filter(
+                    or_(
+                        Team.full_name.ilike(f"%{search_q}%"),
+                        Team.full_name_zh.ilike(f"%{search_q}%"),
+                    )
+                ).all()
             ]
             name_filters = []
             if matching_player_ids:
@@ -6219,8 +6453,17 @@ def metric_detail(metric_key: str):
         if is_career_metric:
             period = "across all seasons"
         elif show_all_seasons:
-            _type_name = _SEASON_TYPE_NAMES.get(all_season_type, "").lower()
-            period = f"across all {_type_name} seasons" if _type_name else "across all seasons"
+            _type_name = _t(
+                _SEASON_TYPE_NAMES.get(all_season_type, "").lower(),
+                {
+                    "2": "常规赛",
+                    "4": "季后赛",
+                    "5": "附加赛",
+                    "1": "季前赛",
+                    "3": "全明星",
+                }.get(all_season_type, _SEASON_TYPE_NAMES.get(all_season_type, "").lower()),
+            )
+            period = f"跨全部{_type_name}" if _is_zh() and _type_name else ("across all seasons" if not _type_name else f"across all {_type_name} seasons")
         else:
             period = "this season"
         base_key = metric_key.removesuffix("_career")
@@ -6300,8 +6543,17 @@ def metric_detail(metric_key: str):
     if is_career_metric:
         display_season_label = "Career"
     elif show_all_seasons:
-        _type_name = _SEASON_TYPE_PLURAL.get(all_season_type, "Seasons")
-        display_season_label = f"All {_type_name}"
+        _type_name = _t(
+            _SEASON_TYPE_PLURAL.get(all_season_type, "Seasons"),
+            {
+                "2": "常规赛",
+                "4": "季后赛",
+                "5": "附加赛",
+                "1": "季前赛",
+                "3": "全明星",
+            }.get(all_season_type, "赛季"),
+        )
+        display_season_label = f"全部{_type_name}" if _is_zh() else f"All {_type_name}"
     else:
         display_season_label = _season_label(selected_season)
     current_metric_season_label = _season_label(current_metric_season) if current_metric_season else None

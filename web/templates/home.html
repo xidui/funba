@@ -273,19 +273,19 @@
 </style>
 
 <div class="home-hero">
-  <h1>NBA Court Vision</h1>
-  <p class="meta">Deep NBA analytics — shot locations, behavioral trends, and game metrics.</p>
+  <h1>{{ t('NBA Court Vision', 'NBA 球场视野') }}</h1>
+  <p class="meta">{{ t('Deep NBA analytics — shot locations, behavioral trends, and game metrics.', '深入 NBA 数据分析，覆盖投篮位置、行为趋势和比赛指标。') }}</p>
 </div>
 
 <div class="card">
-  <h2>Teams</h2>
+  <h2>{{ t('Teams', '球队') }}</h2>
   <div class="teams-map-wrap">
     <svg id="teams-map" viewBox="0 0 960 600"></svg>
   </div>
   <div class="teams-mobile-grid">
     {% if east_standings or west_standings %}
     <div class="teams-mobile-conf">
-      <div class="conf-label">Eastern Conference</div>
+      <div class="conf-label">{{ t('Eastern Conference', '东部') }}</div>
       <div class="team-chip-grid">
         {% for team in east_standings|sort(attribute='abbr') %}
         <a href="{{ url_for('team_page', team_id=team.team_id) }}" class="team-chip">{{ team.abbr }}</a>
@@ -293,7 +293,7 @@
       </div>
     </div>
     <div class="teams-mobile-conf">
-      <div class="conf-label">Western Conference</div>
+      <div class="conf-label">{{ t('Western Conference', '西部') }}</div>
       <div class="team-chip-grid">
         {% for team in west_standings|sort(attribute='abbr') %}
         <a href="{{ url_for('team_page', team_id=team.team_id) }}" class="team-chip">{{ team.abbr }}</a>
@@ -301,7 +301,7 @@
       </div>
     </div>
     {% else %}
-    <p class="meta">Could not load teams.</p>
+    <p class="meta">{{ t('Could not load teams.', '球队加载失败。') }}</p>
     {% endif %}
   </div>
 </div>
@@ -417,8 +417,8 @@
 {% if east_standings or west_standings %}
 <div class="card">
   <div class="standings-header">
-    <h2 style="margin:0;">Standings</h2>
-    <select class="season-select" onchange="location.href='/?season='+this.value">
+    <h2 style="margin:0;">{{ t('Standings', '排名') }}</h2>
+    <select class="season-select" onchange="location.href='{{ url_for('home') }}?season='+this.value">
       {% for sid in standing_season_ids %}
       <option value="{{ sid }}" {% if sid == selected_standing_season %}selected{% endif %}>
         {{ fmt_season(sid) }}
@@ -427,7 +427,7 @@
     </select>
   </div>
   <div class="standings-grid">
-    {% for conf_name, conf_teams in [('Eastern Conference', east_standings), ('Western Conference', west_standings)] %}
+    {% for conf_name, conf_teams in [(t('Eastern Conference', '东部'), east_standings), (t('Western Conference', '西部'), west_standings)] %}
     <div>
       <div class="conf-label">{{ conf_name }}</div>
       <div class="table-wrap">
@@ -435,10 +435,10 @@
           <thead>
             <tr>
               <th>#</th>
-              <th>Team</th>
+              <th>{{ t('Team', '球队') }}</th>
               <th class="right">W</th>
               <th class="right">L</th>
-              <th class="right">Win%</th>
+              <th class="right">{{ t('Win%', '胜率') }}</th>
             </tr>
           </thead>
           <tbody>

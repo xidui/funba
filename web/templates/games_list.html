@@ -165,18 +165,18 @@
     if (season) params.set('season', season);
     if (team) params.set('team', team);
     const query = params.toString();
-    window.location.href = '/games' + (query ? '?' + query : '');
+    window.location.href = '{{ url_for("games_list") }}' + (query ? '?' + query : '');
   }
 </script>
 
 <div class="games-header">
-  <h1 style="margin:0;">Games</h1>
+  <h1 style="margin:0;">{{ t('Games', '比赛') }}</h1>
   <div class="games-filters">
     <select id="games-team-select" class="season-select" onchange="applyGamesFilters()">
-      <option value="">All Teams</option>
+      <option value="">{{ t('All Teams', '全部球队') }}</option>
       {% for team in all_teams %}
       <option value="{{ team.team_id }}" {% if team.team_id == selected_team %}selected{% endif %}>
-        {{ team.abbr }} — {{ team.full_name }}
+          {{ team.abbr }} — {{ display_team_name(team) }}
       </option>
       {% endfor %}
     </select>
@@ -213,7 +213,7 @@
         {% endif %}
         <span class="game-team-main">
           {{ road.abbr if road else (game.road_team_id or '-') }}
-          <span class="game-team-note">Away</span>
+          <span class="game-team-note">{{ t('Away', '客场') }}</span>
         </span>
       </span>
       <span class="game-score-block">
@@ -228,7 +228,7 @@
       <span class="game-team right {{ 'winner' if home_won else ('loser' if road_won else '') }}">
         <span class="game-team-main">
           {{ home.abbr if home else (game.home_team_id or '-') }}
-          <span class="game-team-note">Home</span>
+          <span class="game-team-note">{{ t('Home', '主场') }}</span>
         </span>
         {% if home and home.team_id %}
         <img
@@ -246,9 +246,9 @@
   {% else %}
   <p class="meta">
     {% if selected_team_obj %}
-    No games found for {{ selected_team_obj.full_name }} in this season.
+    {{ t('No games found for', '这个赛季没有找到') }} {{ display_team_name(selected_team_obj) }} {{ t('in this season.', '的比赛。') }}
     {% else %}
-    No games found for this season.
+    {{ t('No games found for this season.', '这个赛季没有找到比赛。') }}
     {% endif %}
   </p>
   {% endif %}

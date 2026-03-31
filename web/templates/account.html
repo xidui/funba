@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set title = "Account — FUNBA" %}
+{% set title = t("Account — FUNBA", "账户 — FUNBA") %}
 {% block content %}
 <style>
   .account-wrap { max-width: 520px; margin: 48px auto; padding: 0 16px; }
@@ -54,39 +54,39 @@
 
 <div class="account-wrap">
   {% if checkout == 'success' %}
-  <div class="success-banner">Welcome to Pro! Your subscription is now active.</div>
+  <div class="success-banner">{{ t('Welcome to Pro! Your subscription is now active.', '欢迎加入 Pro！你的订阅已生效。') }}</div>
   {% endif %}
 
   <div class="account-card">
-    <h1 class="account-title">Account</h1>
+    <h1 class="account-title">{{ t('Account', '账户') }}</h1>
 
     <div class="account-row">
-      <span class="account-label">Name</span>
+      <span class="account-label">{{ t('Name', '姓名') }}</span>
       <span class="account-value">{{ user.display_name }}</span>
     </div>
     <div class="account-row">
-      <span class="account-label">Email</span>
+      <span class="account-label">{{ t('Email', '邮箱') }}</span>
       <span class="account-value">{{ user.email }}</span>
     </div>
     <div class="account-row">
-      <span class="account-label">Plan</span>
+      <span class="account-label">{{ t('Plan', '方案') }}</span>
       <span>
         {% if user.subscription_tier == 'pro' %}
         <span class="tier-badge tier-pro">Pro</span>
         {% else %}
-        <span class="tier-badge tier-free">Free</span>
+        <span class="tier-badge tier-free">{{ t('Free', '免费') }}</span>
         {% endif %}
       </span>
     </div>
     {% if user.subscription_status %}
     <div class="account-row">
-      <span class="account-label">Status</span>
+      <span class="account-label">{{ t('Status', '状态') }}</span>
       <span class="account-value" style="text-transform:capitalize;">{{ user.subscription_status }}</span>
     </div>
     {% endif %}
     {% if user.subscription_expires_at %}
     <div class="account-row">
-      <span class="account-label">Access until</span>
+      <span class="account-label">{{ t('Access until', '有效期至') }}</span>
       <span class="account-value">{{ user.subscription_expires_at.strftime('%b %d, %Y') }}</span>
     </div>
     {% endif %}
@@ -94,12 +94,12 @@
     <div class="account-actions">
       {% if user.stripe_customer_id %}
       <form method="post" action="{{ url_for('subscribe_portal') }}" style="margin:0;">
-        <button type="submit" class="account-btn account-btn-secondary">Manage Subscription</button>
+        <button type="submit" class="account-btn account-btn-secondary">{{ t('Manage Subscription', '管理订阅') }}</button>
       </form>
       {% endif %}
       {% if user.subscription_tier != 'pro' %}
       <form method="post" action="{{ url_for('subscribe_checkout') }}" style="margin:0;">
-        <button type="submit" class="account-btn account-btn-primary">Upgrade to Pro</button>
+        <button type="submit" class="account-btn account-btn-primary">{{ t('Upgrade to Pro', '升级到 Pro') }}</button>
       </form>
       {% endif %}
     </div>

@@ -344,8 +344,8 @@
 <div class="card awards-hero">
   <div class="awards-hero-inner">
     <div class="awards-hero-copy">
-      <h1>NBA Awards</h1>
-      <p>Historical honors, championships, and All-NBA selections. Every result on this page is loaded from the database, not hardcoded into the UI.</p>
+      <h1>{{ t('NBA Awards', 'NBA 荣誉榜') }}</h1>
+      <p>{{ t('Historical honors, championships, and All-NBA selections. Every result on this page is loaded from the database, not hardcoded into the UI.', '历届荣誉、总冠军和最佳阵容名单。此页所有结果均来自数据库，不是前端硬编码。') }}</p>
     </div>
     <div class="awards-hero-mark" aria-hidden="true">
       <svg viewBox="0 0 64 64" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -383,9 +383,9 @@
   </div>
 
   <div class="awards-filter">
-    <label for="award-season-select">Season</label>
+    <label for="award-season-select">{{ t('Season', '赛季') }}</label>
     <select id="award-season-select" onchange="updateAwardSeason(this.value)">
-      <option value="">All seasons</option>
+      <option value="">{{ t('All seasons', '全部赛季') }}</option>
       {% for season in season_options %}
       <option value="{{ season }}" {% if season == selected_season %}selected{% endif %}>{{ season_label(season) }}</option>
       {% endfor %}
@@ -402,7 +402,7 @@
         {% if selected_season %}
         <p>{{ season_label(selected_season) }} across the league.</p>
         {% else %}
-        <p>Reverse-chronological history.</p>
+        <p>{{ t('Reverse-chronological history.', '按时间倒序展示。') }}</p>
         {% endif %}
       </div>
     </div>
@@ -443,7 +443,7 @@
               {% if champion.team_id %}
               <a href="{{ url_for('team_page', team_id=champion.team_id) }}">{{ champion.team_name }}</a>
               {% else %}
-              <span style="font-family:'Outfit', sans-serif; font-size:16px; font-weight:700; color:var(--heading);">{{ champion.team_name or champion.notes or 'Unknown Team' }}</span>
+              <span style="font-family:'Outfit', sans-serif; font-size:16px; font-weight:700; color:var(--heading);">{{ champion.team_name or champion.notes or t('Unknown Team', '未知球队') }}</span>
               {% endif %}
               <div class="award-meta-line">
                 {% if champion.team_id %}
@@ -495,7 +495,7 @@
   {% endfor %}
 {% else %}
 <div class="card">
-  <p class="awards-empty">No awards found for this season.</p>
+  <p class="awards-empty">{{ t('No awards found for this season.', '这个赛季没有找到荣誉记录。') }}</p>
 </div>
 {% endif %}
 

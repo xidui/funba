@@ -225,6 +225,7 @@ class TestTemplateHeroRendering(unittest.TestCase):
             template_dir = os.path.join(os.path.dirname(__file__), "..", "web", "templates")
             env = Environment(loader=FileSystemLoader(template_dir))
             env.globals["url_for"] = lambda endpoint, **kw: f"/metrics/{kw.get('metric_key', '')}"
+            env.globals["t"] = lambda en, zh=None: en
             cls.env = env
             cls.available = True
         except Exception:

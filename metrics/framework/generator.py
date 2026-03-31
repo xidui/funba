@@ -72,7 +72,9 @@ NOTE: PlayerSalary.season is a 4-digit year (e.g. 2024), NOT the 5-digit Game.se
 class MetricDefinition(ABC):
     key: str            # unique identifier, e.g. "first_half_high_score"
     name: str           # display name
+    name_zh: str        # Chinese display name
     description: str    # one-sentence description
+    description_zh: str # Chinese one-sentence description
     scope: str          # "player" | "player_franchise" | "team" | "game"
     category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
     min_sample: int = 10
@@ -254,9 +256,11 @@ to understand the patterns, coding style, and data access conventions.
 ## Your output format
 
 Reply with ONLY a JSON object (no markdown fences).
-IMPORTANT: Regardless of what language the user writes in, all metric fields (name,
-description, code, value_str) must be in English. Clarification messages should match
-the user's language.
+IMPORTANT:
+- `name` and `description` must always be in English.
+- `name_zh` and `description_zh` must always be in Simplified Chinese.
+- Code comments, code identifiers, and value_str outputs should stay in English.
+- Clarification messages should match the user's language.
 
 If the user is asking a clarification question, explanation request, or anything
 that should be answered conversationally instead of generating code, reply with:
@@ -269,7 +273,9 @@ If the user is asking you to create or modify a metric, reply with:
 {
   "responseType": "code",
   "name": "Short display name",
+  "name_zh": "简体中文短名称",
   "description": "One sentence describing what this measures.",
+  "description_zh": "一句中文说明这个指标衡量什么。",
   "scope": "player | player_franchise | team | game",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
   "min_sample": <int>,
@@ -291,6 +297,7 @@ IMPORTANT:
   want to create. Write as if talking to an NBA fan, not a developer.
 - For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
+- The generated MetricDefinition subclass must define both `name_zh` and `description_zh` class attributes.
 - Include all necessary imports at the top of the code. Never use __import__() or dynamic imports inside methods.
 - Only these top-level modules are allowed: __future__, collections, dataclasses, datetime, db, decimal, enum, fractions, functools, itertools, json, math, metrics, numpy, operator, pandas, re, sqlalchemy, statistics, string, typing. Any other import will be rejected.
 - Import MetricDefinition and MetricResult from metrics.framework.base.
@@ -535,8 +542,19 @@ def generate(
 
     spec["responseType"] = "code"
 
+    # Backward-compat: older prompts/tests may omit the Chinese fields.
+    if existing:
+        spec.setdefault("name_zh", existing.get("name_zh") or existing.get("name") or spec.get("name", ""))
+        spec.setdefault(
+            "description_zh",
+            existing.get("description_zh") or existing.get("description") or spec.get("description", ""),
+        )
+    else:
+        spec.setdefault("name_zh", spec.get("name", ""))
+        spec.setdefault("description_zh", spec.get("description", ""))
+
     # Validate required keys
-    for key in ("name", "description", "scope", "code"):
+    for key in ("name", "name_zh", "description", "description_zh", "scope", "code"):
         if key not in spec:
             raise ValueError(f"AI response missing required key: {key!r}")
 
@@ -545,7 +563,7 @@ def generate(
 
     # In edit mode, override metadata with the existing values
     if existing:
-        for field in ("key", "name", "description", "scope", "category", "rank_order"):
+        for field in ("key", "name", "name_zh", "description", "description_zh", "scope", "category", "rank_order"):
             if field in existing:
                 spec[field] = existing[field]
 

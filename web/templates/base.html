@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -1307,10 +1307,10 @@
             id="gs-input"
             class="gs-input"
             type="search"
-            placeholder="Search players…"
+            placeholder="{{ t('Search players…', '搜索球员…') }}"
             autocomplete="off"
             spellcheck="false"
-            aria-label="Search players"
+            aria-label="{{ t('Search players', '搜索球员') }}"
           />
           <div id="gs-dropdown" class="gs-dropdown" role="listbox"></div>
         </div>
@@ -1331,11 +1331,25 @@
         </button>
 
         <nav class="topbar-nav">
-          <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if request.endpoint == 'home' }}">Home</a>
-          <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if request.endpoint == 'games_list' }}">Games</a>
-          <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}">Metrics</a>
-          <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if request.endpoint == 'awards_page' }}">Awards</a>
-          <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if request.endpoint == 'pricing' }}">Pricing</a>
+          <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if active_public_endpoint == 'home' }}">{{ t('Home', '首页') }}</a>
+          <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if active_public_endpoint == 'games_list' }}">{{ t('Games', '比赛') }}</a>
+          <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}">{{ t('Metrics', '指标') }}</a>
+          <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if active_public_endpoint == 'awards_page' }}">{{ t('Awards', '荣誉') }}</a>
+          <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if active_public_endpoint == 'pricing' }}">{{ t('Pricing', '价格') }}</a>
+          {% if toggle_language_url %}
+          <div style="display:inline-flex;align-items:center;gap:6px;margin-left:2px;font-size:11px;color:var(--muted);">
+            <span style="{% if lang == 'en' %}color:var(--heading);font-weight:700;{% endif %}">EN</span>
+            <span>/</span>
+            {% if lang == 'zh' %}
+            <span style="color:var(--heading);font-weight:700;">中文</span>
+            {% else %}
+            <a href="{{ toggle_language_url }}" class="nav-link" style="padding:0;min-height:auto;">中文</a>
+            {% endif %}
+            {% if lang == 'zh' %}
+            <a href="{{ toggle_language_url }}" class="nav-link" style="padding:0;min-height:auto;">EN</a>
+            {% endif %}
+          </div>
+          {% endif %}
           {% if is_admin %}
           <div class="admin-menu-wrap" id="admin-menu-wrap">
             <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback', 'admin_settings') }}" id="admin-menu-btn">
@@ -1396,15 +1410,15 @@
                 <div class="user-dropdown-name">{{ current_user.display_name }}</div>
                 <div class="user-dropdown-email">{{ current_user.email }}</div>
               </div>
-              <a href="{{ url_for('my_metrics') }}" class="user-dropdown-action">My Metrics</a>
-              <a href="{{ url_for('account_page') }}" class="user-dropdown-action">Account</a>
+              <a href="{{ url_for('my_metrics') }}" class="user-dropdown-action">{{ t('My Metrics', '我的指标') }}</a>
+              <a href="{{ url_for('account_page') }}" class="user-dropdown-action">{{ t('Account', '账户') }}</a>
               <form method="post" action="{{ url_for('auth_logout') }}" style="margin:0;">
-                <button type="submit" class="user-dropdown-action">Sign out</button>
+                <button type="submit" class="user-dropdown-action">{{ t('Sign out', '退出登录') }}</button>
               </form>
             </div>
           </div>
           {% else %}
-          <a href="{{ url_for('auth_login', next=request.url) }}" class="nav-link">Sign in</a>
+          <a href="{{ url_for('auth_login', next=request.url) }}" class="nav-link">{{ t('Sign in', '登录') }}</a>
           {% endif %}
         </nav>
       </div>
@@ -1412,11 +1426,14 @@
       <div id="mobile-nav" class="mobile-nav-overlay" role="navigation" aria-label="Mobile navigation">
         <div class="mobile-nav-inner">
           <div class="mobile-nav-list">
-            <a href="{{ url_for('home') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'home' }}" role="menuitem">Home</a>
-            <a href="{{ url_for('games_list') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'games_list' }}" role="menuitem">Games</a>
-            <a href="{{ url_for('metrics_browse') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'metrics_browse' }}" role="menuitem">Metrics</a>
-            <a href="{{ url_for('awards_page') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'awards_page' }}" role="menuitem">Awards</a>
-            <a href="{{ url_for('pricing') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'pricing' }}" role="menuitem">Pricing</a>
+            <a href="{{ url_for('home') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'home' }}" role="menuitem">{{ t('Home', '首页') }}</a>
+            <a href="{{ url_for('games_list') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'games_list' }}" role="menuitem">{{ t('Games', '比赛') }}</a>
+            <a href="{{ url_for('metrics_browse') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}" role="menuitem">{{ t('Metrics', '指标') }}</a>
+            <a href="{{ url_for('awards_page') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'awards_page' }}" role="menuitem">{{ t('Awards', '荣誉') }}</a>
+            <a href="{{ url_for('pricing') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'pricing' }}" role="menuitem">{{ t('Pricing', '价格') }}</a>
+            {% if toggle_language_url %}
+            <a href="{{ toggle_language_url }}" class="mobile-nav-link" role="menuitem">{{ t('中文', 'English') }}</a>
+            {% endif %}
             {% if is_admin %}
             <div class="mobile-nav-section">
               <a href="{{ url_for('admin_pipeline') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}" role="menuitem">Pipeline Status</a>
@@ -1441,7 +1458,7 @@
                 <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path>
                 </svg>
-                <span id="mobile-theme-label" class="mobile-theme-label">Light mode</span>
+                <span id="mobile-theme-label" class="mobile-theme-label">{{ t('Light mode', '浅色模式') }}</span>
               </button>
             </div>
             {% if current_user %}
@@ -1467,15 +1484,15 @@
                   <span class="mobile-user-email">{{ current_user.email }}</span>
                 </div>
               </div>
-              <a href="{{ url_for('my_metrics') }}" class="mobile-nav-link" role="menuitem">My Metrics</a>
-              <a href="{{ url_for('account_page') }}" class="mobile-nav-link" role="menuitem">Account</a>
+              <a href="{{ url_for('my_metrics') }}" class="mobile-nav-link" role="menuitem">{{ t('My Metrics', '我的指标') }}</a>
+              <a href="{{ url_for('account_page') }}" class="mobile-nav-link" role="menuitem">{{ t('Account', '账户') }}</a>
               <form method="post" action="{{ url_for('auth_logout') }}" class="mobile-nav-form">
-                <button type="submit" class="mobile-nav-link" role="menuitem">Sign out</button>
+                <button type="submit" class="mobile-nav-link" role="menuitem">{{ t('Sign out', '退出登录') }}</button>
               </form>
             </div>
             {% else %}
             <div class="mobile-nav-section">
-              <a href="{{ url_for('auth_login', next=request.url) }}" class="mobile-nav-link" role="menuitem">Sign in</a>
+              <a href="{{ url_for('auth_login', next=request.url) }}" class="mobile-nav-link" role="menuitem">{{ t('Sign in', '登录') }}</a>
             </div>
             {% endif %}
           </div>
@@ -1508,21 +1525,21 @@
             />
             <span class="brand-name">FUNBA</span>
           </a>
-          <p class="footer-desc">Independent NBA analytics — shot quality, behavioral metrics, and play-by-play breakdowns for every game.</p>
+          <p class="footer-desc">{{ t('Independent NBA analytics — shot quality, behavioral metrics, and play-by-play breakdowns for every game.', '独立 NBA 数据分析网站，覆盖投篮质量、行为指标和逐回合比赛拆解。') }}</p>
         </div>
 
         <div class="footer-col">
-          <h4 class="footer-heading">Explore</h4>
+          <h4 class="footer-heading">{{ t('Explore', '浏览') }}</h4>
           <ul class="footer-links">
-            <li><a href="{{ url_for('home') }}">Home</a></li>
-            <li><a href="{{ url_for('games_list') }}">Games</a></li>
-            <li><a href="{{ url_for('metrics_browse') }}">Metrics</a></li>
+            <li><a href="{{ url_for('home') }}">{{ t('Home', '首页') }}</a></li>
+            <li><a href="{{ url_for('games_list') }}">{{ t('Games', '比赛') }}</a></li>
+            <li><a href="{{ url_for('metrics_browse') }}">{{ t('Metrics', '指标') }}</a></li>
           </ul>
         </div>
 
         <div class="footer-col">
-          <h4 class="footer-heading">Get in Touch</h4>
-          <p class="footer-desc">Open to collaboration, feedback, or just talking basketball.</p>
+          <h4 class="footer-heading">{{ t('Get in Touch', '联系我') }}</h4>
+          <p class="footer-desc">{{ t('Open to collaboration, feedback, or just talking basketball.', '欢迎合作、反馈，或者单纯聊篮球。') }}</p>
           <a href="mailto:yuewang.sj@gmail.com" class="footer-email-link">yuewang.sj@gmail.com</a>
           <button
             id="feedback-btn"
@@ -1530,13 +1547,13 @@
             style="margin-top:10px;cursor:pointer;border:none;display:block;width:fit-content;"
             data-login-url="{{ url_for('auth_login', next=request.url) }}"
             data-logged-in="{{ '1' if current_user else '' }}"
-          >Leave Feedback</button>
+          >{{ t('Leave Feedback', '提交反馈') }}</button>
         </div>
       </div>
 
       <div class="footer-bottom">
         <span>&copy; {{ current_year }} FUNBA. All rights reserved.</span>
-        <span class="footer-disclaimer">Data sourced from NBA Stats API. Not affiliated with the NBA.</span>
+        <span class="footer-disclaimer">{{ t('Data sourced from NBA Stats API. Not affiliated with the NBA.', '数据来自 NBA Stats API，与 NBA 官方无关联。') }}</span>
       </div>
     </footer>
 

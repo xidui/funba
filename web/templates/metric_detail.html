@@ -663,7 +663,7 @@
   }
 </style>
 
-<a class="detail-back" href="{{ url_for('metrics_browse') }}">← All Metrics</a>
+<a class="detail-back" href="{{ url_for('metrics_browse') }}">← {{ t('All Metrics', '全部指标') }}</a>
 
 <div class="detail-header">
   <div>
@@ -672,13 +672,13 @@
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
       <span id="metric-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
-      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">{{ metric_def.source_type }} metric</span>
+      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">{{ metric_def.source_type }} {{ t('metric', '指标') }}</span>
       {% if can_create_metrics %}
-      <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">&#9998; Edit</a>
+      <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">&#9998; {{ t('Edit', '编辑') }}</a>
       {% elif metric_create_required_level == 'admin' %}
-      <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--surface-3);color:var(--muted-2);font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">Admin Only</a>
+      <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--surface-3);color:var(--muted-2);font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">{{ t('Admin Only', '仅管理员') }}</a>
       {% else %}
-      <a href="{{ url_for('auth_login', next=request.url) if current_access_level == 'anonymous' else url_for('pricing') }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--surface-3);color:var(--muted-2);font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">{% if current_access_level == 'anonymous' %}Sign In to Edit{% else %}Edit <span style="font-size:10px;color:var(--accent);">PRO</span>{% endif %}</a>
+      <a href="{{ url_for('auth_login', next=request.url) if current_access_level == 'anonymous' else url_for('pricing') }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--surface-3);color:var(--muted-2);font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">{% if current_access_level == 'anonymous' %}{{ t('Sign In to Edit', '登录后编辑') }}{% else %}{{ t('Edit', '编辑') }} <span style="font-size:10px;color:var(--accent);">PRO</span>{% endif %}</a>
       {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
@@ -701,7 +701,7 @@
     <optgroup label="{{ group.type_name }}">
       <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}"
               {% if show_all_seasons and all_season_type == group.type_code %}selected{% endif %}>
-        All {{ group.type_name_plural }}
+        {{ t('All', '全部') }} {{ group.type_name_plural }}
       </option>
       {% for s in group.seasons %}
       <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
@@ -736,7 +736,7 @@
 >
   <div style="padding:14px 18px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-      <span style="font-size:13px;font-weight:600;color:var(--text);">Computing metric results…</span>
+      <span style="font-size:13px;font-weight:600;color:var(--text);">{{ t('Computing metric results…', '正在计算指标结果…') }}</span>
       <span id="backfill-overall-pct" style="font-size:13px;font-weight:600;color:var(--accent);">{{ backfill.overall_pct|round(0)|int }}%</span>
     </div>
     <div class="progress-track" style="margin-top:0;">
@@ -988,20 +988,20 @@
           <a class="active-toggle-link{% if active_only %} on{% endif %}"
              href="{{ _toggle_url }}"
              title="{{ 'Show all players' if active_only else 'Show active players only' }}">
-            <span class="active-toggle-label{% if active_only %} selected{% endif %}">Active</span>
+            <span class="active-toggle-label{% if active_only %} selected{% endif %}">{{ t('Active', '现役') }}</span>
             <span class="active-toggle-track">
               <span class="active-toggle-thumb"></span>
             </span>
-            <span class="active-toggle-label{% if not active_only %} selected{% endif %}">All</span>
+            <span class="active-toggle-label{% if not active_only %} selected{% endif %}">{{ t('All', '全部') }}</span>
           </a>
           {% endif %}
         </th>
-        {% if show_rank_group %}<th>Group</th>{% endif %}
-        {% if show_all_seasons %}<th>Season</th>{% endif %}
-        <th class="right">Value</th>
-        {% if metric_def.scope != 'game' %}<th class="right">Games</th>{% endif %}
-        <th>Standing</th>
-        <th>Insight</th>
+        {% if show_rank_group %}<th>{{ t('Group', '分组') }}</th>{% endif %}
+        {% if show_all_seasons %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
+        <th class="right">{{ t('Value', '数值') }}</th>
+        {% if metric_def.scope != 'game' %}<th class="right">{{ t('Games', '比赛') }}</th>{% endif %}
+        <th>{{ t('Standing', '排名') }}</th>
+        <th>{{ t('Insight', '解读') }}</th>
       </tr>
     </thead>
     <tbody>
@@ -1121,12 +1121,12 @@
 <div class="empty-state">
   {% if search_q %}
   <div style="font-size:32px">🔍</div>
-  <div style="font-size:16px;font-weight:600;margin-top:12px;">No results for "{{ search_q }}"</div>
-  <p style="font-size:13px;margin-top:6px;"><a href="{{ search_base_url }}" style="color:var(--accent)">Clear search</a> to see all results.</p>
+  <div style="font-size:16px;font-weight:600;margin-top:12px;">{{ t('No results for', '没有找到结果：') }} "{{ search_q }}"</div>
+  <p style="font-size:13px;margin-top:6px;"><a href="{{ search_base_url }}" style="color:var(--accent)">{{ t('Clear search', '清除搜索') }}</a> {{ t('to see all results.', '以查看全部结果。') }}</p>
   {% else %}
   <div style="font-size:32px">📊</div>
-  <div style="font-size:16px;font-weight:600;margin-top:12px;">No results yet</div>
-  <p style="font-size:13px;margin-top:6px;">Run the daily job to compute metrics for recent games.</p>
+  <div style="font-size:16px;font-weight:600;margin-top:12px;">{{ t('No results yet', '暂无结果') }}</div>
+  <p style="font-size:13px;margin-top:6px;">{{ t('Run the daily job to compute metrics for recent games.', '运行每日任务后会计算最近比赛的指标结果。') }}</p>
   {% endif %}
 </div>
 {% endif %}
@@ -1452,13 +1452,13 @@
       const resp = await fetch(`/api/metrics/${encodeURIComponent(metricKey)}/qualifying-games?${params}`);
       const data = await resp.json();
       if (!data.ok || !data.games.length) {
-        panel.innerHTML = '<div class="drilldown-empty">No qualifying games found.</div>';
+        panel.innerHTML = '<div class="drilldown-empty">{{ t("No qualifying games found.", "没有符合条件的比赛。") }}</div>';
         return;
       }
       cache[cacheKey] = data;
       renderDrilldown(panel, data, entityId, season);
     } catch (e) {
-      panel.innerHTML = '<div class="drilldown-empty">Failed to load games.</div>';
+      panel.innerHTML = '<div class="drilldown-empty">{{ t("Failed to load games.", "比赛加载失败。") }}</div>';
     }
   }
 
@@ -1467,18 +1467,19 @@
     const hasStat = games.some(g => g.player_line || g.team_line);
     const logo = id => `<img src="https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg" style="width:16px;height:16px;vertical-align:middle" onerror="this.style.display='none'">`;
 
-    let html = `<div class="drilldown-title">Qualifying games (${total})</div>`;
+    const gameBase = "{{ url_for('game_page', game_id='__GAME_ID__') }}";
+    let html = `<div class="drilldown-title">{{ t('Qualifying games', '符合条件的比赛') }} (${total})</div>`;
     html += `<table class="drilldown-table"><thead><tr>
-      <th>Date</th><th>Matchup</th><th>Score</th><th>W/L</th>${hasStat ? '<th>Stats</th>' : ''}
+      <th>{{ t('Date', '日期') }}</th><th>{{ t('Matchup', '对阵') }}</th><th>{{ t('Score', '比分') }}</th><th>W/L</th>${hasStat ? '<th>{{ t("Stats", "数据") }}</th>' : ''}
     </tr></thead><tbody>`;
 
     html += games.map(g => {
-      const url = `/games/${g.game_id}`;
+      const url = gameBase.replace('__GAME_ID__', g.game_id);
       const score = (g.home_score != null && g.road_score != null)
         ? `${g.road_score} - ${g.home_score}` : '';
       const stat = g.player_line || g.team_line || '';
-      const wl = g.win === true ? '<span class="dd-win">W</span>'
-               : g.win === false ? '<span class="dd-loss">L</span>' : '';
+      const wl = g.win === true ? '<span class="dd-win">{{ t("W", "胜") }}</span>'
+               : g.win === false ? '<span class="dd-loss">{{ t("L", "负") }}</span>' : '';
       return `<tr>
         <td class="dd-date">${g.game_date || ''}</td>
         <td class="dd-matchup"><a href="${url}">${logo(g.road_team_id)} ${g.road_team} @ ${logo(g.home_team_id)} ${g.home_team}</a></td>
@@ -1492,9 +1493,9 @@
 
     if (total_pages > 1) {
       html += `<div class="drilldown-pager">
-        <button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}">\u2190 Prev</button>
+        <button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}">\u2190 {{ t('Prev', '上一页') }}</button>
         <span class="drilldown-pager-info">${page} / ${total_pages}</span>
-        <button ${page >= total_pages ? 'disabled' : ''} data-page="${page + 1}">Next \u2192</button>
+        <button ${page >= total_pages ? 'disabled' : ''} data-page="${page + 1}">{{ t('Next', '下一页') }} \u2192</button>
       </div>`;
     }
 
