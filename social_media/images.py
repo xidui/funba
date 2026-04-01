@@ -104,193 +104,74 @@ def _generate_openai(prompt: str, output_path: str, style: str | None = None) ->
 # ---------------------------------------------------------------------------
 
 def _smart_search_and_download(query: str, out_dir: Path, slot: str, *, max_images: int = 3) -> list[str]:
-    """Search NBA sites for relevant pages, scrape images, return multiple good ones."""
-    try:
-        paths = _scrape_best_images(query, out_dir, slot, max_images=max_images)
-        if paths:
-            return paths
-    except Exception as exc:
-        logger.info("Smart scrape failed for '%s': %s — trying Bing fallback", query[:40], exc)
-
-    # Fallback: single image from Bing
-    fallback_path = str(out_dir / f"{slot}.png")
-    _bing_image_search(query, fallback_path)
-    return [fallback_path]
-
-
-def _scrape_best_images(query: str, out_dir: Path, slot: str, *, max_images: int = 3) -> list[str]:
-    """Google search NBA sites, crawl top results, return up to max_images good images."""
-    from social_media.hupu.post import _playwright, REAL_BROWSER_UA
-    import time
-
+    """Search for NBA images via DuckDuckGo HTTP API, download multiple good ones."""
     saved: list[str] = []
-    seen_urls: set[str] = set()
 
-    def _try_save(url: str) -> bool:
-        if url in seen_urls or len(saved) >= max_images:
-            return False
-        seen_urls.add(url)
+    results = _ddg_image_api(query + " NBA")
+    logger.info("DDG image API returned %d results for '%s'", len(results), query[:40])
+
+    for r in results:
+        if len(saved) >= max_images:
+            break
+        img_url = r.get("image", "")
+        w = r.get("width", 0)
+        h = r.get("height", 0)
+        if not img_url or not _is_good_image_url(img_url):
+            continue
+        # DDG gives us dimensions — filter before downloading
+        if w < 400 or h < 300:
+            continue
+        # Skip extreme aspect ratios (banners, strips)
+        ratio = w / h if h > 0 else 0
+        if ratio < 0.4 or ratio > 3.0:
+            continue
+
         idx = len(saved)
         suffix = f"_{idx}" if idx > 0 else ""
         path = str(out_dir / f"{slot}{suffix}.png")
         try:
-            _download_file(url, path)
-            w, h = _image_dimensions(path)
-            if w >= 400 and h >= 300:
-                logger.info("Smart search [%d/%d]: %dx%d from %s", idx + 1, max_images, w, h, url[:80])
+            _download_file(img_url, path)
+            actual_w, actual_h = _image_dimensions(path)
+            if actual_w >= 400 and actual_h >= 300:
+                logger.info("DDG image [%d/%d]: %dx%d from %s", idx + 1, max_images, actual_w, actual_h, img_url[:80])
                 saved.append(path)
-                return True
             else:
                 Path(path).unlink(missing_ok=True)
         except Exception:
             Path(path).unlink(missing_ok=True)
-        return False
 
-    site_clause = " OR ".join(f"site:{s}" for s in NBA_SITES[:4])
-    search_query = f"{query} ({site_clause})"
-    search_url = f"https://www.google.com/search?q={requests.utils.quote(search_query)}&tbm=isch&udm=2"
-
-    with _playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--headless=new"])
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            locale="en-US",
-            user_agent=REAL_BROWSER_UA,
-        )
-        page = context.new_page()
-
-        # Step 1: Google Image Search
-        page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(2)
-
-        candidate_urls = _extract_google_image_results(page)
-        logger.info("Google image search returned %d candidates for '%s'", len(candidate_urls), query[:40])
-
-        for url in candidate_urls[:15]:
-            if len(saved) >= max_images:
-                break
-            if _is_good_image_url(url):
-                _try_save(url)
-
-        # Step 2: If we need more, crawl NBA site pages
-        if len(saved) < max_images:
-            regular_search_url = f"https://www.google.com/search?q={requests.utils.quote(query + ' NBA')}"
-            page.goto(regular_search_url, wait_until="domcontentloaded", timeout=15000)
-            time.sleep(2)
-
-            page_urls = []
-            links = page.query_selector_all("a[href]")
-            for link in links:
-                href = link.get_attribute("href") or ""
-                if "/url?q=" in href:
-                    actual = href.split("/url?q=")[1].split("&")[0]
-                    if any(site in actual for site in NBA_SITES):
-                        page_urls.append(requests.utils.unquote(actual))
-                elif any(site in href for site in NBA_SITES):
-                    page_urls.append(href)
-
-            logger.info("Found %d NBA site pages to scrape for '%s'", len(page_urls), query[:40])
-
-            for page_url in page_urls[:3]:
-                if len(saved) >= max_images:
-                    break
-                try:
-                    images = _scrape_page_images(page, page_url)
-                    for img_url in images:
-                        if len(saved) >= max_images:
-                            break
-                        _try_save(img_url)
-                except Exception as exc:
-                    logger.debug("Failed to scrape %s: %s", page_url[:60], exc)
-
-        context.close()
-        browser.close()
-
+    if not saved:
+        raise RuntimeError(f"No suitable images found for: {query}")
     return saved
 
 
-def _extract_google_image_results(page) -> list[str]:
-    """Extract image URLs from a Google Image Search results page."""
-    urls = []
-    # Google image results store full-res URLs in data attributes or nested JSON
-    imgs = page.query_selector_all("img[src]")
-    for img in imgs:
-        src = img.get_attribute("src") or ""
-        # Skip Google's own tiny thumbnails (base64 or gstatic)
-        if src.startswith("data:") or "gstatic.com" in src:
-            continue
-        if src.startswith("http") and _is_good_image_url(src):
-            urls.append(src)
+def _ddg_image_api(query: str) -> list[dict]:
+    """Call DuckDuckGo image search via its HTTP API (no API key needed)."""
+    session = requests.Session()
+    session.headers["User-Agent"] = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
+    )
 
-    # Also try to extract from links around images
-    links = page.query_selector_all("a[href*='imgurl=']")
-    for link in links:
-        href = link.get_attribute("href") or ""
-        match = re.search(r"imgurl=([^&]+)", href)
-        if match:
-            urls.append(requests.utils.unquote(match.group(1)))
+    # Step 1: get vqd token
+    resp = session.get("https://duckduckgo.com/", params={"q": query}, timeout=10)
+    resp.raise_for_status()
+    match = re.search(r'vqd="([^"]+)"', resp.text) or re.search(r"vqd=([^&\"']+)", resp.text)
+    if not match:
+        raise RuntimeError("Failed to obtain DuckDuckGo vqd token")
+    vqd = match.group(1)
 
-    return urls
-
-
-def _scrape_page_images(page, url: str) -> list[str]:
-    """Visit a page and return image URLs sorted by likely relevance."""
-    import time
-    page.goto(url, wait_until="domcontentloaded", timeout=12000)
-    time.sleep(2)
-
-    # Extract all images with their metadata
-    raw_images = page.evaluate("""() => {
-        const imgs = Array.from(document.querySelectorAll('img'));
-        return imgs.map(img => {
-            const rect = img.getBoundingClientRect();
-            return {
-                src: img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '',
-                width: img.naturalWidth || rect.width || 0,
-                height: img.naturalHeight || rect.height || 0,
-                alt: img.alt || '',
-                inViewport: rect.top >= 0 && rect.top < 3000,
-                area: rect.width * rect.height,
-            };
-        });
-    }""")
-
-    # Score and filter
-    scored = []
-    for img in raw_images:
-        src = img.get("src", "")
-        if not src or not src.startswith("http"):
-            continue
-        if not _is_good_image_url(src):
-            continue
-
-        w = img.get("width", 0)
-        h = img.get("height", 0)
-        area = img.get("area", 0)
-
-        # Must be reasonably large
-        if w < 200 and h < 200 and area < 40000:
-            continue
-
-        score = 0.0
-        # Prefer larger images
-        score += min(area / 100000, 5.0)
-        # Prefer images in the main content area (top 3000px)
-        if img.get("inViewport"):
-            score += 2.0
-        # Prefer images with descriptive alt text
-        if len(img.get("alt", "")) > 10:
-            score += 1.0
-        # Penalize very wide/narrow aspect ratios (likely banners)
-        if w > 0 and h > 0:
-            ratio = w / h
-            if 0.5 < ratio < 2.5:
-                score += 1.0
-
-        scored.append((score, src))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [url for _, url in scored]
+    # Step 2: image search
+    img_resp = session.get("https://duckduckgo.com/i.js", params={
+        "l": "us-en",
+        "o": "json",
+        "q": query,
+        "vqd": vqd,
+        "f": ",,,,,",
+        "p": "1",
+    }, timeout=10)
+    img_resp.raise_for_status()
+    return img_resp.json().get("results", [])
 
 
 def _is_good_image_url(url: str) -> bool:
