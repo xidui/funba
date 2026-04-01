@@ -680,6 +680,28 @@
       {% else %}
       <a href="{{ url_for('auth_login', next=request.url) if current_access_level == 'anonymous' else url_for('pricing') }}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--surface-3);color:var(--muted-2);font-size:12px;font-weight:600;border-radius:6px;text-decoration:none;margin-left:8px;">{% if current_access_level == 'anonymous' %}{{ t('Sign In to Edit', '登录后编辑') }}{% else %}{{ t('Edit', '编辑') }} <span style="font-size:10px;color:var(--accent);">PRO</span>{% endif %}</a>
       {% endif %}
+      {% if is_admin %}
+      {# ── Inline admin controls ── #}
+      <span style="color:var(--border);margin-left:4px;">|</span>
+      {% if metric_def.status == 'disabled' %}
+      <span class="status-pill" style="background:var(--accent);color:#000;">disabled</span>
+      <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+        style="padding:3px 10px;border-radius:6px;border:1px solid var(--win);background:transparent;color:var(--win);font-size:11px;font-weight:700;cursor:pointer;">Enable</button>
+      {% else %}
+      <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+        style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;">Disable</button>
+      {% endif %}
+      {% set _deep_dive_post = metric_deep_dive.active_post or metric_deep_dive.latest_post %}
+      <button id="metric-deep-dive-trigger" type="button" {% if not metric_deep_dive.can_trigger %}disabled{% endif %}
+        style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;">
+        {% if metric_deep_dive.can_trigger %}Deep Dive{% else %}Dive Running…{% endif %}
+      </button>
+      {% if _deep_dive_post %}
+      <a id="metric-deep-dive-open" href="{{ _deep_dive_post.admin_url }}" style="font-size:11px;font-weight:600;color:var(--muted);text-decoration:none;">Open</a>
+      {% endif %}
+      <button type="button" onclick="document.getElementById('admin-details-drawer').classList.toggle('open')"
+        style="padding:2px 8px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;">&#9881;</button>
+      {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
     {% if backfill.latest_run_at %}
@@ -745,57 +767,14 @@
   </div>
 </div>
 
-{# ── Compact admin toolbar ── #}
-{% if is_admin %}
-{% set _deep_dive_post = metric_deep_dive.active_post or metric_deep_dive.latest_post %}
-<div id="backfill-admin-panel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 4px;font-size:12px;">
-  {# Status + disable/enable #}
-  {% if metric_def.status == 'disabled' %}
-  <span class="status-pill" style="background:var(--accent);color:#000;">disabled</span>
-  <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
-    style="padding:3px 10px;border-radius:6px;border:1px solid var(--win);background:transparent;color:var(--win);font-size:11px;font-weight:700;cursor:pointer;">Enable</button>
-  {% else %}
-  <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
-    style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;">Disable</button>
-  {% endif %}
-
-  <span style="color:var(--border);">|</span>
-
-  {# Backfill status #}
-  <span style="color:var(--muted);font-weight:600;">Backfill</span>
-  <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
-  {% if backfill.done_games %}
-  <span id="backfill-done-games" style="color:var(--muted);">{{ backfill.done_games }}/{{ backfill.total_games }}</span>
-  {% endif %}
-  <button type="button" onclick="document.getElementById('admin-details-drawer').classList.toggle('open')"
-    style="padding:2px 8px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;">Details</button>
-
-  <span style="color:var(--border);">|</span>
-
-  {# Deep dive #}
-  <span
-    id="metric-deep-dive-panel"
-    data-trigger-url="{{ url_for('admin_metric_trigger_deep_dive_post', metric_key=metric_def.key) }}"
-    data-selected-view-label="{{ season_label }}"
-    data-current-season-label="{{ current_metric_season_label or '' }}"
-    data-metric-page-url="{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season) }}"
-    style="display:inline-flex;align-items:center;gap:6px;"
-  >
-    <span style="color:var(--muted);font-weight:600;">Deep Dive</span>
-    <span id="metric-deep-dive-pill" class="status-pill {{ 'running' if metric_deep_dive.active_post else (_deep_dive_post.status if _deep_dive_post else 'not_started') }}">
-      {{ 'running' if metric_deep_dive.active_post else ((_deep_dive_post.status if _deep_dive_post else 'idle')|replace('_', ' ')) }}
-    </span>
-    <button id="metric-deep-dive-trigger" type="button" {% if not metric_deep_dive.can_trigger %}disabled{% endif %}
-      style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;">
-      {% if metric_deep_dive.can_trigger %}Trigger{% else %}Running…{% endif %}
-    </button>
-    {% if _deep_dive_post %}
-    <a id="metric-deep-dive-open" href="{{ _deep_dive_post.admin_url }}" style="font-size:11px;font-weight:600;color:var(--muted);text-decoration:none;">Open</a>
-    {% endif %}
-  </span>
-</div>
-
 {# ── Expandable details drawer (hidden by default) ── #}
+{% if is_admin %}
+<span id="metric-deep-dive-panel" style="display:none;"
+  data-trigger-url="{{ url_for('admin_metric_trigger_deep_dive_post', metric_key=metric_def.key) }}"
+  data-selected-view-label="{{ season_label }}"
+  data-current-season-label="{{ current_metric_season_label or '' }}"
+  data-metric-page-url="{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season) }}"
+></span>
 <div id="admin-details-drawer" class="backfill-panel" style="margin-bottom:8px;display:none;">
   <div class="backfill-body">
   {# Backfill summary #}
