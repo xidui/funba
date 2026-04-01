@@ -747,6 +747,38 @@
 
 {# ── Detailed admin view ── #}
 {% if is_admin %}
+{% if metric_def.status == 'disabled' %}
+<div class="backfill-panel" style="margin-top:8px;border-color:var(--accent);">
+  <div class="backfill-summary" style="cursor:default;">
+    <div class="backfill-summary-main">
+      <span class="backfill-summary-title">Metric Disabled</span>
+      <span class="status-pill" style="background:var(--accent);color:#000;">disabled</span>
+      <span class="backfill-summary-meta">Hidden from users. Not included in daily computation.</span>
+    </div>
+  </div>
+  <div class="backfill-body" style="padding:8px 12px;">
+    <button
+      id="toggle-metric-enabled-btn"
+      class="content-workflow-btn"
+      type="button"
+      style="background:var(--win);color:#000;"
+      onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+    >Enable Metric</button>
+  </div>
+</div>
+{% else %}
+<div class="backfill-panel" style="margin-top:8px;">
+  <div class="backfill-body" style="padding:8px 12px;">
+    <button
+      id="toggle-metric-enabled-btn"
+      class="content-workflow-btn"
+      type="button"
+      style="background:var(--loss);color:#fff;font-size:11px;padding:4px 10px;"
+      onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+    >Disable Metric</button>
+  </div>
+</div>
+{% endif %}
 <div
   id="backfill-admin-panel"
   class="backfill-panel"
@@ -1296,6 +1328,21 @@
 })();
 </script>
 {% if is_admin %}
+<script>
+function toggleMetricEnabled(metricKey) {
+  const btn = document.getElementById('toggle-metric-enabled-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+  fetch(`/api/admin/metrics/${metricKey}/toggle-enabled`, {method:'POST'})
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) location.reload();
+      else { alert(data.error || 'Failed'); btn.disabled = false; }
+    })
+    .catch(() => { alert('Request failed'); btn.disabled = false; });
+}
+</script>
 <script>
 (() => {
   const panel = document.getElementById('metric-deep-dive-panel');

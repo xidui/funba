@@ -1212,6 +1212,8 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
     )
     if not status_filter:
         db_q = db_q.filter(MetricDefinitionModel.status != "draft")
+        if not is_admin():
+            db_q = db_q.filter(MetricDefinitionModel.status != "disabled")
     if scope_filter:
         if scope_filter == "player":
             db_q = db_q.filter(MetricDefinitionModel.scope.in_(["player", "player_franchise"]))
@@ -1455,6 +1457,18 @@ def _asc_metric_keys(session) -> set[str]:
     }
 
 
+def _disabled_metric_keys(session) -> set[str]:
+    """Return metric keys (including career variants) with status='disabled'."""
+    rows = session.query(MetricDefinitionModel.key).filter(
+        MetricDefinitionModel.status == "disabled"
+    ).all()
+    keys = set()
+    for (key,) in rows:
+        keys.add(key)
+        keys.add(key + "_career")
+    return keys
+
+
 def _game_entity_filter(entity_col, game_id: str):
     return or_(entity_col == game_id, entity_col.like(f"{game_id}:%"))
 
@@ -1599,6 +1613,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
     _asc_keys = _asc_metric_keys(session)
+    _disabled_keys = _disabled_metric_keys(session) if not is_admin() else set()
     scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
 
     # Inner subquery: compute rank and total over the full population for
@@ -1612,6 +1627,8 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         MetricResultModel.entity_type == entity_type,
         MetricResultModel.value_num.isnot(None),
     ]
+    if _disabled_keys:
+        inner_filters.append(MetricResultModel.metric_key.notin_(_disabled_keys))
     if season_filter is not None:
         inner_filters.append(season_filter)
 
@@ -5942,6 +5959,38 @@ def api_metric_publish(metric_key: str):
     return jsonify({"ok": True, "key": dispatch_key, "status": "published"})
 
 
+@app.post("/api/admin/metrics/<metric_key>/toggle-enabled")
+def api_admin_toggle_metric_enabled(metric_key: str):
+    """Enable or disable a published metric. Disabled metrics are hidden from
+    non-admin users and excluded from daily computation."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime
+
+    with SessionLocal() as session:
+        m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
+        if m is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+
+        if m.status not in ("published", "disabled"):
+            return jsonify({"ok": False, "error": f"Cannot toggle metric with status '{m.status}'"}), 400
+
+        new_status = "disabled" if m.status == "published" else "published"
+        base_row = _metric_family_base_row(session, m)
+        family_rows = _metric_family_rows(session, base_row)
+        now = datetime.utcnow()
+        toggled_keys = []
+        for row in family_rows:
+            if row.status in ("published", "disabled"):
+                row.status = new_status
+                row.updated_at = now
+                toggled_keys.append(row.key)
+        session.commit()
+
+    return jsonify({"ok": True, "status": new_status, "toggled_keys": toggled_keys})
+
+
 @app.get("/api/metrics/<metric_key>/qualifying-games")
 @limiter.limit("30 per minute")
 def api_qualifying_games(metric_key: str):
@@ -6300,6 +6349,8 @@ def metric_detail(metric_key: str):
         )
         runtime_metric = _get_metric(metric_key, session=session)
         if db_metric is None and runtime_metric is None:
+            abort(404, description=f"Metric '{metric_key}' not found.")
+        if db_metric and db_metric.status == "disabled" and not is_admin():
             abort(404, description=f"Metric '{metric_key}' not found.")
 
         metric_def = _metric_def_view(
