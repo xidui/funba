@@ -745,70 +745,70 @@
   </div>
 </div>
 
-{# ── Detailed admin view ── #}
+{# ── Compact admin toolbar ── #}
 {% if is_admin %}
-{% if metric_def.status == 'disabled' %}
-<div class="backfill-panel" style="margin-top:8px;border-color:var(--accent);">
-  <div class="backfill-summary" style="cursor:default;">
-    <div class="backfill-summary-main">
-      <span class="backfill-summary-title">Metric Disabled</span>
-      <span class="status-pill" style="background:var(--accent);color:#000;">disabled</span>
-      <span class="backfill-summary-meta">Hidden from users. Not included in daily computation.</span>
-    </div>
-  </div>
-  <div class="backfill-body" style="padding:8px 12px;">
-    <button
-      id="toggle-metric-enabled-btn"
-      class="content-workflow-btn"
-      type="button"
-      style="background:var(--win);color:#000;"
-      onclick="toggleMetricEnabled('{{ metric_def.key }}')"
-    >Enable Metric</button>
-  </div>
+{% set _deep_dive_post = metric_deep_dive.active_post or metric_deep_dive.latest_post %}
+<div id="backfill-admin-panel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 4px;font-size:12px;">
+  {# Status + disable/enable #}
+  {% if metric_def.status == 'disabled' %}
+  <span class="status-pill" style="background:var(--accent);color:#000;">disabled</span>
+  <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+    style="padding:3px 10px;border-radius:6px;border:1px solid var(--win);background:transparent;color:var(--win);font-size:11px;font-weight:700;cursor:pointer;">Enable</button>
+  {% else %}
+  <button id="toggle-metric-enabled-btn" type="button" onclick="toggleMetricEnabled('{{ metric_def.key }}')"
+    style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;">Disable</button>
+  {% endif %}
+
+  <span style="color:var(--border);">|</span>
+
+  {# Backfill status #}
+  <span style="color:var(--muted);font-weight:600;">Backfill</span>
+  <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
+  {% if backfill.done_games %}
+  <span id="backfill-done-games" style="color:var(--muted);">{{ backfill.done_games }}/{{ backfill.total_games }}</span>
+  {% endif %}
+  <button type="button" onclick="document.getElementById('admin-details-drawer').classList.toggle('open')"
+    style="padding:2px 8px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;">Details</button>
+
+  <span style="color:var(--border);">|</span>
+
+  {# Deep dive #}
+  <span
+    id="metric-deep-dive-panel"
+    data-trigger-url="{{ url_for('admin_metric_trigger_deep_dive_post', metric_key=metric_def.key) }}"
+    data-selected-view-label="{{ season_label }}"
+    data-current-season-label="{{ current_metric_season_label or '' }}"
+    data-metric-page-url="{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season) }}"
+    style="display:inline-flex;align-items:center;gap:6px;"
+  >
+    <span style="color:var(--muted);font-weight:600;">Deep Dive</span>
+    <span id="metric-deep-dive-pill" class="status-pill {{ 'running' if metric_deep_dive.active_post else (_deep_dive_post.status if _deep_dive_post else 'not_started') }}">
+      {{ 'running' if metric_deep_dive.active_post else ((_deep_dive_post.status if _deep_dive_post else 'idle')|replace('_', ' ')) }}
+    </span>
+    <button id="metric-deep-dive-trigger" type="button" {% if not metric_deep_dive.can_trigger %}disabled{% endif %}
+      style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;">
+      {% if metric_deep_dive.can_trigger %}Trigger{% else %}Running…{% endif %}
+    </button>
+    {% if _deep_dive_post %}
+    <a id="metric-deep-dive-open" href="{{ _deep_dive_post.admin_url }}" style="font-size:11px;font-weight:600;color:var(--muted);text-decoration:none;">Open</a>
+    {% endif %}
+  </span>
 </div>
-{% else %}
-<div class="backfill-panel" style="margin-top:8px;">
-  <div class="backfill-body" style="padding:8px 12px;">
-    <button
-      id="toggle-metric-enabled-btn"
-      class="content-workflow-btn"
-      type="button"
-      style="background:var(--loss);color:#fff;font-size:11px;padding:4px 10px;"
-      onclick="toggleMetricEnabled('{{ metric_def.key }}')"
-    >Disable Metric</button>
-  </div>
-</div>
-{% endif %}
-<div
-  id="backfill-admin-panel"
-  class="backfill-panel"
-  style="margin-top:8px;"
->
-  <div class="backfill-summary" style="cursor:default;">
-    <div class="backfill-summary-main">
-      <span class="backfill-summary-title">Backfill details</span>
-      <span id="backfill-panel-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
-      <span id="backfill-summary-meta" class="backfill-summary-meta">
-        {% if backfill.latest_run_at %}
-          Last compute activity: {{ backfill.latest_run_at }}
-          {% if backfill.is_multi_component %}
-            across season and career jobs.
-          {% endif %}
-        {% elif backfill.status == 'draft' %}
-          Publish this metric to start backfilling it across games.
-        {% elif backfill.status == 'finalizing' %}
-          All games processed. Finalizing results…
-        {% elif backfill.status == 'failed' %}
-          Compute run failed. Check admin for details.
-        {% elif backfill.status == 'queued' %}
-          Publish succeeded. Workers have not claimed jobs yet.
-        {% elif backfill.status == 'not_started' %}
-          No backfill has run for this metric yet.
-        {% endif %}
-      </span>
-    </div>
-  </div>
+
+{# ── Expandable details drawer (hidden by default) ── #}
+<div id="admin-details-drawer" class="backfill-panel" style="margin-bottom:8px;display:none;">
   <div class="backfill-body">
+  {# Backfill summary #}
+  <div id="backfill-summary-meta" style="font-size:12px;color:var(--muted);margin-bottom:8px;">
+    {% if backfill.latest_run_at %}
+      Last compute: {{ backfill.latest_run_at }}{% if backfill.is_multi_component %} across season and career jobs{% endif %}.
+    {% elif backfill.status == 'draft' %}Publish to start backfilling.
+    {% elif backfill.status == 'finalizing' %}Finalizing results…
+    {% elif backfill.status == 'failed' %}Compute failed.
+    {% elif backfill.status == 'queued' %}Workers not yet claimed.
+    {% elif backfill.status == 'not_started' %}No backfill run yet.
+    {% endif %}
+  </div>
   {# Pipeline timeline #}
   {% for component in backfill.components %}
   {% if component.run_info %}
@@ -847,18 +847,15 @@
   </div>
   {% endif %}
   {% endfor %}
-
-  {# Reduce progress bar (finalizing phase, game-trigger only) #}
+  {# Reduce progress bar #}
   <div id="backfill-reduce" {% if backfill.status != 'finalizing' or metric_def.trigger == 'season' %}style="display:none"{% endif %}>
     {% set rp = (backfill.reduce_done_seasons / backfill.reduce_total_seasons * 100.0)|round(1) if backfill.reduce_total_seasons else 0 %}
-    <div class="progress-track">
-      <div id="reduce-progress-fill" class="progress-fill" style="width: {{ rp }}%;"></div>
-    </div>
-    <div style="text-align:center;font-size:13px;color:var(--muted);margin-top:6px;">
-      <span id="reduce-done-seasons">{{ backfill.reduce_done_seasons or 0 }}</span> / <span id="reduce-total-seasons">{{ backfill.reduce_total_seasons or 0 }}</span> seasons
+    <div class="progress-track"><div id="reduce-progress-fill" class="progress-fill" style="width:{{ rp }}%;"></div></div>
+    <div style="text-align:center;font-size:12px;color:var(--muted);margin-top:4px;">
+      <span id="reduce-done-seasons">{{ backfill.reduce_done_seasons or 0 }}</span>/<span id="reduce-total-seasons">{{ backfill.reduce_total_seasons or 0 }}</span> seasons
     </div>
   </div>
-  {# Map progress and job counts (always visible for admin) #}
+  {# Job counts #}
   <div id="backfill-details">
   <div id="backfill-components" class="backfill-components"{% if not backfill.is_multi_component %} style="display:none"{% endif %}>
     {% for component in backfill.components %}
@@ -869,111 +866,37 @@
     </div>
     {% endfor %}
   </div>
-  <div class="progress-track">
-    <div id="backfill-progress-fill" class="progress-fill" style="width: {{ backfill.progress_pct }}%;"></div>
-  </div>
+  <div class="progress-track"><div id="backfill-progress-fill" class="progress-fill" style="width:{{ backfill.progress_pct }}%;"></div></div>
   <div class="backfill-grid">
-    <div>
-      <div class="backfill-stat-label">Done Jobs</div>
-      <div id="backfill-done-games" class="backfill-stat-value">{{ backfill.done_games }}</div>
-    </div>
-    <div>
-      <div class="backfill-stat-label">In Progress Jobs</div>
-      <div id="backfill-active-games" class="backfill-stat-value">{{ backfill.active_games }}</div>
-    </div>
-    <div>
-      <div class="backfill-stat-label">Pending Jobs</div>
-      <div id="backfill-pending-games" class="backfill-stat-value">{{ backfill.pending_games }}</div>
-    </div>
-    <div>
-      <div class="backfill-stat-label">Total Jobs</div>
-      <div id="backfill-total-games" class="backfill-stat-value">{{ backfill.total_games }}</div>
-    </div>
+    <div><div class="backfill-stat-label">Done</div><div id="backfill-done-games" class="backfill-stat-value">{{ backfill.done_games }}</div></div>
+    <div><div class="backfill-stat-label">Active</div><div id="backfill-active-games" class="backfill-stat-value">{{ backfill.active_games }}</div></div>
+    <div><div class="backfill-stat-label">Pending</div><div id="backfill-pending-games" class="backfill-stat-value">{{ backfill.pending_games }}</div></div>
+    <div><div class="backfill-stat-label">Total</div><div id="backfill-total-games" class="backfill-stat-value">{{ backfill.total_games }}</div></div>
   </div>
-  </div>{# backfill-details #}
   </div>
-</div>
-{% endif %}
-
-{% if is_admin %}
-{% set _deep_dive_post = metric_deep_dive.active_post or metric_deep_dive.latest_post %}
-{% set _deep_dive_workflow = _deep_dive_post.workflow if _deep_dive_post else none %}
-<div
-  id="metric-deep-dive-panel"
-  class="content-workflow-panel"
-  data-trigger-url="{{ url_for('admin_metric_trigger_deep_dive_post', metric_key=metric_def.key) }}"
-  data-selected-view-label="{{ season_label }}"
-  data-current-season-label="{{ current_metric_season_label or '' }}"
-  data-metric-page-url="{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season) }}"
->
-  <div class="backfill-summary" style="cursor:default;">
-    <div class="backfill-summary-main">
-      <span class="backfill-summary-title">Content Deep Dive</span>
-      <span
-        id="metric-deep-dive-pill"
-        class="status-pill {{ 'running' if metric_deep_dive.active_post else (_deep_dive_post.status if _deep_dive_post else 'not_started') }}"
-      >
-        {{ 'running' if metric_deep_dive.active_post else ((_deep_dive_post.status if _deep_dive_post else 'idle')|replace('_', ' ')) }}
-      </span>
-      <span id="metric-deep-dive-summary" class="backfill-summary-meta">
-        {% if metric_deep_dive.active_post %}
-          Running deep-dive request started {{ metric_deep_dive.active_post.created_at_label }}.
-        {% elif metric_deep_dive.latest_post %}
-          Last triggered {{ metric_deep_dive.latest_post.created_at_label }}.
-        {% else %}
-          No deep-dive post has been triggered for this metric yet.
-        {% endif %}
-      </span>
-    </div>
+  {# Deep dive details #}
+  <div id="metric-deep-dive-meta" style="font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+    {% if _deep_dive_post %}
+      Deep Dive Post #{{ _deep_dive_post.id }}
+      {% set _ddw = _deep_dive_post.workflow if _deep_dive_post else none %}
+      {% if _ddw and _ddw.issue_identifier %} · {{ _ddw.issue_identifier }}{% endif %}
+      {% if _ddw and _ddw.owner_label %} · {{ _ddw.owner_label }}{% endif %}
+    {% else %}
+      No deep-dive post triggered yet.
+    {% endif %}
   </div>
-  <div class="content-workflow-body">
-    <div id="metric-deep-dive-meta" class="content-workflow-meta">
-      {% if _deep_dive_post %}
-        Post #{{ _deep_dive_post.id }}
-        {% if _deep_dive_workflow and _deep_dive_workflow.issue_identifier %}
-          · {{ _deep_dive_workflow.issue_identifier }}
-        {% endif %}
-        {% if _deep_dive_workflow and _deep_dive_workflow.owner_label %}
-          · Owner: {{ _deep_dive_workflow.owner_label }}
-        {% endif %}
-      {% else %}
-        Triggering creates a placeholder Funba post, assigns it to Content Analyst through Paperclip, and keeps the result in the normal review pipeline.
-      {% endif %}
-    </div>
-    <div class="content-workflow-actions">
-      <button
-        id="metric-deep-dive-trigger"
-        class="content-workflow-btn"
-        type="button"
-        {% if not metric_deep_dive.can_trigger %}disabled{% endif %}
-      >
-        {% if metric_deep_dive.can_trigger %}Trigger Post{% else %}Post Running…{% endif %}
-      </button>
-      <a
-        id="metric-deep-dive-open"
-        class="content-workflow-link"
-        href="{{ _deep_dive_post.admin_url if _deep_dive_post else '#' }}"
-        {% if not _deep_dive_post %}style="display:none"{% endif %}
-      >
-        Open Post
-      </a>
-    </div>
-    <div
-      id="metric-deep-dive-note"
-      class="content-workflow-note{% if _deep_dive_workflow and _deep_dive_workflow.sync_error %} error{% endif %}"
-    >
-      {% if _deep_dive_workflow and _deep_dive_workflow.sync_error %}
-        {{ _deep_dive_workflow.sync_error }}
-      {% elif metric_deep_dive.active_post %}
-        Wait for the current content-analysis run to finish before triggering another one for this metric.
-      {% elif metric_deep_dive.latest_post %}
-        You can trigger again later if this metric's rankings or story angle have changed.
-      {% else %}
-        The agent will decide what related metrics to dig into and which Hupu destination(s) fit the story best.
-      {% endif %}
-    </div>
+  <div id="metric-deep-dive-note" style="font-size:11px;color:var(--muted);margin-top:4px;{% if not ((_deep_dive_post and _deep_dive_post.workflow and _deep_dive_post.workflow.sync_error) or metric_deep_dive.active_post) %}display:none{% endif %}">
+    {% if _deep_dive_post and _deep_dive_post.workflow and _deep_dive_post.workflow.sync_error %}
+      <span style="color:var(--loss);">{{ _deep_dive_post.workflow.sync_error }}</span>
+    {% elif metric_deep_dive.active_post %}
+      Deep-dive running, wait before triggering another.
+    {% endif %}
+  </div>
   </div>
 </div>
+<style>
+  #admin-details-drawer.open { display:block !important; }
+</style>
 {% endif %}
 
 {% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
