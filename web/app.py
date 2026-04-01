@@ -5117,7 +5117,7 @@ def my_metrics():
             .filter(
                 MetricDefinitionModel.created_by_user_id == cur_user.id,
                 MetricDefinitionModel.base_metric_key.is_(None),
-                MetricDefinitionModel.status == "published",
+                MetricDefinitionModel.status.in_(["published", "disabled"]),
             )
             .order_by(MetricDefinitionModel.created_at.desc())
             .all()
@@ -6002,43 +6002,45 @@ def api_qualifying_games(metric_key: str):
     page = max(1, int(request.args.get("page", 1) or 1))
     page_size = 10
     with SessionLocal() as session:
-        # Career metrics with a season-result reducer don't store their own
-        # qualification rows.  Read from the base metric's season logs instead.
-        from metrics.framework.base import career_season_type_code, is_career_season
-        from metrics.framework.family import family_base_key
-
-        log_metric_key = metric_key
-        log_season_filter = season
-        if metric_key.endswith("_career"):
-            base_key = family_base_key(metric_key)
-            from metrics.framework.runtime import get_metric as _rt_get_metric
-            rt = _rt_get_metric(metric_key, session=session)
-            if rt and is_career_season(season or "all_regular"):
-                from metrics.framework.runtime import _metric_declares_career_reducer
-                if _metric_declares_career_reducer(rt):
-                    log_metric_key = base_key
-                    type_code = career_season_type_code(season or "all_regular")
-                    log_season_filter = None  # will use LIKE below
-
-        base_q = session.query(MetricRunLog, Game).join(
-            Game, MetricRunLog.game_id == Game.game_id,
-        ).filter(
-            MetricRunLog.metric_key == log_metric_key,
-            MetricRunLog.entity_id == entity_id,
-            MetricRunLog.qualified == True,
+        from metrics.framework.runtime import (
+            _aggregated_career_qualification_game_ids,
+            get_metric as _rt_get_metric,
         )
-        if log_metric_key != metric_key and type_code:
-            # Career → base key: filter by season type prefix
-            base_q = base_q.filter(MetricRunLog.season.like(f"{type_code}%"))
-        elif log_season_filter:
-            base_q = base_q.filter(MetricRunLog.season == log_season_filter)
-        total = base_q.count()
-        rows = base_q.order_by(Game.game_date.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+        runtime_metric = _rt_get_metric(metric_key, session=session)
+        aggregated_game_ids = _aggregated_career_qualification_game_ids(
+            runtime_metric,
+            session,
+            season,
+            entity_id,
+        )
+
+        if aggregated_game_ids is not None:
+            games_q = session.query(Game).filter(Game.game_id.in_(aggregated_game_ids))
+            total = games_q.count()
+            rows = [
+                (None, game)
+                for game in games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            ]
+        else:
+            base_q = session.query(MetricRunLog, Game).join(
+                Game, MetricRunLog.game_id == Game.game_id,
+            ).filter(
+                MetricRunLog.metric_key == metric_key,
+                MetricRunLog.entity_id == entity_id,
+                MetricRunLog.qualified == True,
+            )
+            if season:
+                base_q = base_q.filter(MetricRunLog.season == season)
+            total = base_q.count()
+            rows = base_q.order_by(Game.game_date.desc(), Game.game_id.desc()).offset((page - 1) * page_size).limit(page_size).all()
         team_map = _team_map(session)
 
         # Batch-load player/team stats for these games
         game_ids = [game.game_id for _, game in rows]
-        entity_type = MetricRunLog.entity_type
 
         player_stats_map = {}
         team_stats_map = {}
@@ -6081,7 +6083,7 @@ def api_qualifying_games(metric_key: str):
                 "road_team_id": str(game.road_team_id),
                 "home_score": home_score,
                 "road_score": road_score,
-                "delta": json.loads(log.delta_json) if log.delta_json else None,
+                "delta": json.loads(log.delta_json) if log and log.delta_json else None,
             }
 
             # Add player stat line and W/L if available
@@ -6351,7 +6353,9 @@ def metric_detail(metric_key: str):
         if db_metric is None and runtime_metric is None:
             abort(404, description=f"Metric '{metric_key}' not found.")
         if db_metric and db_metric.status == "disabled" and not is_admin():
-            abort(404, description=f"Metric '{metric_key}' not found.")
+            _cur = _current_user()
+            if not (_cur and db_metric.created_by_user_id == _cur.id):
+                abort(404, description=f"Metric '{metric_key}' not found.")
 
         metric_def = _metric_def_view(
             runtime_metric or db_metric,
