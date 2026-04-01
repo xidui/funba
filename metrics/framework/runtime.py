@@ -440,6 +440,111 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
     ]
 
 
+def _extract_game_ids_from_context(context: dict | None) -> list[str]:
+    if not isinstance(context, dict):
+        return []
+
+    seen: set[str] = set()
+    game_ids: list[str] = []
+
+    def _append(value) -> None:
+        if value is None:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                _append(item)
+            return
+        game_id = str(value).strip()
+        if not game_id or game_id in seen:
+            return
+        seen.add(game_id)
+        game_ids.append(game_id)
+
+    for key in ("game_id", "best_game_id"):
+        _append(context.get(key))
+    for key in ("game_ids", "best_game_ids"):
+        _append(context.get(key))
+    return game_ids
+
+
+def _fallback_career_result_context_game_ids(
+    session: Session,
+    metric: MetricDefinition,
+    season: str,
+    entity_id: str | None,
+) -> list[str]:
+    if MetricResultModel is None or not entity_id or not season:
+        return []
+
+    row = (
+        session.query(MetricResultModel.context_json)
+        .filter(
+            MetricResultModel.metric_key == metric.key,
+            MetricResultModel.entity_id == str(entity_id),
+            MetricResultModel.season == season,
+        )
+        .first()
+    )
+    if not row:
+        return []
+
+    context_json = getattr(row, "context_json", None)
+    if context_json is None and isinstance(row, (tuple, list)) and row:
+        context_json = row[0]
+
+    try:
+        context = json.loads(context_json) if context_json else {}
+    except Exception:
+        context = {}
+    return _extract_game_ids_from_context(context)
+
+
+def _aggregated_career_qualification_game_ids(
+    metric: MetricDefinition | None,
+    session: Session,
+    season: str | None,
+    entity_id: str | None = None,
+) -> list[str] | None:
+    """Return deduped qualifying game_ids for career reducer metrics.
+
+    Career season metrics backed by season-result reducers do not persist their
+    own MetricRunLog rows. Drill-down callers should derive the qualifying games
+    by reusing the metric's aggregated qualification logic instead of scanning
+    the base metric's full season logs directly.
+    """
+    season_value = season or "all_regular"
+    if (
+        metric is None
+        or not getattr(metric, "career", False)
+        or not is_career_season(season_value)
+        or not _metric_declares_career_reducer(metric)
+    ):
+        return None
+
+    qualifications = metric.compute_qualifications(session, season_value) or []
+    seen: set[str] = set()
+    game_ids: list[str] = []
+    entity_id_value = str(entity_id) if entity_id is not None else None
+
+    for qualification in qualifications:
+        if not qualification or qualification.get("qualified", True) is False:
+            continue
+        qualification_entity_id = qualification.get("entity_id")
+        if entity_id_value is not None and str(qualification_entity_id) != entity_id_value:
+            continue
+        game_id = qualification.get("game_id")
+        if not game_id:
+            continue
+        game_id_value = str(game_id)
+        if game_id_value in seen:
+            continue
+        seen.add(game_id_value)
+        game_ids.append(game_id_value)
+    if game_ids:
+        return game_ids
+    return _fallback_career_result_context_game_ids(session, metric, season_value, entity_id_value)
+
+
 class RuleMetricDefinition(MetricDefinition):
     """Adapter that makes a DB-backed rule metric runnable by the existing runner."""
 
