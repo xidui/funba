@@ -497,15 +497,9 @@ def _upload_image(page: Page, image_path: str, marker: str | None = None) -> Non
         raise RuntimeError("Image upload input not found")
 
     before_count = _editor_image_count(page)
+    # Brief pause between consecutive uploads to let the editor settle
     if before_count > 0:
-        try:
-            file_input.set_input_files([])
-            time.sleep(0.5)
-            file_input = page.query_selector('input[type=file][accept*="image"]')
-            if not file_input:
-                raise RuntimeError("Image upload input disappeared after reset")
-        except Exception:
-            pass
+        time.sleep(1)
     file_input.set_input_files(image_path)
     deadline = time.time() + 20
     while time.time() < deadline:
