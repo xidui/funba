@@ -672,7 +672,6 @@
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
       <span id="metric-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
-      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">{{ metric_def.source_type }} {{ t('metric', '指标') }}</span>
       {% if can_create_metrics %}
       <a href="{{ url_for('metric_edit', metric_key=metric_def.key) }}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;font-weight:700;text-decoration:none;">&#9998; {{ t('Edit', '编辑') }}</a>
       {% elif metric_create_required_level == 'admin' %}
