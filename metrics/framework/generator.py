@@ -356,7 +356,8 @@ def _load_example_metrics() -> str:
     curated_keys = [
         "combined_score",
         "lead_changes",
-        "top_scorer",
+        "top_scorer",            # game-scope: window function (ROW_NUMBER) pattern
+        "multi_20pt_game",       # game-scope: GROUP BY aggregate pattern
         "win_pct_leading_at_half",
         "road_win_pct",
         "bench_scoring_share",
@@ -366,6 +367,7 @@ def _load_example_metrics() -> str:
         "double_double_rate",
         "true_shooting_pct",
         "scoring_consistency",
+        "fastest_double_double", # career Mode B: career_min_keys (extrema) pattern
     ]
 
     examples = []

@@ -15,8 +15,8 @@ from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
 from db.models import Game, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
-from metrics.framework.base import MetricResult, career_season_for, merge_totals
-from metrics.framework.runtime import get_all_metrics, get_metric
+from metrics.framework.base import MetricResult, career_season_for, is_career_season, merge_totals
+from metrics.framework.runtime import _metric_declares_career_reducer, get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
 
@@ -475,12 +475,23 @@ def run_season_metric(
                          metric_key, season, exc, exc_info=True)
             return 0
 
-        try:
-            qualifications = metric_def.compute_qualifications(session, season)
-        except Exception as exc:
-            logger.error("run_season_metric %s compute_qualifications failed: %s",
-                         metric_key, exc, exc_info=True)
-            qualifications = None
+        # Career metrics with a season-result reducer derive qualifications at
+        # read-time from the base metric's season MetricRunLog rows.  Skip the
+        # expensive compute + flush (can be 200k+ rows) for these metrics.
+        _skip_career_quals = (
+            getattr(metric_def, "career", False)
+            and is_career_season(season)
+            and _metric_declares_career_reducer(metric_def)
+        )
+
+        qualifications = None
+        if not _skip_career_quals:
+            try:
+                qualifications = metric_def.compute_qualifications(session, season)
+            except Exception as exc:
+                logger.error("run_season_metric %s compute_qualifications failed: %s",
+                             metric_key, exc, exc_info=True)
+                qualifications = None
 
         if replace_existing:
             # Only delete MetricRunLog (small table, no contention).
