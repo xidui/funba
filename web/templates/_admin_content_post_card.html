@@ -109,7 +109,7 @@
         {% for img in p.images %}
         <div class="image-pool-item{% if not img.is_enabled %} disabled{% endif %}" id="img-{{ img.id }}">
           {% if img.url %}
-          <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy">
+          <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy" onclick="event.stopPropagation(); openImageLightbox('{{ img.url }}')">
           {% else %}
           <div class="img-placeholder-err">Failed</div>
           {% endif %}
