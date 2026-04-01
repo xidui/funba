@@ -25,6 +25,15 @@ backups/
 .hupu_cookies.json
 social_media/hupu/.hupu_browser_data/
 social_media/hupu/.hupu_cookies.json
+social_media/reddit/.reddit_browser_data/
+social_media/reddit/.reddit_cookies.json
+social_media/reddit/.reddit_session_meta.json
+social_media/twitter/.twitter_browser_data/
+social_media/twitter/.twitter_cookies.json
+social_media/twitter/.twitter_session_meta.json
+social_media/xiaohongshu/.xiaohongshu_browser_data/
+social_media/xiaohongshu/.xiaohongshu_cookies.json
+social_media/xiaohongshu/.xiaohongshu_session_meta.json
 .tmp_audit/
 .tmp_qa/
 .tmp_awards_models.sqlite
