@@ -4779,9 +4779,6 @@ def team_page(team_id: str):
 
         current_season = _pick_current_season([row["season"] for row in season_summary])
         season_options = [row["season"] for row in season_summary]
-        if not is_pro() and current_season:
-            season_options = [s for s in season_options if s == current_season]
-            season_summary_view = [r for r in season_summary_view if r["season"] == current_season]
         selected_games_season = request.args.get("games_season")
         if selected_games_season not in season_options:
             selected_games_season = current_season
@@ -6430,9 +6427,6 @@ def metric_detail(metric_key: str):
                 reverse=True,
             )
             current_metric_season = _pick_current_season(season_options)
-            if not is_pro():
-                season_options = _non_pro_metric_detail_season_options(season_options)
-                show_all_seasons = False
             # Group seasons by type for the dropdown
             from collections import defaultdict
             _type_buckets = defaultdict(list)
