@@ -102,6 +102,32 @@
     <div class="empty-state" style="padding:20px;">No variants yet.</div>
     {% endif %}
 
+    {% if p.images %}
+    <div class="image-pool-section" onclick="event.stopPropagation()">
+      <h4>Image Pool <span style="font-weight:normal;color:var(--muted);font-size:11px;">({{ p.images|selectattr('is_enabled')|list|length }}/{{ p.images|length }} enabled)</span></h4>
+      <div class="image-pool-grid" id="imgpool-{{ p.id }}">
+        {% for img in p.images %}
+        <div class="image-pool-item{% if not img.is_enabled %} disabled{% endif %}" id="img-{{ img.id }}">
+          {% if img.url %}
+          <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy">
+          {% else %}
+          <div class="img-placeholder-err">Failed</div>
+          {% endif %}
+          <div class="img-meta">
+            <span class="img-slot">{{ img.slot }}</span>
+            <span class="img-type {{ img.image_type }}">{{ img.image_type.replace('_', ' ') }}</span>
+          </div>
+          {% if img.note %}<div class="img-note">{{ img.note }}</div>{% endif %}
+          {% if img.error_message %}<div class="img-error" title="{{ img.error_message }}">Error</div>{% endif %}
+          <button class="act-btn img-toggle" onclick="toggleImage({{ p.id }}, {{ img.id }}, {{ 'false' if img.is_enabled else 'true' }})">
+            {{ 'Disable' if img.is_enabled else 'Enable' }}
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <div class="workflow-section" onclick="event.stopPropagation()">
       <div class="workflow-header">
         <h4>Paperclip Workflow</h4>

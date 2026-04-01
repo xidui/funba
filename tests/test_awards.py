@@ -39,7 +39,7 @@ def _import_web_helpers():
         "ShotRecord",
         "Team",
         "TeamGameStats",
-        "SocialPost", "SocialPostVariant", "SocialPostDelivery",
+        "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery",
         "GameLineScore",
         "MagicToken",
     ):

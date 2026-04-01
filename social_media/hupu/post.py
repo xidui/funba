@@ -186,10 +186,44 @@ def _parse_image_placeholder(line: str) -> dict[str, str] | None:
     return parsed
 
 
-def _prepare_placeholder_images(content: str, images: list[str]) -> tuple[list[str], list[str]]:
-    """Return resolved images plus any temporary screenshots created from placeholders."""
+def _load_post_image_pool(post_id: int) -> dict[str, str]:
+    """Load enabled images from SocialPostImage pool, returning {slot: file_path}."""
+    from sqlalchemy.orm import sessionmaker
+    from db.models import SocialPostImage, engine
+    Session = sessionmaker(bind=engine)
+    with Session() as s:
+        rows = (
+            s.query(SocialPostImage)
+            .filter(
+                SocialPostImage.post_id == post_id,
+                SocialPostImage.is_enabled == True,
+                SocialPostImage.file_path.isnot(None),
+            )
+            .order_by(SocialPostImage.id)
+            .all()
+        )
+        return {row.slot: row.file_path for row in rows}
+
+
+def _prepare_placeholder_images(
+    content: str,
+    images: list[str],
+    *,
+    post_id: int | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return resolved images plus any temporary screenshots created from placeholders.
+
+    When *post_id* is given, slot-based placeholders ([[IMAGE:slot=img1]]) are
+    resolved from the SocialPostImage pool in the database.  Placeholders
+    without a slot (legacy target-based) fall back to auto-screenshot.
+    """
     resolved_images = list(images)
     temp_paths: list[str] = []
+
+    pool: dict[str, str] = {}
+    if post_id is not None:
+        pool = _load_post_image_pool(post_id)
+
     placeholder_specs = [
         spec
         for spec in (_parse_image_placeholder(line) for line in content.split("\n"))
@@ -199,6 +233,13 @@ def _prepare_placeholder_images(content: str, images: list[str]) -> tuple[list[s
         return resolved_images, temp_paths
 
     for spec in placeholder_specs[len(resolved_images):]:
+        # Slot-based: look up from image pool
+        slot = spec.get("slot")
+        if slot and slot in pool:
+            resolved_images.append(pool[slot])
+            continue
+
+        # Legacy target-based: auto-screenshot
         target = spec.get("target")
         if not target:
             continue
@@ -710,6 +751,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     images = args.image or []
     link_text = args.link_text
     link_url = args.link_url
+    post_id = getattr(args, "post_id", None)
 
     try:
         forum_key, composer_id, forum_label = _resolve_forum(forum)
@@ -718,7 +760,7 @@ def cmd_post(args: argparse.Namespace) -> None:
         print(f"Unknown forum: {forum!r}. Available aliases: {available} or any Chinese Hupu forum label like '勇士专区'")
         sys.exit(1)
 
-    resolved_images, temp_images = _prepare_placeholder_images(content, images)
+    resolved_images, temp_images = _prepare_placeholder_images(content, images, post_id=post_id)
 
     print(f"Forum: {forum_key} / {forum_label} (composer page {composer_id})")
     print(f"Title: {title}")
@@ -820,6 +862,7 @@ def main() -> None:
     p_post.add_argument("--image", action="append", help="Image file to upload (repeatable)")
     p_post.add_argument("--link-text", help="Display text for footer link")
     p_post.add_argument("--link-url", help="URL for footer link")
+    p_post.add_argument("--post-id", type=int, dest="post_id", help="SocialPost ID — resolve slot-based images from the image pool")
     p_post.add_argument("--submit", action="store_true", help="Actually submit (default: dry run)")
 
     args = parser.parse_args()

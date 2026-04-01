@@ -110,7 +110,7 @@ def _import_web_app():
     for name in (
         "Award", "Feedback", "Game", "GameLineScore", "GamePlayByPlay", "MagicToken", "MetricComputeRun",
         "MetricDefinition", "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "PlayerSalary", "ShotRecord", "SocialPost", "SocialPostDelivery",
+        "PlayerGameStats", "PlayerSalary", "ShotRecord", "SocialPost", "SocialPostImage", "SocialPostDelivery",
         "SocialPostVariant", "Team", "TeamGameStats",
     ):
         setattr(fake_models, name, MagicMock())

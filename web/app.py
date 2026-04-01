@@ -39,7 +39,7 @@ from db.feature_access import (
     set_feature_access_level,
 )
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostVariant, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -2907,6 +2907,12 @@ def _load_social_post_bundle(db_sess, post_id: int):
         source_game_ids = json.loads(post.source_game_ids) if post.source_game_ids else []
     except Exception:
         source_game_ids = []
+    images = (
+        db_sess.query(SocialPostImage)
+        .filter(SocialPostImage.post_id == post_id)
+        .order_by(SocialPostImage.id)
+        .all()
+    )
     snapshot = {
         "id": post.id,
         "topic": post.topic,
@@ -2932,6 +2938,17 @@ def _load_social_post_bundle(db_sess, post_id: int):
             }
             for variant in variants
         ],
+        "images": [
+            {
+                "id": img.id,
+                "slot": img.slot,
+                "image_type": img.image_type,
+                "note": img.note,
+                "is_enabled": bool(img.is_enabled),
+                "has_file": bool(img.file_path),
+            }
+            for img in images
+        ],
     }
     return post, snapshot
 
@@ -2945,6 +2962,9 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     deliveries = db_sess.query(SocialPostDelivery).filter(
         SocialPostDelivery.variant_id.in_(variant_ids)
     ).all() if variant_ids else []
+    images = db_sess.query(SocialPostImage).filter(
+        SocialPostImage.post_id.in_(post_ids)
+    ).order_by(SocialPostImage.id).all() if post_ids else []
 
     v_by_post: dict[int, list] = {}
     for v in variants:
@@ -2952,6 +2972,9 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     d_by_variant: dict[int, list] = {}
     for d in deliveries:
         d_by_variant.setdefault(d.variant_id, []).append(d)
+    img_by_post: dict[int, list] = {}
+    for img in images:
+        img_by_post.setdefault(img.post_id, []).append(img)
 
     rows = []
     for p in posts:
@@ -2989,6 +3012,19 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
                     ],
                 }
                 for v in pvariants
+            ],
+            "images": [
+                {
+                    "id": img.id,
+                    "slot": img.slot,
+                    "image_type": img.image_type,
+                    "note": img.note,
+                    "is_enabled": bool(img.is_enabled),
+                    "has_file": bool(img.file_path),
+                    "error_message": img.error_message,
+                    "url": f"/media/social_posts/{p.id}/{img.slot}.png" if img.file_path else None,
+                }
+                for img in img_by_post.get(p.id, [])
             ],
         })
     return rows
@@ -7088,6 +7124,9 @@ def admin_content_detail(post_id: int):
         d_by_variant: dict[int, list] = {}
         for d in deliveries:
             d_by_variant.setdefault(d.variant_id, []).append(d)
+        images = s.query(SocialPostImage).filter(
+            SocialPostImage.post_id == post_id
+        ).order_by(SocialPostImage.id).all()
 
         return jsonify({
             "id": p.id,
@@ -7123,6 +7162,19 @@ def admin_content_detail(post_id: int):
                     ],
                 }
                 for v in variants
+            ],
+            "images": [
+                {
+                    "id": img.id,
+                    "slot": img.slot,
+                    "image_type": img.image_type,
+                    "note": img.note,
+                    "is_enabled": bool(img.is_enabled),
+                    "has_file": bool(img.file_path),
+                    "error_message": img.error_message,
+                    "url": f"/media/social_posts/{post_id}/{img.slot}.png" if img.file_path else None,
+                }
+                for img in images
             ],
         })
 
@@ -7569,6 +7621,49 @@ def admin_content_toggle_delivery(post_id: int, delivery_id: int):
     return jsonify({"ok": True, "delivery_id": delivery_id, "is_enabled": enabled})
 
 
+@app.post("/api/admin/content/<int:post_id>/images/<int:image_id>/toggle")
+def admin_content_toggle_image(post_id: int, image_id: int):
+    """Enable or disable an image in the post's image pool."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    if "is_enabled" not in data:
+        return jsonify({"error": "is_enabled required"}), 400
+    enabled = bool(data["is_enabled"])
+    with SessionLocal() as s:
+        img = (
+            s.query(SocialPostImage)
+            .filter(SocialPostImage.id == image_id, SocialPostImage.post_id == post_id)
+            .first()
+        )
+        if not img:
+            return jsonify({"error": "not_found"}), 404
+        img.is_enabled = enabled
+        s.commit()
+    return jsonify({"ok": True, "image_id": image_id, "is_enabled": enabled})
+
+
+@app.get("/media/social_posts/<int:post_id>/<filename>")
+def serve_social_post_image(post_id: int, filename: str):
+    """Serve an image file from the post media directory."""
+    from pathlib import Path
+    media_dir = Path(__file__).resolve().parent.parent / "media" / "social_posts" / str(post_id)
+    file_path = media_dir / filename
+    if not file_path.exists() or not file_path.is_file():
+        abort(404)
+    # Security: ensure path doesn't escape media dir
+    try:
+        file_path.resolve().relative_to(media_dir.resolve())
+    except ValueError:
+        abort(403)
+    return app.send_static_file(None) if False else make_response(
+        open(file_path, "rb").read(),
+        200,
+        {"Content-Type": "image/png", "Cache-Control": "public, max-age=3600"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Content API for Paperclip (localhost, no browser session needed)
 # ---------------------------------------------------------------------------
@@ -7663,9 +7758,49 @@ def api_content_create_post():
         s.commit()
         post_id = sp.id
 
+    # --- Generate images for the post pool (async-safe: outside DB session) ---
+    image_results = []
+    for img_spec in data.get("images", []):
+        slot = (img_spec.get("slot") or "").strip()
+        image_type = (img_spec.get("type") or "").strip()
+        note = (img_spec.get("note") or "").strip() or None
+        if not slot or not image_type:
+            continue
+        spec_json = json.dumps({k: v for k, v in img_spec.items() if k not in ("slot", "note")}, ensure_ascii=False)
+        file_path = None
+        error_msg = None
+        try:
+            from social_media.images import resolve_image
+            file_path = resolve_image(img_spec, post_id=post_id, slot=slot)
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.warning("Image generation failed for post %s slot %s: %s", post_id, slot, exc)
+        image_results.append((slot, image_type, spec_json, note, file_path, error_msg))
+
+    if image_results:
+        with SessionLocal() as s:
+            for slot, image_type, spec_json, note, file_path, error_msg in image_results:
+                s.add(SocialPostImage(
+                    post_id=post_id,
+                    slot=slot,
+                    image_type=image_type,
+                    spec=spec_json,
+                    note=note,
+                    file_path=file_path,
+                    is_enabled=file_path is not None,
+                    error_message=error_msg,
+                    created_at=now,
+                ))
+            s.commit()
+
     _ensure_paperclip_issue_for_post(post_id)
     sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
     response = {"ok": True, "post_id": post_id, "variant_ids": variant_ids}
+    if image_results:
+        response["images"] = [
+            {"slot": slot, "ok": fp is not None, "error": err}
+            for slot, _, _, _, fp, err in image_results
+        ]
     if sync_result:
         response.update(sync_result)
     return jsonify(response)

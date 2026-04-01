@@ -550,6 +550,26 @@ class SocialPostVariant(Base):
     )
 
 
+class SocialPostImage(Base):
+    """Image in the post's image pool, referenced by slot from content_raw placeholders."""
+    __tablename__ = 'SocialPostImage'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey('SocialPost.id', ondelete='CASCADE'), nullable=False)
+    slot = Column(String(32), nullable=False)             # "img1", "img2" — matches [[IMAGE:slot=img1]]
+    image_type = Column(String(16), nullable=False)       # ai_generated|web_search|screenshot
+    spec = Column(Text, nullable=True)                    # JSON: generation params (prompt, query, target)
+    note = Column(String(255), nullable=True)             # Chinese description for admin display
+    file_path = Column(String(512), nullable=True)        # local file path
+    is_enabled = Column(Boolean, nullable=False, default=True)
+    error_message = Column(Text, nullable=True)           # error if generation failed
+    created_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_SocialPostImage_post_id', 'post_id'),
+    )
+
+
 class SocialPostDelivery(Base):
     """Per-destination publishing record for a variant."""
     __tablename__ = 'SocialPostDelivery'

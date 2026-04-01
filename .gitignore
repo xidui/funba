@@ -14,6 +14,9 @@ SECRETS.md
 # Runtime logs / pid files
 logs/
 
+# Generated social post images
+media/
+
 # MySQL backups (daily dumps, 7-day retention)
 # backups is a symlink -> ~/Library/Application Support/funba/backups/ (see db/install_backup_agent.sh)
 backups
