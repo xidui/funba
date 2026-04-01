@@ -7761,15 +7761,20 @@ def api_content_create_post():
         if not slot or not image_type:
             continue
         spec_json = json.dumps({k: v for k, v in img_spec.items() if k not in ("slot", "note")}, ensure_ascii=False)
-        file_path = None
+        file_paths = []
         error_msg = None
         try:
             from social_media.images import resolve_image
-            file_path = resolve_image(img_spec, post_id=post_id, slot=slot)
+            file_paths = resolve_image(img_spec, post_id=post_id, slot=slot)
         except Exception as exc:
             error_msg = str(exc)
             logger.warning("Image generation failed for post %s slot %s: %s", post_id, slot, exc)
-        image_results.append((slot, image_type, spec_json, note, file_path, error_msg))
+        if file_paths:
+            for i, fp in enumerate(file_paths):
+                sub_slot = slot if i == 0 else f"{slot}_{i}"
+                image_results.append((sub_slot, image_type, spec_json, note, fp, None))
+        else:
+            image_results.append((slot, image_type, spec_json, note, None, error_msg))
 
     if image_results:
         with SessionLocal() as s:
