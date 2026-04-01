@@ -234,7 +234,7 @@ Create a SocialPost with variants and delivery destinations.
   "llm_model": "claude-sonnet-4-6",
   "variants": [
     {
-      "title": "[funba] 雷霆大胜率联盟第二！",
+      "title": "智趣NBA: 雷霆大胜率联盟第二！",
       "content_raw": "帖子正文...",
       "audience_hint": "thunder fans",
       "destinations": [
@@ -243,7 +243,7 @@ Create a SocialPost with variants and delivery destinations.
       ]
     },
     {
-      "title": "[funba] 本赛季哪支球队最能碾压对手？",
+      "title": "智趣NBA: 本赛季哪支球队最能碾压对手？",
       "content_raw": "中立角度正文...",
       "audience_hint": "general nba",
       "destinations": [
@@ -355,7 +355,7 @@ Get full post detail with all variants and deliveries. (Uses admin session auth 
   "variants": [
     {
       "id": 101,
-      "title": "[funba] 雷霆大胜率联盟第二！",
+      "title": "智趣NBA: 雷霆大胜率联盟第二！",
       "content_raw": "帖子正文...",
       "audience_hint": "thunder fans",
       "deliveries": [

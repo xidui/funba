@@ -7294,7 +7294,7 @@ def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str,
         origin="system",
         event_type=_SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF,
     )
-    placeholder_title = f"[funba] {metric_name} 深度分析"
+    placeholder_title = f"智趣NBA: {metric_name} 深度分析"
     placeholder_body = (
         "Placeholder draft.\n\n"
         "Content Analyst should replace this with one professional 1000-2000字中文深度分析。"
