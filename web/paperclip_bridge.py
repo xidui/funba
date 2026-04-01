@@ -187,15 +187,32 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
         "source_metrics": post.get("source_metrics") or [],
         "source_game_ids": post.get("source_game_ids") or [],
     }
+    images = post.get("images") or []
+    image_count = len(images)
+    enabled_count = sum(1 for img in images if img.get("is_enabled"))
+
     variant_block = "\n".join(variant_lines) if variant_lines else "- none yet"
-    return (
+    desc = (
         "Funba is the source of truth for this post. Review and publishing signals come from the Funba admin content UI.\n\n"
         "Variants:\n"
         f"{variant_block}\n\n"
+    )
+    if image_count > 0:
+        desc += (
+            f"Image pool: {enabled_count}/{image_count} enabled\n\n"
+        )
+    desc += (
+        "## Publishing with images\n\n"
+        "When posting to Hupu, pass `--post-id <post_id>` to the CLI so it reads enabled images from the DB pool.\n"
+        "Slot-based placeholders like `[[IMAGE:slot=img1]]` in content_raw are resolved automatically.\n\n"
+        "```\n"
+        f"python -m social_media.hupu.post post --title \"...\" --content \"...\" --forum \"...\" --post-id {post.get('id') or '<ID>'} --submit\n"
+        "```\n\n"
         "<funba_post>\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
         "</funba_post>"
     )
+    return desc
 
 
 def build_status_handoff_comment(
