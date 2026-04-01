@@ -7698,6 +7698,20 @@ def api_content_create_post():
     if not source_date_str:
         return jsonify({"error": "source_date required"}), 400
 
+    # Dedup: skip if same source_date + topic already exists (non-archived)
+    with SessionLocal() as s:
+        existing = (
+            s.query(SocialPost)
+            .filter(
+                SocialPost.source_date == date.fromisoformat(source_date_str),
+                SocialPost.topic == topic,
+                SocialPost.status != "archived",
+            )
+            .first()
+        )
+        if existing:
+            return jsonify({"ok": True, "post_id": existing.id, "status": "duplicate_skipped"}), 200
+
     now = datetime.utcnow()
     with SessionLocal() as s:
         sp = SocialPost(
