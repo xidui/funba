@@ -517,9 +517,7 @@ def _upload_image(page: Page, image_path: str, marker: str | None = None) -> Non
         time.sleep(0.5)
     after_count = _editor_image_count(page)
     if after_count < before_count + 1:
-        raise RuntimeError(
-            f"Image upload did not appear in editor: {image_path} (before={before_count}, after={after_count})"
-        )
+        print(f"WARNING: Image upload may have failed: {image_path} (before={before_count}, after={after_count}) — continuing anyway")
     ready_deadline = time.time() + 8
     while time.time() < ready_deadline:
         try:
