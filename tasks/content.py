@@ -128,26 +128,8 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
         if str(issue.get("title") or "").strip() == title
         and str(issue.get("status") or "").strip() in {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}
     ]
-    if exact_matches:
+    if exact_matches and not force:
         chosen = exact_matches[0]
-        if force:
-            reopened = client.update_issue(
-                chosen.get("id"),
-                {
-                    "status": "todo",
-                    "assigneeAgentId": cfg.content_analyst_agent_id,
-                    "assigneeUserId": None,
-                    "comment": _build_daily_analysis_rerun_comment(target_date, game_ids),
-                },
-            )
-            return {
-                "ok": True,
-                "status": "reopened",
-                "source_date": target_date.isoformat(),
-                "issue_id": reopened.get("id") or chosen.get("id"),
-                "issue_identifier": reopened.get("identifier") or chosen.get("identifier"),
-                "game_ids": game_ids,
-            }
         return {
             "ok": True,
             "status": "exists",
@@ -156,6 +138,11 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
             "issue_identifier": chosen.get("identifier"),
             "game_ids": game_ids,
         }
+
+    if exact_matches and force:
+        # Close the old issue so the agent gets a fresh context
+        chosen = exact_matches[0]
+        client.update_issue(chosen.get("id"), {"status": "cancelled"})
 
     issue = client.create_issue(
         {
