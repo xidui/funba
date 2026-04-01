@@ -42,7 +42,7 @@ BROWSER_DATA_DIR = MODULE_DIR / ".hupu_browser_data"
 HUPU_HOME = "https://bbs.hupu.com"
 REAL_BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 NBA_COMPOSER_FORUM_ID = 179
@@ -82,10 +82,15 @@ def _load_cookies() -> list[dict]:
 
 def _create_context(pw, headless: bool = True) -> BrowserContext:
     """Create browser context with saved cookies injected."""
-    browser = pw.chromium.launch(headless=headless)
+    launch_args: list[str] = []
+    if headless:
+        # Use new headless mode which is harder for sites to detect
+        launch_args.append("--headless=new")
+    browser = pw.chromium.launch(headless=headless, args=launch_args)
     context = browser.new_context(
         viewport={"width": 1280, "height": 1200},
         locale="zh-CN",
+        user_agent=REAL_BROWSER_UA,
     )
     cookies = _load_cookies()
     if cookies:
