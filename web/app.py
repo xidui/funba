@@ -5973,11 +5973,12 @@ def api_admin_toggle_metric_enabled(metric_key: str):
         if m is None:
             return jsonify({"ok": False, "error": "Not found"}), 404
 
-        if m.status not in ("published", "disabled"):
-            return jsonify({"ok": False, "error": f"Cannot toggle metric with status '{m.status}'"}), 400
-
-        new_status = "disabled" if m.status == "published" else "published"
+        # Always operate on the base (season) row, even if triggered from a career page
         base_row = _metric_family_base_row(session, m)
+        if base_row.status not in ("published", "disabled"):
+            return jsonify({"ok": False, "error": f"Cannot toggle metric with status '{base_row.status}'"}), 400
+
+        new_status = "disabled" if base_row.status == "published" else "published"
         family_rows = _metric_family_rows(session, base_row)
         now = datetime.utcnow()
         toggled_keys = []
