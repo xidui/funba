@@ -71,6 +71,46 @@ class TestPopulateNamesZh(unittest.TestCase):
         self.assertEqual(lebron.full_name_zh, "勒布朗·詹姆斯")
         self.assertIsNone(unknown.full_name_zh)
 
+    def test_populate_players_can_fill_from_remote_feed_without_overwriting_existing_non_static_name(self):
+        with self.SessionLocal() as session:
+            session.add_all(
+                [
+                    self.models.Player(
+                        player_id="203932",
+                        full_name="Aaron Gordon",
+                        full_name_zh=None,
+                        is_active=True,
+                        is_team=False,
+                    ),
+                    self.models.Player(
+                        player_id="999998",
+                        full_name="Existing Player",
+                        full_name_zh="已有译名",
+                        is_active=True,
+                        is_team=False,
+                    ),
+                ]
+            )
+            session.commit()
+
+        with patch.object(self.module, "SessionLocal", self.SessionLocal), patch.object(
+            self.module,
+            "_fetch_nba_cn_player_names",
+            return_value={
+                "203932": "阿隆 戈登",
+                "999998": "远端译名",
+            },
+        ):
+            updated = self.module.populate_players(include_remote_feed=True)
+
+        with self.SessionLocal() as session:
+            aaron = session.get(self.models.Player, "203932")
+            existing = session.get(self.models.Player, "999998")
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(aaron.full_name_zh, "阿隆 戈登")
+        self.assertEqual(existing.full_name_zh, "已有译名")
+
 
 if __name__ == "__main__":
     unittest.main()

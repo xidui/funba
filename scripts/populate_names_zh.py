@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from urllib.request import urlopen
 
 from sqlalchemy.orm import sessionmaker
 
@@ -17,6 +18,7 @@ from web.i18n.player_names_zh import PLAYER_NAMES_ZH
 from web.i18n.team_names_zh import TEAM_NAMES_ZH
 
 SessionLocal = sessionmaker(bind=engine)
+NBA_CN_PLAYERLIST_URL = "https://china.nba.cn/stats2/league/playerlist.json?locale=zh_CN"
 
 
 def populate_teams() -> int:
@@ -32,18 +34,46 @@ def populate_teams() -> int:
     return updated
 
 
-def populate_players() -> int:
+def _fetch_nba_cn_player_names() -> dict[str, str]:
+    with urlopen(NBA_CN_PLAYERLIST_URL, timeout=30) as resp:
+        payload = json.load(resp)
+
+    players = payload.get("payload", {}).get("players", [])
+    names: dict[str, str] = {}
+    for player in players:
+        profile = player.get("playerProfile") or {}
+        player_id = str(profile.get("playerId") or "").strip()
+        display_name = str(profile.get("displayName") or "").strip()
+        if player_id and display_name:
+            names[player_id] = display_name
+    return names
+
+
+def populate_players(include_remote_feed: bool = False) -> int:
     updated = 0
+    remote_names: dict[str, str] = {}
+    if include_remote_feed:
+        try:
+            remote_names = _fetch_nba_cn_player_names()
+        except Exception:
+            remote_names = {}
+
+    player_names = dict(remote_names)
+    player_names.update(PLAYER_NAMES_ZH)
+
     with SessionLocal() as session:
         players = (
             session.query(Player)
-            .filter(Player.player_id.in_(PLAYER_NAMES_ZH.keys()))
+            .filter(Player.player_id.in_(player_names.keys()))
             .order_by(Player.full_name.asc())
             .all()
         )
         for player in players:
-            full_name_zh = PLAYER_NAMES_ZH.get(player.player_id)
-            if full_name_zh and player.full_name_zh != full_name_zh:
+            full_name_zh = player_names.get(player.player_id)
+            if not full_name_zh:
+                continue
+            should_update = not player.full_name_zh or player.player_id in PLAYER_NAMES_ZH
+            if should_update and player.full_name_zh != full_name_zh:
                 player.full_name_zh = full_name_zh
                 updated += 1
         session.commit()
@@ -76,10 +106,11 @@ def populate_metrics() -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Populate Chinese team, player, and metric names.")
     parser.add_argument("--skip-metrics", action="store_true")
+    parser.add_argument("--skip-remote-player-feed", action="store_true")
     args = parser.parse_args()
 
     team_updates = populate_teams()
-    player_updates = populate_players()
+    player_updates = populate_players(include_remote_feed=not args.skip_remote_player_feed)
     metric_updates = 0 if args.skip_metrics else populate_metrics()
 
     print(
