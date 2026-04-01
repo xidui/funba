@@ -111,6 +111,35 @@ class TestPopulateNamesZh(unittest.TestCase):
         self.assertEqual(aaron.full_name_zh, "阿隆 戈登")
         self.assertEqual(existing.full_name_zh, "已有译名")
 
+    def test_populate_players_can_fill_from_historical_remote_feed(self):
+        with self.SessionLocal() as session:
+            session.add(
+                self.models.Player(
+                    player_id="782",
+                    full_name="Mitch Richmond",
+                    full_name_zh=None,
+                    is_active=False,
+                    is_team=False,
+                )
+            )
+            session.commit()
+
+        with patch.object(self.module, "SessionLocal", self.SessionLocal), patch.object(
+            self.module,
+            "_fetch_nba_cn_historical_player_names",
+            return_value={"782": "米奇 里奇蒙德"},
+        ):
+            updated = self.module.populate_players(
+                include_remote_feed=False,
+                include_historical_remote_feed=True,
+            )
+
+        with self.SessionLocal() as session:
+            mitch = session.get(self.models.Player, "782")
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(mitch.full_name_zh, "米奇 里奇蒙德")
+
 
 if __name__ == "__main__":
     unittest.main()

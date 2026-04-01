@@ -19,6 +19,21 @@ from web.i18n.team_names_zh import TEAM_NAMES_ZH
 
 SessionLocal = sessionmaker(bind=engine)
 NBA_CN_PLAYERLIST_URL = "https://china.nba.cn/stats2/league/playerlist.json?locale=zh_CN"
+NBA_CN_HISTORICAL_PLAYERLIST_URL = "https://china.nba.cn/stats2/league/historicalplayerlist.json?locale=zh_CN&seasonRange={season_range}"
+NBA_CN_HISTORICAL_SEASON_RANGES = (
+    "1946-1949",
+    "1950-1959",
+    "1960-1969",
+    "1970-1979",
+    "1980-1989",
+    "1990-1999",
+    "2000-2004",
+    "2005-2007",
+    "2013-2014",
+    "2015-2017",
+    "2018-2019",
+    "2020-2022",
+)
 
 
 def populate_teams() -> int:
@@ -49,7 +64,30 @@ def _fetch_nba_cn_player_names() -> dict[str, str]:
     return names
 
 
-def populate_players(include_remote_feed: bool = False) -> int:
+def _fetch_nba_cn_historical_player_names() -> dict[str, str]:
+    names: dict[str, str] = {}
+    for season_range in NBA_CN_HISTORICAL_SEASON_RANGES:
+        url = NBA_CN_HISTORICAL_PLAYERLIST_URL.format(season_range=season_range)
+        try:
+            with urlopen(url, timeout=30) as resp:
+                payload = json.load(resp)
+        except Exception:
+            continue
+
+        players = payload.get("payload", {}).get("players", []) or []
+        for player in players:
+            profile = player.get("playerProfile") or {}
+            player_id = str(profile.get("playerId") or "").strip()
+            display_name = str(profile.get("displayName") or "").strip()
+            if player_id and display_name:
+                names[player_id] = display_name
+    return names
+
+
+def populate_players(
+    include_remote_feed: bool = False,
+    include_historical_remote_feed: bool = False,
+) -> int:
     updated = 0
     remote_names: dict[str, str] = {}
     if include_remote_feed:
@@ -58,7 +96,15 @@ def populate_players(include_remote_feed: bool = False) -> int:
         except Exception:
             remote_names = {}
 
-    player_names = dict(remote_names)
+    historical_remote_names: dict[str, str] = {}
+    if include_historical_remote_feed:
+        try:
+            historical_remote_names = _fetch_nba_cn_historical_player_names()
+        except Exception:
+            historical_remote_names = {}
+
+    player_names = dict(historical_remote_names)
+    player_names.update(remote_names)
     player_names.update(PLAYER_NAMES_ZH)
 
     with SessionLocal() as session:
@@ -107,10 +153,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Populate Chinese team, player, and metric names.")
     parser.add_argument("--skip-metrics", action="store_true")
     parser.add_argument("--skip-remote-player-feed", action="store_true")
+    parser.add_argument("--skip-remote-historical-player-feed", action="store_true")
     args = parser.parse_args()
 
     team_updates = populate_teams()
-    player_updates = populate_players(include_remote_feed=not args.skip_remote_player_feed)
+    player_updates = populate_players(
+        include_remote_feed=not args.skip_remote_player_feed,
+        include_historical_remote_feed=not args.skip_remote_historical_player_feed,
+    )
     metric_updates = 0 if args.skip_metrics else populate_metrics()
 
     print(
