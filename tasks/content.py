@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from celery import shared_task
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Game, engine
+from db.models import Game, MetricRunLog, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
 logger = logging.getLogger(__name__)
@@ -18,41 +18,22 @@ def _session_factory():
     return _SessionLocal
 
 
-def _queue_state() -> dict:
-    broker_url = None
-    queues = {"ingest": 0, "metrics": 0, "reduce": 0}
-    worker_active = 0
-    broker_ok = False
-
-    try:
-        import os
-        import redis as _redis
-
-        broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-        r = _redis.Redis.from_url(broker_url, socket_timeout=2)
-        r.ping()
-        broker_ok = True
-        for qname in queues:
-            queues[qname] = int(r.llen(qname) or 0)
-    except Exception:
-        logger.warning("content readiness: failed to inspect Redis broker", exc_info=True)
-
-    try:
-        from tasks.celery_app import app as celery_app
-
-        inspector = celery_app.control.inspect(timeout=1.5)
-        active_tasks = inspector.active() or {}
-        for task_list in active_tasks.values():
-            worker_active += len(task_list or [])
-    except Exception:
-        logger.warning("content readiness: failed to inspect Celery workers", exc_info=True)
-
-    return {
-        "broker_ok": broker_ok,
-        "broker_url": broker_url,
-        "queues": queues,
-        "worker_active": worker_active,
-    }
+def _all_games_have_metrics(game_ids: list[str]) -> bool:
+    """Check whether every game_id has at least one MetricRunLog entry."""
+    if not game_ids:
+        return False
+    with _session_factory()() as session:
+        computed_game_ids = {
+            row.game_id
+            for row in session.query(MetricRunLog.game_id)
+            .filter(MetricRunLog.game_id.in_(game_ids))
+            .distinct()
+            .all()
+        }
+    missing = set(game_ids) - computed_game_ids
+    if missing:
+        logger.info("content readiness: games missing metrics: %s", sorted(missing))
+    return len(missing) == 0
 
 
 def _games_for_date(target_date: date) -> list[str]:
@@ -114,15 +95,12 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     if not game_ids:
         return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
 
-    queue_state = _queue_state()
-    queue_backlog = sum(queue_state["queues"].values())
-    if not force and (queue_backlog > 0 or queue_state["worker_active"] > 0):
+    if not force and not _all_games_have_metrics(game_ids):
         return {
             "ok": False,
             "status": "waiting_for_pipeline",
             "source_date": target_date.isoformat(),
             "game_ids": game_ids,
-            "queue_state": queue_state,
         }
 
     title = _build_daily_analysis_title(target_date)
