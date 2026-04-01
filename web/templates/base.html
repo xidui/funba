@@ -1336,20 +1336,7 @@
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}">{{ t('Metrics', '指标') }}</a>
           <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if active_public_endpoint == 'awards_page' }}">{{ t('Awards', '荣誉') }}</a>
           <a href="{{ url_for('pricing') }}" class="nav-link {{ 'active' if active_public_endpoint == 'pricing' }}">{{ t('Pricing', '价格') }}</a>
-          {% if toggle_language_url %}
-          <div style="display:inline-flex;align-items:center;gap:6px;margin-left:2px;font-size:11px;color:var(--muted);">
-            <span style="{% if lang == 'en' %}color:var(--heading);font-weight:700;{% endif %}">EN</span>
-            <span>/</span>
-            {% if lang == 'zh' %}
-            <span style="color:var(--heading);font-weight:700;">中文</span>
-            {% else %}
-            <a href="{{ toggle_language_url }}" class="nav-link" style="padding:0;min-height:auto;">中文</a>
-            {% endif %}
-            {% if lang == 'zh' %}
-            <a href="{{ toggle_language_url }}" class="nav-link" style="padding:0;min-height:auto;">EN</a>
-            {% endif %}
-          </div>
-          {% endif %}
+          {# Language toggle moved next to theme toggle #}
           {% if is_admin %}
           <div class="admin-menu-wrap" id="admin-menu-wrap">
             <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback', 'admin_settings') }}" id="admin-menu-btn">
@@ -1365,6 +1352,9 @@
               <a href="{{ url_for('admin_feedback') }}">User Feedback</a>
             </div>
           </div>
+          {% endif %}
+          {% if toggle_language_url %}
+          <a href="{{ toggle_language_url }}" class="theme-toggle" aria-label="{{ t('Switch to Chinese', 'Switch to English') }}" style="text-decoration:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;">{{ t('中', 'EN') }}</a>
           {% endif %}
           <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Switch to light mode">
             <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
