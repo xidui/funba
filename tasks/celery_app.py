@@ -29,6 +29,8 @@ app.conf.update(
     task_default_queue="ingest",
     task_routes={
         "tasks.ingest.ingest_game": {"queue": "ingest"},
+        "tasks.ingest.ingest_recent_games": {"queue": "ingest"},
+        "tasks.ingest.sync_schedule_window": {"queue": "ingest"},
         "tasks.metrics.compute_game_delta": {"queue": "metrics"},
         "tasks.metrics.sweep_metric_compute_runs": {"queue": "reduce"},
         "tasks.metrics.reduce_metric_compute_run": {"queue": "reduce"},
@@ -38,6 +40,8 @@ app.conf.update(
         "tasks.metrics.compute_season_metric": {"queue": "metrics"},
         "tasks.metrics.enqueue_career_metric_family": {"queue": "metrics"},
         "tasks.content.ensure_daily_content_analysis": {"queue": "ingest"},
+        "tasks.content.ensure_recent_content_analysis": {"queue": "ingest"},
+        "tasks.content.ensure_recent_content_analysis_for_season": {"queue": "ingest"},
     },
 
     # --- Serialization ---
@@ -50,17 +54,22 @@ app.conf.update(
 
     # --- Celery Beat schedule ---
     beat_schedule={
-        "ingest-yesterday-games": {
-            "task": "tasks.ingest.ingest_yesterday",
-            "schedule": 60 * 60,
+        "ingest-recent-games": {
+            "task": "tasks.ingest.ingest_recent_games",
+            "schedule": 600,
         },
         "sweep-metric-compute-runs": {
             "task": "tasks.metrics.sweep_metric_compute_runs",
             "schedule": 120,
         },
-        "ensure-daily-content-analysis": {
-            "task": "tasks.content.ensure_daily_content_analysis",
+        "ensure-recent-content-analysis": {
+            "task": "tasks.content.ensure_recent_content_analysis",
             "schedule": 600,
+        },
+        "sync-schedule-window": {
+            "task": "tasks.ingest.sync_schedule_window",
+            "schedule": crontab(hour=6, minute=0),
+            "kwargs": {"season_types": ["PlayIn", "Playoffs"]},
         },
     },
 

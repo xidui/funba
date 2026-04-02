@@ -693,6 +693,18 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
     if run_id:
         _increment_compute_run_progress(run_id)
 
+    if season and str(season).startswith(("2", "4")):
+        try:
+            from tasks.content import ensure_recent_content_analysis_for_season_task
+
+            ensure_recent_content_analysis_for_season_task.delay(season)
+        except Exception as exc:
+            logger.warning(
+                "compute_season_metric: failed to enqueue content readiness check for season=%s: %s",
+                season,
+                exc,
+            )
+
     return {"metric_key": metric_key, "season": season, "results_written": count}
 
 

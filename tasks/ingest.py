@@ -75,6 +75,54 @@ def _artifacts_available_from_nba_api(season: str | None) -> bool:
     return start_year >= 1996
 
 
+def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = None) -> dict:
+    """Return current ingest completeness for one game."""
+    game = sess.query(Game).filter(Game.game_id == game_id).first()
+    season = season_hint or (game.season if game is not None else None)
+    artifacts_supported = _artifacts_available_from_nba_api(season)
+
+    has_detail = has_pbp = has_shot = False
+    if game is not None:
+        has_detail = is_game_detail_back_filled(game_id, sess)
+        has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game_id, sess)
+        has_shot = True if not artifacts_supported else is_game_shot_back_filled(sess, game_id)
+
+    return {
+        "game_id": game_id,
+        "season": season,
+        "exists_game": game is not None,
+        "artifacts_supported": artifacts_supported,
+        "has_detail": has_detail,
+        "has_pbp": has_pbp,
+        "has_shot": has_shot,
+        "complete": bool(game is not None and has_detail and has_pbp and has_shot),
+    }
+
+
+def _missing_artifacts(status: dict) -> list[str]:
+    missing: list[str] = []
+    if not status.get("exists_game"):
+        missing.append("Game")
+    if not status.get("has_detail"):
+        missing.append("detail")
+    if status.get("artifacts_supported", True):
+        if not status.get("has_pbp"):
+            missing.append("PBP")
+        if not status.get("has_shot"):
+            missing.append("shot")
+    return missing
+
+
+def _list_incomplete_game_ids(game_ids: list[str]) -> list[str]:
+    SessionLocal = _session_factory()
+    with SessionLocal() as sess:
+        return [
+            gid
+            for gid in sorted(set(game_ids))
+            if not _load_game_artifact_status(sess, gid).get("complete")
+        ]
+
+
 @shared_task(
     bind=True,
     name="tasks.ingest.ingest_game",
@@ -99,16 +147,12 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     try:
         # Step 1: check what's present
         with SessionLocal() as sess:
-            game = sess.query(Game).filter(Game.game_id == game_id).first()
-            game_exists = game is not None
-            if game_exists:
-                artifacts_supported = _artifacts_available_from_nba_api(game.season)
-                has_detail = is_game_detail_back_filled(game_id, sess)
-                has_pbp = is_game_pbp_back_filled(game_id, sess) if artifacts_supported else True
-                has_shot = is_game_shot_back_filled(sess, game_id) if artifacts_supported else True
-            else:
-                artifacts_supported = True
-                has_detail = has_pbp = has_shot = False
+            status_before = _load_game_artifact_status(sess, game_id)
+            game_exists = status_before["exists_game"]
+            artifacts_supported = status_before["artifacts_supported"]
+            has_detail = status_before["has_detail"]
+            has_pbp = status_before["has_pbp"]
+            has_shot = status_before["has_shot"]
 
         needs_detail_pbp = not (has_detail and has_pbp)
         needs_shot = not has_shot
@@ -121,7 +165,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             needs_shot = False
             logger.info(
                 "ingest_game %s: skipping PBP/shot fetch for pre-1996 season %s.",
-                game_id, game.season,
+                game_id, status_before.get("season"),
             )
 
         # Step 2: fetch from API if anything is missing (covers new games too)
@@ -139,6 +183,14 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             with SessionLocal() as sess:
                 back_fill_game_shot_record(sess, game_id, False)
                 sess.commit()
+
+        with SessionLocal() as sess:
+            status_after = _load_game_artifact_status(sess, game_id)
+        missing_after = _missing_artifacts(status_after)
+        if missing_after:
+            raise RuntimeError(
+                f"Artifacts not ready for game {game_id}: missing {', '.join(missing_after)}"
+            )
 
         # Step 3b: fix zero-score Game rows left by discover when API had no data
         with SessionLocal() as sess:
@@ -228,6 +280,11 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
     }
 
 
+def _recent_target_dates(lookback_days: int) -> list[date]:
+    days = max(int(lookback_days), 1)
+    return [date.today() - timedelta(days=offset) for offset in range(days)]
+
+
 def _discover_game_ids_for_date(target_date: date) -> list[str]:
     """Discover game IDs from NBA API for a given date (finds newly finished games)."""
     from nba_api.stats.endpoints import leaguegamefinder
@@ -285,6 +342,114 @@ def ingest_yesterday(self) -> dict:
 
     logger.info("ingest_yesterday: enqueued %d games for %s (chord → season metric refresh).", len(game_ids), yesterday)
     return {"date": str(yesterday), "enqueued": len(game_ids)}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.ingest.ingest_recent_games",
+    max_retries=1,
+    queue="ingest",
+)
+def ingest_recent_games(self, lookback_days: int = 3) -> dict:
+    """Periodically scan recent completed games and ingest only incomplete ones.
+
+    This handles the common case where a game has finished but one or more NBA
+    API artifacts (box/PBP/shot) are still delayed. The task keeps retrying on
+    later scans until the game becomes complete.
+    """
+    from celery import chord
+    from tasks.metrics import refresh_current_season_metrics
+
+    discovered_by_date: dict[str, list[str]] = {}
+    discovered_ids: set[str] = set()
+    for target_date in _recent_target_dates(lookback_days):
+        game_ids = sorted(_discover_game_ids_for_date(target_date))
+        if game_ids:
+            discovered_by_date[target_date.isoformat()] = game_ids
+            discovered_ids.update(game_ids)
+
+    if not discovered_ids:
+        logger.info("ingest_recent_games: no completed games found in last %d day(s).", lookback_days)
+        return {"lookback_days": int(lookback_days), "discovered": 0, "enqueued": 0, "dates": []}
+
+    incomplete_game_ids = _list_incomplete_game_ids(list(discovered_ids))
+    if not incomplete_game_ids:
+        logger.info(
+            "ingest_recent_games: all %d discovered game(s) already complete for last %d day(s).",
+            len(discovered_ids),
+            lookback_days,
+        )
+        return {
+            "lookback_days": int(lookback_days),
+            "discovered": len(discovered_ids),
+            "enqueued": 0,
+            "dates": sorted(discovered_by_date.keys()),
+        }
+
+    ingest_tasks = [ingest_game.s(gid) for gid in incomplete_game_ids]
+    chord(ingest_tasks)(refresh_current_season_metrics.s())
+    logger.info(
+        "ingest_recent_games: discovered=%d incomplete=%d dates=%s",
+        len(discovered_ids),
+        len(incomplete_game_ids),
+        sorted(discovered_by_date.keys()),
+    )
+    return {
+        "lookback_days": int(lookback_days),
+        "discovered": len(discovered_ids),
+        "enqueued": len(incomplete_game_ids),
+        "dates": sorted(discovered_by_date.keys()),
+        "game_ids": incomplete_game_ids,
+    }
+
+
+@shared_task(
+    bind=True,
+    name="tasks.ingest.sync_schedule_window",
+    max_retries=1,
+    queue="ingest",
+)
+def sync_schedule_window(
+    self,
+    lookback_days: int = 3,
+    lookahead_days: int = 30,
+    season_types: list[str] | None = None,
+) -> dict:
+    """Persist recent + upcoming schedule rows into the local Game table."""
+    from tasks.dispatch import sync_schedule_games
+
+    today = date.today()
+    date_from = (today - timedelta(days=max(int(lookback_days), 0))).strftime("%m/%d/%Y")
+    date_to = (today + timedelta(days=max(int(lookahead_days), 0))).strftime("%m/%d/%Y")
+
+    try:
+        game_ids = sync_schedule_games(
+            date_from=date_from,
+            date_to=date_to,
+            season_types=season_types,
+        )
+    except Exception as exc:
+        logger.warning(
+            "sync_schedule_window failed for %s -> %s: %s",
+            date_from,
+            date_to,
+            exc,
+            exc_info=True,
+        )
+        raise self.retry(exc=exc, countdown=300)
+
+    logger.info(
+        "sync_schedule_window: synced %d game(s) for %s -> %s",
+        len(game_ids),
+        date_from,
+        date_to,
+    )
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "season_types": list(season_types or []),
+        "synced_games": len(game_ids),
+    }
 
 
 @shared_task(

@@ -152,6 +152,9 @@ def discover_and_insert_games(
     season_types: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    *,
+    include_unplayed: bool = False,
+    upsert_existing: bool = False,
 ) -> set[str]:
     """Fetch games from NBA API, bulk-insert missing Game rows, return all game_ids.
 
@@ -177,7 +180,7 @@ def discover_and_insert_games(
                 league_id_nullable="00",
             )
             df = finder.get_data_frames()[0]
-            if "WL" in df.columns:
+            if not include_unplayed and "WL" in df.columns:
                 df = df[df["WL"].notna()]
             frames.append(df)
         except Exception as exc:
@@ -233,15 +236,49 @@ def discover_and_insert_games(
             r.game_id
             for r in sess.query(Game.game_id).filter(Game.game_id.in_(game_ids)).all()
         }
-        new_rows = [g for g in game_rows.values() if g["game_id"] not in existing_ids]
-        if new_rows:
-            sess.execute(mysql_insert(Game).prefix_with("IGNORE").values(new_rows))
+        inserted_count = len(game_ids - existing_ids)
+        updated_count = len(game_ids & existing_ids) if upsert_existing else 0
+        if upsert_existing:
+            stmt = mysql_insert(Game).values(list(game_rows.values()))
+            stmt = stmt.on_duplicate_key_update(
+                season=stmt.inserted.season,
+                game_date=stmt.inserted.game_date,
+                home_team_id=stmt.inserted.home_team_id,
+                road_team_id=stmt.inserted.road_team_id,
+                home_team_score=func.coalesce(stmt.inserted.home_team_score, Game.home_team_score),
+                road_team_score=func.coalesce(stmt.inserted.road_team_score, Game.road_team_score),
+                wining_team_id=func.coalesce(stmt.inserted.wining_team_id, Game.wining_team_id),
+            )
+            sess.execute(stmt)
             sess.commit()
-            print(f"Inserted {len(new_rows)} new Game record(s).")
+            print(f"Synced {len(game_rows)} Game record(s) ({inserted_count} inserted, {updated_count} updated).")
+        else:
+            new_rows = [g for g in game_rows.values() if g["game_id"] not in existing_ids]
+            if new_rows:
+                sess.execute(mysql_insert(Game).prefix_with("IGNORE").values(new_rows))
+                sess.commit()
+                print(f"Inserted {len(new_rows)} new Game record(s).")
     finally:
         sess.close()
 
     return game_ids
+
+
+def sync_schedule_games(
+    season: str | None = None,
+    season_types: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> set[str]:
+    """Sync schedule rows, including future / not-yet-played games, into Game."""
+    return discover_and_insert_games(
+        season=season,
+        season_types=season_types,
+        date_from=date_from,
+        date_to=date_to,
+        include_unplayed=True,
+        upsert_existing=True,
+    )
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
@@ -272,6 +309,35 @@ def cmd_discover(args: argparse.Namespace) -> None:
         ingest_game.apply_async(args=[gid], kwargs={"force": args.force}, )
 
     print(f"Enqueued {len(game_ids)} ingest task(s) → Queue: ingest.")
+
+
+def cmd_schedule_sync(args: argparse.Namespace) -> None:
+    """Sync recent + upcoming schedule rows into the local Game table."""
+    from datetime import date as _date, timedelta as _timedelta
+
+    def _fmt(d: str | None) -> str:
+        if not d:
+            return ""
+        return _date.fromisoformat(d).strftime("%m/%d/%Y")
+
+    if args.date_from or args.date_to:
+        date_from = _fmt(args.date_from)
+        date_to = _fmt(args.date_to)
+    else:
+        today = _date.today()
+        date_from = (today - _timedelta(days=args.lookback_days)).strftime("%m/%d/%Y")
+        date_to = (today + _timedelta(days=args.lookahead_days)).strftime("%m/%d/%Y")
+
+    game_ids = sync_schedule_games(
+        season=args.season,
+        season_types=args.season_type or None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if not game_ids:
+        print("No schedule rows found from NBA API for the given filters.")
+        return
+    print(f"Synced schedule for {len(game_ids)} game(s).")
 
 
 def cmd_game(args: argparse.Namespace) -> None:
@@ -545,6 +611,25 @@ def main() -> None:
     p_disc.add_argument("--force", action="store_true",
                         help="Clear existing claims so workers reprocess even completed games.")
     p_disc.set_defaults(func=cmd_discover)
+
+    # --- schedule-sync ---
+    p_sched = sub.add_parser(
+        "schedule-sync",
+        help="Sync recent + upcoming schedule rows into the local Game table without enqueueing ingest.",
+    )
+    p_sched.add_argument("--date-from", dest="date_from", help="Start date YYYY-MM-DD")
+    p_sched.add_argument("--date-to", dest="date_to", help="End date YYYY-MM-DD")
+    p_sched.add_argument("--season", default=None, help="Season string passed to LeagueGameFinder, e.g. '2025-26'")
+    p_sched.add_argument(
+        "--season-type",
+        dest="season_type",
+        action="append",
+        metavar="TYPE",
+        help="Season type (default: Regular Season, Playoffs, PlayIn). Repeatable.",
+    )
+    p_sched.add_argument("--lookback-days", dest="lookback_days", type=int, default=3)
+    p_sched.add_argument("--lookahead-days", dest="lookahead_days", type=int, default=30)
+    p_sched.set_defaults(func=cmd_schedule_sync)
 
     # --- game <game_id> ---
     p_game = sub.add_parser("game", help="Enqueue ingest for a single game.")

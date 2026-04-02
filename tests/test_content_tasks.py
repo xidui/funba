@@ -32,11 +32,18 @@ def _config():
 
 
 class TestDailyContentAnalysisIssue(unittest.TestCase):
-    @patch("tasks.content._queue_state", return_value={"queues": {"ingest": 0, "metrics": 0, "reduce": 0}, "worker_active": 0, "broker_ok": True, "broker_url": "redis://localhost"})
-    @patch("tasks.content._games_for_date", return_value=["0022501082", "0022501083"])
+    @patch("tasks.content._all_games_have_metrics", return_value=True)
+    @patch(
+        "tasks.content._pipeline_status_for_date",
+        return_value={
+            "game_ids": ["0022501082", "0022501083"],
+            "artifacts_ready": True,
+            "pending_game_ids": [],
+        },
+    )
     @patch("tasks.content.load_paperclip_bridge_config")
     @patch("tasks.content.PaperclipClient")
-    def test_returns_existing_issue_without_force(self, mock_client_cls, mock_load_cfg, _mock_games, _mock_queue):
+    def test_returns_existing_issue_without_force(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_metrics):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 
@@ -59,11 +66,18 @@ class TestDailyContentAnalysisIssue(unittest.TestCase):
         self.assertEqual(result["issue_identifier"], "XIX-386")
         mock_client.update_issue.assert_not_called()
 
-    @patch("tasks.content._queue_state", return_value={"queues": {"ingest": 0, "metrics": 0, "reduce": 0}, "worker_active": 0, "broker_ok": True, "broker_url": "redis://localhost"})
-    @patch("tasks.content._games_for_date", return_value=["0022501082", "0022501083"])
+    @patch("tasks.content._all_games_have_metrics", return_value=True)
+    @patch(
+        "tasks.content._pipeline_status_for_date",
+        return_value={
+            "game_ids": ["0022501082", "0022501083"],
+            "artifacts_ready": True,
+            "pending_game_ids": [],
+        },
+    )
     @patch("tasks.content.load_paperclip_bridge_config")
     @patch("tasks.content.PaperclipClient")
-    def test_force_reopens_existing_issue(self, mock_client_cls, mock_load_cfg, _mock_games, _mock_queue):
+    def test_force_creates_fresh_issue(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_metrics):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 
@@ -77,9 +91,9 @@ class TestDailyContentAnalysisIssue(unittest.TestCase):
                 "status": "done",
             }
         ]
-        mock_client.update_issue.return_value = {
-            "id": "issue-386",
-            "identifier": "XIX-386",
+        mock_client.create_issue.return_value = {
+            "id": "issue-401",
+            "identifier": "XIX-401",
             "status": "todo",
         }
         mock_client_cls.return_value = mock_client
@@ -90,16 +104,13 @@ class TestDailyContentAnalysisIssue(unittest.TestCase):
         )
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["status"], "reopened")
-        self.assertEqual(result["issue_identifier"], "XIX-386")
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["issue_identifier"], "XIX-401")
         mock_client.update_issue.assert_called_once()
         issue_id, payload = mock_client.update_issue.call_args.args
         self.assertEqual(issue_id, "issue-386")
-        self.assertEqual(payload["status"], "todo")
-        self.assertEqual(payload["assigneeAgentId"], "agent-analyst")
-        self.assertIsNone(payload["assigneeUserId"])
-        self.assertIn("Force rerun requested", payload["comment"])
-        self.assertIn("2026-03-29", payload["comment"])
+        self.assertEqual(payload["status"], "cancelled")
+        mock_client.create_issue.assert_called_once()
 
 
 if __name__ == "__main__":
