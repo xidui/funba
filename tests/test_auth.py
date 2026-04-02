@@ -441,6 +441,9 @@ class TestMyMetricsRoute(unittest.TestCase):
             def __eq__(self, other):
                 return ("eq", self.name, other)
 
+            def in_(self, other):
+                return ("in", self.name, other)
+
             def is_(self, other):
                 return ("is", self.name, other)
 
@@ -508,7 +511,7 @@ class TestMyMetricsRoute(unittest.TestCase):
             [
                 ("eq", "created_by_user_id", "user-123"),
                 ("is", "base_metric_key", None),
-                ("eq", "status", "published"),
+                ("in", "status", ["published", "disabled"]),
             ],
         )
         self.assertEqual(published_query.orderings, [("desc", "created_at")])
@@ -1162,7 +1165,7 @@ class TestMetricPublishAuth(unittest.TestCase):
         template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
         self.assertIn("metric-deep-dive-panel", template)
         self.assertIn("admin_metric_trigger_deep_dive_post", template)
-        self.assertIn("Content Deep Dive", template)
+        self.assertIn("No deep-dive post triggered yet.", template)
 
     def test_base_template_shows_my_metrics_link_for_all_logged_in_users(self):
         template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()
