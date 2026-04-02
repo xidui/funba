@@ -6,6 +6,9 @@ from datetime import date, timedelta
 from celery import shared_task
 from sqlalchemy.orm import sessionmaker
 
+from db.backfill_nba_game_detail import is_game_detail_back_filled
+from db.backfill_nba_game_pbp import is_game_pbp_back_filled
+from db.backfill_nba_player_shot_detail import is_game_shot_back_filled
 from db.models import Game, MetricRunLog, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
@@ -16,6 +19,22 @@ _SessionLocal = sessionmaker(bind=engine)
 
 def _session_factory():
     return _SessionLocal
+
+
+def _season_start_year(season: str | None) -> int | None:
+    if not season:
+        return None
+    try:
+        return int(str(season)[1:])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _artifacts_available_from_nba_api(season: str | None) -> bool:
+    start_year = _season_start_year(season)
+    if start_year is None:
+        return True
+    return start_year >= 1996
 
 
 def _all_games_have_metrics(game_ids: list[str]) -> bool:
@@ -47,6 +66,63 @@ def _games_for_date(target_date: date) -> list[str]:
         ]
 
 
+def _pipeline_status_for_date(target_date: date) -> dict:
+    with _session_factory()() as session:
+        games = (
+            session.query(Game)
+            .filter(Game.game_date == target_date)
+            .order_by(Game.game_id.asc())
+            .all()
+        )
+        if not games:
+            return {
+                "game_ids": [],
+                "artifacts_ready": False,
+                "pending_game_ids": [],
+            }
+
+        pending_game_ids: list[str] = []
+        for game in games:
+            artifacts_supported = _artifacts_available_from_nba_api(game.season)
+            has_detail = is_game_detail_back_filled(game.game_id, session)
+            has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game.game_id, session)
+            has_shot = True if not artifacts_supported else is_game_shot_back_filled(session, game.game_id)
+            if not (has_detail and has_pbp and has_shot):
+                pending_game_ids.append(game.game_id)
+
+        return {
+            "game_ids": [game.game_id for game in games],
+            "artifacts_ready": len(pending_game_ids) == 0,
+            "pending_game_ids": pending_game_ids,
+        }
+
+
+def _recent_target_dates(lookback_days: int) -> list[date]:
+    days = max(int(lookback_days), 1)
+    return [date.today() - timedelta(days=offset) for offset in range(days)]
+
+
+def _recent_game_dates_for_season(season: str, lookback_days: int = 3) -> list[date]:
+    if not season or not str(season).startswith(("2", "4")):
+        return []
+
+    cutoff = date.today() - timedelta(days=max(int(lookback_days), 1) - 1)
+    with _session_factory()() as session:
+        rows = (
+            session.query(Game.game_date)
+            .filter(
+                Game.season == season,
+                Game.game_date.isnot(None),
+                Game.game_date >= cutoff,
+                Game.game_date <= date.today(),
+            )
+            .distinct()
+            .order_by(Game.game_date.desc())
+            .all()
+        )
+    return [row[0] for row in rows if row[0] is not None]
+
+
 def _build_daily_analysis_title(target_date: date) -> str:
     return f"Daily content analysis — funba — {target_date.isoformat()}"
 
@@ -62,21 +138,25 @@ def _build_daily_analysis_description(target_date: date, game_ids: list[str]) ->
         "1. Read yesterday's games and triggered metrics from Funba localhost APIs.\n"
         "2. Select 3-6 high-signal story angles.\n"
         "3. Create SocialPost entries with Chinese variants for different audiences.\n"
-        "4. Include 2-3 images per post (see Image Pool below).\n"
+        "4. Include 2-3 images per post (see Image Pool below). Prefer real or referenceable visuals for player-centric stories.\n"
         "5. Leave the resulting posts in Funba for human review.\n"
         "6. Do not publish to external platforms from this issue.\n\n"
         "## Image Pool\n\n"
         "Each post supports an image pool. Include an `images` array in the POST /api/content/posts payload.\n"
         "Reference images in content_raw with `[[IMAGE:slot=img1]]` placeholders.\n\n"
         "Available image types:\n"
-        "- `ai_generated`: Creative/fun illustrations. Provide a `prompt` in English.\n"
-        "  Examples: player dunking in anime style, player signature celebration, dramatic game moment.\n"
+        "- `player_headshot`: Official NBA player headshot. Provide `player_id`. Optional: `player_name` for review context.\n"
+        "- `ai_generated`: Stylized supporting art only. Provide a `prompt` in English.\n"
+        "  Do not use it for photorealistic player portraits, exact jersey numbers, or exact team logos.\n"
         "- `screenshot`: Funba page capture. Provide a `target` URL (e.g. metric ranking page, game page).\n"
-        "- `web_search`: Search for a real photo. Provide a `query` in English.\n\n"
+        "- `web_search`: Search for a real photo. Provide a `query` in English.\n"
+        "  Avoid watermarked sources. Prefer official/editorial photos over social screenshots.\n\n"
+        "For player-focused posts, the first image should usually be `player_headshot`, `web_search`, or `screenshot`.\n"
+        "Use `ai_generated` only as a secondary visual when the post benefits from a stylized mood image.\n\n"
         "Example images array:\n"
         "```json\n"
         "\"images\": [\n"
-        "  {\"slot\": \"img1\", \"type\": \"ai_generated\", \"prompt\": \"Luka Doncic celebrating with arms raised, dramatic lighting, digital art\", \"note\": \"东契奇庆祝\"},\n"
+        "  {\"slot\": \"img1\", \"type\": \"player_headshot\", \"player_id\": \"1629029\", \"player_name\": \"Luka Doncic\", \"note\": \"东契奇官方头像\"},\n"
         "  {\"slot\": \"img2\", \"type\": \"screenshot\", \"target\": \"https://funba.app/metrics/highest_monthly_points?season=22025\", \"note\": \"月得分排行\"}\n"
         "]\n"
         "```\n\n"
@@ -97,6 +177,30 @@ def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) 
 
 
 def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = False) -> dict:
+    pipeline = _pipeline_status_for_date(target_date)
+    game_ids = pipeline["game_ids"]
+    if not game_ids:
+        return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
+
+    if not force and not pipeline["artifacts_ready"]:
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "artifacts",
+            "source_date": target_date.isoformat(),
+            "game_ids": game_ids,
+            "pending_game_ids": pipeline["pending_game_ids"],
+        }
+
+    if not force and not _all_games_have_metrics(game_ids):
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "metrics",
+            "source_date": target_date.isoformat(),
+            "game_ids": game_ids,
+        }
+
     cfg = load_paperclip_bridge_config()
     if cfg is None:
         raise PaperclipBridgeError("Paperclip bridge is unavailable.")
@@ -107,18 +211,6 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
         raise PaperclipBridgeError("Could not resolve Funba project in Paperclip.")
     if not cfg.content_analyst_agent_id:
         raise PaperclipBridgeError("Could not resolve Content Analyst agent in Paperclip.")
-
-    game_ids = _games_for_date(target_date)
-    if not game_ids:
-        return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
-
-    if not force and not _all_games_have_metrics(game_ids):
-        return {
-            "ok": False,
-            "status": "waiting_for_pipeline",
-            "source_date": target_date.isoformat(),
-            "game_ids": game_ids,
-        }
 
     title = _build_daily_analysis_title(target_date)
     existing = client.list_issues(q=title, project_id=cfg.project_id)
@@ -164,6 +256,26 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     }
 
 
+def ensure_recent_content_analysis(source_dates: list[date], *, force: bool = False) -> dict:
+    deduped_dates = []
+    seen: set[date] = set()
+    for target_date in source_dates:
+        if target_date in seen:
+            continue
+        seen.add(target_date)
+        deduped_dates.append(target_date)
+
+    results = []
+    for target_date in deduped_dates:
+        results.append(ensure_daily_content_analysis_issue(target_date, force=force))
+
+    return {
+        "ok": True,
+        "checked_dates": [d.isoformat() for d in deduped_dates],
+        "results": results,
+    }
+
+
 @shared_task(
     bind=True,
     name="tasks.content.ensure_daily_content_analysis",
@@ -178,4 +290,59 @@ def ensure_daily_content_analysis_task(self, source_date: str | None = None, for
         return result
     except Exception as exc:
         logger.warning("daily content analysis readiness failed for %s: %s", target_date.isoformat(), exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=60)
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.ensure_recent_content_analysis",
+    queue="ingest",
+    max_retries=1,
+)
+def ensure_recent_content_analysis_task(
+    self,
+    source_dates: list[str] | None = None,
+    lookback_days: int = 3,
+    force: bool = False,
+) -> dict:
+    target_dates = (
+        [date.fromisoformat(value) for value in source_dates]
+        if source_dates
+        else _recent_target_dates(lookback_days)
+    )
+    try:
+        result = ensure_recent_content_analysis(target_dates, force=force)
+        logger.info("recent content analysis readiness checked for %s", result.get("checked_dates"))
+        return result
+    except Exception as exc:
+        logger.warning("recent content analysis readiness failed: %s", exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=60)
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.ensure_recent_content_analysis_for_season",
+    queue="ingest",
+    max_retries=1,
+)
+def ensure_recent_content_analysis_for_season_task(
+    self,
+    season: str,
+    lookback_days: int = 3,
+    force: bool = False,
+) -> dict:
+    target_dates = _recent_game_dates_for_season(season, lookback_days=lookback_days)
+    try:
+        result = ensure_recent_content_analysis(target_dates, force=force)
+        logger.info(
+            "season content analysis readiness checked for season=%s dates=%s",
+            season,
+            result.get("checked_dates"),
+        )
+        return {
+            **result,
+            "season": season,
+        }
+    except Exception as exc:
+        logger.warning("season content analysis readiness failed for %s: %s", season, exc, exc_info=True)
         raise self.retry(exc=exc, countdown=60)

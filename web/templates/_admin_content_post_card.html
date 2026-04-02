@@ -119,6 +119,13 @@
           </div>
           {% if img.note %}<div class="img-note">{{ img.note }}</div>{% endif %}
           {% if img.error_message %}<div class="img-error" title="{{ img.error_message }}">Error</div>{% endif %}
+          {% if img.file_name %}<div class="img-file">{{ img.file_name }}</div>{% endif %}
+          {% if img.spec_text %}
+          <details class="img-spec">
+            <summary>Spec</summary>
+            <pre>{{ img.spec_text }}</pre>
+          </details>
+          {% endif %}
           <button class="act-btn img-toggle" onclick="toggleImage({{ p.id }}, {{ img.id }}, {{ 'false' if img.is_enabled else 'true' }})">
             {{ 'Disable' if img.is_enabled else 'Enable' }}
           </button>

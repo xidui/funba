@@ -232,6 +232,21 @@ Create a SocialPost with variants and delivery destinations.
   "priority": 30,
   "status": "draft",
   "llm_model": "claude-sonnet-4-6",
+  "images": [
+    {
+      "slot": "img1",
+      "type": "player_headshot",
+      "player_id": "1629029",
+      "player_name": "Luka Doncic",
+      "note": "东契奇官方头像"
+    },
+    {
+      "slot": "img2",
+      "type": "web_search",
+      "query": "Luka Doncic postgame celebration Mavericks",
+      "note": "东契奇庆祝照"
+    }
+  ],
   "variants": [
     {
       "title": "智趣NBA: 雷霆大胜率联盟第二！",
@@ -263,6 +278,15 @@ Create a SocialPost with variants and delivery destinations.
 | `priority` | int | no | 50 | 0-20 historic, 20-50 notable, 50-80 interesting |
 | `status` | string | no | "draft" | Initial status: `draft`, `in_review`, `approved`, `archived` |
 | `llm_model` | string | no | null | Which model generated the content |
+| `images` | object[] | no | [] | Image pool specs referenced by `[[IMAGE:slot=...]]` placeholders |
+| `images[].slot` | string | yes | | Slot name such as `img1` |
+| `images[].type` | string | yes | | `player_headshot`, `web_search`, `screenshot`, `ai_generated` |
+| `images[].player_id` | string | for `player_headshot` | | NBA player ID for official headshots |
+| `images[].player_name` | string | no | null | Reviewer-facing context for `player_headshot` |
+| `images[].query` | string | for `web_search` | | English query for real editorial photos; avoid watermarked sources |
+| `images[].target` | string | for `screenshot` | | Funba URL to capture |
+| `images[].prompt` | string | for `ai_generated` | | English prompt for stylized supporting art, not factual portraits |
+| `images[].note` | string | no | null | Chinese note shown in admin review |
 | `variants` | object[] | no | [] | Audience-specific content variants |
 | `variants[].title` | string | yes | | Post title |
 | `variants[].content_raw` | string | yes | | Post body (markdown) |
