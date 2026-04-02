@@ -32,10 +32,12 @@ def _import_runner_module():
     fake_base = types.ModuleType("metrics.framework.base")
     fake_base.MetricResult = MagicMock()
     fake_base.career_season_for = MagicMock(return_value=None)
+    fake_base.is_career_season = MagicMock(return_value=False)
     fake_base.merge_totals = MagicMock(side_effect=lambda totals, delta: {**totals, **delta})
     sys.modules["metrics.framework.base"] = fake_base
 
     fake_runtime = types.ModuleType("metrics.framework.runtime")
+    fake_runtime._metric_declares_career_reducer = MagicMock(return_value=False)
     fake_runtime.get_all_metrics = MagicMock(return_value=[])
     fake_runtime.get_metric = MagicMock(return_value=None)
     sys.modules["metrics.framework.runtime"] = fake_runtime

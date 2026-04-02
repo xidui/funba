@@ -279,7 +279,7 @@ class LowestQuarterScore(MetricDefinition):
                 "incremental": False,
                 "rank_order": "desc",
             },
-        ):
+        ), patch.object(self.web_app, "is_admin", return_value=False):
             catalog = self.web_app._catalog_metrics(session)
 
         metric = next(m for m in catalog if m["key"] == "single_quarter_team_scoring")
@@ -336,7 +336,9 @@ class LowestQuarterScore(MetricDefinition):
                 "incremental": False,
                 "rank_order": "desc",
             },
-        ), patch.object(self.web_app, "_is_zh", return_value=True):
+        ), patch.object(self.web_app, "_is_zh", return_value=True), patch.object(
+            self.web_app, "is_admin", return_value=False
+        ):
             catalog = self.web_app._catalog_metrics(session)
 
         metric = next(m for m in catalog if m["key"] == "single_quarter_team_scoring")
@@ -411,6 +413,8 @@ class LowestQuarterScore(MetricDefinition):
             return_value=career_metric,
         ), patch.object(
             self.web_app, "_is_zh", return_value=True
+        ), patch.object(
+            self.web_app, "is_admin", return_value=False
         ):
             catalog = self.web_app._catalog_metrics(session)
 
@@ -547,7 +551,8 @@ class LowestQuarterScore(MetricDefinition):
             return session
 
         with patch.object(self.web_app, "MetricDefinitionModel", FakeMetricDefinitionModel), \
-             patch.object(self.web_app, "_safe_code_metric_metadata", return_value={}):
+             patch.object(self.web_app, "_safe_code_metric_metadata", return_value={}), \
+             patch.object(self.web_app, "is_admin", return_value=False):
             default_query = RecordingMetricQuery([row])
             self.web_app._catalog_metrics(build_session(default_query))
 
@@ -556,7 +561,7 @@ class LowestQuarterScore(MetricDefinition):
 
         self.assertEqual(
             default_query.filters,
-            [("ne", "status", "archived"), ("ne", "status", "draft")],
+            [("ne", "status", "archived"), ("ne", "status", "draft"), ("ne", "status", "disabled")],
         )
         self.assertEqual(
             explicit_draft_query.filters,
