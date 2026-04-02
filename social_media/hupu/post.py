@@ -45,6 +45,16 @@ REAL_BROWSER_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+_SHORT_SLEEP = 0.08
+_MEDIUM_SLEEP = 0.2
+_LONG_SLEEP = 0.5
+_FORUM_SEARCH_SLEEP = 0.8
+_POST_PAGE_LOAD_SLEEP = 1.5
+_HOME_PAGE_LOAD_SLEEP = 1.0
+_UPLOAD_SETTLE_SLEEP = 0.2
+_UPLOAD_COUNT_TIMEOUT = 8.0
+_UPLOAD_READY_TIMEOUT = 3.0
+
 NBA_COMPOSER_FORUM_ID = 179
 CBA_COMPOSER_FORUM_ID = 346
 
@@ -278,7 +288,7 @@ def _append_paragraph(page: Page, line: str) -> None:
     }""",
         html_line,
     )
-    time.sleep(0.2)
+    time.sleep(_SHORT_SLEEP)
 
 
 def _append_footer_html(page: Page, footer_html: str) -> None:
@@ -294,7 +304,7 @@ def _append_footer_html(page: Page, footer_html: str) -> None:
     }""",
         footer_html,
     )
-    time.sleep(0.3)
+    time.sleep(_SHORT_SLEEP)
 
 
 def _forum_label_matches(current_label: str | None, target_label: str) -> bool:
@@ -336,7 +346,7 @@ def _ensure_forum_selected(page: Page, forum_label: str) -> None:
     if add_forum.count() == 0:
         raise RuntimeError("Forum picker trigger not found after clearing current forum")
     add_forum.click()
-    time.sleep(1)
+    time.sleep(_MEDIUM_SLEEP)
 
     search_input = page.locator('input[placeholder="添加专区可以让更多JR和你一起讨论"]').first
     if search_input.count() == 0:
@@ -347,19 +357,19 @@ def _ensure_forum_selected(page: Page, forum_label: str) -> None:
     if search_button.count() == 0:
         raise RuntimeError("Forum search button not found in picker")
     search_button.click()
-    time.sleep(1.5)
+    time.sleep(_FORUM_SEARCH_SLEEP)
 
     option = page.locator(".ant-modal .listItem", has_text=forum_label).first
     if option.count() == 0:
         raise RuntimeError(f"Forum option not found in selector: {forum_label}")
     option.click()
-    time.sleep(0.8)
+    time.sleep(_MEDIUM_SLEEP)
 
     confirm = page.locator(".ant-modal button", has_text="确").first
     if confirm.count() == 0:
         raise RuntimeError("Forum confirm button not found in picker")
     confirm.click()
-    time.sleep(1.5)
+    time.sleep(_FORUM_SEARCH_SLEEP)
 
     current_label = _current_forum_label(page)
     if not _forum_label_matches(current_label, forum_label):
@@ -385,7 +395,7 @@ def _fill_editor_with_content_blocks(
         el.dispatchEvent(new Event("input", { bubbles: true }));
     }"""
     )
-    time.sleep(0.3)
+    time.sleep(_SHORT_SLEEP)
 
     placeholder_re = re.compile(r"^\s*\[\[IMAGE:(.+?)\]\]\s*$")
     image_index = 0
@@ -421,7 +431,7 @@ def _append_placeholder_paragraph(page: Page, marker: str) -> None:
     }""",
         marker,
     )
-    time.sleep(0.2)
+    time.sleep(_SHORT_SLEEP)
 
 
 def _focus_placeholder(page: Page, marker: str) -> None:
@@ -439,7 +449,7 @@ def _focus_placeholder(page: Page, marker: str) -> None:
     }""",
         marker,
     )
-    time.sleep(0.2)
+    time.sleep(_SHORT_SLEEP)
 
 
 def _cleanup_placeholder(page: Page, marker: str) -> None:
@@ -452,7 +462,7 @@ def _cleanup_placeholder(page: Page, marker: str) -> None:
     }""",
         marker,
     )
-    time.sleep(0.1)
+    time.sleep(_SHORT_SLEEP)
 
 
 def _editor_image_count(page: Page) -> int:
@@ -502,27 +512,27 @@ def _upload_image(page: Page, image_path: str, marker: str | None = None) -> Non
     before_count = _editor_image_count(page)
     # Brief pause between consecutive uploads to let the editor settle
     if before_count > 0:
-        time.sleep(1)
+        time.sleep(_UPLOAD_SETTLE_SLEEP)
     file_input.set_input_files(image_path)
-    deadline = time.time() + 20
+    deadline = time.time() + _UPLOAD_COUNT_TIMEOUT
     while time.time() < deadline:
         try:
             if _editor_image_count(page) >= before_count + 1:
                 break
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(_SHORT_SLEEP)
     after_count = _editor_image_count(page)
     if after_count < before_count + 1:
         print(f"WARNING: Image upload may have failed: {image_path} (before={before_count}, after={after_count}) — continuing anyway")
-    ready_deadline = time.time() + 8
+    ready_deadline = time.time() + _UPLOAD_READY_TIMEOUT
     while time.time() < ready_deadline:
         try:
             if _editor_images_ready(page):
                 break
         except Exception:
             pass
-        time.sleep(0.3)
+        time.sleep(_SHORT_SLEEP)
     if marker:
         _cleanup_placeholder(page, marker)
     print(f"Image uploaded: {image_path} (editor images: {before_count} -> {after_count})")
@@ -543,9 +553,9 @@ def _click_submit(page: Page) -> str:
     try:
         # Hupu uses a div.submitVideo, not a <button>
         page.click(".submitVideo")
-        deadline = time.time() + 5.0
+        deadline = time.time() + 3.0
         while time.time() < deadline and not captured_url["value"]:
-            time.sleep(0.2)
+            time.sleep(_SHORT_SLEEP)
         body_text = page.locator("body").inner_text(timeout=3000)
         if "请先选择专区" in body_text:
             raise RuntimeError("Submit blocked by Hupu: 请先选择专区")
@@ -730,7 +740,7 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
         browser.close()
 
 
-def _wait_for_final_post_url(page: Page, timeout_seconds: float = 45.0) -> str | None:
+def _wait_for_final_post_url(page: Page, timeout_seconds: float = 20.0) -> str | None:
     """Poll for a stable thread URL after clicking submit.
 
     Hupu sometimes leaves the browser on `/newpost/<forum_id>` even after the page
@@ -749,7 +759,7 @@ def _wait_for_final_post_url(page: Page, timeout_seconds: float = 45.0) -> str |
         extracted = _extract_thread_url_from_html(html)
         if extracted:
             return extracted
-        time.sleep(1)
+        time.sleep(_SHORT_SLEEP)
     return None
 
 
@@ -823,7 +833,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         context = _create_context(pw, headless=True)
         page = context.new_page()
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(2)
+        time.sleep(_HOME_PAGE_LOAD_SLEEP)
 
         if _is_logged_in(page):
             print("Logged in.")
@@ -871,7 +881,7 @@ def cmd_post(args: argparse.Namespace) -> None:
 
         # Check login
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(2)
+        time.sleep(_HOME_PAGE_LOAD_SLEEP)
         if not _is_logged_in(page):
             print("ERROR: Not logged in. Run: python -m social_media.hupu.post login")
             context.close()
@@ -881,7 +891,7 @@ def cmd_post(args: argparse.Namespace) -> None:
         # Navigate to post page
         post_url = f"{HUPU_HOME}/newpost/{composer_id}"
         page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(3)
+        time.sleep(_POST_PAGE_LOAD_SLEEP)
         print(f"Post page loaded: {page.url}")
         _ensure_forum_selected(page, forum_label)
         print(f"Forum selected: {forum_label}")
@@ -907,7 +917,7 @@ def cmd_post(args: argparse.Namespace) -> None:
         _fill_editor_with_content_blocks(page, content, images=resolved_images, footer_html=footer_html)
         print(f"Content filled.")
 
-        time.sleep(1)
+        time.sleep(_LONG_SLEEP)
         page.screenshot(path="/tmp/hupu_post_filled.png")
         print("Screenshot: /tmp/hupu_post_filled.png")
 
