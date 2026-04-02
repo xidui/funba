@@ -634,7 +634,7 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
         browser.close()
 
 
-def _wait_for_final_post_url(page: Page, timeout_seconds: float = 25.0) -> str | None:
+def _wait_for_final_post_url(page: Page, timeout_seconds: float = 45.0) -> str | None:
     """Poll for a stable thread URL after clicking submit.
 
     Hupu sometimes leaves the browser on `/newpost/<forum_id>` even after the page
