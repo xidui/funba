@@ -8,7 +8,6 @@ from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.backfill_nba_player_shot_detail import is_game_shot_back_filled
 from db.models import Game, MetricRunLog, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
@@ -86,8 +85,8 @@ def _pipeline_status_for_date(target_date: date) -> dict:
             artifacts_supported = _artifacts_available_from_nba_api(game.season)
             has_detail = is_game_detail_back_filled(game.game_id, session)
             has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game.game_id, session)
-            has_shot = True if not artifacts_supported else is_game_shot_back_filled(session, game.game_id)
-            if not (has_detail and has_pbp and has_shot):
+            # Shot data is best-effort — don't block content analysis for it
+            if not (has_detail and has_pbp):
                 pending_game_ids.append(game.game_id)
 
         return {
