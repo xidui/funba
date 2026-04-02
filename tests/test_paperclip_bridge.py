@@ -24,9 +24,11 @@ def _config():
         company_id="company-1",
         project_id="project-1",
         content_analyst_agent_id="agent-analyst",
+        content_reviewer_agent_id="agent-content-reviewer",
         delivery_publisher_agent_id="agent-delivery",
         review_user_id="user-review",
         content_analyst_name="Content Analyst",
+        content_reviewer_name="Content Reviewer",
         delivery_publisher_name="Delivery Publisher",
         review_user_name="Reviewer",
         company_name="xixihaha",
@@ -42,6 +44,11 @@ class TestPaperclipBridgeHelpers(unittest.TestCase):
         self.assertEqual(draft_state.status, "todo")
         self.assertEqual(draft_state.assignee_agent_id, "agent-analyst")
         self.assertEqual(draft_state.owner_label, "Content Analyst")
+
+        ai_review_state = desired_issue_state_for_post({"status": "ai_review"}, cfg)
+        self.assertEqual(ai_review_state.status, "todo")
+        self.assertEqual(ai_review_state.assignee_agent_id, "agent-content-reviewer")
+        self.assertEqual(ai_review_state.owner_label, "Content Reviewer")
 
         review_state = desired_issue_state_for_post({"status": "in_review"}, cfg)
         self.assertEqual(review_state.status, "in_review")

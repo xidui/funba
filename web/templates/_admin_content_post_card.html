@@ -175,7 +175,11 @@
 
     <div class="post-actions" onclick="event.stopPropagation()">
       {% if p.status == 'draft' %}
-        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'in_review')">Send to Review</button>
+        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'ai_review')">Send to AI Review</button>
+      {% endif %}
+      {% if p.status == 'ai_review' %}
+        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'in_review')">Send to Human Review</button>
+        <button class="act-btn" onclick="setPostStatus({{ p.id }}, 'draft')">Request Analyst Revision</button>
       {% endif %}
       {% if p.status == 'in_review' %}
         <button class="act-btn approve" onclick="setPostStatus({{ p.id }}, 'approved')">Approve & Queue Publish</button>

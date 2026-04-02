@@ -510,7 +510,7 @@ class SocialPost(Base):
     source_date = Column(DATE, nullable=False)
     source_metrics = Column(Text, nullable=True)       # JSON list of metric keys
     source_game_ids = Column(Text, nullable=True)      # JSON list of game IDs
-    status = Column(String(16), nullable=False, default='draft')  # draft|in_review|approved|archived
+    status = Column(String(16), nullable=False, default='draft')  # draft|ai_review|in_review|approved|archived
     admin_comments = Column(Text, nullable=True)       # JSON array [{text, timestamp, from}]
     priority = Column(Integer, nullable=False, default=50)
     llm_model = Column(String(64), nullable=True)

@@ -59,6 +59,7 @@
     padding: 2px 8px; border-radius: 4px;
   }
   .post-badge.draft { background: var(--surface-3); color: var(--muted-2); }
+  .post-badge.ai_review { background: rgba(245,158,11,0.18); color: #f59e0b; }
   .post-badge.in_review { background: rgba(96,165,250,0.15); color: #60a5fa; }
   .post-badge.approved { background: color-mix(in srgb, var(--win) 15%, transparent); color: var(--win); }
   .post-badge.archived { background: var(--surface-2); color: var(--muted); }
@@ -262,7 +263,7 @@
 <!-- Status tabs -->
 {% if not single_post_view %}
 <div class="status-tabs">
-  {% for s in ['all', 'draft', 'in_review', 'approved', 'archived'] %}
+  {% for s in ['all', 'draft', 'ai_review', 'in_review', 'approved', 'archived'] %}
   <a class="status-tab{% if status_filter == s %} active{% endif %}"
      href="{{ url_for('admin_content', status=s if s != 'all' else None) }}">
     {{ s.replace('_', ' ')|title }}

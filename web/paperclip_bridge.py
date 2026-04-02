@@ -20,9 +20,11 @@ class PaperclipBridgeConfig:
     company_id: str | None
     project_id: str | None
     content_analyst_agent_id: str | None
+    content_reviewer_agent_id: str | None
     delivery_publisher_agent_id: str | None
     review_user_id: str | None
     content_analyst_name: str
+    content_reviewer_name: str
     delivery_publisher_name: str
     review_user_name: str
     company_name: str
@@ -53,9 +55,11 @@ def load_paperclip_bridge_config(environ: Mapping[str, str] | None = None) -> Pa
         company_id=(env.get("PAPERCLIP_COMPANY_ID") or "").strip() or None,
         project_id=(env.get("PAPERCLIP_FUNBA_PROJECT_ID") or "").strip() or None,
         content_analyst_agent_id=(env.get("PAPERCLIP_CONTENT_ANALYST_AGENT_ID") or "").strip() or None,
+        content_reviewer_agent_id=(env.get("PAPERCLIP_CONTENT_REVIEWER_AGENT_ID") or "").strip() or None,
         delivery_publisher_agent_id=(env.get("PAPERCLIP_DELIVERY_PUBLISHER_AGENT_ID") or "").strip() or None,
         review_user_id=(env.get("PAPERCLIP_CONTENT_REVIEW_USER_ID") or "").strip() or None,
         content_analyst_name=(env.get("PAPERCLIP_CONTENT_ANALYST_NAME") or "Content Analyst").strip(),
+        content_reviewer_name=(env.get("PAPERCLIP_CONTENT_REVIEWER_NAME") or "Content Reviewer").strip(),
         delivery_publisher_name=(env.get("PAPERCLIP_DELIVERY_PUBLISHER_NAME") or "Delivery Publisher").strip(),
         review_user_name=(env.get("PAPERCLIP_CONTENT_REVIEW_USER_NAME") or "Reviewer").strip(),
         company_name=(env.get("PAPERCLIP_COMPANY_NAME") or "xixihaha").strip(),
@@ -126,6 +130,17 @@ def desired_issue_state_for_post(post: Mapping[str, Any], cfg: PaperclipBridgeCo
             assignee_user_id=None,
             owner_label=cfg.content_analyst_name,
             why_owner="revision was requested from the Funba content review UI",
+            warnings=tuple(warnings),
+        )
+    if local_status == "ai_review":
+        if not cfg.content_reviewer_agent_id:
+            warnings.append("PAPERCLIP_CONTENT_REVIEWER_AGENT_ID is not configured; AI review issue left unassigned.")
+        return DesiredIssueState(
+            status="todo",
+            assignee_agent_id=cfg.content_reviewer_agent_id,
+            assignee_user_id=None,
+            owner_label=cfg.content_reviewer_name,
+            why_owner="the post is waiting for AI content review before human review",
             warnings=tuple(warnings),
         )
     if local_status == "in_review":
@@ -275,6 +290,8 @@ def actor_label_for_issue(
 ) -> str:
     if cfg and assignee_agent_id and assignee_agent_id == cfg.content_analyst_agent_id:
         return cfg.content_analyst_name
+    if cfg and assignee_agent_id and assignee_agent_id == cfg.content_reviewer_agent_id:
+        return cfg.content_reviewer_name
     if cfg and assignee_agent_id and assignee_agent_id == cfg.delivery_publisher_agent_id:
         return cfg.delivery_publisher_name
     if cfg and assignee_user_id and assignee_user_id == cfg.review_user_id:
@@ -291,6 +308,8 @@ def author_label_for_comment(comment: Mapping[str, Any], cfg: PaperclipBridgeCon
     author_user_id = comment.get("authorUserId")
     if cfg and author_agent_id and author_agent_id == cfg.content_analyst_agent_id:
         return cfg.content_analyst_name
+    if cfg and author_agent_id and author_agent_id == cfg.content_reviewer_agent_id:
+        return cfg.content_reviewer_name
     if cfg and author_agent_id and author_agent_id == cfg.delivery_publisher_agent_id:
         return cfg.delivery_publisher_name
     if cfg and author_user_id and author_user_id == cfg.review_user_id:
@@ -351,6 +370,7 @@ class PaperclipClient:
 
         project_id = cfg.project_id
         content_analyst_agent_id = cfg.content_analyst_agent_id
+        content_reviewer_agent_id = cfg.content_reviewer_agent_id
         delivery_publisher_agent_id = cfg.delivery_publisher_agent_id
         review_user_id = cfg.review_user_id
 
@@ -376,7 +396,7 @@ class PaperclipClient:
                                 project_id = project.get("id")
                                 break
 
-            need_agents = not content_analyst_agent_id or not delivery_publisher_agent_id
+            need_agents = not content_analyst_agent_id or not content_reviewer_agent_id or not delivery_publisher_agent_id
             if need_agents:
                 agents = self._request("GET", f"/api/companies/{company_id}/agents")
                 if isinstance(agents, list):
@@ -384,6 +404,8 @@ class PaperclipClient:
                         name = str(agent.get("name") or "").strip()
                         if not content_analyst_agent_id and name == cfg.content_analyst_name:
                             content_analyst_agent_id = agent.get("id")
+                        if not content_reviewer_agent_id and name == cfg.content_reviewer_name:
+                            content_reviewer_agent_id = agent.get("id")
                         if not delivery_publisher_agent_id and name == cfg.delivery_publisher_name:
                             delivery_publisher_agent_id = agent.get("id")
 
@@ -401,9 +423,11 @@ class PaperclipClient:
             company_id=company_id,
             project_id=project_id,
             content_analyst_agent_id=content_analyst_agent_id,
+            content_reviewer_agent_id=content_reviewer_agent_id,
             delivery_publisher_agent_id=delivery_publisher_agent_id,
             review_user_id=review_user_id,
             content_analyst_name=cfg.content_analyst_name,
+            content_reviewer_name=cfg.content_reviewer_name,
             delivery_publisher_name=cfg.delivery_publisher_name,
             review_user_name=cfg.review_user_name,
             company_name=cfg.company_name,

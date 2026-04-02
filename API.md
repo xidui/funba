@@ -276,7 +276,7 @@ Create a SocialPost with variants and delivery destinations.
 | `source_metrics` | string[] | no | [] | Metric keys used as source material |
 | `source_game_ids` | string[] | no | [] | Game IDs referenced |
 | `priority` | int | no | 50 | 0-20 historic, 20-50 notable, 50-80 interesting |
-| `status` | string | no | "draft" | Initial status: `draft`, `in_review`, `approved`, `archived` |
+| `status` | string | no | "draft" | Initial status: `draft`, `ai_review`, `in_review`, `approved`, `archived` |
 | `llm_model` | string | no | null | Which model generated the content |
 | `images` | object[] | no | [] | Image pool specs referenced by `[[IMAGE:slot=...]]` placeholders |
 | `images[].slot` | string | yes | | Slot name such as `img1` |
@@ -469,7 +469,9 @@ This endpoint is used by the Funba admin metric page. It creates a placeholder `
 When the Paperclip env vars are configured, Funba mirrors workflow signals into Paperclip:
 
 - comments added in `/admin/content` are mirrored to the linked Paperclip issue
-- `draft -> in_review` hands the post to the configured review user
+- `draft -> ai_review` hands the post to the configured Content Reviewer agent
+- `ai_review -> draft` requests revision from the configured Content Analyst
+- `ai_review -> in_review` hands the post to the configured human review user
 - `in_review -> draft` requests revision from the configured content analyst
 - `approved` hands the post to the configured delivery publisher
 - Paperclip issue comments can be synced back into Funba via `POST /api/admin/content/{post_id}/paperclip/sync`

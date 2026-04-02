@@ -2871,7 +2871,7 @@ def _build_metric_deep_dive_brief(
             "2. Deeply analyze this metric first, then expand into the most relevant supporting or contrasting Funba metrics.",
             "3. Use the selected view above as the main digging direction. If current-season framing matters, compare it against the current season as well.",
             "4. Decide which Hupu destination(s) make sense and add them in Funba yourself.",
-            "5. Replace the placeholder draft in Funba and move the post to in_review when ready.",
+            "5. Replace the placeholder draft in Funba and move the post to ai_review when ready.",
         ]
     )
     return "\n".join(lines)
@@ -7053,7 +7053,7 @@ def admin_content():
 
     with SessionLocal() as s:
         q = s.query(SocialPost).order_by(SocialPost.source_date.desc(), SocialPost.priority.asc())
-        if status_filter and status_filter in ("draft", "in_review", "approved", "archived"):
+        if status_filter and status_filter in ("draft", "ai_review", "in_review", "approved", "archived"):
             q = q.filter(SocialPost.status == status_filter)
         total = q.count()
         import math
@@ -7211,7 +7211,7 @@ def admin_content_update(post_id: int):
             if new_topic and new_topic != p.topic:
                 p.topic = new_topic
                 topic_changed = True
-        if "status" in data and data["status"] in ("draft", "in_review", "approved", "archived"):
+        if "status" in data and data["status"] in ("draft", "ai_review", "in_review", "approved", "archived"):
             p.status = data["status"]
         if "priority" in data:
             new_priority = int(data["priority"])
@@ -7219,7 +7219,10 @@ def admin_content_update(post_id: int):
                 p.priority = new_priority
                 priority_changed = True
         if p.status != previous_status:
-            if p.status == "in_review":
+            if p.status == "ai_review":
+                handoff_action = "send_to_ai_review"
+                handoff_comment_text = "Sent this post to AI review from Funba."
+            elif p.status == "in_review":
                 handoff_action = "send_to_review"
                 handoff_comment_text = "Sent this post to review from Funba."
             elif p.status == "draft":

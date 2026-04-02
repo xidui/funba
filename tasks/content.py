@@ -140,7 +140,7 @@ def _build_daily_analysis_description(target_date: date, game_ids: list[str]) ->
         "4. Create SocialPost entries with Chinese variants for different audiences.\n"
         "5. Build a large image pool for each post: at least 10 images total, mixing screenshots, real photos, and stylized AI variants.\n"
         "6. End each post with 6-8 metric / page links. Every metric mentioned in the body must appear in that ending section, then add extras until you reach 6-8 total.\n"
-        "7. Leave the resulting posts in Funba for human review.\n"
+        "7. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.\n"
         "8. Do not publish to external platforms from this issue.\n\n"
         "## Topic Selection Rules\n\n"
         "- Avoid duplicate same-day coverage. If another post already covers the same game with a very similar angle, skip it or choose a materially different angle.\n"
