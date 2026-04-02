@@ -170,13 +170,23 @@ def build_post_issue_title(post: Mapping[str, Any]) -> str:
 
 def build_post_issue_description(post: Mapping[str, Any]) -> str:
     variants = post.get("variants") or []
+    images = post.get("images") or []
+    enabled_images = [img for img in images if img.get("is_enabled")]
+    enabled_slots = [str(img.get("slot") or "").strip() for img in enabled_images if str(img.get("slot") or "").strip()]
     variant_lines = []
+    placeholder_warnings = []
     for variant in variants:
         audience = str(variant.get("audience_hint") or "").strip() or "unspecified audience"
         destinations = variant.get("destinations") or []
         destination_labels = [f"{d.get('platform')}/{d.get('forum') or '?'}" for d in destinations]
         dest_text = ", ".join(destination_labels) if destination_labels else "none"
         variant_lines.append(f"- {variant.get('title') or 'Untitled variant'} [{audience}] -> {dest_text}")
+        content_raw = str(variant.get("content_raw") or "")
+        has_any_placeholder = "[[IMAGE:" in content_raw
+        if enabled_slots and not has_any_placeholder:
+            placeholder_warnings.append(
+                f"- Variant '{variant.get('title') or 'Untitled variant'}' has enabled image pool assets but no `[[IMAGE:slot=...]]` placeholder in `content_raw`."
+            )
 
     payload = {
         "post_id": post.get("id"),
@@ -187,9 +197,8 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
         "source_metrics": post.get("source_metrics") or [],
         "source_game_ids": post.get("source_game_ids") or [],
     }
-    images = post.get("images") or []
     image_count = len(images)
-    enabled_count = sum(1 for img in images if img.get("is_enabled"))
+    enabled_count = len(enabled_images)
 
     variant_block = "\n".join(variant_lines) if variant_lines else "- none yet"
     desc = (
@@ -201,12 +210,30 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
         desc += (
             f"Image pool: {enabled_count}/{image_count} enabled\n\n"
         )
+        desc += (
+            "## Image Placeholder Rules\n\n"
+            "Target image pool size for normal social posts is 10+ images so reviewers and publishers can choose the strongest set.\n"
+            "Content Analyst must place slot-based placeholders like `[[IMAGE:slot=img1]]` directly inside `content_raw` where the image should appear.\n"
+            "Do not assume the image pool alone is enough. If placeholders are missing, the images can be unused and the published post may go out as text-only.\n"
+        )
+        if enabled_slots:
+            desc += f"Enabled slots: {', '.join(enabled_slots)}\n\n"
+        if image_count < 10:
+            desc += f"Current warnings:\n- Image pool is only {image_count} item(s); target is at least 10.\n"
+            if placeholder_warnings:
+                desc += "\n".join(placeholder_warnings) + "\n\n"
+            else:
+                desc += "\n"
+        if placeholder_warnings:
+            if image_count >= 10:
+                desc += "Current warnings:\n"
+                desc += "\n".join(placeholder_warnings) + "\n\n"
     desc += (
         "## Publishing with images\n\n"
-        "When posting to Hupu, pass `--post-id <post_id>` to the CLI so it reads enabled images from the DB pool.\n"
-        "Slot-based placeholders like `[[IMAGE:slot=img1]]` in content_raw are resolved automatically.\n\n"
+        "When publishing to external platforms, pass `--post-id <post_id>` to the platform-specific CLI or publisher so it can read enabled images from the DB pool.\n"
+        "Slot-based placeholders like `[[IMAGE:slot=img1]]` in `content_raw` are then resolved automatically.\n\n"
         "```\n"
-        f"python -m social_media.hupu.post post --title \"...\" --content \"...\" --forum \"...\" --post-id {post.get('id') or '<ID>'} --submit\n"
+        f"python -m social_media.<platform>.post ... --post-id {post.get('id') or '<ID>'}\n"
         "```\n\n"
         "<funba_post>\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"

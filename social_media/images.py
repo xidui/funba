@@ -1,7 +1,7 @@
 """Image resolution for SocialPost image pool.
 
 Supports four generation types:
-- ai_generated: OpenAI DALL-E image generation for stylized supporting art
+- ai_generated: OpenAI image generation for stylized supporting art
 - player_headshot: Official NBA player headshot download
 - web_search: Smart search for real editorial photos
 - screenshot: Playwright page capture (delegates to hupu/post.py helper)
@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import struct
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -87,7 +88,13 @@ def resolve_image(spec: dict, *, post_id: int, slot: str) -> list[str]:
 
     if image_type == "ai_generated":
         out_path = out_dir / f"{slot}.png"
-        _generate_openai(spec["prompt"], str(out_path), spec.get("style"))
+        _generate_openai(
+            spec["prompt"],
+            str(out_path),
+            spec.get("style"),
+            reference_query=spec.get("reference_query"),
+            reference_url=spec.get("reference_url"),
+        )
         return [str(out_path)]
     elif image_type == "player_headshot":
         out_path = out_dir / f"{slot}.png"
@@ -108,22 +115,96 @@ def resolve_image(spec: dict, *, post_id: int, slot: str) -> list[str]:
 # OpenAI DALL-E
 # ---------------------------------------------------------------------------
 
-def _generate_openai(prompt: str, output_path: str, style: str | None = None) -> None:
-    """Call OpenAI Images API (DALL-E 3) and save result."""
+def _generate_openai(
+    prompt: str,
+    output_path: str,
+    style: str | None = None,
+    *,
+    reference_query: str | None = None,
+    reference_url: str | None = None,
+) -> None:
+    """Call OpenAI Images API and save result.
+
+    If a reference image is provided, use image edit mode so the result stays
+    closer to a real game photo while allowing stylized exaggeration.
+    """
     from openai import OpenAI
 
     client = OpenAI()  # uses OPENAI_API_KEY env var
-    resp = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        n=1,
-        size="1024x1024",
-        quality="standard",
-        style=style or "vivid",
-    )
-    image_url = resp.data[0].url
-    _download_file(image_url, output_path)
-    logger.info("AI image generated: %s -> %s", prompt[:60], output_path)
+    reference_path = _resolve_ai_reference_image(reference_query=reference_query, reference_url=reference_url)
+    try:
+        if reference_path is not None:
+            with open(reference_path, "rb") as image_file:
+                resp = client.images.edit(
+                    model="gpt-image-1",
+                    image=image_file,
+                    prompt=prompt,
+                    size="1024x1024",
+                    quality="high",
+                    output_format="png",
+                    response_format="b64_json",
+                    input_fidelity="high",
+                )
+            _write_openai_image_response(resp, output_path)
+            logger.info("AI image edited from reference: %s -> %s", prompt[:60], output_path)
+            return
+
+        resp = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+            quality="standard",
+            style=style or "vivid",
+        )
+        _write_openai_image_response(resp, output_path)
+        logger.info("AI image generated: %s -> %s", prompt[:60], output_path)
+    finally:
+        if reference_path is not None:
+            Path(reference_path).unlink(missing_ok=True)
+
+
+def _resolve_ai_reference_image(*, reference_query: str | None = None, reference_url: str | None = None) -> str | None:
+    """Resolve one real-photo reference image for AI stylization."""
+    if reference_url:
+        tmp = tempfile.NamedTemporaryFile(prefix="funba_ai_ref_", suffix=".png", delete=False)
+        tmp.close()
+        try:
+            _download_file(str(reference_url), tmp.name)
+            return tmp.name
+        except Exception:
+            Path(tmp.name).unlink(missing_ok=True)
+            raise
+
+    if reference_query:
+        with tempfile.TemporaryDirectory(prefix="funba_ai_ref_") as tmpdir:
+            paths = _smart_search_and_download(str(reference_query), Path(tmpdir), "reference", max_images=1)
+            if not paths:
+                return None
+            src = Path(paths[0])
+            tmp = tempfile.NamedTemporaryFile(prefix="funba_ai_ref_", suffix=src.suffix or ".png", delete=False)
+            tmp.close()
+            Path(tmp.name).write_bytes(src.read_bytes())
+            return tmp.name
+
+    return None
+
+
+def _write_openai_image_response(resp, output_path: str) -> None:
+    """Persist an OpenAI image response whether it returns URL or base64."""
+    data = (getattr(resp, "data", None) or [])
+    if not data:
+        raise RuntimeError("OpenAI image response did not contain data")
+    item = data[0]
+    b64_json = getattr(item, "b64_json", None)
+    if b64_json:
+        Path(output_path).write_bytes(base64.b64decode(b64_json))
+        return
+    image_url = getattr(item, "url", None)
+    if image_url:
+        _download_file(image_url, output_path)
+        return
+    raise RuntimeError("OpenAI image response did not contain url or b64_json")
 
 
 def review_resolved_image(spec: dict, image_path: str) -> dict[str, object]:

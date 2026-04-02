@@ -83,6 +83,38 @@ class TestPaperclipBridgeHelpers(unittest.TestCase):
         self.assertIn('"post_id": 42', description)
         self.assertIn('"source_metrics": [', description)
 
+    def test_build_post_issue_description_warns_when_images_exist_without_placeholders(self):
+        description = build_post_issue_description(
+            {
+                "id": 81,
+                "source_date": "2026-04-01",
+                "topic": "马克西得分稳定性联盟第四",
+                "status": "draft",
+                "priority": 30,
+                "source_metrics": ["scoring_consistency"],
+                "source_game_ids": ["0022501105"],
+                "images": [
+                    {"slot": "img1", "is_enabled": True},
+                    {"slot": "img2", "is_enabled": True},
+                ],
+                "variants": [
+                    {
+                        "title": "智趣NBA: 马克西得分稳定性联盟第四",
+                        "audience_hint": "general nba",
+                        "content_raw": "这里只有正文，没有图片占位符。",
+                        "destinations": [{"platform": "hupu", "forum": "湿乎乎的话题"}],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("Image Placeholder Rules", description)
+        self.assertIn("Target image pool size for normal social posts is 10+ images", description)
+        self.assertIn("Content Analyst must place slot-based placeholders", description)
+        self.assertIn("Enabled slots: img1, img2", description)
+        self.assertIn("Image pool is only 2 item(s); target is at least 10", description)
+        self.assertIn("no `[[IMAGE:slot=...]]` placeholder", description)
+
     def test_merge_paperclip_comments_appends_only_new_remote_comments(self):
         comments = []
         local_ts = append_admin_comment(

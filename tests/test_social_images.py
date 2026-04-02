@@ -14,6 +14,29 @@ from social_media import images  # noqa: E402
 
 
 class TestSocialImages(unittest.TestCase):
+    def test_resolve_image_ai_generated_passes_reference_query(self):
+        out_dir = Path("/tmp/funba_social_images")
+        with patch("social_media.images.ensure_post_media_dir", return_value=out_dir), \
+             patch("social_media.images._generate_openai") as mock_generate:
+            paths = images.resolve_image(
+                {
+                    "type": "ai_generated",
+                    "prompt": "Stylized Tyrese Maxey driving to the basket",
+                    "reference_query": "Tyrese Maxey driving vs Wizards April 2026",
+                },
+                post_id=42,
+                slot="img3",
+            )
+
+        self.assertEqual(paths, [str(out_dir / "img3.png")])
+        mock_generate.assert_called_once_with(
+            "Stylized Tyrese Maxey driving to the basket",
+            str(out_dir / "img3.png"),
+            None,
+            reference_query="Tyrese Maxey driving vs Wizards April 2026",
+            reference_url=None,
+        )
+
     def test_resolve_image_supports_player_headshot(self):
         out_dir = Path("/tmp/funba_social_images")
         with patch("social_media.images.ensure_post_media_dir", return_value=out_dir), \

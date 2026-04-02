@@ -2963,6 +2963,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
                 "id": variant.id,
                 "title": variant.title,
                 "audience_hint": variant.audience_hint,
+                "content_raw": variant.content_raw,
                 "destinations": [
                     {
                         "id": delivery.id,
@@ -7877,12 +7878,14 @@ def api_content_list_posts():
             "total": total,
             "posts": [
                 {
-            "id": p.id,
-            "topic": p.topic,
-            "source_date": p.source_date.isoformat() if p.source_date else None,
-            "status": p.status,
-            "priority": p.priority,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "id": p.id,
+                    "topic": p.topic,
+                    "source_date": p.source_date.isoformat() if p.source_date else None,
+                    "status": p.status,
+                    "priority": p.priority,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
+                    "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
                 }
                 for p in posts
             ],
