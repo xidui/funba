@@ -2877,6 +2877,43 @@ def _build_metric_deep_dive_brief(
     return "\n".join(lines)
 
 
+def _social_post_image_spec(raw_spec: str | None) -> tuple[object | None, str | None]:
+    if not raw_spec:
+        return None, None
+    try:
+        parsed = json.loads(raw_spec)
+    except Exception:
+        return None, str(raw_spec)
+    return parsed, json.dumps(parsed, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _social_post_image_url(post_id: int, img) -> str | None:
+    file_path = getattr(img, "file_path", None)
+    if not file_path:
+        return None
+    filename = os.path.basename(str(file_path).strip()) or f"{getattr(img, 'slot', 'image')}.png"
+    return f"/media/social_posts/{post_id}/{filename}"
+
+
+def _social_post_image_view(post_id: int, img) -> dict[str, object]:
+    spec, spec_text = _social_post_image_spec(getattr(img, "spec", None))
+    file_path = getattr(img, "file_path", None)
+    file_name = os.path.basename(str(file_path).strip()) if file_path else None
+    return {
+        "id": img.id,
+        "slot": img.slot,
+        "image_type": img.image_type,
+        "note": img.note,
+        "is_enabled": bool(img.is_enabled),
+        "has_file": bool(file_path),
+        "error_message": img.error_message,
+        "url": _social_post_image_url(post_id, img),
+        "file_name": file_name,
+        "spec": spec,
+        "spec_text": spec_text,
+    }
+
+
 def _load_social_post_bundle(db_sess, post_id: int):
     post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
     if not post:
@@ -2946,6 +2983,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
                 "note": img.note,
                 "is_enabled": bool(img.is_enabled),
                 "has_file": bool(img.file_path),
+                "spec": _social_post_image_spec(getattr(img, "spec", None))[0],
             }
             for img in images
         ],
@@ -3013,19 +3051,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
                 }
                 for v in pvariants
             ],
-            "images": [
-                {
-                    "id": img.id,
-                    "slot": img.slot,
-                    "image_type": img.image_type,
-                    "note": img.note,
-                    "is_enabled": bool(img.is_enabled),
-                    "has_file": bool(img.file_path),
-                    "error_message": img.error_message,
-                    "url": f"/media/social_posts/{p.id}/{img.slot}.png" if img.file_path else None,
-                }
-                for img in img_by_post.get(p.id, [])
-            ],
+            "images": [_social_post_image_view(p.id, img) for img in img_by_post.get(p.id, [])],
         })
     return rows
 
@@ -7157,19 +7183,7 @@ def admin_content_detail(post_id: int):
                 }
                 for v in variants
             ],
-            "images": [
-                {
-                    "id": img.id,
-                    "slot": img.slot,
-                    "image_type": img.image_type,
-                    "note": img.note,
-                    "is_enabled": bool(img.is_enabled),
-                    "has_file": bool(img.file_path),
-                    "error_message": img.error_message,
-                    "url": f"/media/social_posts/{post_id}/{img.slot}.png" if img.file_path else None,
-                }
-                for img in images
-            ],
+            "images": [_social_post_image_view(post_id, img) for img in images],
         })
 
 
@@ -7674,6 +7688,10 @@ def api_content_create_post():
       "source_game_ids": ["0022501058"],
       "priority": 30,
       "llm_model": "claude-sonnet-4-6",
+      "images": [
+        {"slot": "img1", "type": "player_headshot", "player_id": "1629029", "note": "东契奇官方头像"},
+        {"slot": "img2", "type": "web_search", "query": "Luka Doncic celebration Mavericks", "note": "东契奇庆祝照"}
+      ],
       "variants": [
         {
           "title": "...",
@@ -7778,7 +7796,7 @@ def api_content_create_post():
         file_paths = []
         error_msg = None
         try:
-            from social_media.images import resolve_image
+            from social_media.images import resolve_image, review_resolved_image
             file_paths = resolve_image(img_spec, post_id=post_id, slot=slot)
         except Exception as exc:
             error_msg = str(exc)
@@ -7786,13 +7804,29 @@ def api_content_create_post():
         if file_paths:
             for i, fp in enumerate(file_paths):
                 sub_slot = slot if i == 0 else f"{slot}_{i}"
-                image_results.append((sub_slot, image_type, spec_json, note, fp, None))
+                is_enabled = True
+                review_error = None
+                try:
+                    review_result = review_resolved_image(img_spec, fp)
+                except Exception as exc:
+                    review_result = {"checked": False, "ok": True, "reason": None, "error": str(exc)}
+                    logger.warning("Image review failed for post %s slot %s: %s", post_id, sub_slot, exc)
+                if review_result.get("checked") and not review_result.get("ok", True):
+                    is_enabled = False
+                    review_reason = str(review_result.get("reason") or "quality check failed").strip()
+                    review_model = str(review_result.get("model") or "").strip()
+                    review_error = (
+                        f"Auto-review rejected"
+                        + (f" ({review_model})" if review_model else "")
+                        + f": {review_reason}"
+                    )
+                image_results.append((sub_slot, image_type, spec_json, note, fp, review_error, is_enabled))
         else:
-            image_results.append((slot, image_type, spec_json, note, None, error_msg))
+            image_results.append((slot, image_type, spec_json, note, None, error_msg, False))
 
     if image_results:
         with SessionLocal() as s:
-            for slot, image_type, spec_json, note, file_path, error_msg in image_results:
+            for slot, image_type, spec_json, note, file_path, error_msg, is_enabled in image_results:
                 s.add(SocialPostImage(
                     post_id=post_id,
                     slot=slot,
@@ -7800,7 +7834,7 @@ def api_content_create_post():
                     spec=spec_json,
                     note=note,
                     file_path=file_path,
-                    is_enabled=file_path is not None,
+                    is_enabled=bool(is_enabled and file_path is not None),
                     error_message=error_msg,
                     created_at=now,
                 ))
@@ -7811,8 +7845,8 @@ def api_content_create_post():
     response = {"ok": True, "post_id": post_id, "variant_ids": variant_ids}
     if image_results:
         response["images"] = [
-            {"slot": slot, "ok": fp is not None, "error": err}
-            for slot, _, _, _, fp, err in image_results
+            {"slot": slot, "ok": fp is not None and enabled, "error": err}
+            for slot, _, _, _, fp, err, enabled in image_results
         ]
     if sync_result:
         response.update(sync_result)
