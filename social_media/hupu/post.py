@@ -530,14 +530,31 @@ def _upload_image(page: Page, image_path: str, marker: str | None = None) -> Non
 
 def _click_submit(page: Page) -> str:
     """Click the submit button and return the final thread URL when detectable."""
-    # Hupu uses a div.submitVideo, not a <button>
-    page.click(".submitVideo")
-    time.sleep(1)
-    body_text = page.locator("body").inner_text(timeout=3000)
-    if "请先选择专区" in body_text:
-        raise RuntimeError("Submit blocked by Hupu: 请先选择专区")
-    final_url = _wait_for_final_post_url(page)
-    return final_url or page.url
+    captured_url: dict[str, str | None] = {"value": None}
+
+    def _handle_response(response: Any) -> None:
+        if captured_url["value"]:
+            return
+        extracted = _extract_thread_url_from_response(response)
+        if extracted:
+            captured_url["value"] = extracted
+
+    _add_page_listener(page, "response", _handle_response)
+    try:
+        # Hupu uses a div.submitVideo, not a <button>
+        page.click(".submitVideo")
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not captured_url["value"]:
+            time.sleep(0.2)
+        body_text = page.locator("body").inner_text(timeout=3000)
+        if "请先选择专区" in body_text:
+            raise RuntimeError("Submit blocked by Hupu: 请先选择专区")
+        if captured_url["value"]:
+            return captured_url["value"]
+        final_url = _wait_for_final_post_url(page)
+        return final_url or page.url
+    finally:
+        _remove_page_listener(page, "response", _handle_response)
 
 
 def _extract_thread_url_from_html(html: str) -> str | None:
@@ -546,15 +563,91 @@ def _extract_thread_url_from_html(html: str) -> str | None:
         r'"url":"(/(\d+)\.html)"',
         r'href="(/(\d+)\.html)"',
         r'content="(/(\d+)\.html)"',
+        r'(https://bbs\.hupu\.com/(\d{6,12})\.html)',
     ]
     for pattern in patterns:
         match = re.search(pattern, html)
         if match:
-            rel = match.group(1)
-            if rel.startswith("/"):
-                return f"{HUPU_HOME}{rel}"
-            return rel
+            return _normalize_thread_url(match.group(1))
     return None
+
+
+def _normalize_thread_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    absolute_match = re.search(r"https://bbs\.hupu\.com/\d{6,12}\.html(?:[?#][^\s\"'<]*)?", candidate)
+    if absolute_match:
+        return absolute_match.group(0)
+    relative_match = re.search(r"/\d{6,12}\.html(?:[?#][^\s\"'<]*)?", candidate)
+    if relative_match:
+        return f"{HUPU_HOME}{relative_match.group(0)}"
+    digit_match = re.fullmatch(r"\d{6,12}", candidate)
+    if digit_match:
+        return f"{HUPU_HOME}/{candidate}.html"
+    return None
+
+
+def _extract_thread_url_from_response_body(body: str) -> str | None:
+    extracted = _extract_thread_url_from_html(body)
+    if extracted:
+        return extracted
+    tid_patterns = [
+        r'"tid"\s*:\s*"?(?P<tid>\d{6,12})"?',
+        r'"threadId"\s*:\s*"?(?P<tid>\d{6,12})"?',
+        r'"thread_id"\s*:\s*"?(?P<tid>\d{6,12})"?',
+        r'"postId"\s*:\s*"?(?P<tid>\d{6,12})"?',
+        r'"post_id"\s*:\s*"?(?P<tid>\d{6,12})"?',
+    ]
+    for pattern in tid_patterns:
+        match = re.search(pattern, body)
+        if match:
+            return _normalize_thread_url(match.group("tid"))
+    return None
+
+
+def _extract_thread_url_from_response(response: Any) -> str | None:
+    response_url = str(getattr(response, "url", "") or "")
+    if "hupu.com" not in response_url:
+        return None
+    for attr in ("text", "body"):
+        reader = getattr(response, attr, None)
+        if not callable(reader):
+            continue
+        try:
+            payload = reader()
+        except Exception:
+            continue
+        if isinstance(payload, bytes):
+            try:
+                payload = payload.decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+        if not isinstance(payload, str):
+            continue
+        extracted = _extract_thread_url_from_response_body(payload)
+        if extracted:
+            return extracted
+    return None
+
+
+def _add_page_listener(page: Page, event: str, handler: Any) -> None:
+    listener = getattr(page, "on", None)
+    if callable(listener):
+        listener(event, handler)
+
+
+def _remove_page_listener(page: Page, event: str, handler: Any) -> None:
+    for name in ("off", "remove_listener", "removeListener"):
+        listener = getattr(page, name, None)
+        if callable(listener):
+            try:
+                listener(event, handler)
+            except Exception:
+                pass
+            return
 
 
 def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 4000) -> None:

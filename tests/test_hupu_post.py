@@ -11,7 +11,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
+    _click_submit,
     _extract_thread_url_from_html,
+    _extract_thread_url_from_response_body,
     _forum_label_matches,
     _parse_image_placeholder,
     _prepare_placeholder_images,
@@ -33,6 +35,20 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(
             _extract_thread_url_from_html(html),
             "https://bbs.hupu.com/638163441.html",
+        )
+
+    def test_extract_thread_url_from_absolute_url(self):
+        html = '<meta property="og:url" content="https://bbs.hupu.com/638233167.html">'
+        self.assertEqual(
+            _extract_thread_url_from_html(html),
+            "https://bbs.hupu.com/638233167.html",
+        )
+
+    def test_extract_thread_url_from_response_body_tid(self):
+        payload = '{"data":{"tid":"638233167"}}'
+        self.assertEqual(
+            _extract_thread_url_from_response_body(payload),
+            "https://bbs.hupu.com/638233167.html",
         )
 
     def test_returns_none_when_no_thread_url_present(self):
@@ -94,6 +110,86 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(len(resolved), 1)
         self.assertEqual(len(temp_paths), 1)
         capture_mock.assert_called_once()
+
+
+class _FakeResponse:
+    def __init__(self, url: str, body: str):
+        self.url = url
+        self._body = body
+
+    def text(self):
+        return self._body
+
+
+class _FakeLocator:
+    def __init__(self, text: str):
+        self._text = text
+
+    def inner_text(self, timeout=None):
+        return self._text
+
+
+class _FakePage:
+    def __init__(self, *, url: str, body_text: str = "", responses=None):
+        self.url = url
+        self._body_text = body_text
+        self._responses = list(responses or [])
+        self._listeners = {}
+        self.clicked = []
+
+    def on(self, event, handler):
+        self._listeners.setdefault(event, []).append(handler)
+
+    def off(self, event, handler):
+        self._listeners[event].remove(handler)
+
+    def click(self, selector):
+        self.clicked.append(selector)
+        for response in self._responses:
+            for handler in list(self._listeners.get("response", [])):
+                handler(response)
+
+    def locator(self, selector):
+        self.assert_selector(selector)
+        return _FakeLocator(self._body_text)
+
+    def assert_selector(self, selector):
+        if selector != "body":
+            raise AssertionError(f"unexpected selector: {selector}")
+
+
+class TestHupuSubmitFlow(unittest.TestCase):
+    @patch("social_media.hupu.post.time.sleep", return_value=None)
+    @patch("social_media.hupu.post._wait_for_final_post_url")
+    def test_click_submit_prefers_network_captured_url(self, wait_mock, _sleep_mock):
+        page = _FakePage(
+            url="https://bbs.hupu.com/newpost/179",
+            responses=[
+                _FakeResponse(
+                    "https://bbs.hupu.com/api/post/submit",
+                    '{"data":{"tid":"638233167"}}',
+                )
+            ],
+        )
+
+        result = _click_submit(page)
+
+        self.assertEqual(result, "https://bbs.hupu.com/638233167.html")
+        self.assertEqual(page.clicked, [".submitVideo"])
+        wait_mock.assert_not_called()
+
+    @patch("social_media.hupu.post.time.sleep", return_value=None)
+    @patch(
+        "social_media.hupu.post._wait_for_final_post_url",
+        return_value="https://bbs.hupu.com/638233167.html",
+    )
+    def test_click_submit_falls_back_to_html_poll(self, wait_mock, _sleep_mock):
+        page = _FakePage(url="https://bbs.hupu.com/newpost/179")
+
+        result = _click_submit(page)
+
+        self.assertEqual(result, "https://bbs.hupu.com/638233167.html")
+        wait_mock.assert_called_once_with(page)
 
 
 if __name__ == "__main__":
