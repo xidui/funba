@@ -235,6 +235,9 @@ def _prepare_placeholder_images(
         if spec is not None
     ]
     if len(resolved_images) >= len(placeholder_specs):
+        # Even without placeholders, append pool images so they go at the end
+        if not placeholder_specs and pool and len(resolved_images) == 0:
+            resolved_images.extend(pool.values())
         return resolved_images, temp_paths
 
     for spec in placeholder_specs[len(resolved_images):]:
