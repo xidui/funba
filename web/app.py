@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 from types import SimpleNamespace
 
@@ -2406,6 +2407,62 @@ def _require_pro_page():
 def _request_next_url() -> str:
     next_url = request.full_path or request.path or url_for("home")
     return next_url[:-1] if next_url.endswith("?") else next_url
+
+
+_SHOT_LINE_RE = re.compile(
+    r"(?P<a>\d+)\s*投\s*(?P<m>\d+)\s*中(?:，|,)?\s*命中率\s*(?P<p>\d+(?:\.\d+)?)%",
+    re.IGNORECASE,
+)
+
+
+def _content_review_validation_errors(text: str) -> list[str]:
+    raw = str(text or "")
+    errors: list[str] = []
+
+    for match in _SHOT_LINE_RE.finditer(raw):
+        attempts = int(match.group("a"))
+        made = int(match.group("m"))
+        pct = float(match.group("p"))
+        if made > attempts:
+            errors.append(
+                f"Shot line looks inverted or impossible: '{match.group(0)}' (made {made} > attempts {attempts})."
+            )
+            continue
+        actual_pct = round((made / attempts) * 100, 1) if attempts else 0.0
+        if abs(actual_pct - pct) > 0.2:
+            errors.append(
+                f"Shot line pct mismatch: '{match.group(0)}' (computed {actual_pct:.1f}%)."
+            )
+
+    text_no_space = re.sub(r"\s+", "", raw)
+    box_match = re.search(
+        r"(\d+)分(\d+)篮板(\d+)助攻|(\d+)分(\d+)助攻(\d+)篮板|(\d+)篮板(\d+)助攻(\d+)分|(\d+)篮板(\d+)分(\d+)助攻|(\d+)助攻(\d+)篮板(\d+)分|(\d+)助攻(\d+)分(\d+)篮板",
+        text_no_space,
+    )
+    if box_match:
+        nums = [int(val) for val in box_match.groups() if val is not None]
+        has_triple_double = sum(1 for val in nums if val >= 10) >= 3
+        mentions_quasi = "准三双" in raw
+        mentions_triple = "三双" in raw and "准三双" not in raw
+        if has_triple_double and mentions_quasi:
+            errors.append("Copy says '准三双' but the stat line already qualifies as a triple-double.")
+        if not has_triple_double and mentions_triple:
+            errors.append("Copy says '三双' but the visible stat line does not show three categories at 10+.")
+
+    return errors
+
+
+def _post_ai_review_validation_errors(db_sess, post_id: int) -> list[str]:
+    variants = (
+        db_sess.query(SocialPostVariant.content_raw)
+        .filter(SocialPostVariant.post_id == post_id)
+        .all()
+    )
+    errors: list[str] = []
+    for idx, (content_raw,) in enumerate(variants, start=1):
+        for err in _content_review_validation_errors(content_raw):
+            errors.append(f"Variant {idx}: {err}")
+    return errors
 
 
 def _require_login_json():
@@ -7224,6 +7281,10 @@ def admin_content_update(post_id: int):
             if new_priority != p.priority:
                 p.priority = new_priority
                 priority_changed = True
+        if previous_status == "ai_review" and p.status == "in_review":
+            validation_errors = _post_ai_review_validation_errors(s, post_id)
+            if validation_errors:
+                return jsonify({"error": "ai_review_validation_failed", "details": validation_errors}), 400
         if p.status != previous_status:
             if p.status == "ai_review":
                 handoff_action = "send_to_ai_review"
