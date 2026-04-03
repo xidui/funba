@@ -249,14 +249,14 @@
 
 {% if not single_post_view %}
 <div class="gen-bar" onclick="event.stopPropagation()">
-  <label for="daily-analysis-date">Daily Analysis</label>
+  <label for="daily-analysis-date">Game Analysis</label>
   <input id="daily-analysis-date" type="date" value="{{ today }}">
   <label class="cb-label">
     <input id="daily-analysis-force" type="checkbox">
     force
   </label>
   <button class="gen-btn" onclick="triggerDailyAnalysis()">Trigger</button>
-  <span class="gen-status" id="daily-analysis-status">Create or re-check the daily content analysis issue for this date.</span>
+  <span class="gen-status" id="daily-analysis-status">Create or re-check per-game content analysis issues for this date.</span>
 </div>
 {% endif %}
 

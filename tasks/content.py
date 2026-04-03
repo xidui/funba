@@ -273,7 +273,7 @@ def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) 
     )
 
 
-def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = False) -> dict:
+def ensure_game_content_analysis_issues(target_date: date, *, force: bool = False) -> dict:
     pipeline = _game_pipeline_status_for_date(target_date)
     game_ids = pipeline["game_ids"]
     if not game_ids:
@@ -385,7 +385,11 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     }
 
 
-def ensure_recent_content_analysis(source_dates: list[date], *, force: bool = False) -> dict:
+# Backward-compatible alias while callers migrate off the old name.
+ensure_daily_content_analysis_issue = ensure_game_content_analysis_issues
+
+
+def ensure_recent_game_content_analysis(source_dates: list[date], *, force: bool = False) -> dict:
     deduped_dates = []
     seen: set[date] = set()
     for target_date in source_dates:
@@ -396,13 +400,17 @@ def ensure_recent_content_analysis(source_dates: list[date], *, force: bool = Fa
 
     results = []
     for target_date in deduped_dates:
-        results.append(ensure_daily_content_analysis_issue(target_date, force=force))
+        results.append(ensure_game_content_analysis_issues(target_date, force=force))
 
     return {
         "ok": True,
         "checked_dates": [d.isoformat() for d in deduped_dates],
         "results": results,
     }
+
+
+# Backward-compatible alias while callers migrate off the old name.
+ensure_recent_content_analysis = ensure_recent_game_content_analysis
 
 
 @shared_task(
@@ -414,11 +422,11 @@ def ensure_recent_content_analysis(source_dates: list[date], *, force: bool = Fa
 def ensure_daily_content_analysis_task(self, source_date: str | None = None, force: bool = False) -> dict:
     target_date = date.fromisoformat(source_date) if source_date else (date.today() - timedelta(days=1))
     try:
-        result = ensure_daily_content_analysis_issue(target_date, force=force)
-        logger.info("daily content analysis readiness for %s -> %s", target_date.isoformat(), result.get("status"))
+        result = ensure_game_content_analysis_issues(target_date, force=force)
+        logger.info("game content analysis readiness for %s -> %s", target_date.isoformat(), result.get("status"))
         return result
     except Exception as exc:
-        logger.warning("daily content analysis readiness failed for %s: %s", target_date.isoformat(), exc, exc_info=True)
+        logger.warning("game content analysis readiness failed for %s: %s", target_date.isoformat(), exc, exc_info=True)
         raise self.retry(exc=exc, countdown=60)
 
 
@@ -440,11 +448,11 @@ def ensure_recent_content_analysis_task(
         else _recent_target_dates(lookback_days)
     )
     try:
-        result = ensure_recent_content_analysis(target_dates, force=force)
-        logger.info("recent content analysis readiness checked for %s", result.get("checked_dates"))
+        result = ensure_recent_game_content_analysis(target_dates, force=force)
+        logger.info("recent game content analysis readiness checked for %s", result.get("checked_dates"))
         return result
     except Exception as exc:
-        logger.warning("recent content analysis readiness failed: %s", exc, exc_info=True)
+        logger.warning("recent game content analysis readiness failed: %s", exc, exc_info=True)
         raise self.retry(exc=exc, countdown=60)
 
 
@@ -462,9 +470,9 @@ def ensure_recent_content_analysis_for_season_task(
 ) -> dict:
     target_dates = _recent_game_dates_for_season(season, lookback_days=lookback_days)
     try:
-        result = ensure_recent_content_analysis(target_dates, force=force)
+        result = ensure_recent_game_content_analysis(target_dates, force=force)
         logger.info(
-            "season content analysis readiness checked for season=%s dates=%s",
+            "season game content analysis readiness checked for season=%s dates=%s",
             season,
             result.get("checked_dates"),
         )
@@ -473,5 +481,5 @@ def ensure_recent_content_analysis_for_season_task(
             "season": season,
         }
     except Exception as exc:
-        logger.warning("season content analysis readiness failed for %s: %s", season, exc, exc_info=True)
+        logger.warning("season game content analysis readiness failed for %s: %s", season, exc, exc_info=True)
         raise self.retry(exc=exc, countdown=60)

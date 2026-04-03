@@ -69,7 +69,7 @@ from web.paperclip_bridge import (
     normalize_admin_comments,
 )
 from runtime_flags import load_runtime_flags, set_runtime_flag
-from tasks.content import ensure_daily_content_analysis_issue
+from tasks.content import ensure_game_content_analysis_issues
 
 _DRAFT_KEY_PREFIX = "_d_"
 _PBP_EVENT_TYPE_LABELS = {
@@ -7479,7 +7479,7 @@ def admin_metric_trigger_deep_dive_post(metric_key: str):
 
 @app.post("/api/admin/content/daily-analysis/trigger")
 def admin_content_trigger_daily_analysis():
-    """Create or refresh the daily content analysis issue for a source date."""
+    """Create or refresh per-game content analysis issues for a source date."""
     denied = _require_admin_json()
     if denied:
         return denied
@@ -7491,11 +7491,11 @@ def admin_content_trigger_daily_analysis():
     except ValueError:
         return jsonify({"error": "invalid source_date"}), 400
     try:
-        result = ensure_daily_content_analysis_issue(target_date, force=force)
+        result = ensure_game_content_analysis_issues(target_date, force=force)
     except PaperclipBridgeError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        logger.exception("Failed to trigger daily content analysis for %s", target_date.isoformat())
+        logger.exception("Failed to trigger game content analysis for %s", target_date.isoformat())
         return jsonify({"error": str(exc)}), 500
     return jsonify(result)
 
