@@ -561,12 +561,7 @@
 
 <!-- ── Box Score (Team + Players unified) ─────────────────────────── -->
 <div class="card">
-  <div class="boxscore-tabs">
-    <button class="bs-tab active" onclick="showBsTab('team', this)">{{ t('Team Stats', '球队数据') }}</button>
-    <button class="bs-tab" onclick="showBsTab('players', this)">{{ t('Player Stats', '球员数据') }}</button>
-  </div>
-
-  <!-- Team Stats tab -->
+  <h2 style="margin-bottom:14px;">{{ t('Team Stats', '球队数据') }}</h2>
   <div id="bs-team">
     {% if quarter_scores %}
     <div class="table-wrap" style="margin-bottom:16px;">
@@ -642,8 +637,8 @@
     {% endif %}
   </div>
 
-  <!-- Player Stats tab -->
-  <div id="bs-players" class="hidden">
+  <h2 style="margin-top:28px; margin-bottom:14px;">{{ t('Player Stats', '球员数据') }}</h2>
+  <div id="bs-players">
     <div class="box-score-grid">
       {% for team_id in ordered_team_ids %}
       {% set players = players_by_team.get(team_id, []) %}
@@ -871,14 +866,6 @@
 
 <script>
   /* ── Box Score tab toggle ─────────────────────────────────────── */
-  function showBsTab(name, btn) {
-    document.getElementById('bs-team').classList.add('hidden');
-    document.getElementById('bs-players').classList.add('hidden');
-    document.getElementById('bs-' + name).classList.remove('hidden');
-    document.querySelectorAll('.bs-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    window.dispatchEvent(new Event('resize'));
-  }
 
   (function () {
     /* Shot chart tooltips + quarter filter */
