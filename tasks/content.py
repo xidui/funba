@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import date, timedelta
@@ -10,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.models import Game, MetricRunLog, SocialPost, engine
+from db.models import Game, MetricRunLog, SocialPost, Team, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
 logger = logging.getLogger(__name__)
@@ -67,7 +66,7 @@ def _games_for_date(target_date: date) -> list[str]:
         ]
 
 
-def _pipeline_status_for_date(target_date: date) -> dict:
+def _game_pipeline_status_for_date(target_date: date) -> dict:
     with _session_factory()() as session:
         games = (
             session.query(Game)
@@ -78,23 +77,40 @@ def _pipeline_status_for_date(target_date: date) -> dict:
         if not games:
             return {
                 "game_ids": [],
-                "artifacts_ready": False,
-                "pending_game_ids": [],
+                "ready_game_ids": [],
+                "pending_artifact_game_ids": [],
+                "pending_metric_game_ids": [],
             }
 
-        pending_game_ids: list[str] = []
+        game_ids = [game.game_id for game in games]
+        computed_game_ids = {
+            row.game_id
+            for row in session.query(MetricRunLog.game_id)
+            .filter(MetricRunLog.game_id.in_(game_ids))
+            .distinct()
+            .all()
+        }
+
+        ready_game_ids: list[str] = []
+        pending_artifact_game_ids: list[str] = []
+        pending_metric_game_ids: list[str] = []
         for game in games:
             artifacts_supported = _artifacts_available_from_nba_api(game.season)
             has_detail = is_game_detail_back_filled(game.game_id, session)
             has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game.game_id, session)
-            # Shot data is best-effort — don't block content analysis for it
             if not (has_detail and has_pbp):
-                pending_game_ids.append(game.game_id)
+                pending_artifact_game_ids.append(game.game_id)
+                continue
+            if game.game_id not in computed_game_ids:
+                pending_metric_game_ids.append(game.game_id)
+                continue
+            ready_game_ids.append(game.game_id)
 
         return {
-            "game_ids": [game.game_id for game in games],
-            "artifacts_ready": len(pending_game_ids) == 0,
-            "pending_game_ids": pending_game_ids,
+            "game_ids": game_ids,
+            "ready_game_ids": ready_game_ids,
+            "pending_artifact_game_ids": pending_artifact_game_ids,
+            "pending_metric_game_ids": pending_metric_game_ids,
         }
 
 
@@ -124,43 +140,54 @@ def _recent_game_dates_for_season(season: str, lookback_days: int = 3) -> list[d
     return [row[0] for row in rows if row[0] is not None]
 
 
-def _daily_analysis_title_base(target_date: date) -> str:
-    return f"Daily content analysis — funba — {target_date.isoformat()}"
+def _game_analysis_title_base(target_date: date, game_id: str) -> str:
+    return f"Game content analysis — funba — {target_date.isoformat()} — {game_id}"
 
 
-def _build_daily_analysis_title(target_date: date, *, batch_number: int = 1) -> str:
-    title = _daily_analysis_title_base(target_date)
-    if batch_number <= 1:
-        return title
-    return f"{title} — batch {batch_number}"
+def _game_context(game_id: str) -> dict:
+    with _session_factory()() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            return {"game_id": game_id, "matchup": game_id, "season": None}
+        team_ids = [tid for tid in [game.road_team_id, game.home_team_id] if tid]
+        teams = {}
+        if team_ids:
+            rows = session.query(Team.team_id, Team.abbr).filter(Team.team_id.in_(team_ids)).all()
+            teams = {str(team_id): abbr for team_id, abbr in rows if team_id}
+        road = teams.get(str(game.road_team_id), str(game.road_team_id or "?"))
+        home = teams.get(str(game.home_team_id), str(game.home_team_id or "?"))
+        return {
+            "game_id": game_id,
+            "matchup": f"{road} @ {home}",
+            "season": game.season,
+        }
 
 
-def _build_daily_analysis_description(target_date: date, game_ids: list[str], *, batch_number: int = 1) -> str:
-    joined_game_ids = ", ".join(game_ids) if game_ids else "(none)"
-    incremental_note = ""
-    if batch_number > 1:
-        incremental_note = (
-            "Batch scope: this issue only covers newly available same-date games that were not already covered by existing posts or active daily-analysis batches.\n"
-            "Do not recreate posts for already-covered earlier games from the same date.\n\n"
-        )
+def _build_game_analysis_title(target_date: date, game_id: str) -> str:
+    ctx = _game_context(game_id)
+    return f"{_game_analysis_title_base(target_date, game_id)} — {ctx['matchup']}"
+
+
+def _build_game_analysis_description(target_date: date, game_id: str) -> str:
+    ctx = _game_context(game_id)
     return (
-        "Run the daily Funba content analysis pass once NBA ingest and metric computation are stable.\n\n"
+        "Run the per-game Funba content analysis pass once NBA ingest and metric computation are stable.\n\n"
         f"Source date: {target_date.isoformat()}\n"
-        f"Batch: {batch_number}\n"
-        f"Game count: {len(game_ids)}\n"
-        f"Game IDs: {joined_game_ids}\n\n"
-        f"{incremental_note}"
+        f"Game ID: {game_id}\n"
+        f"Matchup: {ctx['matchup']}\n"
+        f"Season: {ctx['season'] or '(unknown)'}\n\n"
         "Required work:\n"
-        "1. Read the source-date games and triggered metrics from Funba localhost APIs.\n"
-        "2. Before creating a post, check existing posts for the same source date via `GET /api/content/posts?date=YYYY-MM-DD` and avoid duplicating the same game + angle if a similar post already exists.\n"
-        "3. Select 3-6 high-signal story angles, but avoid using routine high-frequency metrics as the main title hook when they trigger for star players almost every game.\n"
-        "4. Create SocialPost entries with Chinese variants for different audiences.\n"
+        "1. Read this game's boxscore, triggered metrics, and game detail from Funba localhost APIs.\n"
+        "2. Create 1-2 strong posts for this single game only. Do not broaden into unrelated same-date games.\n"
+        "3. Use variants when different audiences/forums benefit from different framing, but keep all variants tied to this same game.\n"
+        "4. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.\n"
         "5. Build a large image pool for each post: at least 10 images total, mixing screenshots, real photos, and stylized AI variants.\n"
         "6. End each post with 6-8 metric / page links. Every metric mentioned in the body must appear in that ending section, then add extras until you reach 6-8 total.\n"
         "7. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.\n"
         "8. Do not publish to external platforms from this issue.\n\n"
         "## Topic Selection Rules\n\n"
-        "- Avoid duplicate same-day coverage. If another post already covers the same game with a very similar angle, skip it or choose a materially different angle.\n"
+        "- This ticket is for one game. Extract 1-2 distinct story angles from this game, not 5-6 repetitive angles.\n"
+        "- Avoid duplicate same-game coverage. If another post already covers the same game with a very similar angle, skip it or choose a materially different angle.\n"
         "- Do not keep using always-on metrics like common double-doubles / 20+5+5 style triggers as the title hook for the same stars every game.\n"
         "- Use those routine metrics only when there is a real milestone, streak, leaderboard movement, unusual efficiency, or broader context.\n"
         "- Prefer titles built around what changed, what is rare, what is newly meaningful, or what reshapes the season narrative.\n\n"
@@ -200,14 +227,10 @@ def _build_daily_analysis_description(target_date: date, game_ids: list[str], *,
 
 def _covered_game_ids_for_date(target_date: date) -> set[str]:
     with _session_factory()() as session:
-        rows = (
-            session.query(SocialPost.source_game_ids)
-            .filter(
-                SocialPost.source_date == target_date,
-                SocialPost.status != "archived",
-            )
-            .all()
-        )
+        rows = session.query(SocialPost.source_game_ids).filter(
+            SocialPost.source_date == target_date,
+            SocialPost.status != "archived",
+        ).all()
     covered: set[str] = set()
     for (raw_game_ids,) in rows:
         try:
@@ -220,10 +243,10 @@ def _covered_game_ids_for_date(target_date: date) -> set[str]:
     return covered
 
 
-_DAILY_ANALYSIS_BATCH_RE = re.compile(r"^Daily content analysis — funba — (\d{4}-\d{2}-\d{2})(?: — batch (\d+))?$")
+_GAME_ANALYSIS_RE = re.compile(r"^Game content analysis — funba — (\d{4}-\d{2}-\d{2}) — (\d+)(?:\s+—\s+.+)?$")
 
 
-def _matching_daily_analysis_issues(target_date: date, issues: list[dict]) -> list[dict]:
+def _matching_game_analysis_issues(target_date: date, game_id: str, issues: list[dict]) -> list[dict]:
     expected_date = target_date.isoformat()
     matched = []
     for issue in issues:
@@ -231,40 +254,11 @@ def _matching_daily_analysis_issues(target_date: date, issues: list[dict]) -> li
         status = str(issue.get("status") or "").strip()
         if status not in {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}:
             continue
-        m = _DAILY_ANALYSIS_BATCH_RE.match(title)
-        if not m or m.group(1) != expected_date:
+        m = _GAME_ANALYSIS_RE.match(title)
+        if not m or m.group(1) != expected_date or m.group(2) != str(game_id):
             continue
         matched.append(issue)
     return matched
-
-
-def _daily_analysis_batch_number(issue: dict) -> int:
-    title = str(issue.get("title") or "").strip()
-    m = _DAILY_ANALYSIS_BATCH_RE.match(title)
-    if not m:
-        return 1
-    return int(m.group(2) or "1")
-
-
-def _issue_game_ids(issue: dict) -> set[str]:
-    description = str(issue.get("description") or "")
-    m = re.search(r"^Game IDs:\s*(.+)$", description, flags=re.MULTILINE)
-    if not m:
-        return set()
-    raw = m.group(1).strip()
-    if not raw or raw == "(none)":
-        return set()
-    return {part.strip() for part in raw.split(",") if part.strip()}
-
-
-def _claimed_game_ids_from_issues(issues: list[dict]) -> set[str]:
-    claimed: set[str] = set()
-    for issue in issues:
-        status = str(issue.get("status") or "").strip()
-        if status not in {"backlog", "todo", "in_progress", "in_review", "blocked"}:
-            continue
-        claimed.update(_issue_game_ids(issue))
-    return claimed
 
 
 def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) -> str:
@@ -280,29 +274,10 @@ def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) 
 
 
 def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = False) -> dict:
-    pipeline = _pipeline_status_for_date(target_date)
+    pipeline = _game_pipeline_status_for_date(target_date)
     game_ids = pipeline["game_ids"]
     if not game_ids:
         return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
-
-    if not force and not pipeline["artifacts_ready"]:
-        return {
-            "ok": False,
-            "status": "waiting_for_pipeline",
-            "pipeline_stage": "artifacts",
-            "source_date": target_date.isoformat(),
-            "game_ids": game_ids,
-            "pending_game_ids": pipeline["pending_game_ids"],
-        }
-
-    if not force and not _all_games_have_metrics(game_ids):
-        return {
-            "ok": False,
-            "status": "waiting_for_pipeline",
-            "pipeline_stage": "metrics",
-            "source_date": target_date.isoformat(),
-            "game_ids": game_ids,
-        }
 
     cfg = load_paperclip_bridge_config()
     if cfg is None:
@@ -315,54 +290,98 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     if not cfg.content_analyst_agent_id:
         raise PaperclipBridgeError("Could not resolve Content Analyst agent in Paperclip.")
 
-    title_base = _daily_analysis_title_base(target_date)
-    existing = client.list_issues(q=title_base, project_id=cfg.project_id)
-    matching_issues = _matching_daily_analysis_issues(target_date, existing)
+    issues = client.list_issues(q=f"Game content analysis — funba — {target_date.isoformat()}", project_id=cfg.project_id)
+    covered_game_ids = _covered_game_ids_for_date(target_date)
+    results: list[dict] = []
 
-    if not force:
-        covered_game_ids = _covered_game_ids_for_date(target_date)
-        claimed_game_ids = _claimed_game_ids_from_issues(matching_issues)
-        pending_game_ids = [gid for gid in game_ids if gid not in covered_game_ids and gid not in claimed_game_ids]
-        if not pending_game_ids:
-            chosen = matching_issues[0] if matching_issues else None
-            return {
-                "ok": True,
-                "status": "exists" if chosen else "already_covered",
+    for game_id in game_ids:
+        if game_id in pipeline["pending_artifact_game_ids"]:
+            results.append({
+                "ok": False,
+                "status": "waiting_for_pipeline",
+                "pipeline_stage": "artifacts",
                 "source_date": target_date.isoformat(),
+                "game_id": game_id,
+            })
+            continue
+        if game_id in pipeline["pending_metric_game_ids"]:
+            results.append({
+                "ok": False,
+                "status": "waiting_for_pipeline",
+                "pipeline_stage": "metrics",
+                "source_date": target_date.isoformat(),
+                "game_id": game_id,
+            })
+            continue
+
+        matching_issues = _matching_game_analysis_issues(target_date, game_id, issues)
+        if not force and game_id in covered_game_ids:
+            chosen = matching_issues[0] if matching_issues else None
+            results.append({
+                "ok": True,
+                "status": "already_covered",
+                "source_date": target_date.isoformat(),
+                "game_id": game_id,
                 "issue_id": chosen.get("id") if chosen else None,
                 "issue_identifier": chosen.get("identifier") if chosen else None,
-                "game_ids": game_ids,
-                "covered_game_ids": sorted(covered_game_ids),
-                "claimed_game_ids": sorted(claimed_game_ids),
+            })
+            continue
+        if matching_issues and not force:
+            chosen = matching_issues[0]
+            results.append({
+                "ok": True,
+                "status": "exists",
+                "source_date": target_date.isoformat(),
+                "game_id": game_id,
+                "issue_id": chosen.get("id"),
+                "issue_identifier": chosen.get("identifier"),
+            })
+            continue
+        if matching_issues and force:
+            for issue in matching_issues:
+                client.update_issue(issue.get("id"), {"status": "cancelled"})
+
+        issue = client.create_issue(
+            {
+                "projectId": cfg.project_id,
+                "title": _build_game_analysis_title(target_date, game_id),
+                "description": _build_game_analysis_description(target_date, game_id),
+                "status": "todo",
+                "priority": "medium",
+                "assigneeAgentId": cfg.content_analyst_agent_id,
             }
-        game_ids = pending_game_ids
+        )
+        results.append({
+            "ok": True,
+            "status": "created",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+            "issue_id": issue.get("id"),
+            "issue_identifier": issue.get("identifier"),
+        })
 
-    if matching_issues and force:
-        # Close the old issues so the agent gets a fresh context
-        for issue in matching_issues:
-            client.update_issue(issue.get("id"), {"status": "cancelled"})
+    if not results:
+        return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
 
-    batch_number = max((_daily_analysis_batch_number(issue) for issue in matching_issues), default=0) + 1
-    title = _build_daily_analysis_title(target_date, batch_number=batch_number)
+    created = [r for r in results if r.get("status") == "created"]
+    existing = [r for r in results if r.get("status") == "exists"]
+    already_covered = [r for r in results if r.get("status") == "already_covered"]
+    waiting = [r for r in results if r.get("status") == "waiting_for_pipeline"]
 
-    issue = client.create_issue(
-        {
-            "projectId": cfg.project_id,
-            "title": title,
-            "description": _build_daily_analysis_description(target_date, game_ids, batch_number=batch_number),
-            "status": "todo",
-            "priority": "medium",
-            "assigneeAgentId": cfg.content_analyst_agent_id,
-        }
-    )
+    overall_status = "created" if created else "exists" if existing else "already_covered" if already_covered else "waiting_for_pipeline"
+    first_issue = next((r for r in results if r.get("issue_identifier")), None)
     return {
-        "ok": True,
-        "status": "created",
+        "ok": True if created or existing or already_covered else False,
+        "status": overall_status,
         "source_date": target_date.isoformat(),
-        "issue_id": issue.get("id"),
-        "issue_identifier": issue.get("identifier"),
         "game_ids": game_ids,
-        "batch_number": batch_number,
+        "results": results,
+        "created_count": len(created),
+        "existing_count": len(existing),
+        "covered_count": len(already_covered),
+        "waiting_count": len(waiting),
+        "issue_id": first_issue.get("issue_id") if first_issue else None,
+        "issue_identifier": first_issue.get("issue_identifier") if first_issue else None,
     }
 
 
