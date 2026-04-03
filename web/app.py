@@ -2777,16 +2777,22 @@ def _find_comment_index(
 
 def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
     cfg = _paperclip_bridge_config()
+    owner_label = actor_label_for_issue(
+        assignee_agent_id=post.paperclip_assignee_agent_id,
+        assignee_user_id=post.paperclip_assignee_user_id,
+        cfg=cfg,
+    )
+    if (
+        str(getattr(post, "status", "") or "").strip() == "ai_review"
+        and owner_label.startswith("agent:")
+    ):
+        owner_label = (cfg.content_reviewer_name if cfg is not None else None) or "Content Reviewer"
     return {
         "enabled": _paperclip_bridge_enabled(),
         "issue_id": post.paperclip_issue_id,
         "issue_identifier": post.paperclip_issue_identifier,
         "issue_status": post.paperclip_issue_status,
-        "owner_label": actor_label_for_issue(
-            assignee_agent_id=post.paperclip_assignee_agent_id,
-            assignee_user_id=post.paperclip_assignee_user_id,
-            cfg=cfg,
-        ),
+        "owner_label": owner_label,
         "assignee_agent_id": post.paperclip_assignee_agent_id,
         "assignee_user_id": post.paperclip_assignee_user_id,
         "last_comment_id": post.paperclip_last_comment_id,
