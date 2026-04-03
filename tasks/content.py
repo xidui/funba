@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 from datetime import date, timedelta
 
 from celery import shared_task
@@ -8,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.models import Game, MetricRunLog, engine
+from db.models import Game, MetricRunLog, SocialPost, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
 logger = logging.getLogger(__name__)
@@ -122,17 +124,32 @@ def _recent_game_dates_for_season(season: str, lookback_days: int = 3) -> list[d
     return [row[0] for row in rows if row[0] is not None]
 
 
-def _build_daily_analysis_title(target_date: date) -> str:
+def _daily_analysis_title_base(target_date: date) -> str:
     return f"Daily content analysis — funba — {target_date.isoformat()}"
 
 
-def _build_daily_analysis_description(target_date: date, game_ids: list[str]) -> str:
+def _build_daily_analysis_title(target_date: date, *, batch_number: int = 1) -> str:
+    title = _daily_analysis_title_base(target_date)
+    if batch_number <= 1:
+        return title
+    return f"{title} — batch {batch_number}"
+
+
+def _build_daily_analysis_description(target_date: date, game_ids: list[str], *, batch_number: int = 1) -> str:
     joined_game_ids = ", ".join(game_ids) if game_ids else "(none)"
+    incremental_note = ""
+    if batch_number > 1:
+        incremental_note = (
+            "Batch scope: this issue only covers newly available same-date games that were not already covered by existing posts or active daily-analysis batches.\n"
+            "Do not recreate posts for already-covered earlier games from the same date.\n\n"
+        )
     return (
         "Run the daily Funba content analysis pass once NBA ingest and metric computation are stable.\n\n"
         f"Source date: {target_date.isoformat()}\n"
+        f"Batch: {batch_number}\n"
         f"Game count: {len(game_ids)}\n"
         f"Game IDs: {joined_game_ids}\n\n"
+        f"{incremental_note}"
         "Required work:\n"
         "1. Read the source-date games and triggered metrics from Funba localhost APIs.\n"
         "2. Before creating a post, check existing posts for the same source date via `GET /api/content/posts?date=YYYY-MM-DD` and avoid duplicating the same game + angle if a similar post already exists.\n"
@@ -179,6 +196,75 @@ def _build_daily_analysis_description(target_date: date, game_ids: list[str]) ->
         "```\n\n"
         "Each image gets a `note` (Chinese) shown to the admin reviewer. Admin can enable/disable individual images before publishing.\n"
     )
+
+
+def _covered_game_ids_for_date(target_date: date) -> set[str]:
+    with _session_factory()() as session:
+        rows = (
+            session.query(SocialPost.source_game_ids)
+            .filter(
+                SocialPost.source_date == target_date,
+                SocialPost.status != "archived",
+            )
+            .all()
+        )
+    covered: set[str] = set()
+    for (raw_game_ids,) in rows:
+        try:
+            parsed = json.loads(raw_game_ids) if raw_game_ids else []
+        except Exception:
+            parsed = []
+        for game_id in parsed:
+            if game_id:
+                covered.add(str(game_id))
+    return covered
+
+
+_DAILY_ANALYSIS_BATCH_RE = re.compile(r"^Daily content analysis — funba — (\d{4}-\d{2}-\d{2})(?: — batch (\d+))?$")
+
+
+def _matching_daily_analysis_issues(target_date: date, issues: list[dict]) -> list[dict]:
+    expected_date = target_date.isoformat()
+    matched = []
+    for issue in issues:
+        title = str(issue.get("title") or "").strip()
+        status = str(issue.get("status") or "").strip()
+        if status not in {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}:
+            continue
+        m = _DAILY_ANALYSIS_BATCH_RE.match(title)
+        if not m or m.group(1) != expected_date:
+            continue
+        matched.append(issue)
+    return matched
+
+
+def _daily_analysis_batch_number(issue: dict) -> int:
+    title = str(issue.get("title") or "").strip()
+    m = _DAILY_ANALYSIS_BATCH_RE.match(title)
+    if not m:
+        return 1
+    return int(m.group(2) or "1")
+
+
+def _issue_game_ids(issue: dict) -> set[str]:
+    description = str(issue.get("description") or "")
+    m = re.search(r"^Game IDs:\s*(.+)$", description, flags=re.MULTILINE)
+    if not m:
+        return set()
+    raw = m.group(1).strip()
+    if not raw or raw == "(none)":
+        return set()
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _claimed_game_ids_from_issues(issues: list[dict]) -> set[str]:
+    claimed: set[str] = set()
+    for issue in issues:
+        status = str(issue.get("status") or "").strip()
+        if status not in {"backlog", "todo", "in_progress", "in_review", "blocked"}:
+            continue
+        claimed.update(_issue_game_ids(issue))
+    return claimed
 
 
 def _build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) -> str:
@@ -229,35 +315,41 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
     if not cfg.content_analyst_agent_id:
         raise PaperclipBridgeError("Could not resolve Content Analyst agent in Paperclip.")
 
-    title = _build_daily_analysis_title(target_date)
-    existing = client.list_issues(q=title, project_id=cfg.project_id)
-    exact_matches = [
-        issue
-        for issue in existing
-        if str(issue.get("title") or "").strip() == title
-        and str(issue.get("status") or "").strip() in {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}
-    ]
-    if exact_matches and not force:
-        chosen = exact_matches[0]
-        return {
-            "ok": True,
-            "status": "exists",
-            "source_date": target_date.isoformat(),
-            "issue_id": chosen.get("id"),
-            "issue_identifier": chosen.get("identifier"),
-            "game_ids": game_ids,
-        }
+    title_base = _daily_analysis_title_base(target_date)
+    existing = client.list_issues(q=title_base, project_id=cfg.project_id)
+    matching_issues = _matching_daily_analysis_issues(target_date, existing)
 
-    if exact_matches and force:
-        # Close the old issue so the agent gets a fresh context
-        chosen = exact_matches[0]
-        client.update_issue(chosen.get("id"), {"status": "cancelled"})
+    if not force:
+        covered_game_ids = _covered_game_ids_for_date(target_date)
+        claimed_game_ids = _claimed_game_ids_from_issues(matching_issues)
+        pending_game_ids = [gid for gid in game_ids if gid not in covered_game_ids and gid not in claimed_game_ids]
+        if not pending_game_ids:
+            chosen = matching_issues[0] if matching_issues else None
+            return {
+                "ok": True,
+                "status": "exists" if chosen else "already_covered",
+                "source_date": target_date.isoformat(),
+                "issue_id": chosen.get("id") if chosen else None,
+                "issue_identifier": chosen.get("identifier") if chosen else None,
+                "game_ids": game_ids,
+                "covered_game_ids": sorted(covered_game_ids),
+                "claimed_game_ids": sorted(claimed_game_ids),
+            }
+        game_ids = pending_game_ids
+
+    if matching_issues and force:
+        # Close the old issues so the agent gets a fresh context
+        for issue in matching_issues:
+            client.update_issue(issue.get("id"), {"status": "cancelled"})
+
+    batch_number = max((_daily_analysis_batch_number(issue) for issue in matching_issues), default=0) + 1
+    title = _build_daily_analysis_title(target_date, batch_number=batch_number)
 
     issue = client.create_issue(
         {
             "projectId": cfg.project_id,
             "title": title,
-            "description": _build_daily_analysis_description(target_date, game_ids),
+            "description": _build_daily_analysis_description(target_date, game_ids, batch_number=batch_number),
             "status": "todo",
             "priority": "medium",
             "assigneeAgentId": cfg.content_analyst_agent_id,
@@ -270,6 +362,7 @@ def ensure_daily_content_analysis_issue(target_date: date, *, force: bool = Fals
         "issue_id": issue.get("id"),
         "issue_identifier": issue.get("identifier"),
         "game_ids": game_ids,
+        "batch_number": batch_number,
     }
 
 
