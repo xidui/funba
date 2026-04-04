@@ -914,7 +914,7 @@
         <th>
           {{ metric_def.scope | capitalize }}
           {% if is_player_scope %}
-          {% set _toggle_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active=none if active_only else '1') %}
+          {% set _toggle_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active=none if active_only else '1', expand='1' if expand else none) %}
           <a class="active-toggle-link{% if active_only %} on{% endif %}"
              href="{{ _toggle_url }}"
              title="{{ 'Show all players' if active_only else 'Show active players only' }}">
@@ -925,8 +925,22 @@
             <span class="active-toggle-label{% if not active_only %} selected{% endif %}">{{ t('All', '全部') }}</span>
           </a>
           {% endif %}
+          {% if has_sub_keys %}
+          {% set _expand_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1' if active_only else none, expand=none if expand else '1') %}
+          <a class="active-toggle-link{% if expand %} on{% endif %}"
+             href="{{ _expand_url }}"
+             title="{{ t('Show best per player only', '每人只显示最佳') if expand else t('Show all entries per player', '显示每人所有条目') }}"
+             style="margin-left:8px;">
+            <span class="active-toggle-label{% if not expand %} selected{% endif %}">{{ t('Best', '最佳') }}</span>
+            <span class="active-toggle-track">
+              <span class="active-toggle-thumb"></span>
+            </span>
+            <span class="active-toggle-label{% if expand %} selected{% endif %}">{{ t('All entries', '全部条目') }}</span>
+          </a>
+          {% endif %}
         </th>
         {% if show_rank_group %}<th>{{ t('Group', '分组') }}</th>{% endif %}
+        {% if has_sub_keys and expand %}<th>{{ t('Entry', '条目') }}</th>{% endif %}
         {% if show_all_seasons %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
         <th class="right">{{ t('Value', '数值') }}</th>
         {% if metric_def.scope != 'game' %}<th class="right">{{ t('Games', '比赛') }}</th>{% endif %}
@@ -979,6 +993,9 @@
         {% if show_rank_group %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.rank_group_label or 'All' }}</td>
         {% endif %}
+        {% if has_sub_keys and expand %}
+        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.sub_key }}</td>
+        {% endif %}
         {% if show_all_seasons %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}
@@ -1024,7 +1041,7 @@
 </div>
 
 {% if total_pages > 1 and not search_q %}
-{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p, active='1' if active_only else none) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p, active='1' if active_only else none, expand='1' if expand else none) }}{% endmacro %}
 <nav class="pagination" aria-label="Page navigation">
   {# Prev #}
   <a class="page-btn{% if page == 1 %} disabled{% endif %}" href="{{ page_url(page - 1) }}" aria-label="Previous">&#8592;</a>

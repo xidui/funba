@@ -35,6 +35,7 @@ def _result_row(result: MetricResult) -> dict:
         "entity_type": result.entity_type,
         "entity_id": result.entity_id,
         "season": result.season,
+        "sub_key": result.sub_key or "",
         "rank_group": result.rank_group,
         "game_id": result.game_id,
         "value_num": result.value_num,

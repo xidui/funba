@@ -6459,6 +6459,7 @@ def metric_detail(metric_key: str):
     page = max(1, int(request.args.get("page", 1) or 1))
     search_q = request.args.get("q", "").strip()
     active_only = request.args.get("active") == "1"
+    expand = request.args.get("expand") == "1"
     page_size = 50
 
     with SessionLocal() as session:
@@ -6560,6 +6561,32 @@ def metric_detail(metric_key: str):
         elif not show_all_seasons and selected_season:
             filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
+        # Check if this metric uses sub_key (multiple rows per entity per season)
+        has_sub_keys = (
+            session.query(MetricResultModel.id)
+            .filter(
+                MetricResultModel.metric_key == metric_key,
+                MetricResultModel.sub_key != "",
+            )
+            .limit(1)
+            .first()
+        ) is not None
+
+        # When sub_keys exist and not expanded, deduplicate: keep best row per entity per season
+        if has_sub_keys and not expand:
+            _is_asc_dedup = _metric_rank_order(session, metric_key) == "asc"
+            _dedup_order = MetricResultModel.value_num.asc() if _is_asc_dedup else MetricResultModel.value_num.desc()
+            dedup_rn = func.row_number().over(
+                partition_by=[MetricResultModel.entity_type, MetricResultModel.entity_id, MetricResultModel.season],
+                order_by=_dedup_order,
+            ).label("_dedup_rn")
+            dedup_sub = filtered_q.with_entities(MetricResultModel.id, dedup_rn).subquery()
+            filtered_q = (
+                session.query(MetricResultModel)
+                .join(dedup_sub, MetricResultModel.id == dedup_sub.c.id)
+                .filter(dedup_sub.c._dedup_rn == 1)
+            )
+
         rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
         _is_asc = _metric_rank_order(session, metric_key) == "asc"
         _detail_rank_val = -MetricResultModel.value_num if _is_asc else MetricResultModel.value_num
@@ -6572,6 +6599,7 @@ def metric_detail(metric_key: str):
                 MetricResultModel.entity_type.label("entity_type"),
                 MetricResultModel.entity_id.label("entity_id"),
                 MetricResultModel.season.label("season"),
+                MetricResultModel.sub_key.label("sub_key"),
                 MetricResultModel.rank_group.label("rank_group"),
                 MetricResultModel.value_num.label("value_num"),
                 MetricResultModel.value_str.label("value_str"),
@@ -6721,6 +6749,7 @@ def metric_detail(metric_key: str):
                 "game_date_str": game_date_str,
                 "season": _season_label(r.season),
                 "season_raw": r.season,
+                "sub_key": r.sub_key or "",
                 "value_num": r.value_num,
                 "value_str": r.value_str,
                 "is_notable": is_notable,
@@ -6795,6 +6824,8 @@ def metric_detail(metric_key: str):
         has_drilldown=has_drilldown,
         search_q=search_q,
         metric_deep_dive=metric_deep_dive,
+        has_sub_keys=has_sub_keys,
+        expand=expand,
         **_build_metric_feature_context(feature_access),
     )
 

@@ -161,11 +161,28 @@ MetricResult(
     entity_id=entity_id,
     season=season,
     game_id=game_id,       # set for game-scope; None for season
+    sub_key="",            # sub-dimension key (see below)
     value_num=float,        # numeric value used for ranking
     value_str="display",    # human-readable (optional)
     context={...},          # additional data stored as JSON
 )
 ```
+
+### sub_key — multiple results per entity per season
+By default, each (metric_key, entity_type, entity_id, season) has ONE result row.
+Set `sub_key` to a distinguishing string when the metric should produce MULTIPLE
+ranked rows for the same entity in the same season. Examples:
+- Monthly breakdown: `sub_key="2025-01"` (one row per month per player)
+- Per-opponent splits: `sub_key="1610612744"` (one row per opponent)
+
+Rules:
+- Leave `sub_key` as default `""` when one row per entity per season is sufficient
+  (this is the common case — most metrics should NOT use sub_key).
+- Only use `sub_key` when the user explicitly asks for multiple entries per entity
+  per season (e.g. "each month as a separate ranking entry").
+- If the user asks for "the best month" or "the highest X", that is ONE row per
+  entity — do NOT use sub_key. Store which month it was in `context` instead.
+- `sub_key` values should be stable and sortable (e.g. "2025-01", not "January").
 
 ## Career season helpers (import from metrics.framework.base)
 
