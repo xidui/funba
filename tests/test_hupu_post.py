@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
+    _capture_plan_for_url,
     _capture_page_error,
     _click_submit,
     _extract_thread_url_from_html,
@@ -248,6 +249,21 @@ class TestHupuScreenshotGuard(unittest.TestCase):
         )
 
         self.assertEqual(_capture_page_error(page), "Screenshot target rendered a server error page")
+
+    def test_capture_plan_for_player_page_prefers_header(self):
+        plan = _capture_plan_for_url("https://funba.app/players/1642843")
+        self.assertEqual(plan["selectors"], [".player-header"])
+        self.assertEqual(plan["max_height"], 420)
+
+    def test_capture_plan_for_game_page_uses_scoreboard(self):
+        plan = _capture_plan_for_url("https://funba.app/games/0022501127")
+        self.assertEqual(plan["selectors"], [".scoreboard", ".sb-chart-wrap"])
+        self.assertEqual(plan["max_height"], 420)
+
+    def test_capture_plan_for_metric_page_limits_table_height(self):
+        plan = _capture_plan_for_url("https://funba.app/metrics/fifty_point_games?season=22025")
+        self.assertEqual(plan["selectors"], [".detail-header", ".rankings-table-wrap"])
+        self.assertEqual(plan["table_height_limit"], 340)
 
 
 if __name__ == "__main__":

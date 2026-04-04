@@ -745,6 +745,99 @@ def _capture_page_error(page: Page, response: Any | None = None) -> str | None:
     return None
 
 
+def _capture_plan_for_url(url: str) -> dict[str, object] | None:
+    """Return a page-type-specific compact screenshot plan when recognized."""
+    if "/players/" in url:
+        return {
+            "selectors": [".player-header"],
+            "pad_x": 12,
+            "pad_top": 16,
+            "pad_bottom": 28,
+            "min_width": 760,
+            "max_width": 980,
+            "min_height": 280,
+            "max_height": 420,
+        }
+    if "/games/" in url:
+        return {
+            "selectors": [".scoreboard", ".sb-chart-wrap"],
+            "pad_x": 12,
+            "pad_top": 12,
+            "pad_bottom": 18,
+            "min_width": 760,
+            "max_width": 1040,
+            "min_height": 300,
+            "max_height": 420,
+        }
+    if "/metrics/" in url:
+        return {
+            "selectors": [".detail-header", ".rankings-table-wrap"],
+            "pad_x": 12,
+            "pad_top": 16,
+            "pad_bottom": 18,
+            "min_width": 760,
+            "max_width": 1100,
+            "min_height": 340,
+            "max_height": 520,
+            "table_height_limit": 340,
+        }
+    return None
+
+
+def _capture_with_plan(page: Page, output_path: str, plan: dict[str, object]) -> bool:
+    """Attempt a compact screenshot using a page-type-specific plan."""
+    selectors = list(plan.get("selectors") or [])
+    if not selectors:
+        return False
+
+    boxes = []
+    for idx, selector in enumerate(selectors):
+        locator = page.locator(selector).first
+        if locator.count() == 0:
+            if idx == 0:
+                return False
+            continue
+        try:
+            box = locator.bounding_box()
+        except Exception:
+            box = None
+        if not box:
+            if idx == 0:
+                return False
+            continue
+        if selector == ".rankings-table-wrap" and plan.get("table_height_limit"):
+            box = dict(box)
+            box["height"] = min(box["height"], float(plan["table_height_limit"]))
+        boxes.append(box)
+
+    if not boxes:
+        return False
+
+    left = min(box["x"] for box in boxes)
+    top = min(box["y"] for box in boxes)
+    right = max(box["x"] + box["width"] for box in boxes)
+    bottom = max(box["y"] + box["height"] for box in boxes)
+
+    clip_x = max(left - float(plan.get("pad_x", 0)), 0)
+    clip_y = max(top - float(plan.get("pad_top", 0)), 0)
+    width = right - left + float(plan.get("pad_x", 0)) * 2
+    height = bottom - top + float(plan.get("pad_top", 0)) + float(plan.get("pad_bottom", 0))
+
+    width = min(max(width, float(plan.get("min_width", 720))), float(plan.get("max_width", 1100)))
+    height = min(max(height, float(plan.get("min_height", 320))), float(plan.get("max_height", 720)))
+
+    page.screenshot(
+        path=output_path,
+        clip={
+            "x": clip_x,
+            "y": clip_y,
+            "width": width,
+            "height": height,
+        },
+    )
+    return True
+
+
 def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 4000) -> None:
     """Capture a compact screenshot suited for inline forum posts."""
     target_url = url
@@ -762,6 +855,12 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
         page_error = _capture_page_error(page, response)
         if page_error:
             raise RuntimeError(page_error)
+
+        plan = _capture_plan_for_url(target_url)
+        if plan and _capture_with_plan(page, output_path, plan):
+            context.close()
+            browser.close()
+            return
 
         # Prefer a meaningful in-page section instead of full-page screenshots.
         selectors = [
@@ -794,7 +893,7 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
                 clip_x = max(box["x"], 0)
                 clip_y = max(box["y"], 0)
                 width = min(max(box["width"], 720), 1100)
-                height = min(max(box["height"], 320), 720)
+                height = min(max(box["height"], 280), 560)
 
                 # For ranking pages, keep the page at the original scroll position so
                 # the metric header/title remains visible above the table.
@@ -806,8 +905,8 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
                             clip_x = max(min(box["x"], header_box["x"]) - 8, 0)
                             clip_y = max(header_box["y"] - 16, 0)
                             width = min(max(max(box["width"], header_box["width"]), 760), 1180)
-                            desired_bottom = min(box["y"] + 260, clip_y + 840)
-                            height = max(520, desired_bottom - clip_y)
+                            desired_bottom = min(box["y"] + 180, clip_y + 520)
+                            height = max(360, desired_bottom - clip_y)
                 page.screenshot(
                     path=output_path,
                     clip={
