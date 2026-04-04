@@ -198,6 +198,8 @@ def _build_game_analysis_description(target_date: date, game_id: str) -> str:
         "- At least 3 images must be real game or arena-action photos from this specific game context.\n"
         "- At least 4 images must be Funba data screenshots (game page, player page, metric page, ranking page, or other relevant Funba data views).\n"
         "- At least 1 image must be an AI-generated supporting visual that still matches the same game story.\n"
+        "- For Funba screenshots, use the compact screenshot helper instead of taking arbitrary full-page screenshots:\n"
+        "  `python -m social_media.hupu.post capture --target <funba-url> --output <local-file>`\n"
         "- Reference image assets with slot placeholders like `[[IMAGE:slot=img1]]`.\n"
         "- Do not submit a post whose writing depends on images unless those image assets are already prepared and included.\n"
         "Do not publish externally from this issue.\n"
