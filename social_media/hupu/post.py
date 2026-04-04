@@ -760,14 +760,18 @@ def _capture_plan_for_url(url: str) -> dict[str, object] | None:
         }
     if "/games/" in url:
         return {
-            "selectors": [".scoreboard", ".sb-chart-wrap"],
+            "selectors": [".scoreboard", "#bs-team", "#bs-players .box-score-grid"],
             "pad_x": 12,
             "pad_top": 12,
             "pad_bottom": 18,
             "min_width": 760,
             "max_width": 1040,
-            "min_height": 300,
-            "max_height": 420,
+            "min_height": 420,
+            "max_height": 760,
+            "selector_height_limits": {
+                "#bs-team": 240,
+                "#bs-players .box-score-grid": 320,
+            },
         }
     if "/metrics/" in url:
         return {
@@ -777,9 +781,11 @@ def _capture_plan_for_url(url: str) -> dict[str, object] | None:
             "pad_bottom": 18,
             "min_width": 760,
             "max_width": 1100,
-            "min_height": 340,
-            "max_height": 520,
-            "table_height_limit": 340,
+            "min_height": 420,
+            "max_height": 760,
+            "selector_height_limits": {
+                ".rankings-table-wrap": 520,
+            },
         }
     return None
 
@@ -805,9 +811,10 @@ def _capture_with_plan(page: Page, output_path: str, plan: dict[str, object]) ->
             if idx == 0:
                 return False
             continue
-        if selector == ".rankings-table-wrap" and plan.get("table_height_limit"):
+        selector_height_limits = plan.get("selector_height_limits") or {}
+        if selector in selector_height_limits:
             box = dict(box)
-            box["height"] = min(box["height"], float(plan["table_height_limit"]))
+            box["height"] = min(box["height"], float(selector_height_limits[selector]))
         boxes.append(box)
 
     if not boxes:

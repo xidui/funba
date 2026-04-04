@@ -257,13 +257,13 @@ class TestHupuScreenshotGuard(unittest.TestCase):
 
     def test_capture_plan_for_game_page_uses_scoreboard(self):
         plan = _capture_plan_for_url("https://funba.app/games/0022501127")
-        self.assertEqual(plan["selectors"], [".scoreboard", ".sb-chart-wrap"])
-        self.assertEqual(plan["max_height"], 420)
+        self.assertEqual(plan["selectors"], [".scoreboard", "#bs-team", "#bs-players .box-score-grid"])
+        self.assertEqual(plan["max_height"], 760)
 
     def test_capture_plan_for_metric_page_limits_table_height(self):
         plan = _capture_plan_for_url("https://funba.app/metrics/fifty_point_games?season=22025")
         self.assertEqual(plan["selectors"], [".detail-header", ".rankings-table-wrap"])
-        self.assertEqual(plan["table_height_limit"], 340)
+        self.assertEqual(plan["selector_height_limits"][".rankings-table-wrap"], 520)
 
 
 if __name__ == "__main__":
