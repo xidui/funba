@@ -151,5 +151,111 @@ class TestTeamPageSeasonSummary(unittest.TestCase):
         }])
 
 
+class TestPlayerPageGameRowLinks(unittest.TestCase):
+    def setUp(self):
+        self.web_app = _make_app_module()
+        self.web_app.Player = SimpleNamespace(
+            player_id=column("player_id"),
+        )
+        self.web_app.Award = SimpleNamespace(
+            award_type=column("award_type"),
+            id=column("id"),
+            player_id=column("player_id"),
+        )
+        self.web_app.Game = SimpleNamespace(
+            season=column("season"),
+            game_id=column("game_id"),
+            game_date=column("game_date"),
+            home_team_id=column("home_team_id"),
+            road_team_id=column("road_team_id"),
+        )
+        self.web_app.ShotRecord = SimpleNamespace(
+            player_id=column("player_id"),
+            game_id=column("game_id"),
+            loc_x=column("loc_x"),
+            loc_y=column("loc_y"),
+            shot_made=column("shot_made"),
+            shot_zone_basic=column("shot_zone_basic"),
+            shot_zone_area=column("shot_zone_area"),
+        )
+        self.web_app.PlayerGameStats = SimpleNamespace(
+            player_id=column("player_id"),
+            game_id=column("game_id"),
+            team_id=column("team_id"),
+        )
+        self.web_app.PlayerSalary = SimpleNamespace(
+            player_id=column("player_id"),
+            season=column("season"),
+        )
+
+    def test_player_page_handles_missing_opponent_team_link(self):
+        player = SimpleNamespace(player_id="1642843", full_name="Cooper Flagg", full_name_zh=None)
+
+        player_query = MagicMock()
+        player_query.filter.return_value.first.return_value = player
+
+        awards_query = MagicMock()
+        awards_query.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = []
+
+        heatmap_seasons_query = MagicMock()
+        heatmap_seasons_query.join.return_value.filter.return_value.distinct.return_value.all.return_value = []
+
+        shot_query = MagicMock()
+        shot_query.join.return_value.filter.return_value.all.return_value = []
+
+        zone_query = MagicMock()
+        zone_query.join.return_value.filter.return_value.all.return_value = []
+
+        seasons_query = MagicMock()
+        seasons_query.join.return_value.filter.return_value.distinct.return_value.all.return_value = [("22025",)]
+
+        stat = SimpleNamespace(team_id="1610612742", min=33, sec=0, pts=51, reb=6, ast=3, comment=None, starter=False)
+        game = SimpleNamespace(
+            game_id="0022501127",
+            season="22025",
+            game_date=None,
+            home_team_id=None,
+            road_team_id="1610612742",
+            wining_team_id=None,
+            home_team_score=138,
+            road_team_score=127,
+        )
+        rows_query = MagicMock()
+        rows_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = [(stat, game)]
+
+        salary_query = MagicMock()
+        salary_query.filter.return_value.order_by.return_value.all.return_value = []
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [
+            player_query,
+            awards_query,
+            heatmap_seasons_query,
+            shot_query,
+            zone_query,
+            seasons_query,
+            rows_query,
+            salary_query,
+        ]
+
+        teams = {"1610612742": SimpleNamespace(team_id="1610612742", abbr="DAL", full_name="Dallas Mavericks")}
+
+        with self.web_app.app.test_request_context("/players/1642843?season=22025"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_team_map", return_value=teams), \
+                 patch.object(self.web_app, "_player_career_summary", return_value=({}, [])), \
+                 patch.object(self.web_app, "_build_shot_zone_heatmap", return_value=([], None, None)), \
+                 patch.object(self.web_app, "_get_metric_results", return_value={"season": [], "alltime": []}), \
+                 patch.object(self.web_app, "is_pro", return_value=True), \
+                 patch.object(self.web_app, "render_template", return_value="rendered") as render_template:
+                response = self.web_app.player_page("1642843")
+
+        self.assertEqual(response, "rendered")
+        _, kwargs = render_template.call_args
+        self.assertEqual(len(kwargs["game_rows"]), 1)
+        self.assertEqual(kwargs["game_rows"][0]["player_team_href"], "/teams/1610612742")
+        self.assertIsNone(kwargs["game_rows"][0]["opponent_href"])
+
+
 if __name__ == "__main__":
     unittest.main()

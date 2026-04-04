@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
+    _capture_page_error,
     _click_submit,
     _extract_thread_url_from_html,
     _extract_thread_url_from_response_body,
@@ -114,9 +115,10 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
 
 
 class _FakeResponse:
-    def __init__(self, url: str, body: str):
+    def __init__(self, url: str, body: str, *, status: int | None = None):
         self.url = url
         self._body = body
+        self.status = status
 
     def text(self):
         return self._body
@@ -230,6 +232,22 @@ class TestHupuLoginState(unittest.TestCase):
         )
 
         self.assertTrue(_is_logged_in(page))
+
+
+class TestHupuScreenshotGuard(unittest.TestCase):
+    def test_capture_page_error_detects_http_500(self):
+        page = _FakePage(url="https://funba.app/players/1642843", body_text="Something Went Wrong")
+        response = _FakeResponse("https://funba.app/players/1642843", "", status=500)
+
+        self.assertEqual(_capture_page_error(page, response), "Screenshot target returned HTTP 500")
+
+    def test_capture_page_error_detects_rendered_error_page(self):
+        page = _FakePage(
+            url="https://funba.app/players/1642843",
+            body_text="500\nSomething Went Wrong\nAn unexpected error occurred.\nBack to Home",
+        )
+
+        self.assertEqual(_capture_page_error(page), "Screenshot target rendered a server error page")
 
 
 if __name__ == "__main__":

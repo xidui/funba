@@ -68,7 +68,7 @@ BLOCKED_WATERMARK_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-IMAGE_REVIEW_TYPES = {"web_search", "ai_generated"}
+IMAGE_REVIEW_TYPES = {"web_search", "ai_generated", "screenshot"}
 
 
 def ensure_post_media_dir(post_id: int) -> Path:
@@ -452,7 +452,7 @@ def _domain_matches_any(domain: str, candidates: set[str]) -> bool:
 def _build_image_review_prompt(spec: dict) -> str:
     image_type = str(spec.get("type") or "").strip() or "unknown"
     context_lines = [f"image_type: {image_type}"]
-    for key in ("player_name", "player_id", "query", "prompt", "note"):
+    for key in ("player_name", "player_id", "query", "prompt", "note", "target"):
         value = str(spec.get(key) or "").strip()
         if value:
             context_lines.append(f"{key}: {value}")
@@ -474,6 +474,13 @@ def _build_image_review_prompt(spec: dict) -> str:
             [
                 "Reject if the basketball scene is clearly unrelated to the target description in the prompt.",
                 "Reject if faces, limbs, jerseys, or text artifacts are so broken that the image is not publishable.",
+            ]
+        )
+    elif image_type == "screenshot":
+        criteria.extend(
+            [
+                "Reject if the screenshot shows a 500/error page, login gate, empty state, or generic site chrome instead of useful player/game/metric content.",
+                "Reject if the screenshot's main visible content does not match the target URL or note context.",
             ]
         )
 

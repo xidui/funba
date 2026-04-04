@@ -121,6 +121,32 @@ class TestSocialImages(unittest.TestCase):
         self.assertEqual(result["reason"], "visible watermark")
         self.assertEqual(result["model"], "gpt-5.4-mini")
 
+    def test_review_resolved_image_reviews_screenshot_type(self):
+        fake_response = SimpleNamespace(output_text='{"accepted": false, "reason": "shows a 500 error page"}')
+        fake_client = SimpleNamespace(
+            responses=SimpleNamespace(create=lambda **kwargs: fake_response)
+        )
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=True), \
+             patch("openai.OpenAI", return_value=fake_client), \
+             patch("social_media.images._image_data_url", return_value="data:image/png;base64,abc"):
+            result = images.review_resolved_image(
+                {"type": "screenshot", "target": "https://funba.app/players/1642843", "note": "弗拉格球员主页截图"},
+                "/tmp/x.png",
+            )
+
+        self.assertTrue(result["checked"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "shows a 500 error page")
+
+    def test_build_image_review_prompt_mentions_error_page_for_screenshot(self):
+        prompt = images._build_image_review_prompt(
+            {"type": "screenshot", "target": "https://funba.app/players/1642843", "note": "弗拉格球员主页截图"}
+        )
+
+        self.assertIn("500/error page", prompt)
+        self.assertIn("target: https://funba.app/players/1642843", prompt)
+
     def test_review_resolved_image_accepts_non_review_type(self):
         result = images.review_resolved_image({"type": "player_headshot", "player_id": "1629029"}, "/tmp/x.png")
 

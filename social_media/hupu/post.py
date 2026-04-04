@@ -55,6 +55,11 @@ _LOGGED_IN_TEXT_MARKERS = (
     "退出",
     "私信",
 )
+_SCREENSHOT_ERROR_TEXT_MARKERS = (
+    "Something Went Wrong",
+    "An unexpected error occurred",
+    "Back to Home",
+)
 
 _SHORT_SLEEP = 0.08
 _MEDIUM_SLEEP = 0.2
@@ -714,6 +719,32 @@ def _remove_page_listener(page: Page, event: str, handler: Any) -> None:
             return
 
 
+def _response_status_code(response: Any) -> int | None:
+    value = getattr(response, "status", None)
+    if callable(value):
+        try:
+            value = value()
+        except Exception:
+            return None
+    try:
+        return int(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _capture_page_error(page: Page, response: Any | None = None) -> str | None:
+    """Return a user-facing error when the target page is clearly broken."""
+    status_code = _response_status_code(response)
+    if status_code is not None and status_code >= 500:
+        return f"Screenshot target returned HTTP {status_code}"
+
+    text = _page_text(page)
+    if any(marker in text for marker in _SCREENSHOT_ERROR_TEXT_MARKERS):
+        return "Screenshot target rendered a server error page"
+
+    return None
+
+
 def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 4000) -> None:
     """Capture a compact screenshot suited for inline forum posts."""
     target_url = url
@@ -726,8 +757,11 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
             user_agent=REAL_BROWSER_UA,
         )
         page = context.new_page()
-        page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+        response = page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
         time.sleep(wait_ms / 1000)
+        page_error = _capture_page_error(page, response)
+        if page_error:
+            raise RuntimeError(page_error)
 
         # Prefer a meaningful in-page section instead of full-page screenshots.
         selectors = [

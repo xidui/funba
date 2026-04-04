@@ -857,17 +857,29 @@
         <tr class="{% if row.result == 'W' %}row-win{% elif row.result == 'L' %}row-loss{% endif %}">
           <td class="nowrap meta">{{ row.game_date }}</td>
           <td class="nowrap">
-            <a href="{{ url_for('team_page', team_id=row.player_team_id) }}" class="gl-team-link">
+            {% if row.player_team_href %}
+            <a href="{{ row.player_team_href }}" class="gl-team-link">
               <img src="https://cdn.nba.com/logos/nba/{{ row.player_team_id }}/global/L/logo.svg"
                    class="gl-team-logo" alt="" onerror="this.style.display='none'">
               {{ row.player_team_abbr }}
             </a>
+            {% else %}
+            <span class="gl-team-link">
+              {{ row.player_team_abbr }}
+            </span>
+            {% endif %}
             {{ 'vs' if row.is_home else '@' }}
-            <a href="{{ url_for('team_page', team_id=row.opponent_id) }}" class="gl-team-link">
+            {% if row.opponent_href %}
+            <a href="{{ row.opponent_href }}" class="gl-team-link">
               <img src="https://cdn.nba.com/logos/nba/{{ row.opponent_id }}/global/L/logo.svg"
                    class="gl-team-logo" alt="" onerror="this.style.display='none'">
               {{ row.opponent_abbr }}
             </a>
+            {% else %}
+            <span class="gl-team-link">
+              {{ row.opponent_abbr }}
+            </span>
+            {% endif %}
           </td>
           <td class="mobile-hide nowrap">
             <a href="{{ url_for('game_page', game_id=row.game_id) }}" class="gl-score-link">
