@@ -13,23 +13,19 @@ Run examples:
 
 ```bash
 python -m social_media.hupu.post check
-python -m social_media.hupu.post capture --target "https://funba.app/players/1642843" --output /tmp/flagg_player.png
 python -m social_media.hupu.post post --title "标题" --content "正文" --forum "NBA版"
 python -m social_media.hupu.post post --title "标题" --content "正文" --forum "76人专区" --submit
 ```
 
-## Screenshot Helper
-
-Use the built-in compact capture command for Funba screenshots:
+Funba screenshot capture is no longer owned by the Hupu module. Use:
 
 ```bash
-python -m social_media.hupu.post capture \
-  --target "https://funba.app/metrics/fifty_point_games?season=22025" \
+python -m social_media.funba_capture metric-page \
+  --metric-key "fifty_point_games" \
+  --season "22025" \
+  --top-n 5 \
   --output /tmp/fifty_point_games.png
 ```
-
-This command uses page-type-specific cropping rules for `player`, `game`, and
-`metric` pages so the result is shorter and more post-friendly than a raw full-page screenshot.
 
 ## Login State
 

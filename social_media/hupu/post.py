@@ -33,6 +33,8 @@ try:
 except ModuleNotFoundError:
     sync_playwright = None
     Page = BrowserContext = Any
+from ..funba_capture import capture_funba_url as _capture_compact_screenshot
+from ..funba_capture import cmd_capture as _funba_capture_cmd
 from .forums import normalize_hupu_forum
 
 MODULE_DIR = Path(__file__).resolve().parent
@@ -54,11 +56,6 @@ _LOGGED_IN_TEXT_MARKERS = (
     "创作者中心",
     "退出",
     "私信",
-)
-_SCREENSHOT_ERROR_TEXT_MARKERS = (
-    "Something Went Wrong",
-    "An unexpected error occurred",
-    "Back to Home",
 )
 
 _SHORT_SLEEP = 0.08
@@ -718,301 +715,15 @@ def _remove_page_listener(page: Page, event: str, handler: Any) -> None:
                 pass
             return
 
-
-def _response_status_code(response: Any) -> int | None:
-    value = getattr(response, "status", None)
-    if callable(value):
-        try:
-            value = value()
-        except Exception:
-            return None
-    try:
-        return int(value) if value is not None else None
-    except Exception:
-        return None
-
-
-def _capture_page_error(page: Page, response: Any | None = None) -> str | None:
-    """Return a user-facing error when the target page is clearly broken."""
-    status_code = _response_status_code(response)
-    if status_code is not None and status_code >= 500:
-        return f"Screenshot target returned HTTP {status_code}"
-
-    text = _page_text(page)
-    if any(marker in text for marker in _SCREENSHOT_ERROR_TEXT_MARKERS):
-        return "Screenshot target rendered a server error page"
-
-    return None
-
-
-def _capture_plan_for_url(url: str) -> dict[str, object] | None:
-    """Return a page-type-specific compact screenshot plan when recognized."""
-    if "/players/" in url:
-        return {
-            "selectors": [".player-header"],
-            "pad_x": 12,
-            "pad_top": 16,
-            "pad_bottom": 28,
-            "min_width": 760,
-            "max_width": 980,
-            "min_height": 280,
-            "max_height": 420,
-        }
-    if "/games/" in url:
-        return {
-            "selectors": [".scoreboard", "#bs-team", "#bs-players .box-score-grid"],
-            "pad_x": 12,
-            "pad_top": 12,
-            "pad_bottom": 18,
-            "min_width": 760,
-            "max_width": 1040,
-            "min_height": 520,
-            "max_height": 920,
-            "selector_height_limits": {
-                "#bs-team": 320,
-                "#bs-players .box-score-grid": 420,
-            },
-        }
-    if "/metrics/" in url:
-        return {
-            "selectors": [".detail-title", ".season-select", ".rankings-table thead", ".rankings-table tbody tr:nth-child(5)"],
-            "pad_x": 12,
-            "pad_top": 16,
-            "pad_bottom": 18,
-            "min_width": 760,
-            "max_width": 1100,
-            "min_height": 700,
-            "max_height": 760,
-        }
-    return None
-
-
-def _capture_adjustments_for_url(url: str) -> dict[str, object] | None:
-    """Return lightweight DOM adjustments that make compact crops more informative."""
-    if "/games/" in url:
-        return {
-            "remove_selectors": ["#game-metrics-panel", "#bs-team .table-wrap:first-child"],
-            "limit_table_rows": {
-                "#bs-players tbody": 4,
-            },
-            "style_updates": {
-                ".sb-chart-wrap": {
-                    "height": "160px",
-                    "padding": "14px 28px 16px",
-                },
-            },
-        }
-    return None
-
-
-def _apply_capture_adjustments(page: Page, adjustments: dict[str, object] | None) -> None:
-    """Apply small DOM tweaks before taking a compact screenshot."""
-    if not adjustments:
-        return
-
-    remove_selectors = list(adjustments.get("remove_selectors") or [])
-    limit_table_rows = adjustments.get("limit_table_rows") or {}
-    style_updates = adjustments.get("style_updates") or {}
-    if not remove_selectors and not limit_table_rows and not style_updates:
-        return
-
-    page.evaluate(
-        """payload => {
-        const removeSelectors = Array.isArray(payload.remove_selectors) ? payload.remove_selectors : [];
-        const limitTableRows = payload.limit_table_rows && typeof payload.limit_table_rows === "object"
-          ? payload.limit_table_rows
-          : {};
-        const styleUpdates = payload.style_updates && typeof payload.style_updates === "object"
-          ? payload.style_updates
-          : {};
-
-        removeSelectors.forEach((selector) => {
-          document.querySelectorAll(selector).forEach((el) => el.remove());
-        });
-
-        Object.entries(limitTableRows).forEach(([selector, maxRows]) => {
-          const limit = Number(maxRows);
-          if (!Number.isFinite(limit) || limit < 1) return;
-          document.querySelectorAll(selector).forEach((tbody) => {
-            Array.from(tbody.querySelectorAll("tr")).forEach((row, index) => {
-              if (index >= limit) row.remove();
-            });
-          });
-        });
-
-        Object.entries(styleUpdates).forEach(([selector, styles]) => {
-          if (!styles || typeof styles !== "object") return;
-          document.querySelectorAll(selector).forEach((el) => {
-            Object.entries(styles).forEach(([prop, value]) => {
-              el.style.setProperty(prop, String(value));
-            });
-          });
-        });
-      }""",
-        {
-            "remove_selectors": remove_selectors,
-            "limit_table_rows": limit_table_rows,
-            "style_updates": style_updates,
-        },
-    )
-
-
-def _capture_with_plan(page: Page, output_path: str, plan: dict[str, object]) -> bool:
-    """Attempt a compact screenshot using a page-type-specific plan."""
-    selectors = list(plan.get("selectors") or [])
-    if not selectors:
-        return False
-
-    boxes = []
-    for idx, selector in enumerate(selectors):
-        locator = page.locator(selector).first
-        if locator.count() == 0:
-            if idx == 0:
-                return False
-            continue
-        try:
-            box = locator.bounding_box()
-        except Exception:
-            box = None
-        if not box:
-            if idx == 0:
-                return False
-            continue
-        selector_height_limits = plan.get("selector_height_limits") or {}
-        if selector in selector_height_limits:
-            box = dict(box)
-            box["height"] = min(box["height"], float(selector_height_limits[selector]))
-        boxes.append(box)
-
-    if not boxes:
-        return False
-
-    left = min(box["x"] for box in boxes)
-    top = min(box["y"] for box in boxes)
-    right = max(box["x"] + box["width"] for box in boxes)
-    bottom = max(box["y"] + box["height"] for box in boxes)
-
-    clip_x = max(left - float(plan.get("pad_x", 0)), 0)
-    clip_y = max(top - float(plan.get("pad_top", 0)), 0)
-    width = right - left + float(plan.get("pad_x", 0)) * 2
-    height = bottom - top + float(plan.get("pad_top", 0)) + float(plan.get("pad_bottom", 0))
-
-    width = min(max(width, float(plan.get("min_width", 720))), float(plan.get("max_width", 1100)))
-    height = min(max(height, float(plan.get("min_height", 320))), float(plan.get("max_height", 720)))
-
-    page.screenshot(
-        path=output_path,
-        clip={
-            "x": clip_x,
-            "y": clip_y,
-            "width": width,
-            "height": height,
-        },
-    )
-    return True
-
-
-def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 4000) -> None:
-    """Capture a compact screenshot suited for inline forum posts."""
-    target_url = url
-
-    with _playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            locale="zh-CN",
-            user_agent=REAL_BROWSER_UA,
-        )
-        page = context.new_page()
-        response = page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(wait_ms / 1000)
-        page_error = _capture_page_error(page, response)
-        if page_error:
-            raise RuntimeError(page_error)
-
-        _apply_capture_adjustments(page, _capture_adjustments_for_url(target_url))
-        time.sleep(0.2)
-
-        plan = _capture_plan_for_url(target_url)
-        if plan and _capture_with_plan(page, output_path, plan):
-            context.close()
-            browser.close()
-            return
-
-        # Prefer a meaningful in-page section instead of full-page screenshots.
-        selectors = [
-            '.rankings-table-wrap',
-            '.rankings-table',
-            '[class*="rankings-table"]',
-            '[class*="leaderboard"]',
-            '[class*="ranking"]',
-            '[class*="game-metrics"]',
-            '[class*="metric-strip"]',
-            '[class*="boxscore"]',
-            '[class*="team-stats"]',
-            '[class*="player-stats"]',
-            '[class*="game"]',
-            'main',
-        ]
-        captured = False
-        for selector in selectors:
-            locator = page.locator(selector).first
-            try:
-                if locator.count() == 0:
-                    continue
-                ranking_selector = selector in {'.rankings-table-wrap', '.rankings-table', '[class*="rankings-table"]'}
-                if not ranking_selector:
-                    locator.scroll_into_view_if_needed(timeout=1000)
-                    time.sleep(0.3)
-                box = locator.bounding_box()
-                if not box:
-                    continue
-                clip_x = max(box["x"], 0)
-                clip_y = max(box["y"], 0)
-                width = min(max(box["width"], 720), 1100)
-                height = min(max(box["height"], 280), 560)
-
-                # For ranking pages, keep the page at the original scroll position so
-                # the metric header/title remains visible above the table.
-                if ranking_selector:
-                    header = page.locator('[class*="header"]').first
-                    if header.count() > 0:
-                        header_box = header.bounding_box()
-                        if header_box:
-                            clip_x = max(min(box["x"], header_box["x"]) - 8, 0)
-                            clip_y = max(header_box["y"] - 16, 0)
-                            width = min(max(max(box["width"], header_box["width"]), 760), 1180)
-                            desired_bottom = min(box["y"] + 180, clip_y + 520)
-                            height = max(360, desired_bottom - clip_y)
-                page.screenshot(
-                    path=output_path,
-                    clip={
-                        "x": clip_x,
-                        "y": clip_y,
-                        "width": width,
-                        "height": height,
-                    },
-                )
-                captured = True
-                break
-            except Exception:
-                continue
-        if not captured:
-            page.screenshot(path=output_path)
-
-        context.close()
-        browser.close()
-
-
 def cmd_capture(args: argparse.Namespace) -> None:
-    """Capture one compact Funba screenshot for agent-provided assets."""
-    target = (args.target or "").strip()
-    output = (args.output or "").strip()
-    if not target or not output:
-        print("ERROR: --target and --output are required")
-        sys.exit(1)
-    _capture_compact_screenshot(target, output, wait_ms=int(args.wait_ms or 4000))
-    print(f"Captured: {output}")
+    """Compatibility wrapper; prefer `python -m social_media.funba_capture`."""
+    compat_args = argparse.Namespace(
+        command="url",
+        url=(args.target or "").strip(),
+        output=(args.output or "").strip(),
+        wait_ms=int(args.wait_ms or 4000),
+    )
+    _funba_capture_cmd(compat_args)
 
 
 def _wait_for_final_post_url(page: Page, timeout_seconds: float = 20.0) -> str | None:
@@ -1233,7 +944,7 @@ def main() -> None:
 
     sub.add_parser("check", help="Check if login session is valid.")
 
-    p_capture = sub.add_parser("capture", help="Capture one compact screenshot for a Funba page.")
+    p_capture = sub.add_parser("capture", help="Deprecated wrapper for Funba capture. Prefer `python -m social_media.funba_capture`.")
     p_capture.add_argument("--target", required=True, help="Funba page URL to capture")
     p_capture.add_argument("--output", required=True, help="Output image path")
     p_capture.add_argument("--wait-ms", type=int, default=4000, help="Extra wait time before capture")
