@@ -33,8 +33,7 @@ try:
 except ModuleNotFoundError:
     sync_playwright = None
     Page = BrowserContext = Any
-from ..funba_capture import capture_funba_url as _capture_compact_screenshot
-from ..funba_capture import cmd_capture as _funba_capture_cmd
+from ..funba_capture import capture_funba_url as _capture_funba_url
 from .forums import normalize_hupu_forum
 
 MODULE_DIR = Path(__file__).resolve().parent
@@ -315,7 +314,7 @@ def _prepare_placeholder_images(
             continue
         tmp = tempfile.NamedTemporaryFile(prefix="funba_hupu_", suffix=".png", delete=False)
         tmp.close()
-        _capture_compact_screenshot(target, tmp.name)
+        _capture_funba_url(target, tmp.name)
         temp_paths.append(tmp.name)
         resolved_images.append(tmp.name)
     return resolved_images, temp_paths
@@ -715,17 +714,6 @@ def _remove_page_listener(page: Page, event: str, handler: Any) -> None:
                 pass
             return
 
-def cmd_capture(args: argparse.Namespace) -> None:
-    """Compatibility wrapper; prefer `python -m social_media.funba_capture`."""
-    compat_args = argparse.Namespace(
-        command="url",
-        url=(args.target or "").strip(),
-        output=(args.output or "").strip(),
-        wait_ms=int(args.wait_ms or 4000),
-    )
-    _funba_capture_cmd(compat_args)
-
-
 def _wait_for_final_post_url(page: Page, timeout_seconds: float = 20.0) -> str | None:
     """Poll for a stable thread URL after clicking submit.
 
@@ -944,11 +932,6 @@ def main() -> None:
 
     sub.add_parser("check", help="Check if login session is valid.")
 
-    p_capture = sub.add_parser("capture", help="Deprecated wrapper for Funba capture. Prefer `python -m social_media.funba_capture`.")
-    p_capture.add_argument("--target", required=True, help="Funba page URL to capture")
-    p_capture.add_argument("--output", required=True, help="Output image path")
-    p_capture.add_argument("--wait-ms", type=int, default=4000, help="Extra wait time before capture")
-
     p_post = sub.add_parser("post", help="Create a post on Hupu.")
     p_post.add_argument("--title", required=True, help="Post title")
     p_post.add_argument("--content", required=True, help="Post content (newlines become paragraphs)")
@@ -964,7 +947,7 @@ def main() -> None:
     p_post.add_argument("--submit", action="store_true", help="Actually submit (default: dry run)")
 
     args = parser.parse_args()
-    {"login": cmd_login, "check": cmd_check, "capture": cmd_capture, "post": cmd_post}[args.command](args)
+    {"login": cmd_login, "check": cmd_check, "post": cmd_post}[args.command](args)
 
 
 if __name__ == "__main__":
