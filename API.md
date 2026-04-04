@@ -295,6 +295,12 @@ Create a SocialPost with variants and delivery destinations.
 | `variants[].destinations[].platform` | string | yes | | `hupu`, `reddit`, `discord`, `twitter` |
 | `variants[].destinations[].forum` | string | no | null | Platform-specific target, e.g. `雷霆专区`, `湿乎乎的话题`, `r/nba` |
 
+Image ownership notes:
+
+- Funba creates the image pool during `POST /api/content/posts`.
+- Funba performs deterministic generation checks (for example broken screenshots / capture failures).
+- Semantic keep/disable decisions for still-enabled images belong to the `Content Reviewer` workflow through the admin image-review endpoints.
+
 **Response:**
 
 ```json

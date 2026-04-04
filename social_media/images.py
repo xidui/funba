@@ -71,6 +71,11 @@ BLOCKED_WATERMARK_PATTERNS = re.compile(
 IMAGE_REVIEW_TYPES = {"web_search", "ai_generated", "screenshot"}
 
 
+def _auto_image_review_enabled() -> bool:
+    value = (os.getenv("FUNBA_ENABLE_IMAGE_AUTO_REVIEW") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def ensure_post_media_dir(post_id: int) -> Path:
     d = MEDIA_ROOT / str(post_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -208,7 +213,7 @@ def _write_openai_image_response(resp, output_path: str) -> None:
 
 
 def review_resolved_image(spec: dict, image_path: str) -> dict[str, object]:
-    """Run a lightweight vision QA pass when configured.
+    """Run a lightweight vision QA pass when explicitly enabled.
 
     Returns a dict with:
     - checked: whether a model review was attempted
@@ -218,6 +223,8 @@ def review_resolved_image(spec: dict, image_path: str) -> dict[str, object]:
     """
     image_type = str(spec.get("type") or "").strip()
     if image_type not in IMAGE_REVIEW_TYPES:
+        return {"checked": False, "ok": True, "reason": None, "model": None}
+    if not _auto_image_review_enabled():
         return {"checked": False, "ok": True, "reason": None, "model": None}
     if not os.getenv("OPENAI_API_KEY"):
         return {"checked": False, "ok": True, "reason": None, "model": None}

@@ -108,7 +108,7 @@ class TestSocialImages(unittest.TestCase):
             responses=SimpleNamespace(create=lambda **kwargs: fake_response)
         )
 
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=True), \
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key", "FUNBA_ENABLE_IMAGE_AUTO_REVIEW": "1"}, clear=True), \
              patch("openai.OpenAI", return_value=fake_client), \
              patch("social_media.images._image_data_url", return_value="data:image/png;base64,abc"):
             result = images.review_resolved_image(
@@ -121,13 +121,22 @@ class TestSocialImages(unittest.TestCase):
         self.assertEqual(result["reason"], "visible watermark")
         self.assertEqual(result["model"], "gpt-5.4-mini")
 
+    def test_review_resolved_image_disabled_by_default_even_with_key(self):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=True):
+            result = images.review_resolved_image({"type": "web_search", "query": "Luka Doncic celebration"}, "/tmp/x.png")
+
+        self.assertEqual(
+            result,
+            {"checked": False, "ok": True, "reason": None, "model": None},
+        )
+
     def test_review_resolved_image_reviews_screenshot_type(self):
         fake_response = SimpleNamespace(output_text='{"accepted": false, "reason": "shows a 500 error page"}')
         fake_client = SimpleNamespace(
             responses=SimpleNamespace(create=lambda **kwargs: fake_response)
         )
 
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=True), \
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key", "FUNBA_ENABLE_IMAGE_AUTO_REVIEW": "1"}, clear=True), \
              patch("openai.OpenAI", return_value=fake_client), \
              patch("social_media.images._image_data_url", return_value="data:image/png;base64,abc"):
             result = images.review_resolved_image(
