@@ -148,6 +148,41 @@ class TestContentReviewValidation(unittest.TestCase):
         self.assertIsNone(rendered["published_url"])
         self.assertIn("Invalid Hupu published_url recorded", rendered["error_message"])
 
+    def test_social_post_image_error_view_classifies_auto_review_reason(self):
+        rendered = self.web_app._social_post_image_error_view(
+            "Auto-review rejected (gpt-5.4-mini): Contains visible agency branding/overlay and is a graphic draft card, not a clean editorial game photo.",
+            is_enabled=False,
+        )
+
+        self.assertEqual(rendered["error_title"], "Auto-review: Watermark / branding")
+        self.assertIn("branding", rendered["error_summary"])
+
+    def test_social_post_image_error_view_classifies_generation_parameter_error(self):
+        rendered = self.web_app._social_post_image_error_view(
+            "Error code: 400 - {'error': {'message': \"Unknown parameter: 'input_fidelity'.\", 'type': 'invalid_request_error'}}",
+            is_enabled=False,
+        )
+
+        self.assertEqual(rendered["error_title"], "AI generation failed")
+        self.assertIn("input_fidelity", rendered["error_summary"])
+
+    def test_social_post_image_view_includes_error_title_and_summary(self):
+        image = SimpleNamespace(
+            id=99,
+            slot="img1",
+            image_type="web_search",
+            note="测试图",
+            is_enabled=False,
+            error_message="Auto-review rejected (gpt-5.4-mini): Wrong player/context for Neemias Queta.",
+            file_path="/tmp/test.png",
+            spec=None,
+        )
+
+        rendered = self.web_app._social_post_image_view(1, image)
+
+        self.assertEqual(rendered["error_title"], "Auto-review: Wrong player / team")
+        self.assertIn("requested player", rendered["error_summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

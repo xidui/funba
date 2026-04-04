@@ -2958,10 +2958,83 @@ def _social_post_image_url(post_id: int, img) -> str | None:
     return f"/media/social_posts/{post_id}/{filename}"
 
 
+def _truncate_image_error_text(text: str | None, limit: int = 120) -> str | None:
+    value = str(text or "").strip()
+    if not value:
+        return None
+    compact = re.sub(r"\s+", " ", value)
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def _classify_auto_review_reason(reason: str | None) -> tuple[str, str]:
+    cleaned = str(reason or "").strip()
+    lowered = cleaned.lower()
+    if any(token in lowered for token in ("watermark", "branding", "stock-photo overlay", "agency branding", "usa today sports", "visible agency", "brand")):
+        return "Auto-review: Watermark / branding", "Contains visible watermark, branding, or stock-photo overlay."
+    if any(token in lowered for token in ("wrong player", "wrong team", "wrong context", "unrelated", "does not clearly match", "not clearly match", "not tied to", "reliable match")):
+        return "Auto-review: Wrong player / team", "Does not clearly match the requested player, team, or game context."
+    if any(token in lowered for token in ("ai-generated", "synthetic", "illustration", "illustrated", "uncanny", "promo art", "posed promotional", "posed promo", "editorial photo")):
+        return "Auto-review: Synthetic / promo", "Looks synthetic, illustrated, or promo-like instead of a clean editorial photo."
+    if any(token in lowered for token in ("broadcast screenshot", "scoreboard", "tv graphics", "collage", "graphic", "story promo", "ui screenshot", "team-logo", "logo")):
+        return "Auto-review: Graphic / screenshot", "Looks like a graphic, collage, screenshot, or other non-photo asset."
+    if any(token in lowered for token in ("not clearly basketball", "not basketball", "arena map", "seating chart")):
+        return "Auto-review: Not a usable basketball photo", "Does not look like a clean basketball image for publishing."
+    return "Auto-review rejected", _truncate_image_error_text(cleaned) or "Failed the image quality review."
+
+
+def _social_post_image_error_view(error_message: str | None, *, is_enabled: bool) -> dict[str, str | None]:
+    message = str(error_message or "").strip()
+    if not message:
+        if is_enabled:
+            return {"error_title": None, "error_summary": None}
+        return {"error_title": "Disabled", "error_summary": "No explicit rejection reason was saved."}
+
+    if message.startswith("Auto-review rejected"):
+        reason = message.split(":", 1)[1].strip() if ":" in message else ""
+        title, summary = _classify_auto_review_reason(reason)
+        return {"error_title": title, "error_summary": summary}
+
+    if "input_fidelity" in message:
+        return {
+            "error_title": "AI generation failed",
+            "error_summary": "OpenAI rejected the input_fidelity parameter in the image-edit request.",
+        }
+
+    if message.startswith("Page.goto: Timeout"):
+        return {
+            "error_title": "Screenshot timeout",
+            "error_summary": "Page capture timed out before the target page finished loading.",
+        }
+
+    if "Official player headshot unavailable" in message:
+        return {
+            "error_title": "Headshot unavailable",
+            "error_summary": "Could not download the official NBA headshot for this player.",
+        }
+
+    if message.startswith("Error code:"):
+        inner_message = None
+        inner_match = re.search(r"'message': \"([^\"]+)\"", message)
+        if inner_match:
+            inner_message = inner_match.group(1)
+        return {
+            "error_title": "Image generation failed",
+            "error_summary": _truncate_image_error_text(inner_message or message),
+        }
+
+    return {
+        "error_title": "Image error",
+        "error_summary": _truncate_image_error_text(message),
+    }
+
+
 def _social_post_image_view(post_id: int, img) -> dict[str, object]:
     spec, spec_text = _social_post_image_spec(getattr(img, "spec", None))
     file_path = getattr(img, "file_path", None)
     file_name = os.path.basename(str(file_path).strip()) if file_path else None
+    error_view = _social_post_image_error_view(getattr(img, "error_message", None), is_enabled=bool(img.is_enabled))
     return {
         "id": img.id,
         "slot": img.slot,
@@ -2970,6 +3043,8 @@ def _social_post_image_view(post_id: int, img) -> dict[str, object]:
         "is_enabled": bool(img.is_enabled),
         "has_file": bool(file_path),
         "error_message": img.error_message,
+        "error_title": error_view["error_title"],
+        "error_summary": error_view["error_summary"],
         "url": _social_post_image_url(post_id, img),
         "file_name": file_name,
         "spec": spec,

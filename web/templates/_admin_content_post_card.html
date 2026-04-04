@@ -118,7 +118,12 @@
             <span class="img-type {{ img.image_type }}">{{ img.image_type.replace('_', ' ') }}</span>
           </div>
           {% if img.note %}<div class="img-note">{{ img.note }}</div>{% endif %}
-          {% if img.error_message %}<div class="img-error" title="{{ img.error_message }}">Error</div>{% endif %}
+          {% if img.error_title %}
+          <div class="img-error" title="{{ img.error_message or img.error_summary }}">
+            <div class="img-error-title">{{ img.error_title }}</div>
+            {% if img.error_summary %}<div class="img-error-detail">{{ img.error_summary }}</div>{% endif %}
+          </div>
+          {% endif %}
           {% if img.file_name %}<div class="img-file">{{ img.file_name }}</div>{% endif %}
           {% if img.spec_text %}
           <details class="img-spec">
