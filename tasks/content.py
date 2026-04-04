@@ -191,8 +191,11 @@ def _build_game_analysis_description(target_date: date, game_id: str) -> str:
         "- Use those routine metrics only when there is a real milestone, streak, leaderboard movement, unusual efficiency, or broader context.\n"
         "- Prefer titles built around what changed, what is rare, what is newly meaningful, or what reshapes the season narrative.\n\n"
         "## Image Pool\n\n"
-        "If you include images, keep them tied to the same game and reference them with slot placeholders like `[[IMAGE:slot=img1]]`.\n"
-        "Do not assume image assets are optional if your draft depends on them.\n"
+        "- Each post must include at least 6 prepared image assets.\n"
+        "- Prepare the image files yourself before calling Funba, then pass them through `images[].file_path`.\n"
+        "- Keep all images tied to the same game.\n"
+        "- Reference image assets with slot placeholders like `[[IMAGE:slot=img1]]`.\n"
+        "- Do not submit a post whose writing depends on images unless those image assets are already prepared and included.\n"
         "Do not publish externally from this issue.\n"
     )
 
