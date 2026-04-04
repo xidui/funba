@@ -86,6 +86,68 @@ class TestContentReviewValidation(unittest.TestCase):
         self.assertIn("Shot line looks inverted or impossible", joined)
         self.assertIn("准三双", joined)
 
+    def test_delivery_status_rejects_hupu_compose_url_false_positive(self):
+        delivery = SimpleNamespace(
+            id=273,
+            platform="hupu",
+            forum="湿乎乎的话题",
+            is_enabled=True,
+            status="publishing",
+            content_final=None,
+            published_url=None,
+            published_at=None,
+            error_message=None,
+            updated_at=None,
+        )
+
+        delivery_query = MagicMock()
+        delivery_query.filter.return_value.first.return_value = delivery
+
+        session = _session_ctx(MagicMock())
+        session.query.return_value = delivery_query
+
+        with self.web_app.app.test_client() as client:
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_require_admin_json", return_value=None):
+                resp = client.post(
+                    "/api/content/deliveries/273/status",
+                    json={
+                        "status": "published",
+                        "published_url": "https://bbs.hupu.com/newpost/179",
+                    },
+                    headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(delivery.status, "failed")
+        self.assertIsNone(delivery.published_url)
+        self.assertIn("Invalid Hupu published_url reported", delivery.error_message)
+        self.assertIsNone(delivery.published_at)
+        session.commit.assert_called_once()
+
+    def test_social_post_delivery_view_masks_invalid_hupu_published_url(self):
+        delivery = SimpleNamespace(
+            id=274,
+            platform="hupu",
+            forum="火箭专区",
+            is_enabled=True,
+            status="published",
+            content_final=None,
+            published_url="https://bbs.hupu.com/newpost/179",
+            published_at=None,
+            error_message=None,
+        )
+
+        rendered = self.web_app._social_post_delivery_view(delivery)
+
+        self.assertEqual(rendered["status"], "failed")
+        self.assertIsNone(rendered["published_url"])
+        self.assertIn("Invalid Hupu published_url recorded", rendered["error_message"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -562,7 +562,11 @@ def _click_submit(page: Page) -> str:
         if captured_url["value"]:
             return captured_url["value"]
         final_url = _wait_for_final_post_url(page)
-        return final_url or page.url
+        if final_url:
+            return final_url
+        raise RuntimeError(
+            f"Submit completed but Hupu thread URL was not detected; still on {page.url}"
+        )
     finally:
         _remove_page_listener(page, "response", _handle_response)
 

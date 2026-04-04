@@ -2977,6 +2977,36 @@ def _social_post_image_view(post_id: int, img) -> dict[str, object]:
     }
 
 
+def _is_valid_hupu_thread_url(url: str | None) -> bool:
+    if not url:
+        return False
+    candidate = str(url).strip()
+    return bool(re.fullmatch(r"https://bbs\.hupu\.com/\d{6,12}\.html(?:[?#].*)?", candidate))
+
+
+def _social_post_delivery_view(delivery) -> dict[str, object]:
+    status = delivery.status
+    published_url = delivery.published_url
+    error_message = delivery.error_message
+    if delivery.platform == "hupu" and status == "published" and not _is_valid_hupu_thread_url(published_url):
+        status = "failed"
+        published_url = None
+        if not error_message:
+            bad_url = delivery.published_url or "<missing>"
+            error_message = f"Invalid Hupu published_url recorded: {bad_url}"
+    return {
+        "id": delivery.id,
+        "platform": delivery.platform,
+        "forum": delivery.forum,
+        "is_enabled": bool(getattr(delivery, "is_enabled", True)),
+        "status": status,
+        "content_final": getattr(delivery, "content_final", None),
+        "published_url": published_url,
+        "published_at": delivery.published_at.isoformat() if getattr(delivery, "published_at", None) else None,
+        "error_message": error_message,
+    }
+
+
 def _load_social_post_bundle(db_sess, post_id: int):
     post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
     if not post:
@@ -3100,18 +3130,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
                     "title": v.title,
                     "content_raw": v.content_raw,
                     "audience_hint": v.audience_hint,
-                    "deliveries": [
-                        {
-                            "id": d.id,
-                            "platform": d.platform,
-                            "forum": d.forum,
-                            "is_enabled": bool(getattr(d, "is_enabled", True)),
-                            "status": d.status,
-                            "published_url": d.published_url,
-                            "error_message": d.error_message,
-                        }
-                        for d in d_by_variant.get(v.id, [])
-                    ],
+                    "deliveries": [_social_post_delivery_view(d) for d in d_by_variant.get(v.id, [])],
                 }
                 for v in pvariants
             ],
@@ -7261,20 +7280,7 @@ def admin_content_detail(post_id: int):
                     "title": v.title,
                     "content_raw": v.content_raw,
                     "audience_hint": v.audience_hint,
-                    "deliveries": [
-                        {
-                            "id": d.id,
-                            "platform": d.platform,
-                            "forum": d.forum,
-                            "is_enabled": bool(getattr(d, "is_enabled", True)),
-                            "status": d.status,
-                            "content_final": d.content_final,
-                            "published_url": d.published_url,
-                            "published_at": d.published_at.isoformat() if d.published_at else None,
-                            "error_message": d.error_message,
-                        }
-                        for d in d_by_variant.get(v.id, [])
-                    ],
+                    "deliveries": [_social_post_delivery_view(d) for d in d_by_variant.get(v.id, [])],
                 }
                 for v in variants
             ],
@@ -8017,18 +8023,26 @@ def api_content_delivery_status(delivery_id: int):
         d = s.query(SocialPostDelivery).filter(SocialPostDelivery.id == delivery_id).first()
         if not d:
             return jsonify({"error": "not_found"}), 404
-        d.status = new_status
         if "published_url" in data:
             d.published_url = data["published_url"]
         if "content_final" in data:
             d.content_final = data["content_final"]
         if "error_message" in data:
             d.error_message = data["error_message"]
-        if new_status == "published":
-            d.published_at = datetime.utcnow()
+        if new_status == "published" and d.platform == "hupu" and not _is_valid_hupu_thread_url(d.published_url):
+            bad_url = d.published_url or "<missing>"
+            d.status = "failed"
+            d.published_url = None
+            d.error_message = f"Invalid Hupu published_url reported: {bad_url}"
+            d.published_at = None
+        else:
+            d.status = new_status
+            if new_status == "published":
+                d.published_at = datetime.utcnow()
+        response_status = d.status
         d.updated_at = datetime.utcnow()
         s.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "status": response_status})
 
 
 # ---------------------------------------------------------------------------

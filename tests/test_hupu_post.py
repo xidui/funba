@@ -191,6 +191,16 @@ class TestHupuSubmitFlow(unittest.TestCase):
         self.assertEqual(result, "https://bbs.hupu.com/638233167.html")
         wait_mock.assert_called_once_with(page)
 
+    @patch("social_media.hupu.post.time.sleep", return_value=None)
+    @patch("social_media.hupu.post._wait_for_final_post_url", return_value=None)
+    def test_click_submit_raises_when_still_on_compose_page(self, wait_mock, _sleep_mock):
+        page = _FakePage(url="https://bbs.hupu.com/newpost/179")
+
+        with self.assertRaisesRegex(RuntimeError, "thread URL was not detected"):
+            _click_submit(page)
+
+        wait_mock.assert_called_once_with(page)
+
 
 if __name__ == "__main__":
     unittest.main()
