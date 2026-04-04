@@ -104,10 +104,16 @@
 
     {% if p.images %}
     <div class="image-pool-section" onclick="event.stopPropagation()">
-      <h4>Image Pool <span style="font-weight:normal;color:var(--muted);font-size:11px;">({{ p.images|selectattr('is_enabled')|list|length }}/{{ p.images|length }} enabled)</span></h4>
+      <div class="image-pool-header">
+        <h4>Image Pool <span style="font-weight:normal;color:var(--muted);font-size:11px;">({{ p.images|selectattr('is_enabled')|list|length }}/{{ p.images|length }} enabled)</span></h4>
+        <label class="img-filter-toggle" onclick="event.stopPropagation()">
+          <input id="imgpool-enabled-only-{{ p.id }}" type="checkbox" onchange="event.stopPropagation(); setImagePoolFilter({{ p.id }}, this.checked)">
+          <span>Only enabled</span>
+        </label>
+      </div>
       <div class="image-pool-grid" id="imgpool-{{ p.id }}">
         {% for img in p.images %}
-        <div class="image-pool-item{% if not img.is_enabled %} disabled{% endif %}" id="img-{{ img.id }}">
+        <div class="image-pool-item{% if not img.is_enabled %} disabled{% endif %}" id="img-{{ img.id }}" data-enabled="{{ 1 if img.is_enabled else 0 }}">
           {% if img.url %}
           <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy" onclick="event.stopPropagation(); openImageLightbox('{{ img.url }}')">
           {% else %}
