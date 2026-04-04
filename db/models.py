@@ -564,6 +564,10 @@ class SocialPostImage(Base):
     file_path = Column(String(512), nullable=True)        # local file path
     is_enabled = Column(Boolean, nullable=False, default=True)
     error_message = Column(Text, nullable=True)           # error if generation failed
+    review_decision = Column(String(16), nullable=True)   # keep|disable|enable
+    review_reason = Column(Text, nullable=True)           # reviewer-provided rationale
+    review_source = Column(String(64), nullable=True)     # human_reviewer|content_reviewer_agent|...
+    reviewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False)
 
     __table_args__ = (

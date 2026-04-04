@@ -174,6 +174,10 @@ class TestContentReviewValidation(unittest.TestCase):
             note="测试图",
             is_enabled=False,
             error_message="Auto-review rejected (gpt-5.4-mini): Wrong player/context for Neemias Queta.",
+            review_decision="disable",
+            review_reason="和段落不匹配",
+            review_source="content_reviewer_agent",
+            reviewed_at=None,
             file_path="/tmp/test.png",
             spec=None,
         )
@@ -182,6 +186,111 @@ class TestContentReviewValidation(unittest.TestCase):
 
         self.assertEqual(rendered["error_title"], "Auto-review: Wrong player / team")
         self.assertIn("requested player", rendered["error_summary"])
+        self.assertEqual(rendered["review_decision"], "disable")
+        self.assertEqual(rendered["review_reason"], "和段落不匹配")
+        self.assertEqual(rendered["review_source"], "content_reviewer_agent")
+
+    def test_toggle_image_can_store_manual_review_reason(self):
+        image = SimpleNamespace(
+            id=9,
+            post_id=1,
+            is_enabled=True,
+            review_decision=None,
+            review_reason=None,
+            review_source=None,
+            reviewed_at=None,
+        )
+
+        image_query = MagicMock()
+        image_query.filter.return_value.first.return_value = image
+
+        session = _session_ctx(MagicMock())
+        session.query.return_value = image_query
+
+        with self.web_app.app.test_client() as client:
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_require_admin_json", return_value=None):
+                resp = client.post(
+                    "/api/admin/content/1/images/9/toggle",
+                    json={
+                        "is_enabled": False,
+                        "reason": "和正文论点不匹配",
+                        "review_source": "human_reviewer",
+                    },
+                    headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(image.is_enabled)
+        self.assertEqual(image.review_decision, "disable")
+        self.assertEqual(image.review_reason, "和正文论点不匹配")
+        self.assertEqual(image.review_source, "human_reviewer")
+        self.assertIsNotNone(image.reviewed_at)
+
+    def test_image_review_apply_updates_images_and_adds_summary_comment(self):
+        post = SimpleNamespace(id=1, admin_comments=None, updated_at=None)
+        image_a = SimpleNamespace(
+            id=11,
+            post_id=1,
+            is_enabled=True,
+            review_decision=None,
+            review_reason=None,
+            review_source=None,
+            reviewed_at=None,
+        )
+        image_b = SimpleNamespace(
+            id=12,
+            post_id=1,
+            is_enabled=True,
+            review_decision=None,
+            review_reason=None,
+            review_source=None,
+            reviewed_at=None,
+        )
+
+        post_query = MagicMock()
+        post_query.filter.return_value.first.return_value = post
+        image_query_a = MagicMock()
+        image_query_a.filter.return_value.first.return_value = image_a
+        image_query_b = MagicMock()
+        image_query_b.filter.return_value.first.return_value = image_b
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [post_query, image_query_a, image_query_b]
+
+        with self.web_app.app.test_client() as client:
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_require_admin_json", return_value=None):
+                resp = client.post(
+                    "/api/admin/content/1/image-review/apply",
+                    json={
+                        "review_source": "content_reviewer_agent",
+                        "summary": "禁用一张错误页截图，保留一张排行榜截图。",
+                        "image_decisions": [
+                            {"image_id": 11, "action": "disable", "reason": "500错误页截图"},
+                            {"image_id": 12, "action": "keep", "reason": "和正文段落直接对应"},
+                        ],
+                    },
+                    headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(image_a.is_enabled)
+        self.assertEqual(image_a.review_decision, "disable")
+        self.assertEqual(image_a.review_reason, "500错误页截图")
+        self.assertEqual(image_a.review_source, "content_reviewer_agent")
+        self.assertTrue(image_b.is_enabled)
+        self.assertEqual(image_b.review_decision, "keep")
+        self.assertEqual(image_b.review_reason, "和正文段落直接对应")
+        self.assertEqual(image_b.review_source, "content_reviewer_agent")
+        self.assertIn("Image review (content_reviewer_agent)", post.admin_comments)
+        session.commit.assert_called_once()
 
 
 if __name__ == "__main__":

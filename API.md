@@ -450,6 +450,8 @@ These endpoints are also available from localhost. Used by the admin kanban UI a
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/update` | Update variant title/content/audience |
 | POST | `/api/admin/content/{post_id}/variants/{variant_id}/destinations` | Add delivery destination `{platform, forum}` |
 | POST | `/api/admin/content/{post_id}/paperclip/sync` | Pull latest Paperclip issue status + comments into Funba |
+| GET | `/api/admin/content/{post_id}/image-review-payload` | Get variants plus image-pool payload for reviewer/agent image review |
+| POST | `/api/admin/content/{post_id}/image-review/apply` | Apply structured image review decisions `{review_source, summary?, image_decisions[]}` |
 | POST | `/api/admin/metrics/{metric_key}/deep-dive-post` | Admin-only trigger for a metric-page placeholder post + Paperclip handoff |
 
 Metric deep-dive trigger body:

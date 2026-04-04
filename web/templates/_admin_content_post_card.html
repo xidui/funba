@@ -130,6 +130,15 @@
             {% if img.error_summary %}<div class="img-error-detail">{{ img.error_summary }}</div>{% endif %}
           </div>
           {% endif %}
+          {% if img.review_reason %}
+          <div class="img-review-note">
+            <div class="img-review-title">
+              {{ img.review_decision or 'reviewed' }}
+              {% if img.review_source %} · {{ img.review_source }}{% endif %}
+            </div>
+            <div class="img-review-detail">{{ img.review_reason }}</div>
+          </div>
+          {% endif %}
           {% if img.file_name %}<div class="img-file">{{ img.file_name }}</div>{% endif %}
           {% if img.spec_text %}
           <details class="img-spec">

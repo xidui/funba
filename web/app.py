@@ -2958,6 +2958,12 @@ def _social_post_image_url(post_id: int, img) -> str | None:
     return f"/media/social_posts/{post_id}/{filename}"
 
 
+def _extract_image_slots_from_content(content_raw: str | None) -> list[str]:
+    if not content_raw:
+        return []
+    return re.findall(r"\[\[IMAGE:slot=([A-Za-z0-9_]+)\]\]", str(content_raw))
+
+
 def _truncate_image_error_text(text: str | None, limit: int = 120) -> str | None:
     value = str(text or "").strip()
     if not value:
@@ -3045,11 +3051,39 @@ def _social_post_image_view(post_id: int, img) -> dict[str, object]:
         "error_message": img.error_message,
         "error_title": error_view["error_title"],
         "error_summary": error_view["error_summary"],
+        "review_decision": getattr(img, "review_decision", None),
+        "review_reason": getattr(img, "review_reason", None),
+        "review_source": getattr(img, "review_source", None),
+        "reviewed_at": img.reviewed_at.isoformat() if getattr(img, "reviewed_at", None) else None,
         "url": _social_post_image_url(post_id, img),
+        "file_path": str(file_path).strip() if file_path else None,
         "file_name": file_name,
         "spec": spec,
         "spec_text": spec_text,
     }
+
+
+def _normalize_image_review_source(value: str | None) -> str | None:
+    source = str(value or "").strip()
+    return source or None
+
+
+def _apply_image_review_metadata(
+    img,
+    *,
+    decision: str | None,
+    reason: str | None,
+    source: str | None,
+    reviewed_at: datetime | None,
+) -> None:
+    if decision is not None:
+        img.review_decision = decision
+    if reason is not None:
+        img.review_reason = reason
+    if source is not None:
+        img.review_source = source
+    if reviewed_at is not None:
+        img.reviewed_at = reviewed_at
 
 
 def _is_valid_hupu_thread_url(url: str | None) -> bool:
@@ -7824,6 +7858,9 @@ def admin_content_toggle_image(post_id: int, image_id: int):
     if "is_enabled" not in data:
         return jsonify({"error": "is_enabled required"}), 400
     enabled = bool(data["is_enabled"])
+    review_reason = (data.get("reason") or "").strip() or None
+    review_source = _normalize_image_review_source(data.get("review_source"))
+    now = datetime.utcnow()
     with SessionLocal() as s:
         img = (
             s.query(SocialPostImage)
@@ -7833,8 +7870,140 @@ def admin_content_toggle_image(post_id: int, image_id: int):
         if not img:
             return jsonify({"error": "not_found"}), 404
         img.is_enabled = enabled
+        if review_reason or review_source:
+            _apply_image_review_metadata(
+                img,
+                decision="enable" if enabled else "disable",
+                reason=review_reason,
+                source=review_source or "manual_toggle",
+                reviewed_at=now,
+            )
         s.commit()
     return jsonify({"ok": True, "image_id": image_id, "is_enabled": enabled})
+
+
+@app.get("/api/admin/content/<int:post_id>/image-review-payload")
+def admin_content_image_review_payload(post_id: int):
+    """Get one content-review payload with variants plus currently enabled images."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    include_disabled = request.args.get("include_disabled") in {"1", "true", "True"}
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not post:
+            return jsonify({"error": "not_found"}), 404
+        variants = (
+            s.query(SocialPostVariant)
+            .filter(SocialPostVariant.post_id == post_id)
+            .order_by(SocialPostVariant.id)
+            .all()
+        )
+        image_query = (
+            s.query(SocialPostImage)
+            .filter(SocialPostImage.post_id == post_id)
+            .order_by(SocialPostImage.id)
+        )
+        if not include_disabled:
+            image_query = image_query.filter(SocialPostImage.is_enabled == True)
+        images = image_query.all()
+
+        return jsonify({
+            "ok": True,
+            "post_id": post.id,
+            "topic": post.topic,
+            "status": post.status,
+            "source_date": post.source_date.isoformat() if post.source_date else None,
+            "variants": [
+                {
+                    "id": v.id,
+                    "title": v.title,
+                    "audience_hint": v.audience_hint,
+                    "content_raw": v.content_raw,
+                    "referenced_slots": _extract_image_slots_from_content(v.content_raw),
+                }
+                for v in variants
+            ],
+            "images": [_social_post_image_view(post_id, img) for img in images],
+        })
+
+
+@app.post("/api/admin/content/<int:post_id>/image-review/apply")
+def admin_content_apply_image_review(post_id: int):
+    """Apply structured image-review decisions from an external reviewer/agent."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    decisions = data.get("image_decisions") or []
+    if not isinstance(decisions, list) or not decisions:
+        return jsonify({"error": "image_decisions required"}), 400
+
+    review_source = _normalize_image_review_source(data.get("review_source")) or "content_reviewer_agent"
+    review_summary = (data.get("summary") or "").strip() or None
+    now = datetime.utcnow()
+    updated_images: list[dict[str, object]] = []
+
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not post:
+            return jsonify({"error": "not_found"}), 404
+
+        comments = _social_post_comments(post)
+        for decision in decisions:
+            image_id = int(decision.get("image_id") or 0)
+            action = str(decision.get("action") or "").strip().lower()
+            reason = str(decision.get("reason") or "").strip() or None
+            if action not in {"keep", "disable", "enable"}:
+                return jsonify({"error": "invalid_action", "image_id": image_id}), 400
+            img = (
+                s.query(SocialPostImage)
+                .filter(SocialPostImage.id == image_id, SocialPostImage.post_id == post_id)
+                .first()
+            )
+            if not img:
+                return jsonify({"error": "image_not_found", "image_id": image_id}), 404
+            if action == "disable":
+                img.is_enabled = False
+            elif action == "enable":
+                img.is_enabled = True
+            _apply_image_review_metadata(
+                img,
+                decision=action,
+                reason=reason,
+                source=review_source,
+                reviewed_at=now,
+            )
+            updated_images.append(
+                {
+                    "image_id": image_id,
+                    "action": action,
+                    "is_enabled": bool(img.is_enabled),
+                    "reason": reason,
+                }
+            )
+
+        if review_summary:
+            append_admin_comment(
+                comments,
+                text=f"Image review ({review_source}): {review_summary}",
+                author=review_source,
+                origin="system",
+                event_type="image_review",
+                timestamp=now.isoformat() + "Z",
+            )
+            _write_social_post_comments(post, comments)
+
+        s.commit()
+
+    return jsonify(
+        {
+            "ok": True,
+            "post_id": post_id,
+            "review_source": review_source,
+            "updated_images": updated_images,
+        }
+    )
 
 
 @app.get("/media/social_posts/<int:post_id>/<filename>")
