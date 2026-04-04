@@ -7,7 +7,9 @@ from functools import lru_cache
 import inspect
 import json
 import logging
+import mimetypes
 import os
+from pathlib import Path
 import re
 import time
 from types import SimpleNamespace
@@ -23,6 +25,7 @@ from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 from social_media.hupu.forums import normalize_hupu_forum
+from social_media.images import store_prepared_image
 
 from db.llm_models import (
     available_llm_models,
@@ -2956,6 +2959,43 @@ def _social_post_image_url(post_id: int, img) -> str | None:
         return None
     filename = os.path.basename(str(file_path).strip()) or f"{getattr(img, 'slot', 'image')}.png"
     return f"/media/social_posts/{post_id}/{filename}"
+
+
+def _validate_prepared_image_specs(raw_images: list[dict]) -> list[dict[str, object]]:
+    prepared: list[dict[str, object]] = []
+    seen_slots: set[str] = set()
+    for idx, img_spec in enumerate(raw_images, start=1):
+        slot = (img_spec.get("slot") or "").strip()
+        image_type = (img_spec.get("type") or "").strip()
+        if not slot:
+            raise ValueError(f"images[{idx}] slot required")
+        if slot in seen_slots:
+            raise ValueError(f"duplicate image slot: {slot}")
+        seen_slots.add(slot)
+        if not image_type:
+            raise ValueError(f"images[{idx}] type required")
+        source_path = (img_spec.get("file_path") or "").strip()
+        if not source_path:
+            raise ValueError(f"images[{idx}] file_path required")
+        source = Path(source_path).expanduser()
+        if not source.exists() or not source.is_file():
+            raise FileNotFoundError(f"Prepared image file not found: {source}")
+        note = (img_spec.get("note") or "").strip() or None
+        spec_json = json.dumps(
+            {k: v for k, v in img_spec.items() if k not in ("slot", "note", "file_path", "is_enabled")},
+            ensure_ascii=False,
+        )
+        prepared.append(
+            {
+                "slot": slot,
+                "image_type": image_type,
+                "note": note,
+                "source_path": str(source),
+                "is_enabled": bool(img_spec.get("is_enabled", True)),
+                "spec_json": spec_json,
+            }
+        )
+    return prepared
 
 
 def _extract_image_slots_from_content(content_raw: str | None) -> list[str]:
@@ -8019,10 +8059,11 @@ def serve_social_post_image(post_id: int, filename: str):
         file_path.resolve().relative_to(media_dir.resolve())
     except ValueError:
         abort(403)
+    mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     return app.send_static_file(None) if False else make_response(
         open(file_path, "rb").read(),
         200,
-        {"Content-Type": "image/png", "Cache-Control": "public, max-age=3600"},
+        {"Content-Type": mime_type, "Cache-Control": "public, max-age=3600"},
     )
 
 
@@ -8043,8 +8084,8 @@ def api_content_create_post():
       "priority": 30,
       "llm_model": "claude-sonnet-4-6",
       "images": [
-        {"slot": "img1", "type": "player_headshot", "player_id": "1629029", "note": "东契奇官方头像"},
-        {"slot": "img2", "type": "web_search", "query": "Luka Doncic celebration Mavericks", "note": "东契奇庆祝照"}
+        {"slot": "img1", "type": "screenshot", "file_path": "/tmp/flagg_player_page.png", "target": "https://funba.app/players/1642843", "note": "弗拉格球员页截图"},
+        {"slot": "img2", "type": "web_search", "file_path": "/tmp/flagg_game_photo.jpg", "query": "Cooper Flagg Mavericks 51 points", "note": "弗拉格比赛图"}
       ],
       "variants": [
         {
@@ -8069,6 +8110,12 @@ def api_content_create_post():
     source_date_str = data.get("source_date")
     if not source_date_str:
         return jsonify({"error": "source_date required"}), 400
+    try:
+        prepared_images = _validate_prepared_image_specs(data.get("images", []))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     # Dedup: skip if same source_date + topic already exists (non-archived)
     with SessionLocal() as s:
@@ -8085,101 +8132,65 @@ def api_content_create_post():
             return jsonify({"ok": True, "post_id": existing.id, "status": "duplicate_skipped"}), 200
 
     now = datetime.utcnow()
-    with SessionLocal() as s:
-        sp = SocialPost(
-            topic=topic,
-            source_date=date.fromisoformat(source_date_str),
-            source_metrics=json.dumps(data.get("source_metrics", []), ensure_ascii=False),
-            source_game_ids=json.dumps(data.get("source_game_ids", []), ensure_ascii=False),
-            status=data.get("status", "draft"),
-            priority=int(data.get("priority", 50)),
-            llm_model=data.get("llm_model"),
-            admin_comments=None,
-            created_at=now,
-            updated_at=now,
-        )
-        s.add(sp)
-        s.flush()
-
-        variant_ids = []
-        for vd in data.get("variants", []):
-            vtitle = (vd.get("title") or "").strip()
-            vcontent = (vd.get("content_raw") or "").strip()
-            if not vtitle or not vcontent:
-                continue
-            sv = SocialPostVariant(
-                post_id=sp.id,
-                title=vtitle,
-                content_raw=vcontent,
-                audience_hint=(vd.get("audience_hint") or "").strip() or None,
+    staged_files: list[str] = []
+    variant_ids: list[int] = []
+    try:
+        with SessionLocal() as s:
+            sp = SocialPost(
+                topic=topic,
+                source_date=date.fromisoformat(source_date_str),
+                source_metrics=json.dumps(data.get("source_metrics", []), ensure_ascii=False),
+                source_game_ids=json.dumps(data.get("source_game_ids", []), ensure_ascii=False),
+                status=data.get("status", "draft"),
+                priority=int(data.get("priority", 50)),
+                llm_model=data.get("llm_model"),
+                admin_comments=None,
                 created_at=now,
                 updated_at=now,
             )
-            s.add(sv)
+            s.add(sp)
             s.flush()
-            variant_ids.append(sv.id)
 
-            for dest in vd.get("destinations", []):
-                platform = (dest.get("platform") or "").strip()
-                forum = (dest.get("forum") or "").strip() or None
-                if platform.lower() == "hupu":
-                    forum = normalize_hupu_forum(forum)
-                if platform:
-                    s.add(SocialPostDelivery(
-                        variant_id=sv.id,
-                        platform=platform,
-                        forum=forum,
-                        is_enabled=True,
-                        status="pending",
-                        created_at=now,
-                        updated_at=now,
-                    ))
+            for vd in data.get("variants", []):
+                vtitle = (vd.get("title") or "").strip()
+                vcontent = (vd.get("content_raw") or "").strip()
+                if not vtitle or not vcontent:
+                    continue
+                sv = SocialPostVariant(
+                    post_id=sp.id,
+                    title=vtitle,
+                    content_raw=vcontent,
+                    audience_hint=(vd.get("audience_hint") or "").strip() or None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                s.add(sv)
+                s.flush()
+                variant_ids.append(sv.id)
 
-        s.commit()
-        post_id = sp.id
+                for dest in vd.get("destinations", []):
+                    platform = (dest.get("platform") or "").strip()
+                    forum = (dest.get("forum") or "").strip() or None
+                    if platform.lower() == "hupu":
+                        forum = normalize_hupu_forum(forum)
+                    if platform:
+                        s.add(SocialPostDelivery(
+                            variant_id=sv.id,
+                            platform=platform,
+                            forum=forum,
+                            is_enabled=True,
+                            status="pending",
+                            created_at=now,
+                            updated_at=now,
+                        ))
 
-    # --- Generate images for the post pool (async-safe: outside DB session) ---
-    image_results = []
-    for img_spec in data.get("images", []):
-        slot = (img_spec.get("slot") or "").strip()
-        image_type = (img_spec.get("type") or "").strip()
-        note = (img_spec.get("note") or "").strip() or None
-        if not slot or not image_type:
-            continue
-        spec_json = json.dumps({k: v for k, v in img_spec.items() if k not in ("slot", "note")}, ensure_ascii=False)
-        file_paths = []
-        error_msg = None
-        try:
-            from social_media.images import resolve_image, review_resolved_image
-            file_paths = resolve_image(img_spec, post_id=post_id, slot=slot)
-        except Exception as exc:
-            error_msg = str(exc)
-            logger.warning("Image generation failed for post %s slot %s: %s", post_id, slot, exc)
-        if file_paths:
-            for i, fp in enumerate(file_paths):
-                sub_slot = slot if i == 0 else f"{slot}_{i}"
-                is_enabled = True
-                review_error = None
-                try:
-                    review_result = review_resolved_image(img_spec, fp)
-                except Exception as exc:
-                    review_result = {"checked": False, "ok": True, "reason": None, "error": str(exc)}
-                    logger.warning("Image review failed for post %s slot %s: %s", post_id, sub_slot, exc)
-                if review_result.get("checked") and not review_result.get("ok", True):
-                    is_enabled = False
-                    review_reason = str(review_result.get("reason") or "quality check failed").strip()
-                    review_model = str(review_result.get("model") or "").strip()
-                    review_error = (
-                        f"Auto-review rejected"
-                        + (f" ({review_model})" if review_model else "")
-                        + f": {review_reason}"
-                    )
-                image_results.append((sub_slot, image_type, spec_json, note, fp, review_error, is_enabled))
-        else:
-            image_results.append((slot, image_type, spec_json, note, None, error_msg, False))
+            post_id = sp.id
+            image_results = []
+            for img in prepared_images:
+                stored_path = store_prepared_image(img["source_path"], post_id=post_id, slot=img["slot"])
+                staged_files.append(stored_path)
+                image_results.append((img["slot"], img["image_type"], img["spec_json"], img["note"], stored_path, None, img["is_enabled"]))
 
-    if image_results:
-        with SessionLocal() as s:
             for slot, image_type, spec_json, note, file_path, error_msg, is_enabled in image_results:
                 s.add(SocialPostImage(
                     post_id=post_id,
@@ -8192,15 +8203,24 @@ def api_content_create_post():
                     error_message=error_msg,
                     created_at=now,
                 ))
+
             s.commit()
+    except Exception as exc:
+        for staged_path in staged_files:
+            try:
+                Path(staged_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        logger.warning("Prepared image ingest failed for post topic %s: %s", topic, exc)
+        return jsonify({"error": str(exc)}), 400
 
     _ensure_paperclip_issue_for_post(post_id)
     sync_result = _sync_social_post_from_paperclip(post_id, ensure_issue=False)
     response = {"ok": True, "post_id": post_id, "variant_ids": variant_ids}
-    if image_results:
+    if prepared_images:
         response["images"] = [
-            {"slot": slot, "ok": fp is not None and enabled, "error": err}
-            for slot, _, _, _, fp, err, enabled in image_results
+            {"slot": slot, "ok": True, "error": None}
+            for slot, _, _, _, _, _, _ in image_results
         ]
     if sync_result:
         response.update(sync_result)

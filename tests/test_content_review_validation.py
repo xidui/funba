@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -291,6 +292,34 @@ class TestContentReviewValidation(unittest.TestCase):
         self.assertEqual(image_b.review_source, "content_reviewer_agent")
         self.assertIn("Image review (content_reviewer_agent)", post.admin_comments)
         session.commit.assert_called_once()
+
+    def test_validate_prepared_image_specs_requires_file_path(self):
+        with self.assertRaisesRegex(ValueError, "file_path required"):
+            self.web_app._validate_prepared_image_specs(
+                [{"slot": "img1", "type": "web_search", "query": "x", "note": "图"}]
+            )
+
+    def test_validate_prepared_image_specs_accepts_existing_file(self):
+        with tempfile.TemporaryDirectory(prefix="funba_img_specs_") as tmpdir:
+            source = Path(tmpdir) / "img1.png"
+            source.write_bytes(b"png")
+
+            prepared = self.web_app._validate_prepared_image_specs(
+                [
+                    {
+                        "slot": "img1",
+                        "type": "screenshot",
+                        "file_path": str(source),
+                        "target": "https://funba.app/players/1642843",
+                        "note": "弗拉格球员页截图",
+                    }
+                ]
+            )
+
+        self.assertEqual(len(prepared), 1)
+        self.assertEqual(prepared[0]["slot"], "img1")
+        self.assertEqual(prepared[0]["image_type"], "screenshot")
+        self.assertEqual(prepared[0]["source_path"], str(source))
 
 
 if __name__ == "__main__":

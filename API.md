@@ -235,14 +235,15 @@ Create a SocialPost with variants and delivery destinations.
   "images": [
     {
       "slot": "img1",
-      "type": "player_headshot",
-      "player_id": "1629029",
-      "player_name": "Luka Doncic",
-      "note": "东契奇官方头像"
+      "type": "screenshot",
+      "file_path": "/tmp/funba_assets/flagg_player_page.png",
+      "target": "https://funba.app/players/1642843",
+      "note": "弗拉格球员页截图"
     },
     {
       "slot": "img2",
       "type": "web_search",
+      "file_path": "/tmp/funba_assets/flagg_game_photo.jpg",
       "query": "Luka Doncic postgame celebration Mavericks",
       "note": "东契奇庆祝照"
     }
@@ -278,15 +279,17 @@ Create a SocialPost with variants and delivery destinations.
 | `priority` | int | no | 50 | 0-20 historic, 20-50 notable, 50-80 interesting |
 | `status` | string | no | "draft" | Initial status: `draft`, `ai_review`, `in_review`, `approved`, `archived` |
 | `llm_model` | string | no | null | Which model generated the content |
-| `images` | object[] | no | [] | Image pool specs referenced by `[[IMAGE:slot=...]]` placeholders |
+| `images` | object[] | no | [] | Agent-prepared image assets referenced by `[[IMAGE:slot=...]]` placeholders |
 | `images[].slot` | string | yes | | Slot name such as `img1` |
-| `images[].type` | string | yes | | `player_headshot`, `web_search`, `screenshot`, `ai_generated` |
-| `images[].player_id` | string | for `player_headshot` | | NBA player ID for official headshots |
-| `images[].player_name` | string | no | null | Reviewer-facing context for `player_headshot` |
-| `images[].query` | string | for `web_search` | | English query for real editorial photos; avoid watermarked sources |
-| `images[].target` | string | for `screenshot` | | Funba URL to capture |
-| `images[].prompt` | string | for `ai_generated` | | English prompt for stylized supporting art, not factual portraits |
+| `images[].type` | string | yes | | Provenance label such as `web_search`, `screenshot`, `ai_generated`, `player_headshot` |
+| `images[].file_path` | string | yes | | Local path to an already-prepared image file on the Funba machine |
+| `images[].query` | string | no | null | Optional provenance metadata when the agent sourced the image via web search |
+| `images[].target` | string | no | null | Optional provenance metadata when the agent captured a screenshot |
+| `images[].prompt` | string | no | null | Optional provenance metadata when the agent created an AI image |
+| `images[].player_id` | string | no | null | Optional provenance metadata for an official headshot source |
+| `images[].player_name` | string | no | null | Reviewer-facing provenance context |
 | `images[].note` | string | no | null | Chinese note shown in admin review |
+| `images[].is_enabled` | bool | no | true | Whether the image should start enabled in the pool |
 | `variants` | object[] | no | [] | Audience-specific content variants |
 | `variants[].title` | string | yes | | Post title |
 | `variants[].content_raw` | string | yes | | Post body (markdown) |
@@ -297,8 +300,8 @@ Create a SocialPost with variants and delivery destinations.
 
 Image ownership notes:
 
-- Funba creates the image pool during `POST /api/content/posts`.
-- Funba performs deterministic generation checks (for example broken screenshots / capture failures).
+- The calling agent is responsible for generating, collecting, searching, downloading, or screenshotting image assets before calling `POST /api/content/posts`.
+- Funba stores the provided files into its managed post media directory and records the metadata.
 - Semantic keep/disable decisions for still-enabled images belong to the `Content Reviewer` workflow through the admin image-review endpoints.
 
 **Response:**
