@@ -2998,6 +2998,17 @@ def _validate_prepared_image_specs(raw_images: list[dict]) -> list[dict[str, obj
     return prepared
 
 
+def _remove_managed_post_image_file(file_path: str | None, *, post_id: int) -> None:
+    if not file_path:
+        return
+    candidate = Path(file_path).expanduser()
+    try:
+        candidate.resolve().relative_to((Path(__file__).resolve().parent.parent / "media" / "social_posts" / str(post_id)).resolve())
+    except Exception:
+        return
+    candidate.unlink(missing_ok=True)
+
+
 def _extract_image_slots_from_content(content_raw: str | None) -> list[str]:
     if not content_raw:
         return []
@@ -7920,6 +7931,125 @@ def admin_content_toggle_image(post_id: int, image_id: int):
             )
         s.commit()
     return jsonify({"ok": True, "image_id": image_id, "is_enabled": enabled})
+
+
+@app.post("/api/admin/content/<int:post_id>/images")
+def admin_content_add_image(post_id: int):
+    """Add one prepared image asset to an existing post image pool."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    try:
+        prepared = _validate_prepared_image_specs([data])[0]
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    now = datetime.utcnow()
+    stored_path = None
+    with SessionLocal() as s:
+        post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if not post:
+            return jsonify({"error": "not_found"}), 404
+
+        existing = (
+            s.query(SocialPostImage)
+            .filter(SocialPostImage.post_id == post_id, SocialPostImage.slot == prepared["slot"])
+            .first()
+        )
+        if existing:
+            return jsonify({"error": "slot_exists", "slot": prepared["slot"]}), 400
+
+        try:
+            stored_path = store_prepared_image(prepared["source_path"], post_id=post_id, slot=prepared["slot"])
+            img = SocialPostImage(
+                post_id=post_id,
+                slot=prepared["slot"],
+                image_type=prepared["image_type"],
+                spec=prepared["spec_json"],
+                note=prepared["note"],
+                file_path=stored_path,
+                is_enabled=bool(prepared["is_enabled"]),
+                error_message=None,
+                created_at=now,
+            )
+            s.add(img)
+            s.commit()
+            image_id = img.id
+        except Exception as exc:
+            s.rollback()
+            _remove_managed_post_image_file(stored_path, post_id=post_id)
+            return jsonify({"error": str(exc)}), 400
+
+    _ensure_paperclip_issue_for_post(post_id)
+    return jsonify({"ok": True, "image_id": image_id})
+
+
+@app.post("/api/admin/content/<int:post_id>/images/<int:image_id>/replace")
+def admin_content_replace_image(post_id: int, image_id: int):
+    """Replace one existing image asset with a newly prepared local file."""
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    try:
+        prepared = _validate_prepared_image_specs([data])[0]
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    stored_path = None
+    old_path = None
+    with SessionLocal() as s:
+        img = (
+            s.query(SocialPostImage)
+            .filter(SocialPostImage.id == image_id, SocialPostImage.post_id == post_id)
+            .first()
+        )
+        if not img:
+            return jsonify({"error": "not_found"}), 404
+
+        if prepared["slot"] != img.slot:
+            existing = (
+                s.query(SocialPostImage)
+                .filter(
+                    SocialPostImage.post_id == post_id,
+                    SocialPostImage.slot == prepared["slot"],
+                    SocialPostImage.id != image_id,
+                )
+                .first()
+            )
+            if existing:
+                return jsonify({"error": "slot_exists", "slot": prepared["slot"]}), 400
+
+        old_path = img.file_path
+        try:
+            stored_path = store_prepared_image(prepared["source_path"], post_id=post_id, slot=prepared["slot"])
+            img.slot = prepared["slot"]
+            img.image_type = prepared["image_type"]
+            img.spec = prepared["spec_json"]
+            img.note = prepared["note"]
+            img.file_path = stored_path
+            img.is_enabled = bool(prepared["is_enabled"])
+            img.error_message = None
+            img.review_decision = None
+            img.review_reason = None
+            img.review_source = None
+            img.reviewed_at = None
+            s.commit()
+        except Exception as exc:
+            s.rollback()
+            _remove_managed_post_image_file(stored_path, post_id=post_id)
+            return jsonify({"error": str(exc)}), 400
+
+    if old_path and old_path != stored_path:
+        _remove_managed_post_image_file(old_path, post_id=post_id)
+
+    _ensure_paperclip_issue_for_post(post_id)
+    return jsonify({"ok": True, "image_id": image_id})
 
 
 @app.get("/api/admin/content/<int:post_id>/image-review-payload")

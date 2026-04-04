@@ -321,6 +321,121 @@ class TestContentReviewValidation(unittest.TestCase):
         self.assertEqual(prepared[0]["image_type"], "screenshot")
         self.assertEqual(prepared[0]["source_path"], str(source))
 
+    def test_admin_content_add_image_stores_prepared_asset(self):
+        post = SimpleNamespace(id=1)
+        existing_slot = None
+
+        post_query = MagicMock()
+        post_query.filter.return_value.first.return_value = post
+        slot_query = MagicMock()
+        slot_query.filter.return_value.first.return_value = existing_slot
+
+        created_images = []
+
+        class _FakeImage:
+            _next_id = 100
+            post_id = MagicMock()
+            slot = MagicMock()
+            id = MagicMock()
+
+            def __init__(self, **kwargs):
+                self.id = _FakeImage._next_id
+                _FakeImage._next_id += 1
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [post_query, slot_query]
+        session.add.side_effect = lambda img: created_images.append(img)
+
+        with tempfile.TemporaryDirectory(prefix="funba_add_img_") as tmpdir:
+            source = Path(tmpdir) / "img1.png"
+            source.write_bytes(b"png")
+            with self.web_app.app.test_client() as client:
+                with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                     patch.object(self.web_app, "_require_admin_json", return_value=None), \
+                     patch.object(self.web_app, "_ensure_paperclip_issue_for_post"), \
+                     patch.object(self.web_app, "SocialPostImage", _FakeImage), \
+                     patch.object(self.web_app, "store_prepared_image", return_value="/tmp/stored_img1.png"):
+                    resp = client.post(
+                        "/api/admin/content/1/images",
+                        json={
+                            "slot": "img1",
+                            "type": "screenshot",
+                            "file_path": str(source),
+                            "target": "https://funba.app/players/1642843",
+                            "note": "弗拉格球员页截图",
+                        },
+                        headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                    )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(created_images), 1)
+        self.assertEqual(created_images[0].slot, "img1")
+        self.assertEqual(created_images[0].file_path, "/tmp/stored_img1.png")
+        self.assertTrue(created_images[0].is_enabled)
+
+    def test_admin_content_replace_image_swaps_prepared_asset(self):
+        image = SimpleNamespace(
+            id=11,
+            post_id=1,
+            slot="img1",
+            image_type="screenshot",
+            note="旧图",
+            spec='{"target":"https://funba.app/old"}',
+            file_path="/tmp/old_img1.png",
+            is_enabled=True,
+            error_message="old error",
+            review_decision="disable",
+            review_reason="旧原因",
+            review_source="content_reviewer_agent",
+            reviewed_at="old",
+        )
+
+        image_query = MagicMock()
+        image_query.filter.return_value.first.return_value = image
+
+        session = _session_ctx(MagicMock())
+        session.query.return_value = image_query
+
+        with tempfile.TemporaryDirectory(prefix="funba_replace_img_") as tmpdir:
+            source = Path(tmpdir) / "img1_new.png"
+            source.write_bytes(b"png")
+            with self.web_app.app.test_client() as client:
+                with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                     patch.object(self.web_app, "_require_admin_json", return_value=None), \
+                     patch.object(self.web_app, "_ensure_paperclip_issue_for_post"), \
+                     patch.object(self.web_app, "store_prepared_image", return_value="/tmp/stored_img1_new.png"), \
+                     patch.object(self.web_app, "_remove_managed_post_image_file"):
+                    resp = client.post(
+                        "/api/admin/content/1/images/11/replace",
+                        json={
+                            "slot": "img1",
+                            "type": "screenshot",
+                            "file_path": str(source),
+                            "target": "https://funba.app/players/1642843",
+                            "note": "新图",
+                            "is_enabled": False,
+                        },
+                        headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                    )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(image.file_path, "/tmp/stored_img1_new.png")
+        self.assertEqual(image.note, "新图")
+        self.assertFalse(image.is_enabled)
+        self.assertIsNone(image.error_message)
+        self.assertIsNone(image.review_decision)
+        self.assertIsNone(image.review_reason)
+        self.assertIsNone(image.review_source)
+        self.assertIsNone(image.reviewed_at)
+
 
 if __name__ == "__main__":
     unittest.main()
