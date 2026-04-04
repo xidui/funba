@@ -15,6 +15,7 @@ from social_media.hupu.post import (  # noqa: E402
     _extract_thread_url_from_html,
     _extract_thread_url_from_response_body,
     _forum_label_matches,
+    _is_logged_in,
     _parse_image_placeholder,
     _prepare_placeholder_images,
     _render_inline_html,
@@ -129,13 +130,22 @@ class _FakeLocator:
         return self._text
 
 
+class _FakeContext:
+    def __init__(self, cookies=None):
+        self._cookies = list(cookies or [])
+
+    def cookies(self):
+        return list(self._cookies)
+
+
 class _FakePage:
-    def __init__(self, *, url: str, body_text: str = "", responses=None):
+    def __init__(self, *, url: str, body_text: str = "", responses=None, cookies=None):
         self.url = url
         self._body_text = body_text
         self._responses = list(responses or [])
         self._listeners = {}
         self.clicked = []
+        self.context = _FakeContext(cookies)
 
     def on(self, event, handler):
         self._listeners.setdefault(event, []).append(handler)
@@ -200,6 +210,26 @@ class TestHupuSubmitFlow(unittest.TestCase):
             _click_submit(page)
 
         wait_mock.assert_called_once_with(page)
+
+
+class TestHupuLoginState(unittest.TestCase):
+    def test_is_logged_in_requires_more_than_auth_cookie_names(self):
+        page = _FakePage(
+            url="https://bbs.hupu.com/",
+            body_text="欢迎访问虎扑，请先 注册 或者 登录\n登录后的世界更精彩",
+            cookies=[{"name": "u", "value": "abc"}],
+        )
+
+        self.assertFalse(_is_logged_in(page))
+
+    def test_is_logged_in_accepts_logged_in_ui_plus_auth_cookie(self):
+        page = _FakePage(
+            url="https://bbs.hupu.com/",
+            body_text="你好，智趣NBA\n我的首页\n创作者中心\n退出",
+            cookies=[{"name": "u", "value": "abc"}, {"name": "us", "value": "def"}],
+        )
+
+        self.assertTrue(_is_logged_in(page))
 
 
 if __name__ == "__main__":

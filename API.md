@@ -514,7 +514,19 @@ python -m social_media.hupu.post post --title "标题" --content "正文" --foru
 #   common English team aliases may also work and are normalized by the tool
 ```
 
-Cookie file: `social_media/hupu/.hupu_cookies.json` (refresh with `python -m social_media.hupu.post login --chrome-profile "Profile 1"`).
+Cookie file: `social_media/hupu/.hupu_cookies.json`.
+
+Refresh flow:
+
+```bash
+python -m social_media.hupu.post login --chrome-profile "Profile 1"
+python -m social_media.hupu.post check
+```
+
+Notes:
+
+- `check` validates the live Hupu page, not just the presence of `u/us/_CLT` cookie names.
+- On macOS, `login` may fail if the current process cannot read `Chrome Safe Storage` from Keychain. In that case the operator must grant Keychain access or use a dedicated interactive browser session.
 
 ---
 

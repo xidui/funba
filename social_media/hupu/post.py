@@ -44,6 +44,17 @@ REAL_BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+_AUTH_COOKIE_NAMES = ("u", "us", "_CLT")
+_LOGGED_OUT_TEXT_MARKERS = (
+    "欢迎访问虎扑，请先",
+    "登录后的世界更精彩",
+)
+_LOGGED_IN_TEXT_MARKERS = (
+    "我的首页",
+    "创作者中心",
+    "退出",
+    "私信",
+)
 
 _SHORT_SLEEP = 0.08
 _MEDIUM_SLEEP = 0.2
@@ -108,10 +119,49 @@ def _create_context(pw, headless: bool = True) -> BrowserContext:
     return context
 
 
-def _is_logged_in(page: Page) -> bool:
-    """Check login by looking for auth cookies."""
+def _page_text(page: Page) -> str:
+    """Return body text for lightweight login-state heuristics."""
+    try:
+        return page.locator("body").inner_text(timeout=5000)
+    except Exception:
+        return ""
+
+
+def _login_state(page: Page) -> tuple[bool, dict[str, object]]:
+    """Return whether Hupu appears logged in based on cookies and rendered UI."""
     cookies = page.context.cookies()
-    return any(c["name"] in ("u", "us", "_CLT") and c["value"] for c in cookies)
+    auth_cookie_names = [
+        c["name"]
+        for c in cookies
+        if c.get("name") in _AUTH_COOKIE_NAMES and c.get("value")
+    ]
+    text = _page_text(page)
+    has_logged_out_ui = any(marker in text for marker in _LOGGED_OUT_TEXT_MARKERS)
+    has_logged_in_ui = any(marker in text for marker in _LOGGED_IN_TEXT_MARKERS)
+    is_logged_in = bool(auth_cookie_names) and (has_logged_in_ui or not has_logged_out_ui)
+    return is_logged_in, {
+        "auth_cookie_names": auth_cookie_names,
+        "has_logged_out_ui": has_logged_out_ui,
+        "has_logged_in_ui": has_logged_in_ui,
+        "page_text": text,
+    }
+
+
+def _is_logged_in(page: Page) -> bool:
+    """Return whether Hupu appears logged in."""
+    return _login_state(page)[0]
+
+
+def _login_failure_reason(details: dict[str, object]) -> str:
+    reasons: list[str] = []
+    auth_cookie_names = details.get("auth_cookie_names") or []
+    if not auth_cookie_names:
+        reasons.append("missing auth cookies")
+    elif details.get("has_logged_out_ui"):
+        reasons.append("auth cookies exist but the page still shows logged-out UI")
+    if not details.get("page_text"):
+        reasons.append("could not read page body")
+    return "; ".join(reasons) if reasons else "unknown login-state check failure"
 
 
 def _fill_editor(page: Page, paragraphs: list[str], footer_html: str | None = None) -> None:
@@ -839,10 +889,12 @@ def cmd_check(args: argparse.Namespace) -> None:
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
         time.sleep(_HOME_PAGE_LOAD_SLEEP)
 
-        if _is_logged_in(page):
+        logged_in, details = _login_state(page)
+        if logged_in:
             print("Logged in.")
         else:
             print("Not logged in. Cookies may have expired.")
+            print(f"Reason: {_login_failure_reason(details)}")
             print("Log in via Chrome and run: python -m social_media.hupu.post login")
             sys.exit(1)
 
@@ -886,8 +938,10 @@ def cmd_post(args: argparse.Namespace) -> None:
         # Check login
         page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
         time.sleep(_HOME_PAGE_LOAD_SLEEP)
-        if not _is_logged_in(page):
+        logged_in, details = _login_state(page)
+        if not logged_in:
             print("ERROR: Not logged in. Run: python -m social_media.hupu.post login")
+            print(f"Reason: {_login_failure_reason(details)}")
             context.close()
             sys.exit(1)
         print("Logged in.")
