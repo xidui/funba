@@ -1,6 +1,6 @@
 from nba_api.stats.endpoints import boxscoretraditionalv3
 from datetime import datetime
-from db.models import Team, TeamGameStats, PlayerGameStats, Player, engine
+from db.models import Team, TeamGameStats, PlayerGameStats, Player, Game, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 import logging
@@ -274,6 +274,12 @@ def create_player_game_stats(session, player_stats):
 
 def is_game_detail_back_filled(game_id, sess):
     from sqlalchemy import func
+
+    game_record = sess.query(Game).filter_by(game_id=game_id).first()
+    if game_record is None:
+        return False
+    if not game_record.home_team_id or not game_record.road_team_id:
+        return False
 
     player_game_record = sess.query(PlayerGameStats).filter_by(game_id=game_id).count()
     team_game_record = sess.query(TeamGameStats).filter_by(game_id=game_id).count()

@@ -202,3 +202,11 @@ def test_sync_schedule_window_syncs_expected_date_range():
         "season_types": ["PlayIn", "Playoffs"],
         "synced_games": 2,
     }
+
+
+def test_matchup_team_role_accepts_vs_without_period():
+    assert dispatch_tasks._matchup_team_role("LAL vs BOS") == "home"
+    assert dispatch_tasks._matchup_team_role("LAL vs. BOS") == "home"
+    assert dispatch_tasks._matchup_team_role("LAL @ BOS") == "road"
+    assert dispatch_tasks._matchup_team_role("DAL @ DET", team_abbr="DET") == "home"
+    assert dispatch_tasks._matchup_team_role("DAL @ DET", team_abbr="DAL") == "road"

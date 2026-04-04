@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -85,10 +86,18 @@ def _install_stubs():
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
+    class Game:
+        game_id = _Field()
+
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
     fake_models.Team = Team
     fake_models.TeamGameStats = TeamGameStats
     fake_models.PlayerGameStats = PlayerGameStats
     fake_models.Player = Player
+    fake_models.Game = Game
     fake_models.engine = MagicMock()
 
     fake_db = types.ModuleType("db")
@@ -269,7 +278,19 @@ class TestIsGameDetailBackFilled(unittest.TestCase):
     def setUp(self):
         self.module = _load_module()
 
+    def test_returns_false_when_game_row_missing_team_ids(self):
+        game_query = MagicMock()
+        game_query.filter_by.return_value.first.return_value = SimpleNamespace(home_team_id=None, road_team_id="1610612742")
+
+        session = MagicMock()
+        session.query.return_value = game_query
+
+        self.assertFalse(self.module.is_game_detail_back_filled("0022500958", session))
+
     def test_returns_false_when_team_rows_sum_to_zero(self):
+        game_query = MagicMock()
+        game_query.filter_by.return_value.first.return_value = SimpleNamespace(home_team_id="1610612742", road_team_id="1610612753")
+
         player_query = MagicMock()
         player_query.filter_by.return_value.count.return_value = 10
 
@@ -280,11 +301,14 @@ class TestIsGameDetailBackFilled(unittest.TestCase):
         points_query.filter.return_value.scalar.return_value = 0
 
         session = MagicMock()
-        session.query.side_effect = [player_query, team_query, points_query]
+        session.query.side_effect = [game_query, player_query, team_query, points_query]
 
         self.assertFalse(self.module.is_game_detail_back_filled("0022500958", session))
 
     def test_returns_true_when_rows_exist_and_points_are_non_zero(self):
+        game_query = MagicMock()
+        game_query.filter_by.return_value.first.return_value = SimpleNamespace(home_team_id="1610612742", road_team_id="1610612753")
+
         player_query = MagicMock()
         player_query.filter_by.return_value.count.return_value = 10
 
@@ -295,7 +319,7 @@ class TestIsGameDetailBackFilled(unittest.TestCase):
         points_query.filter.return_value.scalar.return_value = 214
 
         session = MagicMock()
-        session.query.side_effect = [player_query, team_query, points_query]
+        session.query.side_effect = [game_query, player_query, team_query, points_query]
 
         self.assertTrue(self.module.is_game_detail_back_filled("g1", session))
 

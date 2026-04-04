@@ -27,6 +27,7 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import uuid
 from datetime import date as _date, datetime
@@ -43,6 +44,25 @@ from tasks.ingest import ingest_game  # noqa: F401
 
 def _session():
     return sessionmaker(bind=engine)()
+
+
+def _matchup_team_role(matchup: str, team_abbr: str | None = None) -> str | None:
+    """Infer whether a team row is home or road from NBA API matchup text."""
+    normalized = str(matchup or "").strip().lower()
+    normalized_abbr = str(team_abbr or "").strip().lower()
+    matchup_match = re.match(r"^(?P<road>[A-Z0-9]+)\s*@\s*(?P<home>[A-Z0-9]+)$", str(matchup or "").strip(), re.IGNORECASE)
+    if matchup_match and normalized_abbr:
+        road_abbr = matchup_match.group("road").lower()
+        home_abbr = matchup_match.group("home").lower()
+        if normalized_abbr == road_abbr:
+            return "road"
+        if normalized_abbr == home_abbr:
+            return "home"
+    if "@" in normalized:
+        return "road"
+    if "vs." in normalized or "vs " in normalized or normalized.endswith("vs"):
+        return "home"
+    return None
 
 
 def _query_games(
@@ -196,6 +216,7 @@ def discover_and_insert_games(
         gid = str(row["GAME_ID"])
         matchup = str(row.get("MATCHUP", ""))
         team_id = str(int(row["TEAM_ID"]))
+        team_abbr = str(row.get("TEAM_ABBREVIATION", ""))
         pts = int(row["PTS"]) if pd.notna(row.get("PTS")) else None
         wl = str(row.get("WL", ""))
         season_id = str(row.get("SEASON_ID", ""))
@@ -217,10 +238,11 @@ def discover_and_insert_games(
                 "backfill_mismatch": False,
             }
         g = game_rows[gid]
-        if "vs." in matchup:
+        role = _matchup_team_role(matchup, team_abbr=team_abbr)
+        if role == "home":
             g["home_team_id"] = team_id
             g["home_team_score"] = pts
-        elif "@" in matchup:
+        elif role == "road":
             g["road_team_id"] = team_id
             g["road_team_score"] = pts
         if wl == "W":
