@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
+    _capture_adjustments_for_url,
     _capture_plan_for_url,
     _capture_page_error,
     _click_submit,
@@ -258,12 +259,27 @@ class TestHupuScreenshotGuard(unittest.TestCase):
     def test_capture_plan_for_game_page_uses_scoreboard(self):
         plan = _capture_plan_for_url("https://funba.app/games/0022501127")
         self.assertEqual(plan["selectors"], [".scoreboard", "#bs-team", "#bs-players .box-score-grid"])
-        self.assertEqual(plan["max_height"], 760)
+        self.assertEqual(plan["max_height"], 920)
+        self.assertEqual(plan["selector_height_limits"]["#bs-players .box-score-grid"], 420)
 
     def test_capture_plan_for_metric_page_limits_table_height(self):
         plan = _capture_plan_for_url("https://funba.app/metrics/fifty_point_games?season=22025")
-        self.assertEqual(plan["selectors"], [".detail-header", ".rankings-table-wrap"])
-        self.assertEqual(plan["selector_height_limits"][".rankings-table-wrap"], 520)
+        self.assertEqual(
+            plan["selectors"],
+            [".detail-title", ".season-select", ".rankings-table thead", ".rankings-table tbody tr:nth-child(5)"],
+        )
+        self.assertEqual(plan["min_height"], 700)
+        self.assertEqual(plan["max_height"], 760)
+
+    def test_capture_adjustments_for_game_page_remove_metrics_and_trim_rows(self):
+        adjustments = _capture_adjustments_for_url("https://funba.app/games/0022501127")
+        self.assertEqual(adjustments["remove_selectors"], ["#game-metrics-panel", "#bs-team .table-wrap:first-child"])
+        self.assertEqual(adjustments["limit_table_rows"]["#bs-players tbody"], 4)
+        self.assertEqual(adjustments["style_updates"][".sb-chart-wrap"]["height"], "160px")
+
+    def test_capture_adjustments_for_metric_page_keeps_more_rows(self):
+        adjustments = _capture_adjustments_for_url("https://funba.app/metrics/fifty_point_games?season=22025")
+        self.assertIsNone(adjustments)
 
 
 if __name__ == "__main__":

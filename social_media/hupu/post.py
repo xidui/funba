@@ -766,28 +766,95 @@ def _capture_plan_for_url(url: str) -> dict[str, object] | None:
             "pad_bottom": 18,
             "min_width": 760,
             "max_width": 1040,
-            "min_height": 420,
-            "max_height": 760,
+            "min_height": 520,
+            "max_height": 920,
             "selector_height_limits": {
-                "#bs-team": 240,
-                "#bs-players .box-score-grid": 320,
+                "#bs-team": 320,
+                "#bs-players .box-score-grid": 420,
             },
         }
     if "/metrics/" in url:
         return {
-            "selectors": [".detail-header", ".rankings-table-wrap"],
+            "selectors": [".detail-title", ".season-select", ".rankings-table thead", ".rankings-table tbody tr:nth-child(5)"],
             "pad_x": 12,
             "pad_top": 16,
             "pad_bottom": 18,
             "min_width": 760,
             "max_width": 1100,
-            "min_height": 420,
+            "min_height": 700,
             "max_height": 760,
-            "selector_height_limits": {
-                ".rankings-table-wrap": 520,
+        }
+    return None
+
+
+def _capture_adjustments_for_url(url: str) -> dict[str, object] | None:
+    """Return lightweight DOM adjustments that make compact crops more informative."""
+    if "/games/" in url:
+        return {
+            "remove_selectors": ["#game-metrics-panel", "#bs-team .table-wrap:first-child"],
+            "limit_table_rows": {
+                "#bs-players tbody": 4,
+            },
+            "style_updates": {
+                ".sb-chart-wrap": {
+                    "height": "160px",
+                    "padding": "14px 28px 16px",
+                },
             },
         }
     return None
+
+
+def _apply_capture_adjustments(page: Page, adjustments: dict[str, object] | None) -> None:
+    """Apply small DOM tweaks before taking a compact screenshot."""
+    if not adjustments:
+        return
+
+    remove_selectors = list(adjustments.get("remove_selectors") or [])
+    limit_table_rows = adjustments.get("limit_table_rows") or {}
+    style_updates = adjustments.get("style_updates") or {}
+    if not remove_selectors and not limit_table_rows and not style_updates:
+        return
+
+    page.evaluate(
+        """payload => {
+        const removeSelectors = Array.isArray(payload.remove_selectors) ? payload.remove_selectors : [];
+        const limitTableRows = payload.limit_table_rows && typeof payload.limit_table_rows === "object"
+          ? payload.limit_table_rows
+          : {};
+        const styleUpdates = payload.style_updates && typeof payload.style_updates === "object"
+          ? payload.style_updates
+          : {};
+
+        removeSelectors.forEach((selector) => {
+          document.querySelectorAll(selector).forEach((el) => el.remove());
+        });
+
+        Object.entries(limitTableRows).forEach(([selector, maxRows]) => {
+          const limit = Number(maxRows);
+          if (!Number.isFinite(limit) || limit < 1) return;
+          document.querySelectorAll(selector).forEach((tbody) => {
+            Array.from(tbody.querySelectorAll("tr")).forEach((row, index) => {
+              if (index >= limit) row.remove();
+            });
+          });
+        });
+
+        Object.entries(styleUpdates).forEach(([selector, styles]) => {
+          if (!styles || typeof styles !== "object") return;
+          document.querySelectorAll(selector).forEach((el) => {
+            Object.entries(styles).forEach(([prop, value]) => {
+              el.style.setProperty(prop, String(value));
+            });
+          });
+        });
+      }""",
+        {
+            "remove_selectors": remove_selectors,
+            "limit_table_rows": limit_table_rows,
+            "style_updates": style_updates,
+        },
+    )
 
 
 def _capture_with_plan(page: Page, output_path: str, plan: dict[str, object]) -> bool:
@@ -862,6 +929,9 @@ def _capture_compact_screenshot(url: str, output_path: str, *, wait_ms: int = 40
         page_error = _capture_page_error(page, response)
         if page_error:
             raise RuntimeError(page_error)
+
+        _apply_capture_adjustments(page, _capture_adjustments_for_url(target_url))
+        time.sleep(0.2)
 
         plan = _capture_plan_for_url(target_url)
         if plan and _capture_with_plan(page, output_path, plan):
