@@ -397,6 +397,92 @@
     }
   }
 
+  /* ── Compact metric rows (player page override) ─────────── */
+  .metrics-section .metrics-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .metrics-section .metric-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 10px 14px;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metrics-section .metric-card:last-child,
+  .metrics-section .metric-card:last-of-type {
+    border-bottom: none;
+  }
+
+  .metrics-section .metric-key {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  .metrics-section .metric-value {
+    font-size: 16px;
+    min-width: 60px;
+    text-align: right;
+    margin: 0 12px;
+    flex-shrink: 0;
+  }
+
+  .metrics-section .metric-context-label {
+    font-size: 11px;
+    margin: 0 12px 0 0;
+    flex-shrink: 0;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metrics-section .metric-ranks {
+    margin-top: 0;
+    flex-shrink: 0;
+  }
+
+  .metrics-section .metric-card.metric-notable {
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  }
+
+  .metrics-section .metric-card.metric-notable:hover {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  }
+
+  @media (max-width: 540px) {
+    .metrics-section .metric-card {
+      flex-wrap: wrap;
+      padding: 8px 12px;
+    }
+    .metrics-section .metric-key {
+      flex-basis: auto;
+      max-width: 50%;
+    }
+    .metrics-section .metric-value {
+      margin: 0 0 0 auto;
+      font-size: 15px;
+    }
+    .metrics-section .metric-context-label {
+      display: none;
+    }
+    .metrics-section .metric-ranks {
+      flex-basis: 100%;
+      margin-top: 4px;
+    }
+  }
+
   /* ── Metrics show-more ────────────────────────────────────── */
   .metrics-more-wrap {
     display: flex;
