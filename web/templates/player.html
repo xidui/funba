@@ -862,9 +862,11 @@
     {% endif %}
 
     {% if alltime_metrics %}
+    {% set main_career = alltime_metrics|selectattr('career_type', 'ne', 'all_playin')|list %}
+    {% set playin_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playin')|list %}
     <div class="metrics-col">
       {% set ns = namespace(last_type="") %}
-      {% for m in alltime_metrics|sort(attribute='career_type_label') %}
+      {% for m in main_career|sort(attribute='career_type_label') %}
         {% if m.career_type_label != ns.last_type %}
           {% if ns.last_type %}</div>{% endif %}
           <h3 class="metrics-col-title"{% if not loop.first %} style="margin-top:14px;"{% endif %}>{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
@@ -881,6 +883,28 @@
         </a>
       {% endfor %}
       {% if ns.last_type %}</div>{% endif %}
+
+      {% if playin_career %}
+      <div class="metrics-more-wrap" style="margin-top:14px;">
+        <button type="button" id="show-playin-metrics" class="metrics-more-btn">
+          {{ t('Play-In Career', '附加赛生涯') }} ({{ playin_career|length }}) &#9660;
+        </button>
+      </div>
+      <div id="playin-metrics-block" style="display:none">
+        <div class="metrics-grid" style="margin-top:8px;">
+          {% for m in playin_career %}
+          <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+             href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
+            <div class="metric-key">{{ m.metric_name }}</div>
+            <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+            <div class="metric-ranks">
+              <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
   </div>
@@ -1172,7 +1196,7 @@
 
 <script>
 (function () {
-  /* ── Metrics expand button ──────────────────────────────────── */
+  /* ── Metrics expand buttons ─────────────────────────────────── */
   var btnSeason = document.getElementById('show-more-season-metrics');
   if (btnSeason) {
     btnSeason.addEventListener('click', function () {
@@ -1180,6 +1204,14 @@
         el.style.display = '';
       });
       btnSeason.parentElement.remove();
+    });
+  }
+
+  var btnPlayin = document.getElementById('show-playin-metrics');
+  if (btnPlayin) {
+    btnPlayin.addEventListener('click', function () {
+      document.getElementById('playin-metrics-block').style.display = '';
+      btnPlayin.parentElement.remove();
     });
   }
 
