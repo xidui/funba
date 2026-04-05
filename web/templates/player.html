@@ -849,9 +849,7 @@
       <div class="metrics-grid">
         {% for m in season_metrics %}
         <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
-           style="text-decoration:none;{% if loop.index > 8 %}display:none;{% endif %}"
-           {% if loop.index > 8 %}data-extra-season-metric{% endif %}>
+           href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
           <div class="metric-key">{{ m.metric_name }}</div>
           <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           <div class="metric-ranks">
@@ -860,13 +858,6 @@
         </a>
         {% endfor %}
       </div>
-      {% if season_metrics|length > 8 %}
-      <div class="metrics-more-wrap">
-        <button type="button" id="show-more-season-metrics" class="metrics-more-btn">
-          {{ t('Show', '显示') }} {{ season_metrics|length - 8 }} {{ t('more', '更多') }} &#9660;
-        </button>
-      </div>
-      {% endif %}
     </div>
     {% endif %}
 
@@ -1216,17 +1207,7 @@
 
 <script>
 (function () {
-  /* ── Metrics expand buttons ─────────────────────────────────── */
-  var btnSeason = document.getElementById('show-more-season-metrics');
-  if (btnSeason) {
-    btnSeason.addEventListener('click', function () {
-      document.querySelectorAll('[data-extra-season-metric]').forEach(function (el) {
-        el.style.display = '';
-      });
-      btnSeason.parentElement.remove();
-    });
-  }
-
+  /* ── Metrics expand button ──────────────────────────────────── */
   var btnPlayin = document.getElementById('show-playin-metrics');
   if (btnPlayin) {
     btnPlayin.addEventListener('click', function () {
