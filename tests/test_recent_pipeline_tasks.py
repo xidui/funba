@@ -31,6 +31,10 @@ def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
             "pending_artifact_game_ids": ["0021", "0022"],
             "pending_metric_game_ids": [],
         },
+    ), patch.object(
+        content_tasks,
+        "_covered_game_ids_for_date",
+        return_value=set(),
     ), patch.object(content_tasks, "_all_games_have_metrics") as metrics_mock, patch.object(
         content_tasks,
         "load_paperclip_bridge_config",
