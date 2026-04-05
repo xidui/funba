@@ -132,6 +132,26 @@ def _team_label_zh(field: str) -> str:
     return TEAM_STAT_META[field]["zh"]
 
 
+def _default_player_box_career_keys(metric_kind: str) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    sum_keys = {
+        "count_threshold": ("count", "games"),
+        "count_combo": ("count", "games"),
+        "count_exact": ("count", "games"),
+        "games_played": ("count", "games"),
+        "games_started": ("count", "games"),
+        "per_game": ("total", "games"),
+        "split_avg": ("total", "games"),
+        "season_total": ("total", "games"),
+        "per_36": ("total", "seconds", "games"),
+        "ratio": ("numerator", "denominator", "games"),
+        "win_pct": ("wins", "starts"),
+    }.get(metric_kind, ())
+    max_keys = {
+        "streak": ("best_streak",),
+    }.get(metric_kind, ())
+    return sum_keys, max_keys, ()
+
+
 def render_player_box_metric(
     *,
     class_name: str,
@@ -162,6 +182,19 @@ def render_player_box_metric(
     value_suffix: str = "",
     context_label_template: str | None = None,
 ) -> str:
+    if supports_career:
+        default_sum_keys, default_max_keys, default_min_keys = _default_player_box_career_keys(metric_kind)
+        if not career_sum_keys:
+            career_sum_keys = default_sum_keys
+        if not career_max_keys:
+            career_max_keys = default_max_keys
+        if not career_min_keys:
+            career_min_keys = default_min_keys
+    else:
+        career_sum_keys = ()
+        career_max_keys = ()
+        career_min_keys = ()
+
     return dedent(
         f"""
         from __future__ import annotations
