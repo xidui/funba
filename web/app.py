@@ -1200,16 +1200,15 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
     return links if len(links) > 1 else []
 
 
-def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", current_user_id: str | None = None) -> list[dict]:
+def _catalog_metrics(
+    session,
+    scope_filter: str = "",
+    status_filter: str = "",
+    current_user_id: str | None = None,
+    *,
+    include_result_counts: bool = True,
+) -> list[dict]:
     from metrics.framework.runtime import get_metric as _get_metric
-
-    counts = {
-        row.metric_key: row.count
-        for row in session.query(
-            MetricResultModel.metric_key,
-            func.count(MetricResultModel.id).label("count"),
-        ).group_by(MetricResultModel.metric_key).all()
-    }
 
     db_q = session.query(MetricDefinitionModel).filter(
         MetricDefinitionModel.status != "archived"
@@ -1228,6 +1227,23 @@ def _catalog_metrics(session, scope_filter: str = "", status_filter: str = "", c
 
     all_defs = db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
     existing_keys = {m.key for m in all_defs}
+    count_keys = set(existing_keys)
+    for m in all_defs:
+        if m.status == "published":
+            count_keys.add(f"{m.key}_career")
+
+    counts = {}
+    if include_result_counts and count_keys:
+        counts = {
+            row.metric_key: row.count
+            for row in session.query(
+                MetricResultModel.metric_key,
+                func.count(MetricResultModel.id).label("count"),
+            )
+            .filter(MetricResultModel.metric_key.in_(count_keys))
+            .group_by(MetricResultModel.metric_key)
+            .all()
+        }
 
     db_metrics = []
     for m in all_defs:
@@ -1296,7 +1312,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
 
     Returns {metric_key: [{entity_id, label, value_str, headshot_url|logo_url}, ...]}.
     """
-    from sqlalchemy import case
+    from types import SimpleNamespace
 
     # Determine current regular season
     all_seasons = sorted(
@@ -1319,28 +1335,60 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     season_keys = [k for k, v in metric_info.items() if not v[2]]
     career_keys = [k for k, v in metric_info.items() if v[2]]
 
-    # Bulk query: season metrics use current_season, career metrics use "all_regular"
-    rows = []
-    if season_keys:
-        rows.extend(
-            session.query(MetricResultModel)
+    def _fetch_top_rows(metric_keys: list[str], *, season_value: str, rank_order: str) -> list[SimpleNamespace]:
+        if not metric_keys:
+            return []
+        order_columns = [
+            MetricResultModel.value_num.desc() if rank_order == "desc" else MetricResultModel.value_num.asc(),
+            MetricResultModel.entity_id.asc(),
+        ]
+        ranked = (
+            session.query(
+                MetricResultModel.metric_key.label("metric_key"),
+                MetricResultModel.entity_id.label("entity_id"),
+                MetricResultModel.value_num.label("value_num"),
+                MetricResultModel.value_str.label("value_str"),
+                func.row_number()
+                .over(
+                    partition_by=MetricResultModel.metric_key,
+                    order_by=order_columns,
+                )
+                .label("row_num"),
+            )
             .filter(
-                MetricResultModel.metric_key.in_(season_keys),
-                MetricResultModel.season == current_season,
+                MetricResultModel.metric_key.in_(metric_keys),
+                MetricResultModel.season == season_value,
                 MetricResultModel.value_num.isnot(None),
             )
-            .all()
+            .subquery()
         )
-    if career_keys:
-        rows.extend(
-            session.query(MetricResultModel)
-            .filter(
-                MetricResultModel.metric_key.in_(career_keys),
-                MetricResultModel.season == "all_regular",
-                MetricResultModel.value_num.isnot(None),
+        return [
+            SimpleNamespace(
+                metric_key=row.metric_key,
+                entity_id=row.entity_id,
+                value_num=row.value_num,
+                value_str=row.value_str,
             )
+            for row in session.query(
+                ranked.c.metric_key,
+                ranked.c.entity_id,
+                ranked.c.value_num,
+                ranked.c.value_str,
+            )
+            .filter(ranked.c.row_num <= 3)
             .all()
-        )
+        ]
+
+    # Bulk query only the top 3 rows per metric instead of loading every result row.
+    rows: list[SimpleNamespace] = []
+    season_desc = [k for k in season_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
+    season_asc = [k for k in season_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
+    career_desc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
+    career_asc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
+    rows.extend(_fetch_top_rows(season_desc, season_value=current_season, rank_order="desc"))
+    rows.extend(_fetch_top_rows(season_asc, season_value=current_season, rank_order="asc"))
+    rows.extend(_fetch_top_rows(career_desc, season_value="all_regular", rank_order="desc"))
+    rows.extend(_fetch_top_rows(career_asc, season_value="all_regular", rank_order="asc"))
 
     # Group by metric_key, sort, take top 3
     from collections import defaultdict
@@ -1415,6 +1463,9 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
             result[key] = entries
 
     return result
+
+
+_METRICS_CATALOG_PAGE_SIZE = 24
 
 
 def _fmt_minutes(minute: int | None, sec: int | None) -> str:
@@ -5375,14 +5426,24 @@ def metrics_browse():
 
     cur_user = _current_user()
     with SessionLocal() as session:
-        metrics_list = _catalog_metrics(session, scope_filter=scope_filter, status_filter=status_filter, current_user_id=cur_user.id if cur_user else None)
+        metrics_all = _catalog_metrics(
+            session,
+            scope_filter=scope_filter,
+            status_filter=status_filter,
+            current_user_id=cur_user.id if cur_user else None,
+            include_result_counts=False,
+        )
         llm_default_model = get_llm_model_for_purpose(session, "search")
+        metrics_total = len(metrics_all)
+        metrics_list = metrics_all[:_METRICS_CATALOG_PAGE_SIZE]
         top3_by_metric = _catalog_top3(session, metrics_list)
         feature_access = get_feature_access_config(session)
 
     return render_template(
         "metrics.html",
         metrics_list=metrics_list,
+        metrics_total=metrics_total,
+        metrics_page_size=_METRICS_CATALOG_PAGE_SIZE,
         scope_filter=scope_filter,
         status_filter=status_filter,
         search_query=search_query,
@@ -5390,6 +5451,46 @@ def metrics_browse():
         llm_default_model=llm_default_model,
         llm_available_models=available_llm_models(),
         **_build_metric_feature_context(feature_access),
+    )
+
+
+@app.get("/api/metrics/catalog")
+def api_metrics_catalog():
+    scope_filter = request.args.get("scope", "")
+    status_filter = request.args.get("status", "")
+    offset = max(0, request.args.get("offset", 0, type=int))
+    limit = request.args.get("limit", _METRICS_CATALOG_PAGE_SIZE, type=int)
+    limit = max(1, min(limit, 48))
+
+    cur_user = _current_user()
+    with SessionLocal() as session:
+        metrics_all = _catalog_metrics(
+            session,
+            scope_filter=scope_filter,
+            status_filter=status_filter,
+            current_user_id=cur_user.id if cur_user else None,
+            include_result_counts=False,
+        )
+        total = len(metrics_all)
+        metrics_slice = metrics_all[offset:offset + limit]
+        top3_by_metric = _catalog_top3(session, metrics_slice)
+
+    html = render_template(
+        "_metrics_catalog_cards.html",
+        metrics_list=metrics_slice,
+        top3_by_metric=top3_by_metric,
+    )
+    next_offset = offset + len(metrics_slice)
+    return jsonify(
+        {
+            "ok": True,
+            "html": html,
+            "count": len(metrics_slice),
+            "offset": offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "total": total,
+        }
     )
 
 

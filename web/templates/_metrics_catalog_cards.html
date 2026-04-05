@@ -1,0 +1,40 @@
+{% for m in metrics_list %}
+<a class="catalog-card" href="{{ url_for('metric_detail', metric_key=m.key) }}">
+  <div class="catalog-card-header">
+    <div class="catalog-name">{{ m.name }}</div>
+    <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">
+      {% if m.is_mine %}
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);">mine</span>
+      {% endif %}
+      {% if m.career %}
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);">career</span>
+      {% endif %}
+      {% if m.status == 'draft' %}
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;">draft</span>
+      {% endif %}
+      <span class="scope-badge {{ m.scope }}">{{ m.scope }}</span>
+    </div>
+  </div>
+  <div class="catalog-desc">{{ m.description }}</div>
+  {% set top3 = top3_by_metric.get(m.key, []) %}
+  {% if top3 %}
+  <div class="catalog-top3">
+    {% for entry in top3 %}
+    <div class="top3-row">
+      <span class="top3-rank">{{ loop.index }}</span>
+      {% if entry.headshot_url %}
+      <img class="top3-avatar" src="{{ entry.headshot_url }}" onerror="this.style.display='none'" loading="lazy">
+      {% elif entry.logo_url %}
+      <img class="top3-logo" src="{{ entry.logo_url }}" onerror="this.style.display='none'" loading="lazy">
+      {% endif %}
+      <span class="top3-name">{{ entry.label }}</span>
+      <span class="top3-val">{{ entry.value_str }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="catalog-footer">
+    <div class="catalog-category">{{ m.category }}</div>
+  </div>
+</a>
+{% endfor %}

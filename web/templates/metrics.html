@@ -264,12 +264,37 @@
     font-weight: 700;
     color: var(--muted-2);
   }
+
+  .catalog-loader {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 18px 0 8px;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .catalog-loader.visible { display: flex; }
+
+  .catalog-end {
+    display: none;
+    text-align: center;
+    padding: 16px 0 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .catalog-end.visible { display: block; }
+
+  .catalog-sentinel {
+    width: 100%;
+    height: 1px;
+  }
 </style>
 
 <div class="metrics-header">
   <div>
     <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Metrics', '指标') }}</h1>
-    <div style="font-size:13px;color:var(--muted);">{{ metrics_list|length }} {{ t('metric' if metrics_list|length == 1 else 'metrics', '项指标') }}</div>
+    <div style="font-size:13px;color:var(--muted);">{{ metrics_total }} {{ t('metric' if metrics_total == 1 else 'metrics', '项指标') }}</div>
   </div>
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -311,47 +336,11 @@
 </div>
 
 <div id="metrics-full-catalog" class="metrics-catalog">
-  {% for m in metrics_list %}
-  <a class="catalog-card" href="{{ url_for('metric_detail', metric_key=m.key) }}">
-    <div class="catalog-card-header">
-      <div class="catalog-name">{{ m.name }}</div>
-      <div style="display:flex;gap:5px;align-items:center;flex-shrink:0;">
-        {% if m.is_mine %}
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);">mine</span>
-        {% endif %}
-        {% if m.career %}
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);">career</span>
-        {% endif %}
-        {% if m.status == 'draft' %}
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;">draft</span>
-        {% endif %}
-        <span class="scope-badge {{ m.scope }}">{{ m.scope }}</span>
-      </div>
-    </div>
-    <div class="catalog-desc">{{ m.description }}</div>
-    {% set top3 = top3_by_metric.get(m.key, []) %}
-    {% if top3 %}
-    <div class="catalog-top3">
-      {% for entry in top3 %}
-      <div class="top3-row">
-        <span class="top3-rank">{{ loop.index }}</span>
-        {% if entry.headshot_url %}
-        <img class="top3-avatar" src="{{ entry.headshot_url }}" onerror="this.style.display='none'" loading="lazy">
-        {% elif entry.logo_url %}
-        <img class="top3-logo" src="{{ entry.logo_url }}" onerror="this.style.display='none'" loading="lazy">
-        {% endif %}
-        <span class="top3-name">{{ entry.label }}</span>
-        <span class="top3-val">{{ entry.value_str }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <div class="catalog-footer">
-      <div class="catalog-category">{{ m.category }}</div>
-    </div>
-  </a>
-  {% endfor %}
+  {% include "_metrics_catalog_cards.html" %}
 </div>
+<div id="metrics-catalog-loader" class="catalog-loader">{{ t('Loading more metrics…', '正在加载更多指标…') }}</div>
+<div id="metrics-catalog-end" class="catalog-end{% if metrics_total <= metrics_list|length %} visible{% endif %}">{{ t('You have reached the end.', '已经到底了') }}</div>
+<div id="metrics-catalog-sentinel" class="catalog-sentinel"></div>
 
 <script>
 (function () {
@@ -365,6 +354,14 @@
   const createInline = document.getElementById('metric-create-cta-inline');
   const modelSelect = document.getElementById('metric-search-model');
   const fullCatalog = document.getElementById('metrics-full-catalog');
+  const catalogLoader = document.getElementById('metrics-catalog-loader');
+  const catalogEnd = document.getElementById('metrics-catalog-end');
+  const catalogSentinel = document.getElementById('metrics-catalog-sentinel');
+  const catalogPageSize = {{ metrics_page_size }};
+  let catalogOffset = {{ metrics_list|length }};
+  let catalogHasMore = {{ 'true' if metrics_total > metrics_list|length else 'false' }};
+  let catalogLoading = false;
+  let catalogObserver = null;
 
   function loginUrl() {
     return `/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
@@ -413,6 +410,60 @@
     `;
   }
 
+  function setCatalogLoading(isLoading) {
+    catalogLoading = isLoading;
+    catalogLoader.classList.toggle('visible', isLoading);
+  }
+
+  function setCatalogEndVisible(visible) {
+    catalogEnd.classList.toggle('visible', visible);
+  }
+
+  async function loadMoreCatalog() {
+    if (catalogLoading || !catalogHasMore || resultsWrap.style.display === 'block') return;
+    setCatalogLoading(true);
+    try {
+      const params = new URLSearchParams({
+        scope: '{{ scope_filter }}',
+        status: '{{ status_filter }}',
+        offset: String(catalogOffset),
+        limit: String(catalogPageSize),
+      });
+      const res = await fetch(`/api/metrics/catalog?${params.toString()}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || 'Failed to load metrics');
+      }
+      if (data.html) {
+        fullCatalog.insertAdjacentHTML('beforeend', data.html);
+      }
+      catalogOffset = data.next_offset || catalogOffset;
+      catalogHasMore = !!data.has_more;
+      setCatalogEndVisible(!catalogHasMore);
+      if (!catalogHasMore && catalogObserver) {
+        catalogObserver.disconnect();
+      }
+    } catch (err) {
+      console.error(err);
+      status.textContent = '{{ t("Loading more metrics failed.", "加载更多指标失败。") }}';
+      setCatalogEndVisible(false);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  function enableCatalogObserver() {
+    if (!catalogSentinel || !catalogHasMore) {
+      setCatalogEndVisible(!catalogHasMore);
+      return;
+    }
+    catalogObserver = new IntersectionObserver((entries) => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      loadMoreCatalog();
+    }, { rootMargin: '900px 0px' });
+    catalogObserver.observe(catalogSentinel);
+  }
+
   async function runSearch() {
     const query = input.value.trim();
     {% if can_create_metrics %}
@@ -422,6 +473,8 @@
     if (!query) {
       resultsWrap.style.display = 'none';
       fullCatalog.style.display = '';
+      catalogSentinel.style.display = '';
+      setCatalogEndVisible(!catalogHasMore);
       status.textContent = '{{ t("Search in any language. If nothing fits, create a new metric from the same query.", "支持任意语言搜索。如果没有合适的指标，可以直接用同一条描述创建新指标。") }}';
       return;
     }
@@ -457,6 +510,8 @@
 
       resultsWrap.style.display = 'block';
       fullCatalog.style.display = 'none';
+      catalogSentinel.style.display = 'none';
+      setCatalogEndVisible(false);
       if (!data.matches.length) {
         subtitle.textContent = 'No strong match found.';
         cards.innerHTML = '';
@@ -469,6 +524,8 @@
       status.textContent = 'Showing the most relevant existing metrics.';
     } catch (err) {
       resultsWrap.style.display = 'none';
+      catalogSentinel.style.display = '';
+      setCatalogEndVisible(!catalogHasMore);
       status.textContent = 'Search failed: ' + err.message;
     } finally {
       btn.disabled = false;
@@ -483,6 +540,7 @@
   if (input.value.trim()) {
     runSearch();
   }
+  enableCatalogObserver();
 })();
 </script>
 {% endblock %}
