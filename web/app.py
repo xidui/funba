@@ -945,6 +945,7 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             incremental=False,
             rank_order=str(definition.get("rank_order") or "desc").strip().lower() if definition else "desc",
             career_min_sample=definition.get("career_min_sample") if definition else None,
+            career_name_suffix=str(definition.get("career_name_suffix") or " (Career)") if definition else " (Career)",
         )
         return details
 
@@ -964,6 +965,7 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             description_zh=code_metadata.get("description_zh", "") or row_description_zh,
             scope=code_metadata["scope"],
             category=code_metadata["category"],
+            career_name_suffix=code_metadata.get("career_name_suffix", " (Career)"),
         )
     return details
 
@@ -1208,23 +1210,11 @@ def _catalog_metrics(
     *,
     include_result_counts: bool = True,
 ) -> list[dict]:
-    from metrics.framework.runtime import get_metric as _get_metric
-
-    db_q = session.query(MetricDefinitionModel).filter(
-        MetricDefinitionModel.status != "archived"
+    db_q = _catalog_metric_base_query(
+        session,
+        scope_filter=scope_filter,
+        status_filter=status_filter,
     )
-    if not status_filter:
-        db_q = db_q.filter(MetricDefinitionModel.status != "draft")
-        if not is_admin():
-            db_q = db_q.filter(MetricDefinitionModel.status != "disabled")
-    if scope_filter:
-        if scope_filter == "player":
-            db_q = db_q.filter(MetricDefinitionModel.scope.in_(["player", "player_franchise"]))
-        else:
-            db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
-    if status_filter:
-        db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
-
     all_defs = db_q.order_by(MetricDefinitionModel.created_at.desc()).all()
     existing_keys = {m.key for m in all_defs}
     count_keys = set(existing_keys)
@@ -1247,64 +1237,188 @@ def _catalog_metrics(
 
     db_metrics = []
     for m in all_defs:
-        code_metadata = _safe_code_metric_metadata(m)
-        search_fields = _db_metric_search_fields(m, code_metadata=code_metadata)
-        is_mine = bool(current_user_id and m.created_by_user_id == current_user_id)
-        db_metrics.append(
-            {
-                "key": m.key,
-                "name": _localized_metric_name(search_fields.get("name", m.name), search_fields.get("name_zh", getattr(m, "name_zh", ""))),
-                "description": _localized_metric_description(search_fields.get("description", m.description), search_fields.get("description_zh", getattr(m, "description_zh", ""))),
-                "scope": search_fields.get("scope", m.scope),
-                "category": search_fields.get("category", m.category or ""),
-                "status": m.status,
-                "source_type": m.source_type,
-                "result_count": counts.get(m.key, 0),
-                "is_mine": is_mine,
-                **{k: v for k, v in search_fields.items() if k not in ("name", "description")},
-            }
+        db_metrics.extend(
+            _catalog_metric_entries_for_row(
+                m,
+                existing_keys=existing_keys,
+                counts=counts,
+                current_user_id=current_user_id,
+            )
         )
-        if (
-            m.status == "published"
-            and not search_fields.get("career")
-            and search_fields.get("supports_career")
-        ):
-                career_key = f"{m.key}_career"
-                if career_key not in existing_keys:
-                    career_metric = _get_metric(career_key, session=session)
-                    if career_metric is not None:
-                        base_name_zh = search_fields.get("name_zh", "")
-                        base_description_zh = search_fields.get("description_zh", "")
-                        career_name_zh = getattr(career_metric, "name_zh", "") or (f"{base_name_zh}（生涯）" if base_name_zh else "")
-                        career_description_zh = getattr(career_metric, "description_zh", "") or (f"生涯{base_description_zh}" if base_description_zh else "")
-                        db_metrics.append(
-                        {
-                            "key": career_metric.key,
-                            "name": _localized_metric_name(career_metric.name, career_name_zh),
-                            "description": _localized_metric_description(getattr(career_metric, "description", "") or "", career_description_zh),
-                            "scope": career_metric.scope,
-                            "category": getattr(career_metric, "category", "") or "",
-                            "status": "published",
-                            "source_type": getattr(career_metric, "source_type", m.source_type),
-                            "result_count": counts.get(career_metric.key, 0),
-                            "is_mine": is_mine,
-                            "group_key": search_fields.get("group_key"),
-                            "min_sample": int(getattr(career_metric, "min_sample", m.min_sample or 1) or 1),
-                            "expression": m.expression or "",
-                            "definition_json": search_fields.get("definition_json", ""),
-                            "code_python": search_fields.get("code_python", ""),
-                            "supports_career": bool(getattr(career_metric, "supports_career", False)),
-                            "career": True,
-                            "incremental": bool(getattr(career_metric, "incremental", False)),
-                            "rank_order": getattr(career_metric, "rank_order", search_fields.get("rank_order", "desc")),
-                            "career_min_sample": search_fields.get("career_min_sample"),
-                            "time_scope": "career",
-                            "base_metric_key": m.key,
-                        }
-                    )
     # Own metrics first, then by original order
     db_metrics.sort(key=lambda d: (not d["is_mine"],))
     return db_metrics
+
+
+def _catalog_metric_base_query(
+    session,
+    scope_filter: str = "",
+    status_filter: str = "",
+):
+    db_q = session.query(MetricDefinitionModel).filter(
+        MetricDefinitionModel.status != "archived"
+    )
+    if not status_filter:
+        db_q = db_q.filter(MetricDefinitionModel.status != "draft")
+        if not is_admin():
+            db_q = db_q.filter(MetricDefinitionModel.status != "disabled")
+    if scope_filter:
+        if scope_filter == "player":
+            db_q = db_q.filter(MetricDefinitionModel.scope.in_(["player", "player_franchise"]))
+        else:
+            db_q = db_q.filter(MetricDefinitionModel.scope == scope_filter)
+    if status_filter:
+        db_q = db_q.filter(MetricDefinitionModel.status == status_filter)
+    return db_q
+
+
+def _catalog_metric_ordered_query(db_q, current_user_id: str | None = None):
+    if current_user_id:
+        mine_first = case((MetricDefinitionModel.created_by_user_id == current_user_id, 0), else_=1)
+        return db_q.order_by(mine_first.asc(), MetricDefinitionModel.created_at.desc())
+    return db_q.order_by(MetricDefinitionModel.created_at.desc())
+
+
+def _catalog_metric_entries_for_row(
+    row,
+    *,
+    existing_keys: set[str],
+    counts: dict[str, int],
+    current_user_id: str | None = None,
+) -> list[dict]:
+    code_metadata = _safe_code_metric_metadata(row)
+    search_fields = _db_metric_search_fields(row, code_metadata=code_metadata)
+    is_mine = bool(current_user_id and row.created_by_user_id == current_user_id)
+    entries = [
+        {
+            "key": row.key,
+            "name": _localized_metric_name(search_fields.get("name", row.name), search_fields.get("name_zh", getattr(row, "name_zh", ""))),
+            "description": _localized_metric_description(search_fields.get("description", row.description), search_fields.get("description_zh", getattr(row, "description_zh", ""))),
+            "scope": search_fields.get("scope", row.scope),
+            "category": search_fields.get("category", row.category or ""),
+            "status": row.status,
+            "source_type": row.source_type,
+            "result_count": counts.get(row.key, 0),
+            "is_mine": is_mine,
+            **{k: v for k, v in search_fields.items() if k not in ("name", "description")},
+        }
+    ]
+    career_entry = _virtual_career_catalog_metric(
+        row,
+        search_fields=search_fields,
+        existing_keys=existing_keys,
+        counts=counts,
+        is_mine=is_mine,
+    )
+    if career_entry is not None:
+        entries.append(career_entry)
+    return entries
+
+
+def _virtual_career_catalog_metric(
+    row,
+    *,
+    search_fields: dict,
+    existing_keys: set[str],
+    counts: dict[str, int],
+    is_mine: bool,
+) -> dict | None:
+    if (
+        row.status != "published"
+        or search_fields.get("career")
+        or not search_fields.get("supports_career")
+    ):
+        return None
+
+    career_key = f"{row.key}_career"
+    if career_key in existing_keys:
+        return None
+
+    base_name = search_fields.get("name", row.name)
+    base_description = search_fields.get("description", row.description)
+    base_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", "")) or ""
+    base_description_zh = search_fields.get("description_zh", getattr(row, "description_zh", "")) or ""
+    career_suffix = str(search_fields.get("career_name_suffix") or " (Career)")
+    min_sample = int(search_fields.get("min_sample", row.min_sample or 1) or 1)
+    career_min_sample = search_fields.get("career_min_sample")
+
+    return {
+        "key": career_key,
+        "name": _localized_metric_name(
+            derive_career_name(base_name, career_suffix),
+            f"{base_name_zh}（生涯）" if base_name_zh else "",
+        ),
+        "name_zh": f"{base_name_zh}（生涯）" if base_name_zh else "",
+        "description": _localized_metric_description(
+            derive_career_description(base_description),
+            f"生涯{base_description_zh}" if base_description_zh else "",
+        ),
+        "description_zh": f"生涯{base_description_zh}" if base_description_zh else "",
+        "scope": search_fields.get("scope", row.scope),
+        "category": search_fields.get("category", row.category or ""),
+        "status": "published",
+        "source_type": row.source_type,
+        "result_count": counts.get(career_key, 0),
+        "is_mine": is_mine,
+        "group_key": search_fields.get("group_key"),
+        "min_sample": derive_career_min_sample(min_sample, career_min_sample),
+        "expression": row.expression or "",
+        "definition_json": search_fields.get("definition_json", ""),
+        "code_python": search_fields.get("code_python", ""),
+        "supports_career": bool(search_fields.get("supports_career")),
+        "career": True,
+        "incremental": bool(search_fields.get("incremental", False)),
+        "rank_order": search_fields.get("rank_order", "desc"),
+        "career_min_sample": career_min_sample,
+        "time_scope": "career",
+        "base_metric_key": row.key,
+    }
+
+
+def _catalog_metrics_page(
+    session,
+    scope_filter: str = "",
+    status_filter: str = "",
+    current_user_id: str | None = None,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> tuple[list[dict], bool]:
+    limit = limit or _METRICS_CATALOG_PAGE_SIZE
+    base_query = _catalog_metric_base_query(
+        session,
+        scope_filter=scope_filter,
+        status_filter=status_filter,
+    )
+    ordered_query = _catalog_metric_ordered_query(base_query, current_user_id=current_user_id)
+    existing_keys = {
+        key for (key,) in base_query.with_entities(MetricDefinitionModel.key).all()
+    }
+    batch_size = max(limit * 2, 64)
+    rows_offset = 0
+    catalog_index = 0
+    metrics_page: list[dict] = []
+
+    while True:
+        rows = ordered_query.offset(rows_offset).limit(batch_size).all()
+        if not rows:
+            return metrics_page, False
+        rows_offset += len(rows)
+
+        for row in rows:
+            entries = _catalog_metric_entries_for_row(
+                row,
+                existing_keys=existing_keys,
+                counts={},
+                current_user_id=current_user_id,
+            )
+            for entry in entries:
+                if catalog_index >= offset:
+                    if len(metrics_page) < limit:
+                        metrics_page.append(entry)
+                    else:
+                        return metrics_page, True
+                catalog_index += 1
 
 
 def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
@@ -5426,16 +5540,14 @@ def metrics_browse():
 
     cur_user = _current_user()
     with SessionLocal() as session:
-        metrics_all = _catalog_metrics(
+        metrics_list, metrics_has_more = _catalog_metrics_page(
             session,
             scope_filter=scope_filter,
             status_filter=status_filter,
             current_user_id=cur_user.id if cur_user else None,
-            include_result_counts=False,
         )
         llm_default_model = get_llm_model_for_purpose(session, "search")
-        metrics_total = len(metrics_all)
-        metrics_list = metrics_all[:_METRICS_CATALOG_PAGE_SIZE]
+        metrics_total = len(metrics_list) if not metrics_has_more else None
         top3_by_metric = _catalog_top3(session, metrics_list)
         feature_access = get_feature_access_config(session)
 
@@ -5443,6 +5555,7 @@ def metrics_browse():
         "metrics.html",
         metrics_list=metrics_list,
         metrics_total=metrics_total,
+        metrics_has_more=metrics_has_more,
         metrics_page_size=_METRICS_CATALOG_PAGE_SIZE,
         scope_filter=scope_filter,
         status_filter=status_filter,
@@ -5464,15 +5577,14 @@ def api_metrics_catalog():
 
     cur_user = _current_user()
     with SessionLocal() as session:
-        metrics_all = _catalog_metrics(
+        metrics_slice, has_more = _catalog_metrics_page(
             session,
             scope_filter=scope_filter,
             status_filter=status_filter,
             current_user_id=cur_user.id if cur_user else None,
-            include_result_counts=False,
+            offset=offset,
+            limit=limit,
         )
-        total = len(metrics_all)
-        metrics_slice = metrics_all[offset:offset + limit]
         top3_by_metric = _catalog_top3(session, metrics_slice)
 
     html = render_template(
@@ -5488,8 +5600,8 @@ def api_metrics_catalog():
             "count": len(metrics_slice),
             "offset": offset,
             "next_offset": next_offset,
-            "has_more": next_offset < total,
-            "total": total,
+            "has_more": has_more,
+            "total": next_offset if not has_more else None,
         }
     )
 

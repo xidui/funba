@@ -653,7 +653,7 @@ class TestMetricSearchAuth(unittest.TestCase):
              patch("web.app.get_feature_access_config", return_value={"metric_search": "logged_in", "metric_create": "pro"}), \
              patch("web.app._build_metric_feature_context", return_value={}), \
              patch("web.app.available_llm_models", return_value=["gpt-5.4", "gpt-5.4-mini"]), \
-             patch("web.app._catalog_metrics", return_value=[{"key": "late_game_scoring"}]) as mock_catalog, \
+             patch("web.app._catalog_metrics_page", return_value=([{"key": "late_game_scoring"}], False)) as mock_catalog, \
              patch("web.app.render_template", return_value="<html></html>") as mock_render:
             response = self.client.get(
                 "/metrics?scope=player&status=published&q=late",
@@ -666,12 +666,12 @@ class TestMetricSearchAuth(unittest.TestCase):
             scope_filter="player",
             status_filter="published",
             current_user_id=None,
-            include_result_counts=False,
         )
         mock_render.assert_called_once_with(
             "metrics.html",
             metrics_list=[{"key": "late_game_scoring"}],
             metrics_total=1,
+            metrics_has_more=False,
             metrics_page_size=24,
             scope_filter="player",
             status_filter="published",

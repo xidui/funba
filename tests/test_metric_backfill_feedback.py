@@ -365,19 +365,6 @@ class LowestQuarterScore(MetricDefinition):
             created_at=1,
             created_by_user_id=None,
         )
-        career_metric = SimpleNamespace(
-            key="largest_in_game_lead_career",
-            name="Largest In-Game Lead (All-Time)",
-            description="All-time largest lead held in a game.",
-            scope="team",
-            category="record",
-            supports_career=False,
-            career=True,
-            incremental=False,
-            rank_order="desc",
-            source_type="code",
-        )
-
         counts_query = MagicMock()
         counts_query.group_by.return_value.all.return_value = [
             SimpleNamespace(metric_key="largest_in_game_lead", count=12),
@@ -407,10 +394,8 @@ class LowestQuarterScore(MetricDefinition):
                 "career": False,
                 "incremental": False,
                 "rank_order": "desc",
+                "career_name_suffix": " (All-Time)",
             },
-        ), patch(
-            "metrics.framework.runtime.get_metric",
-            return_value=career_metric,
         ), patch.object(
             self.web_app, "_is_zh", return_value=True
         ), patch.object(
@@ -427,6 +412,8 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(base_metric["description_zh"], "球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
         self.assertEqual(career_metric["name"], "比赛中最大领先分差（生涯）")
         self.assertEqual(career_metric["description"], "生涯球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+        self.assertEqual(career_metric["name_zh"], "比赛中最大领先分差（生涯）")
+        self.assertEqual(career_metric["description_zh"], "生涯球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
 
     def test_create_uses_latest_code_metric_key(self):
         class FakeMetricDefinitionModel:
@@ -571,6 +558,40 @@ class LowestQuarterScore(MetricDefinition):
             explicit_draft_query.filters,
             [("ne", "status", "archived"), ("eq", "status", "draft")],
         )
+
+    def test_catalog_page_slices_after_virtual_career_expansion(self):
+        row_a = SimpleNamespace(key="metric_a")
+        row_b = SimpleNamespace(key="metric_b")
+        row_c = SimpleNamespace(key="metric_c")
+
+        base_query = MagicMock()
+        base_query.with_entities.return_value.all.return_value = [("metric_a",), ("metric_b",), ("metric_c",)]
+
+        ordered_query = MagicMock()
+        ordered_query.offset.return_value.limit.return_value.all.side_effect = [
+            [row_a, row_b],
+            [row_c],
+        ]
+
+        with patch.object(self.web_app, "_catalog_metric_base_query", return_value=base_query), \
+             patch.object(self.web_app, "_catalog_metric_ordered_query", return_value=ordered_query), \
+             patch.object(
+                 self.web_app,
+                 "_catalog_metric_entries_for_row",
+                 side_effect=[
+                     [{"key": "metric_a"}, {"key": "metric_a_career"}],
+                     [{"key": "metric_b"}],
+                     [{"key": "metric_c"}],
+                 ],
+             ):
+            page, has_more = self.web_app._catalog_metrics_page(
+                MagicMock(),
+                offset=1,
+                limit=2,
+            )
+
+        self.assertEqual(page, [{"key": "metric_a_career"}, {"key": "metric_b"}])
+        self.assertTrue(has_more)
 
     def test_asc_metric_keys_uses_runtime_catalog(self):
         with patch(
