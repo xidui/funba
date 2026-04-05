@@ -70,6 +70,23 @@ def _decode_image_payload(item) -> bytes:
     return base64.b64decode(b64_value)
 
 
+def _read_image_url(url: str) -> bytes:
+    import urllib.request
+
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return response.read()
+
+
+def _generate_image_bytes(item) -> bytes:
+    b64_value = getattr(item, "b64_json", None) or (item.get("b64_json") if isinstance(item, dict) else None)
+    if b64_value:
+        return base64.b64decode(b64_value)
+    url_value = getattr(item, "url", None) or (item.get("url") if isinstance(item, dict) else None)
+    if url_value:
+        return _read_image_url(str(url_value))
+    raise RuntimeError("OpenAI image response did not include b64_json or url output.")
+
+
 def _save_image_bytes(image_bytes: bytes, output_path: str | Path) -> Path:
     path = Path(output_path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +107,7 @@ def _call_images_with_retry(fn, **kwargs):
         lowered = message.lower()
         retry_kwargs = dict(kwargs)
         changed = False
-        for param in ("output_format", "background"):
+        for param in ("output_format", "background", "response_format"):
             if f"unknown parameter: '{param}'" in lowered and param in retry_kwargs:
                 retry_kwargs.pop(param, None)
                 changed = True
@@ -209,14 +226,13 @@ def generate_image(
             size=size,
             output_format=output_format,
             background=background,
-            response_format="b64_json",
         )
 
     image_item = response.data[0] if getattr(response, "data", None) else None
     if image_item is None:
         raise RuntimeError("OpenAI image response did not include any image data.")
 
-    return _save_image_bytes(_decode_image_payload(image_item), output_path)
+    return _save_image_bytes(_generate_image_bytes(image_item), output_path)
 
 
 def cmd_generate(args: argparse.Namespace) -> None:
