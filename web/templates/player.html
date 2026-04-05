@@ -397,6 +397,29 @@
     }
   }
 
+  /* ── Two-column metrics layout (player page) ────────────── */
+  .metrics-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+
+  @media (max-width: 800px) {
+    .metrics-columns {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .metrics-col-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+
   /* ── Compact metric rows (player page override) ─────────── */
   .metrics-section .metrics-grid {
     grid-template-columns: 1fr;
@@ -410,14 +433,13 @@
     flex-direction: row;
     align-items: center;
     gap: 0;
-    padding: 10px 14px;
+    padding: 9px 12px;
     border-radius: 0;
     border: none;
     border-bottom: 1px solid var(--border);
   }
 
-  .metrics-section .metric-card:last-child,
-  .metrics-section .metric-card:last-of-type {
+  .metrics-section .metric-card:last-child {
     border-bottom: none;
   }
 
@@ -431,21 +453,15 @@
   }
 
   .metrics-section .metric-value {
-    font-size: 16px;
-    min-width: 60px;
+    font-size: 15px;
+    min-width: 50px;
     text-align: right;
-    margin: 0 12px;
+    margin: 0 10px;
     flex-shrink: 0;
   }
 
   .metrics-section .metric-context-label {
-    font-size: 11px;
-    margin: 0 12px 0 0;
-    flex-shrink: 0;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none;
   }
 
   .metrics-section .metric-ranks {
@@ -464,22 +480,17 @@
   @media (max-width: 540px) {
     .metrics-section .metric-card {
       flex-wrap: wrap;
-      padding: 8px 12px;
+      padding: 8px 10px;
     }
     .metrics-section .metric-key {
-      flex-basis: auto;
       max-width: 50%;
     }
     .metrics-section .metric-value {
       margin: 0 0 0 auto;
-      font-size: 15px;
-    }
-    .metrics-section .metric-context-label {
-      display: none;
     }
     .metrics-section .metric-ranks {
       flex-basis: 100%;
-      margin-top: 4px;
+      margin-top: 3px;
     }
   }
 
@@ -821,61 +832,58 @@
 <section class="section metrics-section" id="section-metrics">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
-  {% if season_metrics %}
-  <h3 class="metrics-sub-title">{{ season_label(selected_season) }}</h3>
-  <div class="metrics-grid">
-    {% for m in season_metrics %}
-    <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
-       style="text-decoration:none;{% if loop.index > 6 %}display:none;{% endif %}"
-       {% if loop.index > 6 %}data-extra-season-metric{% endif %}>
-      <div class="metric-key">{{ m.metric_name }}</div>
-      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-      {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
-      <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
-        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-  {% if season_metrics|length > 6 %}
-  <div class="metrics-more-wrap">
-    <button type="button" id="show-more-season-metrics" class="metrics-more-btn">
-      {{ t('Show', '显示') }} {{ season_metrics|length - 6 }} {{ t('More Season Metrics', '更多赛季指标') }} &#9660;
-    </button>
-  </div>
-  {% endif %}
-  {% endif %}
-
-  {% if alltime_metrics %}
-  <div class="metrics-more-wrap" id="alltime-toggle-wrap" style="margin-top:18px;">
-    <button type="button" id="show-alltime-metrics" class="metrics-more-btn">
-      {{ t('Show Career Metrics', '显示生涯指标') }} ({{ alltime_metrics|length }}) &#9660;
-    </button>
-  </div>
-  <div id="alltime-metrics-block" style="display:none">
-  {% set ns = namespace(last_type="") %}
-  {% for m in alltime_metrics|sort(attribute='career_type_label') %}
-    {% if m.career_type_label != ns.last_type %}
-      {% if ns.last_type %}</div>{% endif %}
-      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
+  <div class="metrics-columns">
+    {% if season_metrics %}
+    <div class="metrics-col">
+      <h3 class="metrics-col-title">{{ season_label(selected_season) }}</h3>
       <div class="metrics-grid">
-      {% set ns.last_type = m.career_type_label %}
-    {% endif %}
-    <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-      <div class="metric-key">{{ m.metric_name }}</div>
-      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-      {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
-      <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Career', '生涯') }}</span>
+        {% for m in season_metrics %}
+        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
+           style="text-decoration:none;{% if loop.index > 8 %}display:none;{% endif %}"
+           {% if loop.index > 8 %}data-extra-season-metric{% endif %}>
+          <div class="metric-key">{{ m.metric_name }}</div>
+          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+          <div class="metric-ranks">
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+            {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('career', '生涯') }}</span>{% endif %}
+          </div>
+        </a>
+        {% endfor %}
       </div>
-    </a>
-  {% endfor %}
-  {% if ns.last_type %}</div>{% endif %}
+      {% if season_metrics|length > 8 %}
+      <div class="metrics-more-wrap">
+        <button type="button" id="show-more-season-metrics" class="metrics-more-btn">
+          {{ t('Show', '显示') }} {{ season_metrics|length - 8 }} {{ t('more', '更多') }} &#9660;
+        </button>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if alltime_metrics %}
+    <div class="metrics-col">
+      {% set ns = namespace(last_type="") %}
+      {% for m in alltime_metrics|sort(attribute='career_type_label') %}
+        {% if m.career_type_label != ns.last_type %}
+          {% if ns.last_type %}</div>{% endif %}
+          <h3 class="metrics-col-title"{% if not loop.first %} style="margin-top:14px;"{% endif %}>{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
+          <div class="metrics-grid">
+          {% set ns.last_type = m.career_type_label %}
+        {% endif %}
+        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
+          <div class="metric-key">{{ m.metric_name }}</div>
+          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+          <div class="metric-ranks">
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+          </div>
+        </a>
+      {% endfor %}
+      {% if ns.last_type %}</div>{% endif %}
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 </section>
 {% endif %}
 
@@ -1164,7 +1172,7 @@
 
 <script>
 (function () {
-  /* ── Metrics expand buttons ─────────────────────────────────── */
+  /* ── Metrics expand button ──────────────────────────────────── */
   var btnSeason = document.getElementById('show-more-season-metrics');
   if (btnSeason) {
     btnSeason.addEventListener('click', function () {
@@ -1172,15 +1180,6 @@
         el.style.display = '';
       });
       btnSeason.parentElement.remove();
-    });
-  }
-
-  var btnAlltime = document.getElementById('show-alltime-metrics');
-  if (btnAlltime) {
-    btnAlltime.addEventListener('click', function () {
-      var block = document.getElementById('alltime-metrics-block');
-      if (block) block.style.display = '';
-      document.getElementById('alltime-toggle-wrap').remove();
     });
   }
 
