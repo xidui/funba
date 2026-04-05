@@ -24,28 +24,61 @@ def _ctx(session: MagicMock) -> MagicMock:
 def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
     with patch.object(
         content_tasks,
-        "_pipeline_status_for_date",
+        "_game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0021", "0022"],
-            "artifacts_ready": False,
-            "pending_game_ids": ["0022"],
+            "ready_game_ids": [],
+            "pending_artifact_game_ids": ["0021", "0022"],
+            "pending_metric_game_ids": [],
         },
+    ), patch.object(
+        content_tasks,
+        "_covered_game_ids_for_date",
+        return_value=set(),
     ), patch.object(content_tasks, "_all_games_have_metrics") as metrics_mock, patch.object(
         content_tasks,
         "load_paperclip_bridge_config",
-    ) as cfg_mock:
+        return_value=object(),
+    ) as cfg_mock, patch.object(content_tasks, "PaperclipClient") as client_cls:
+        client = client_cls.return_value
+        client.discover_defaults.return_value = MagicMock(
+            project_id="project-1",
+            content_analyst_agent_id="agent-1",
+        )
+        client.list_issues.return_value = []
         result = content_tasks.ensure_daily_content_analysis_issue(date.fromisoformat("2026-03-29"))
 
     assert result == {
         "ok": False,
         "status": "waiting_for_pipeline",
-        "pipeline_stage": "artifacts",
         "source_date": "2026-03-29",
         "game_ids": ["0021", "0022"],
-        "pending_game_ids": ["0022"],
+        "results": [
+            {
+                "ok": False,
+                "status": "waiting_for_pipeline",
+                "pipeline_stage": "artifacts",
+                "source_date": "2026-03-29",
+                "game_id": "0021",
+            },
+            {
+                "ok": False,
+                "status": "waiting_for_pipeline",
+                "pipeline_stage": "artifacts",
+                "source_date": "2026-03-29",
+                "game_id": "0022",
+            },
+        ],
+        "created_count": 0,
+        "existing_count": 0,
+        "covered_count": 0,
+        "waiting_count": 2,
+        "issue_id": None,
+        "issue_identifier": None,
     }
     metrics_mock.assert_not_called()
-    cfg_mock.assert_not_called()
+    cfg_mock.assert_called_once()
+    client.create_issue.assert_not_called()
 
 
 def test_ingest_recent_games_enqueues_only_incomplete_games():

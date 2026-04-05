@@ -666,10 +666,13 @@ class TestMetricSearchAuth(unittest.TestCase):
             scope_filter="player",
             status_filter="published",
             current_user_id=None,
+            include_result_counts=False,
         )
         mock_render.assert_called_once_with(
             "metrics.html",
             metrics_list=[{"key": "late_game_scoring"}],
+            metrics_total=1,
+            metrics_page_size=24,
             scope_filter="player",
             status_filter="published",
             search_query="late",
