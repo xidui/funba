@@ -291,10 +291,13 @@
   }
 </style>
 
+{% set _metrics_total = metrics_total|default(metrics_list|length, true) %}
+{% set _metrics_page_size = metrics_page_size|default(metrics_list|length or 24, true) %}
+
 <div class="metrics-header">
   <div>
     <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Metrics', '指标') }}</h1>
-    <div style="font-size:13px;color:var(--muted);">{{ metrics_total }} {{ t('metric' if metrics_total == 1 else 'metrics', '项指标') }}</div>
+    <div style="font-size:13px;color:var(--muted);">{{ _metrics_total }} {{ t('metric' if _metrics_total == 1 else 'metrics', '项指标') }}</div>
   </div>
 
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -339,7 +342,7 @@
   {% include "_metrics_catalog_cards.html" %}
 </div>
 <div id="metrics-catalog-loader" class="catalog-loader">{{ t('Loading more metrics…', '正在加载更多指标…') }}</div>
-<div id="metrics-catalog-end" class="catalog-end{% if metrics_total <= metrics_list|length %} visible{% endif %}">{{ t('You have reached the end.', '已经到底了') }}</div>
+<div id="metrics-catalog-end" class="catalog-end{% if _metrics_total <= metrics_list|length %} visible{% endif %}">{{ t('You have reached the end.', '已经到底了') }}</div>
 <div id="metrics-catalog-sentinel" class="catalog-sentinel"></div>
 
 <script>
@@ -357,9 +360,9 @@
   const catalogLoader = document.getElementById('metrics-catalog-loader');
   const catalogEnd = document.getElementById('metrics-catalog-end');
   const catalogSentinel = document.getElementById('metrics-catalog-sentinel');
-  const catalogPageSize = {{ metrics_page_size }};
+  const catalogPageSize = {{ _metrics_page_size }};
   let catalogOffset = {{ metrics_list|length }};
-  let catalogHasMore = {{ 'true' if metrics_total > metrics_list|length else 'false' }};
+  let catalogHasMore = {{ 'true' if _metrics_total > metrics_list|length else 'false' }};
   let catalogLoading = false;
   let catalogObserver = null;
 
