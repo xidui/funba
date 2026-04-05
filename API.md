@@ -295,7 +295,7 @@ Create a SocialPost with variants and delivery destinations.
 | `variants[].content_raw` | string | yes | | Post body (markdown) |
 | `variants[].audience_hint` | string | no | null | e.g. "thunder fans", "general nba" |
 | `variants[].destinations` | object[] | no | [] | Suggested delivery targets |
-| `variants[].destinations[].platform` | string | yes | | `hupu`, `reddit`, `discord`, `twitter` |
+| `variants[].destinations[].platform` | string | yes | | `hupu`, `reddit`, `discord`, `twitter`, `xiaohongshu` |
 | `variants[].destinations[].forum` | string | no | null | Platform-specific target, e.g. `雷霆专区`, `湿乎乎的话题`, `r/nba` |
 
 Image ownership notes:
@@ -540,6 +540,44 @@ Notes:
 
 - `check` validates the live Hupu page, not just the presence of `u/us/_CLT` cookie names.
 - On macOS, `login` may fail if the current process cannot read `Chrome Safe Storage` from Keychain. In that case the operator must grant Keychain access or use a dedicated interactive browser session.
+
+---
+
+## Xiaohongshu Publishing Tool
+
+Funba can also publish Xiaohongshu graph notes through `social_media/xiaohongshu/post.py`:
+
+```bash
+# Check login status
+python -m social_media.xiaohongshu.post check
+
+# Dry run
+python -m social_media.xiaohongshu.post post \
+  --title "标题" \
+  --content "正文" \
+  --image /tmp/funba_asset.png
+
+# Save to drafts
+python -m social_media.xiaohongshu.post post \
+  --title "标题" \
+  --content "正文" \
+  --image /tmp/funba_asset.png \
+  --save-draft
+
+# Publish for real
+python -m social_media.xiaohongshu.post post \
+  --title "标题" \
+  --content "正文" \
+  --image /tmp/funba_asset.png \
+  --submit
+```
+
+Cookie file: `social_media/xiaohongshu/.xiaohongshu_cookies.json`.
+
+Notes:
+
+- The publisher currently targets the creator web graph-note flow (`上传图文`) and requires at least one image.
+- Pass `--post-id <id>` when publishing from Funba so slot-based image placeholders can resolve from the DB image pool.
 
 ---
 
