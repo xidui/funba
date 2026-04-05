@@ -438,8 +438,9 @@
   .metrics-section .metric-card {
     flex-direction: row;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0;
-    padding: 9px 12px;
+    padding: 8px 12px;
     border-radius: 0;
     border: none;
     border-bottom: 1px solid var(--border);
@@ -452,17 +453,15 @@
   .metrics-section .metric-key {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     font-size: 12px;
+    line-height: 1.3;
   }
 
   .metrics-section .metric-value {
     font-size: 15px;
-    min-width: 50px;
+    min-width: 44px;
     text-align: right;
-    margin: 0 10px;
+    margin: 0 0 0 8px;
     flex-shrink: 0;
   }
 
@@ -471,8 +470,8 @@
   }
 
   .metrics-section .metric-ranks {
-    margin-top: 0;
-    flex-shrink: 0;
+    flex-basis: 100%;
+    margin-top: 3px;
   }
 
   .metrics-section .metric-card.metric-notable {
@@ -485,18 +484,7 @@
 
   @media (max-width: 540px) {
     .metrics-section .metric-card {
-      flex-wrap: wrap;
-      padding: 8px 10px;
-    }
-    .metrics-section .metric-key {
-      max-width: 50%;
-    }
-    .metrics-section .metric-value {
-      margin: 0 0 0 auto;
-    }
-    .metrics-section .metric-ranks {
-      flex-basis: 100%;
-      margin-top: 3px;
+      padding: 7px 10px;
     }
   }
 
@@ -853,7 +841,8 @@
           <div class="metric-key">{{ m.metric_name }}</div>
           <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
+            {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
           </div>
         </a>
         {% endfor %}
@@ -871,7 +860,7 @@
           <div class="metric-key">{{ m.metric_name }}</div>
           <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
           </div>
         </a>
         {% endfor %}
@@ -889,7 +878,7 @@
           <div class="metric-key">{{ m.metric_name }}</div>
           <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
           </div>
         </a>
         {% endfor %}
