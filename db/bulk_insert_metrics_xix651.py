@@ -302,6 +302,11 @@ def render_player_box_metric(
                     total += self._value_from_field(row, field) * float(weight)
                 return total
 
+            def _qualification_entry(self, entity_id, game_id):
+                if entity_id is None or game_id is None:
+                    return None
+                return {{"entity_id": str(entity_id), "game_id": str(game_id), "qualified": True}}
+
             def compute_career_value(self, totals, season, entity_id):
                 if not self.supports_career:
                     return None
@@ -455,6 +460,7 @@ def render_player_box_metric(
                     rows_by_player[str(row.player_id)].append(row)
 
                 results = []
+                qualifications = []
                 for player_id, player_rows in rows_by_player.items():
                     player_rows.sort(key=lambda row: (
                         game_map[row.game_id].game_date or "",
@@ -464,18 +470,26 @@ def render_player_box_metric(
                     if kind in ("count_threshold", "count_combo", "count_exact", "games_played", "games_started"):
                         count = 0
                         games_count = 0
+                        player_qualifications = []
                         for row in player_rows:
                             game = game_map[row.game_id]
                             if not self._split_matches(row, game):
                                 continue
                             games_count += 1
+                            qualified = False
                             if kind == "games_played":
                                 count += 1
                             elif kind == "games_started":
-                                count += 1 if bool(row.starter) else 0
+                                qualified = bool(row.starter)
+                                count += 1 if qualified else 0
                             else:
-                                if self._criteria_met(row):
+                                qualified = self._criteria_met(row)
+                                if qualified:
                                     count += 1
+                            if qualified:
+                                qualification = self._qualification_entry(player_id, row.game_id)
+                                if qualification is not None:
+                                    player_qualifications.append(qualification)
                         if games_count < self.min_sample or count == 0:
                             continue
                         results.append(MetricResult(
@@ -488,6 +502,8 @@ def render_player_box_metric(
                             value_str=f"{{count}}",
                             context={{"count": count, "games": games_count}},
                         ))
+                        if player_qualifications:
+                            qualifications.extend(player_qualifications)
                         continue
                     if kind in ("per_game", "split_avg", "season_total"):
                         total = 0.0
@@ -590,13 +606,19 @@ def render_player_box_metric(
                     if kind == "streak":
                         best = 0
                         current = 0
+                        current_game_ids = []
+                        best_game_ids = []
                         for row in player_rows:
-                            if self._criteria_met(row):
+                            game = game_map[row.game_id]
+                            if self._split_matches(row, game) and self._criteria_met(row):
                                 current += 1
+                                current_game_ids.append(str(row.game_id))
                                 if current > best:
                                     best = current
+                                    best_game_ids = list(current_game_ids)
                             else:
                                 current = 0
+                                current_game_ids = []
                         if best < self.min_sample:
                             continue
                         results.append(MetricResult(
@@ -609,6 +631,10 @@ def render_player_box_metric(
                             value_str=f"{{best}} games",
                             context={{"best_streak": best}},
                         ))
+                        for game_id in best_game_ids:
+                            qualification = self._qualification_entry(player_id, game_id)
+                            if qualification is not None:
+                                qualifications.append(qualification)
                         continue
                     if kind == "single_game_record":
                         best_value = None
@@ -640,7 +666,14 @@ def render_player_box_metric(
                             value_str=f"{{float(best_value):.2f}}{value_suffix}",
                             context={{"best_value": self._round(best_value), "game_id": best_game_id}},
                         ))
+                        qualification = self._qualification_entry(player_id, best_game_id)
+                        if qualification is not None:
+                            qualifications.append(qualification)
+                self._qualifications = qualifications or None
                 return results
+
+            def compute_qualifications(self, session, season):
+                return getattr(self, "_qualifications", None)
         """
     ).strip() + "\n"
 
@@ -912,6 +945,11 @@ def render_team_metric(
                     return 1.0 if not bool(row.win) else 0.0
                 return float(getattr(row, self.stat_field, 0) or 0)
 
+            def _qualification_entry(self, entity_id, game_id):
+                if entity_id is None or game_id is None:
+                    return None
+                return {{"entity_id": str(entity_id), "entity_type": "team", "game_id": str(game_id), "qualified": True}}
+
             def compute_career_value(self, totals, season, entity_id):
                 kind = self.metric_kind
                 if kind in ("per_game", "split_avg"):
@@ -1034,6 +1072,7 @@ def render_team_metric(
                         records[team_id].append((game, row, opponent))
 
                 results = []
+                qualifications = []
                 for team_id, entries in records.items():
                     entries.sort(key=lambda item: (item[0].game_date or "", str(item[0].game_id)))
                     kind = self.metric_kind
@@ -1062,19 +1101,28 @@ def render_team_metric(
                         losses = 0
                         total = 0
                         games_count = 0
+                        team_qualifications = []
                         for game, row, opponent in entries:
                             wins += 1 if bool(row.win) else 0
                             losses += 0 if bool(row.win) else 1
                             games_count += 1
+                            qualified = False
                             if kind == "count":
                                 if self.stat_field == "win":
-                                    total += 1 if bool(row.win) else 0
+                                    qualified = bool(row.win)
+                                    total += 1 if qualified else 0
                                 elif self.stat_field == "loss":
-                                    total += 0 if bool(row.win) else 1
+                                    qualified = not bool(row.win)
+                                    total += 1 if qualified else 0
                                 elif self.threshold is not None:
-                                    total += 1 if self._value(row, opponent, game) >= float(self.threshold) else 0
+                                    qualified = self._value(row, opponent, game) >= float(self.threshold)
+                                    total += 1 if qualified else 0
                                 else:
                                     total += int(self._value(row, opponent, game))
+                            if qualified:
+                                qualification = self._qualification_entry(team_id, game.game_id)
+                                if qualification is not None:
+                                    team_qualifications.append(qualification)
                         if games_count < self.min_sample:
                             continue
                         if kind == "win_pct":
@@ -1102,6 +1150,8 @@ def render_team_metric(
                                 value_str=f"{{total}}",
                                 context={{"wins": wins, "losses": losses, "games": games_count, "total": total}},
                             ))
+                            if team_qualifications:
+                                qualifications.extend(team_qualifications)
                         continue
                     if kind == "ratio":
                         numerator = 0.0
@@ -1128,6 +1178,8 @@ def render_team_metric(
                     if kind == "streak":
                         current = 0
                         best = 0
+                        current_game_ids = []
+                        best_game_ids = []
                         for game, row, opponent in entries:
                             qualified = False
                             if self.stat_field == "win":
@@ -1138,10 +1190,13 @@ def render_team_metric(
                                 qualified = self._value(row, opponent, game) >= float(self.threshold)
                             if qualified:
                                 current += 1
+                                current_game_ids.append(str(game.game_id))
                                 if current > best:
                                     best = current
+                                    best_game_ids = list(current_game_ids)
                             else:
                                 current = 0
+                                current_game_ids = []
                         if best < self.min_sample:
                             continue
                         results.append(MetricResult(
@@ -1154,7 +1209,15 @@ def render_team_metric(
                             value_str=f"{{best}} games",
                             context={{"best_streak": best}},
                         ))
+                        for game_id in best_game_ids:
+                            qualification = self._qualification_entry(team_id, game_id)
+                            if qualification is not None:
+                                qualifications.append(qualification)
+                self._qualifications = qualifications or None
                 return results
+
+            def compute_qualifications(self, session, season):
+                return getattr(self, "_qualifications", None)
         """
     ).strip() + "\n"
 
