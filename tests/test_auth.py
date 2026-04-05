@@ -692,6 +692,26 @@ class TestMetricSearchAuth(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.get_json()["error"], "login_required")
 
+    def test_metrics_catalog_count_api_returns_exact_total(self):
+        session = MagicMock()
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        with patch("web.app.SessionLocal", return_value=session), \
+             patch("web.app._catalog_metrics_total", return_value=547) as mock_total:
+            response = self.client.get(
+                "/api/metrics/catalog-count?scope=player&status=published",
+                environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"ok": True, "total": 547})
+        mock_total.assert_called_once_with(
+            session,
+            scope_filter="player",
+            status_filter="published",
+        )
+
     def test_metric_search_api_allows_anonymous_visitors_when_feature_level_is_anonymous(self):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)

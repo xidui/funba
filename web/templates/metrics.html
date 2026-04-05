@@ -405,7 +405,7 @@
 <div class="metrics-header">
   <div>
     <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Metrics', '指标') }}</h1>
-    <div style="font-size:13px;color:var(--muted);">
+    <div id="metrics-total-label" style="font-size:13px;color:var(--muted);">
       {% if _metrics_total is not none %}
       {{ _metrics_total }} {{ t('metric' if _metrics_total == 1 else 'metrics', '项指标') }}
       {% elif _metrics_has_more %}
@@ -481,7 +481,11 @@
   const catalogLoader = document.getElementById('metrics-catalog-loader');
   const catalogEnd = document.getElementById('metrics-catalog-end');
   const catalogSentinel = document.getElementById('metrics-catalog-sentinel');
+  const metricsTotalLabel = document.getElementById('metrics-total-label');
   const catalogPageSize = {{ _metrics_page_size }};
+  const catalogTotalKnown = {{ 'true' if _metrics_total is not none else 'false' }};
+  const metricWordSingular = '{{ t("metric", "项指标") }}';
+  const metricWordPlural = '{{ t("metrics", "项指标") }}';
   let catalogOffset = {{ metrics_list|length }};
   let catalogHasMore = {{ 'true' if _metrics_has_more else 'false' }};
   let catalogLoading = false;
@@ -567,6 +571,24 @@
 
   function setCatalogEndVisible(visible) {
     catalogEnd.classList.toggle('visible', visible);
+  }
+
+  async function loadCatalogTotal() {
+    if (catalogTotalKnown || !metricsTotalLabel) return;
+    try {
+      const params = new URLSearchParams({
+        scope: '{{ scope_filter }}',
+        status: '{{ status_filter }}',
+      });
+      const res = await fetch(`/api/metrics/catalog-count?${params.toString()}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok || typeof data.total !== 'number') {
+        return;
+      }
+      metricsTotalLabel.textContent = `${data.total} ${data.total === 1 ? metricWordSingular : metricWordPlural}`;
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   async function loadMoreCatalog() {
@@ -691,6 +713,7 @@
     runSearch();
   }
   enableStickySearch();
+  loadCatalogTotal();
   enableCatalogObserver();
 })();
 </script>

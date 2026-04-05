@@ -1315,6 +1315,21 @@ def _catalog_metric_entries_for_row(
     return entries
 
 
+def _catalog_has_virtual_career_metric(
+    row,
+    *,
+    search_fields: dict,
+    existing_keys: set[str],
+) -> bool:
+    if (
+        row.status != "published"
+        or search_fields.get("career")
+        or not search_fields.get("supports_career")
+    ):
+        return False
+    return f"{row.key}_career" not in existing_keys
+
+
 def _virtual_career_catalog_metric(
     row,
     *,
@@ -1323,17 +1338,14 @@ def _virtual_career_catalog_metric(
     counts: dict[str, int],
     is_mine: bool,
 ) -> dict | None:
-    if (
-        row.status != "published"
-        or search_fields.get("career")
-        or not search_fields.get("supports_career")
+    if not _catalog_has_virtual_career_metric(
+        row,
+        search_fields=search_fields,
+        existing_keys=existing_keys,
     ):
         return None
 
     career_key = f"{row.key}_career"
-    if career_key in existing_keys:
-        return None
-
     base_name = search_fields.get("name", row.name)
     base_description = search_fields.get("description", row.description)
     base_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", "")) or ""
@@ -1373,6 +1385,31 @@ def _virtual_career_catalog_metric(
         "time_scope": "career",
         "base_metric_key": row.key,
     }
+
+
+def _catalog_metrics_total(
+    session,
+    scope_filter: str = "",
+    status_filter: str = "",
+) -> int:
+    rows = _catalog_metric_base_query(
+        session,
+        scope_filter=scope_filter,
+        status_filter=status_filter,
+    ).all()
+    existing_keys = {row.key for row in rows}
+    total = 0
+    for row in rows:
+        code_metadata = _safe_code_metric_metadata(row)
+        search_fields = _db_metric_search_fields(row, code_metadata=code_metadata)
+        total += 1
+        if _catalog_has_virtual_career_metric(
+            row,
+            search_fields=search_fields,
+            existing_keys=existing_keys,
+        ):
+            total += 1
+    return total
 
 
 def _catalog_metrics_page(
@@ -5604,6 +5641,19 @@ def api_metrics_catalog():
             "total": next_offset if not has_more else None,
         }
     )
+
+
+@app.get("/api/metrics/catalog-count")
+def api_metrics_catalog_count():
+    scope_filter = request.args.get("scope", "")
+    status_filter = request.args.get("status", "")
+    with SessionLocal() as session:
+        total = _catalog_metrics_total(
+            session,
+            scope_filter=scope_filter,
+            status_filter=status_filter,
+        )
+    return jsonify({"ok": True, "total": total})
 
 
 @app.route("/cn/metrics/mine", endpoint="my_metrics_zh")
