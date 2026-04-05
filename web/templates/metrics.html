@@ -43,12 +43,55 @@
   @media (max-width: 900px) { .metrics-catalog { columns: 2; } }
   @media (max-width: 560px) { .metrics-catalog { columns: 1; } }
 
+  .search-sticky-wrap {
+    position: sticky;
+    top: calc(var(--metrics-sticky-top, 54px) + 10px);
+    z-index: 85;
+    margin-bottom: 18px;
+  }
+
   .search-panel {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 18px 20px;
-    margin-bottom: 18px;
+    transition:
+      padding 0.18s ease,
+      border-color 0.18s ease,
+      border-radius 0.18s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease,
+      background 0.18s ease;
+  }
+
+  .search-panel.compact {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    border-color: var(--border-2);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+    transform: translateY(-1px);
+  }
+
+  html[data-theme='light'] .search-panel.compact {
+    box-shadow: 0 14px 26px rgba(148, 163, 184, 0.16);
+  }
+
+  .search-panel-kicker {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    transition: opacity 0.16s ease, transform 0.16s ease, margin 0.16s ease;
+  }
+
+  .search-panel.compact .search-panel-kicker {
+    opacity: 0;
+    transform: translateY(-4px);
+    margin-bottom: -8px;
+    pointer-events: none;
   }
 
   .search-row {
@@ -56,6 +99,11 @@
     gap: 10px;
     flex-wrap: wrap;
     align-items: center;
+    transition: gap 0.18s ease;
+  }
+
+  .search-panel.compact .search-row {
+    gap: 8px;
   }
 
   .search-input {
@@ -68,8 +116,14 @@
     font-size: 14px;
     padding: 11px 13px;
     outline: none;
+    transition: min-width 0.18s ease, padding 0.18s ease, font-size 0.18s ease;
   }
   .search-input:focus { border-color: var(--accent); }
+  .search-panel.compact .search-input {
+    min-width: 260px;
+    padding: 9px 12px;
+    font-size: 13px;
+  }
 
   .search-btn {
     padding: 10px 16px;
@@ -80,8 +134,14 @@
     font-weight: 700;
     border: none;
     cursor: pointer;
+    transition: padding 0.18s ease, border-radius 0.18s ease, font-size 0.18s ease;
   }
   .search-btn:disabled { opacity: 0.5; cursor: wait; }
+  .search-panel.compact .search-btn {
+    padding: 9px 14px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
 
   .admin-model-select {
     height: 36px;
@@ -94,14 +154,29 @@
     font-size: 13px;
     font-family: Inter, sans-serif;
     outline: none;
+    transition: min-width 0.18s ease, height 0.18s ease, font-size 0.18s ease;
   }
   .admin-model-select:focus { border-color: var(--accent); }
+  .search-panel.compact .admin-model-select {
+    min-width: 140px;
+    height: 34px;
+    font-size: 12px;
+  }
 
   .search-status {
     margin-top: 8px;
     font-size: 12px;
     color: var(--muted);
     min-height: 18px;
+    transition: opacity 0.16s ease, max-height 0.16s ease, margin 0.16s ease;
+    max-height: 30px;
+    overflow: hidden;
+  }
+
+  .search-panel.compact .search-status {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
   }
 
   .search-results {
@@ -135,8 +210,14 @@
     text-decoration: none;
     font-size: 13px;
     font-weight: 700;
+    transition: padding 0.18s ease, font-size 0.18s ease, border-radius 0.18s ease;
   }
   .create-cta:hover { border-color: var(--accent); color: var(--accent); }
+  .search-panel.compact .create-cta {
+    padding: 8px 12px;
+    font-size: 12px;
+    border-radius: 9px;
+  }
 
   .catalog-card {
     background: var(--surface);
@@ -289,6 +370,32 @@
     width: 100%;
     height: 1px;
   }
+
+  .search-stick-sentinel {
+    width: 100%;
+    height: 1px;
+    margin-top: -1px;
+  }
+
+  @media (max-width: 720px) {
+    .search-sticky-wrap {
+      top: calc(var(--metrics-sticky-top, 64px) + 8px);
+    }
+    .search-panel {
+      padding: 14px;
+    }
+    .search-panel.compact {
+      padding: 10px;
+    }
+    .search-row {
+      align-items: stretch;
+    }
+    .search-input,
+    .search-panel.compact .search-input {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+  }
 </style>
 
 {% set _metrics_total = metrics_total|default(metrics_list|length, true) %}
@@ -310,8 +417,10 @@
   </div>
 </div>
 
-<div class="search-panel">
-  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">{{ t('Search with natural language', '自然语言搜索') }}</div>
+<div id="metrics-search-stick-sentinel" class="search-stick-sentinel"></div>
+<div class="search-sticky-wrap">
+<div id="metrics-search-panel" class="search-panel">
+  <div class="search-panel-kicker">{{ t('Search with natural language', '自然语言搜索') }}</div>
   <div class="search-row">
     <input id="metric-search-input" class="search-input" type="text" maxlength="200" value="{{ search_query or '' }}" placeholder="{{ t('e.g. highest scoring games by a player, clutch shooting, bench scoring', '例如：球员单场最高得分、关键时刻投篮、替补得分') }}" />
     {% if is_admin %}
@@ -325,6 +434,7 @@
     <a id="metric-create-cta-inline" class="create-cta" href="{{ metric_create_cta_href }}"{% if not can_create_metrics %} style="color:var(--muted-2);"{% endif %}>{{ t('Create Metric', '创建指标') }}{% if metric_create_cta_badge %} <span style="font-size:10px;color:var(--accent);">{{ metric_create_cta_badge }}</span>{% endif %}</a>
   </div>
   <div id="metric-search-status" class="search-status">{{ t('Search in any language. If nothing fits, create a new metric from the same query.', '支持任意语言搜索。如果没有合适的指标，可以直接用同一条描述创建新指标。') }}</div>
+</div>
 </div>
 
 <div id="metric-search-results" class="search-results" style="display:none;">
@@ -357,6 +467,8 @@
   const createInline = document.getElementById('metric-create-cta-inline');
   const modelSelect = document.getElementById('metric-search-model');
   const fullCatalog = document.getElementById('metrics-full-catalog');
+  const searchPanel = document.getElementById('metrics-search-panel');
+  const searchStickSentinel = document.getElementById('metrics-search-stick-sentinel');
   const catalogLoader = document.getElementById('metrics-catalog-loader');
   const catalogEnd = document.getElementById('metrics-catalog-end');
   const catalogSentinel = document.getElementById('metrics-catalog-sentinel');
@@ -365,9 +477,35 @@
   let catalogHasMore = {{ 'true' if _metrics_total > metrics_list|length else 'false' }};
   let catalogLoading = false;
   let catalogObserver = null;
+  let searchObserver = null;
 
   function loginUrl() {
     return `/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
+
+  function setStickyTopOffset() {
+    const topbar = document.querySelector('.topbar');
+    const topbarHeight = topbar ? Math.ceil(topbar.getBoundingClientRect().height) : 54;
+    document.documentElement.style.setProperty('--metrics-sticky-top', `${topbarHeight}px`);
+  }
+
+  function setSearchCompact(isCompact) {
+    if (!searchPanel) return;
+    searchPanel.classList.toggle('compact', !!isCompact);
+  }
+
+  function enableStickySearch() {
+    if (!searchPanel || !searchStickSentinel) return;
+    setStickyTopOffset();
+    window.addEventListener('resize', setStickyTopOffset, { passive: true });
+    searchObserver = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      setSearchCompact(!(entry && entry.isIntersecting));
+    }, {
+      rootMargin: '-8px 0px 0px 0px',
+      threshold: 0,
+    });
+    searchObserver.observe(searchStickSentinel);
   }
 
   function scopeBadge(scope) {
@@ -543,6 +681,7 @@
   if (input.value.trim()) {
     runSearch();
   }
+  enableStickySearch();
   enableCatalogObserver();
 })();
 </script>
