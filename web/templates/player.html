@@ -397,15 +397,21 @@
     }
   }
 
-  /* ── Two-column metrics layout (player page) ────────────── */
+  /* ── Three-column metrics layout (player page) ──────────── */
   .metrics-columns {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
     align-items: start;
   }
 
-  @media (max-width: 800px) {
+  @media (max-width: 1000px) {
+    .metrics-columns {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
     .metrics-columns {
       grid-template-columns: 1fr;
     }
@@ -832,6 +838,10 @@
 <section class="section metrics-section" id="section-metrics">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
+  {% set regular_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_regular')|list if alltime_metrics else [] %}
+  {% set playoffs_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playoffs')|list if alltime_metrics else [] %}
+  {% set playin_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playin')|list if alltime_metrics else [] %}
+
   <div class="metrics-columns">
     {% if season_metrics %}
     <div class="metrics-col">
@@ -846,7 +856,6 @@
           <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           <div class="metric-ranks">
             <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
-            {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('career', '生涯') }}</span>{% endif %}
           </div>
         </a>
         {% endfor %}
@@ -861,18 +870,11 @@
     </div>
     {% endif %}
 
-    {% if alltime_metrics %}
-    {% set main_career = alltime_metrics|selectattr('career_type', 'ne', 'all_playin')|list %}
-    {% set playin_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playin')|list %}
+    {% if regular_career %}
     <div class="metrics-col">
-      {% set ns = namespace(last_type="") %}
-      {% for m in main_career|sort(attribute='career_type_label') %}
-        {% if m.career_type_label != ns.last_type %}
-          {% if ns.last_type %}</div>{% endif %}
-          <h3 class="metrics-col-title"{% if not loop.first %} style="margin-top:14px;"{% endif %}>{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
-          <div class="metrics-grid">
-          {% set ns.last_type = m.career_type_label %}
-        {% endif %}
+      <h3 class="metrics-col-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
+      <div class="metrics-grid">
+        {% for m in regular_career %}
         <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
            href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
           <div class="metric-key">{{ m.metric_name }}</div>
@@ -881,33 +883,51 @@
             <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
           </div>
         </a>
-      {% endfor %}
-      {% if ns.last_type %}</div>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
-      {% if playin_career %}
-      <div class="metrics-more-wrap" style="margin-top:14px;">
-        <button type="button" id="show-playin-metrics" class="metrics-more-btn">
-          {{ t('Play-In Career', '附加赛生涯') }} ({{ playin_career|length }}) &#9660;
-        </button>
+    {% if playoffs_career %}
+    <div class="metrics-col">
+      <h3 class="metrics-col-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
+      <div class="metrics-grid">
+        {% for m in playoffs_career %}
+        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
+          <div class="metric-key">{{ m.metric_name }}</div>
+          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+          <div class="metric-ranks">
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+          </div>
+        </a>
+        {% endfor %}
       </div>
-      <div id="playin-metrics-block" style="display:none">
-        <div class="metrics-grid" style="margin-top:8px;">
-          {% for m in playin_career %}
-          <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-             href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-            <div class="metric-key">{{ m.metric_name }}</div>
-            <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-            <div class="metric-ranks">
-              <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
-            </div>
-          </a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
     </div>
     {% endif %}
   </div>
+
+  {% if playin_career %}
+  <div class="metrics-more-wrap" style="margin-top:10px;">
+    <button type="button" id="show-playin-metrics" class="metrics-more-btn">
+      {{ t('Play-In Career', '附加赛生涯') }} ({{ playin_career|length }}) &#9660;
+    </button>
+  </div>
+  <div id="playin-metrics-block" style="display:none;margin-top:8px;">
+    <div class="metrics-grid" style="max-width:33.3%;">
+      {% for m in playin_career %}
+      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+         href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
+        <div class="metric-key">{{ m.metric_name }}</div>
+        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+        <div class="metric-ranks">
+          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 
