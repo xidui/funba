@@ -325,6 +325,121 @@
       max-height: 70vh;
     }
   }
+
+  /* ── Sticky section nav ────────────────────────────────────── */
+  .player-section-nav {
+    position: sticky;
+    top: 54px;
+    z-index: 90;
+    background: var(--bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 10px 0;
+    opacity: 0;
+    transform: translateY(-10px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  .player-section-nav.is-visible {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .player-section-nav-inner {
+    display: flex;
+    gap: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    width: fit-content;
+    margin: 0 auto;
+  }
+
+  .player-nav-btn {
+    padding: 5px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-2);
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+    white-space: nowrap;
+  }
+
+  .player-nav-btn:hover {
+    color: var(--heading);
+  }
+
+  .player-nav-btn.active {
+    background: var(--surface-3);
+    color: var(--heading);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  @media (max-width: 540px) {
+    .player-section-nav {
+      top: 64px;
+    }
+    .player-section-nav-inner {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .player-nav-btn {
+      min-height: 38px;
+      padding: 6px 14px;
+    }
+  }
+
+  /* ── Metrics show-more ────────────────────────────────────── */
+  .metrics-more-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+  }
+
+  .metrics-more-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .metrics-more-btn:hover {
+    color: var(--accent);
+  }
+
+  /* ── Section scroll offsets ───────────────────────────────────── */
+  #section-career,
+  #section-metrics,
+  #section-salary,
+  #section-shots,
+  #section-games {
+    scroll-margin-top: 120px;
+  }
+
+  @media (max-width: 540px) {
+    #section-career,
+    #section-metrics,
+    #section-salary,
+    #section-shots,
+    #section-games {
+      scroll-margin-top: 130px;
+    }
+  }
 </style>
 
 <!-- ── Player header ──────────────────────────────────────────────── -->
@@ -455,8 +570,23 @@
   </div>
 </div>
 
+<!-- ── Section Nav ───────────────────────────────────────────────── -->
+<nav class="player-section-nav" id="player-section-nav">
+  <div class="player-section-nav-inner">
+    <button class="player-nav-btn active" data-target="section-career">{{ t('Career', '生涯') }}</button>
+    {% if player_metrics.season or player_metrics.alltime %}
+    <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
+    {% endif %}
+    {% if salary_rows %}
+    <button class="player-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+    {% endif %}
+    <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
+    <button class="player-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+  </div>
+</nav>
+
 <!-- ── Career Summary ─────────────────────────────────────────────── -->
-<div class="card">
+<div class="card" id="section-career">
   <h2>{{ t('Career Summary', '生涯概览') }}</h2>
 
   <!-- Season type tabs (link-based, preserves other params) -->
@@ -602,7 +732,7 @@
 {% set season_metrics = player_metrics.season %}
 {% set alltime_metrics = player_metrics.alltime %}
 {% if season_metrics or alltime_metrics %}
-<section class="section metrics-section">
+<section class="section metrics-section" id="section-metrics">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
   {% if season_metrics %}
@@ -610,7 +740,9 @@
   <div class="metrics-grid">
     {% for m in season_metrics %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
+       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
+       style="text-decoration:none;{% if loop.index > 6 %}display:none;{% endif %}"
+       {% if loop.index > 6 %}data-extra-season-metric{% endif %}>
       <div class="metric-key">{{ m.metric_name }}</div>
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
@@ -621,9 +753,22 @@
     </a>
     {% endfor %}
   </div>
+  {% if season_metrics|length > 6 %}
+  <div class="metrics-more-wrap">
+    <button type="button" id="show-more-season-metrics" class="metrics-more-btn">
+      {{ t('Show', '显示') }} {{ season_metrics|length - 6 }} {{ t('More Season Metrics', '更多赛季指标') }} &#9660;
+    </button>
+  </div>
+  {% endif %}
   {% endif %}
 
   {% if alltime_metrics %}
+  <div class="metrics-more-wrap" id="alltime-toggle-wrap" style="margin-top:18px;">
+    <button type="button" id="show-alltime-metrics" class="metrics-more-btn">
+      {{ t('Show Career Metrics', '显示生涯指标') }} ({{ alltime_metrics|length }}) &#9660;
+    </button>
+  </div>
+  <div id="alltime-metrics-block" style="display:none">
   {% set ns = namespace(last_type="") %}
   {% for m in alltime_metrics|sort(attribute='career_type_label') %}
     {% if m.career_type_label != ns.last_type %}
@@ -643,12 +788,13 @@
     </a>
   {% endfor %}
   {% if ns.last_type %}</div>{% endif %}
+  </div>
   {% endif %}
 </section>
 {% endif %}
 
 {% if salary_rows %}
-<div class="card">
+<div class="card" id="section-salary">
   <h2>{{ t('Salary History', '薪资历史') }}</h2>
   <div class="table-wrap">
     <table>
@@ -671,8 +817,8 @@
 </div>
 {% endif %}
 
-<!-- ── Shot Chart ─────────────────────────────────────────────────── -->
-<div class="card">
+<!-- ── Shot Chart ───────────────────────��─────────────────────────── -->
+<div class="card" id="section-shots">
   <h2>{{ t('Shot Chart', '投篮图') }}</h2>
   <form method="get" class="control-row" style="margin-bottom: 10px;">
     <label for="heatmap-season-picker">{{ t('Scope:', '范围：') }}</label>
@@ -817,7 +963,7 @@
 </div>
 
 <!-- ── Season Game Log ────────────────────────────────────────────── -->
-<div class="card">
+<div class="card" id="section-games">
   <h2>{{ t('Season Games', '赛季比赛') }}</h2>
   {% if season_options %}
   <form method="get" class="control-row" style="margin-bottom: 10px;">
@@ -928,5 +1074,85 @@
       });
     });
   })();
+</script>
+
+<script>
+(function () {
+  /* ── Metrics expand buttons ─────────────────────────────────── */
+  var btnSeason = document.getElementById('show-more-season-metrics');
+  if (btnSeason) {
+    btnSeason.addEventListener('click', function () {
+      document.querySelectorAll('[data-extra-season-metric]').forEach(function (el) {
+        el.style.display = '';
+      });
+      btnSeason.parentElement.remove();
+    });
+  }
+
+  var btnAlltime = document.getElementById('show-alltime-metrics');
+  if (btnAlltime) {
+    btnAlltime.addEventListener('click', function () {
+      var block = document.getElementById('alltime-metrics-block');
+      if (block) block.style.display = '';
+      document.getElementById('alltime-toggle-wrap').remove();
+    });
+  }
+
+  /* ── Sticky section nav ─────────────────────────────────────── */
+  var nav = document.getElementById('player-section-nav');
+  if (!nav) return;
+
+  var btns = nav.querySelectorAll('.player-nav-btn');
+  var sectionIds = [];
+  btns.forEach(function (b) { sectionIds.push(b.getAttribute('data-target')); });
+
+  // Click → smooth scroll
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var target = document.getElementById(btn.getAttribute('data-target'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // Show/hide nav when header scrolls out of view
+  var headerCard = document.querySelector('.player-header');
+  if (headerCard && 'IntersectionObserver' in window) {
+    var headerObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          nav.classList.remove('is-visible');
+        } else {
+          nav.classList.add('is-visible');
+        }
+      });
+    }, { threshold: 0 });
+    headerObs.observe(headerCard.closest('.card') || headerCard);
+  }
+
+  // Active section tracking
+  if ('IntersectionObserver' in window) {
+    var activeBtn = btns[0];
+    var sectionObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          var id = entry.target.id;
+          btns.forEach(function (b) {
+            if (b.getAttribute('data-target') === id) {
+              b.classList.add('active');
+              activeBtn = b;
+            } else {
+              b.classList.remove('active');
+            }
+          });
+        }
+      });
+    }, { rootMargin: '-120px 0px -60% 0px', threshold: 0 });
+
+    sectionIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) sectionObs.observe(el);
+    });
+  }
+})();
 </script>
 {% endblock %}
