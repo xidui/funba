@@ -261,7 +261,7 @@ class LowestQuarterScore(MetricDefinition):
         db_query.order_by.return_value.all.return_value = [row]
 
         session = MagicMock()
-        session.query.side_effect = [counts_query, db_query]
+        session.query.side_effect = [db_query, counts_query]
 
         with patch.object(
             self.web_app,
@@ -316,7 +316,7 @@ class LowestQuarterScore(MetricDefinition):
         db_query.order_by.return_value.all.return_value = [row]
 
         session = MagicMock()
-        session.query.side_effect = [counts_query, db_query]
+        session.query.side_effect = [db_query, counts_query]
 
         with patch.object(
             self.web_app,
@@ -388,7 +388,7 @@ class LowestQuarterScore(MetricDefinition):
         db_query.order_by.return_value.all.return_value = [row]
 
         session = MagicMock()
-        session.query.side_effect = [counts_query, db_query]
+        session.query.side_effect = [db_query, counts_query]
 
         with patch.object(
             self.web_app,
@@ -547,17 +547,21 @@ class LowestQuarterScore(MetricDefinition):
 
         def build_session(metric_query):
             session = MagicMock()
-            session.query.side_effect = [RecordingCountsQuery(), metric_query]
+            session.query.side_effect = [metric_query, RecordingCountsQuery()]
             return session
 
         with patch.object(self.web_app, "MetricDefinitionModel", FakeMetricDefinitionModel), \
              patch.object(self.web_app, "_safe_code_metric_metadata", return_value={}), \
              patch.object(self.web_app, "is_admin", return_value=False):
             default_query = RecordingMetricQuery([row])
-            self.web_app._catalog_metrics(build_session(default_query))
+            self.web_app._catalog_metrics(build_session(default_query), include_result_counts=False)
 
             explicit_draft_query = RecordingMetricQuery([row])
-            self.web_app._catalog_metrics(build_session(explicit_draft_query), status_filter="draft")
+            self.web_app._catalog_metrics(
+                build_session(explicit_draft_query),
+                status_filter="draft",
+                include_result_counts=False,
+            )
 
         self.assertEqual(
             default_query.filters,
