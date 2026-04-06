@@ -53,6 +53,7 @@ from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_a
 from content_pipeline.game_analysis_issues import (
     ensure_game_content_analysis_issue_for_game,
     ensure_game_content_analysis_issues,
+    game_analysis_readiness_detail,
     game_analysis_issue_history,
     link_post_to_game_analysis_issue,
     resolve_game_analysis_issue_record,
@@ -8206,6 +8207,8 @@ def admin_game_trigger_content_analysis(game_id: str):
     except Exception as exc:
         logger.exception("Failed to trigger game content analysis for game_id=%s", game_id)
         return jsonify({"error": str(exc)}), 500
+    if result.get("status") == "waiting_for_pipeline":
+        result["readiness_detail"] = game_analysis_readiness_detail(game_id)
     result["issues"] = [
         {
             "id": item.id,

@@ -177,6 +177,78 @@ def game_context(game_id: str) -> dict:
         }
 
 
+def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
+    with _session_factory()() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            return {
+                "game_id": game_id,
+                "ready": False,
+                "pipeline_stage": "artifacts",
+                "message": f"Game {game_id} is not stored in the local Game table yet.",
+                "missing_artifacts": ["Game"],
+                "metric_run_count": 0,
+            }
+
+        artifacts_supported = _artifacts_available_from_nba_api(game.season)
+        has_detail = is_game_detail_back_filled(game_id, session)
+        has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game_id, session)
+        missing_artifacts: list[str] = []
+        if not has_detail:
+            missing_artifacts.append("detail")
+        if artifacts_supported and not has_pbp:
+            missing_artifacts.append("PBP")
+
+        metric_run_count = int(
+            session.query(MetricRunLog.id)
+            .filter(MetricRunLog.game_id == game_id)
+            .count()
+            or 0
+        )
+
+        if missing_artifacts:
+            artifact_list = ", ".join(missing_artifacts)
+            return {
+                "game_id": game_id,
+                "season": game.season,
+                "ready": False,
+                "pipeline_stage": "artifacts",
+                "artifacts_supported": artifacts_supported,
+                "has_detail": has_detail,
+                "has_pbp": has_pbp,
+                "missing_artifacts": missing_artifacts,
+                "metric_run_count": metric_run_count,
+                "message": f"Pipeline not ready: missing {artifact_list} for game {game_id}.",
+            }
+
+        if metric_run_count <= 0:
+            return {
+                "game_id": game_id,
+                "season": game.season,
+                "ready": False,
+                "pipeline_stage": "metrics",
+                "artifacts_supported": artifacts_supported,
+                "has_detail": has_detail,
+                "has_pbp": has_pbp,
+                "missing_artifacts": [],
+                "metric_run_count": 0,
+                "message": f"Pipeline not ready: game {game_id} has detail/PBP, but no MetricRunLog rows yet.",
+            }
+
+        return {
+            "game_id": game_id,
+            "season": game.season,
+            "ready": True,
+            "pipeline_stage": "ready",
+            "artifacts_supported": artifacts_supported,
+            "has_detail": has_detail,
+            "has_pbp": has_pbp,
+            "missing_artifacts": [],
+            "metric_run_count": metric_run_count,
+            "message": f"Pipeline ready: game {game_id} has artifacts and {metric_run_count} MetricRunLog rows.",
+        }
+
+
 @lru_cache(maxsize=1)
 def load_game_analysis_issue_template() -> GameAnalysisIssueTemplate:
     raw_text = _ISSUE_TEMPLATE_PATH.read_text(encoding="utf-8")
@@ -805,6 +877,7 @@ __all__ = [
     "game_analysis_issue_history",
     "game_analysis_issue_search_query",
     "game_analysis_issue_title_regex",
+    "game_analysis_readiness_detail",
     "game_context",
     "game_pipeline_status_for_date",
     "link_post_to_game_analysis_issue",

@@ -994,7 +994,11 @@
         }
       } else if (data.status === 'waiting_for_pipeline') {
         statusEl.style.color = 'var(--loss)';
-        statusEl.textContent = 'Pipeline not ready yet (' + (data.pipeline_stage || 'unknown') + ').';
+        if (data.readiness_detail && data.readiness_detail.message) {
+          statusEl.textContent = data.readiness_detail.message;
+        } else {
+          statusEl.textContent = 'Pipeline not ready yet (' + (data.pipeline_stage || 'unknown') + ').';
+        }
         setBusy(false);
       } else {
         statusEl.style.color = 'var(--muted-2)';
