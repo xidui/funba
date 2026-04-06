@@ -559,6 +559,116 @@
 })();
 </script>
 
+{% if is_admin %}
+<div class="card">
+  <div class="analytics-header" style="margin-bottom:12px;">
+    <div class="analytics-icon">A</div>
+    <h2 class="analytics-title" style="margin:0;">Admin Tools</h2>
+  </div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <button id="game-analysis-trigger-btn" class="btn" type="button">Trigger Analysis</button>
+    <button id="game-analysis-force-btn" class="btn" type="button" style="background:var(--surface-3); color:var(--heading); border:1px solid var(--border-2);">Force New Issue</button>
+    <span id="game-analysis-trigger-status" class="meta" style="font-weight:600;">
+      {% if game_analysis_issues %}
+      {{ game_analysis_issues|length }} analysis issue{{ '' if game_analysis_issues|length == 1 else 's' }} recorded for this game.
+      {% else %}
+      No analysis issues recorded for this game yet.
+      {% endif %}
+    </span>
+  </div>
+
+  {% if game_analysis_issues %}
+  <div class="table-wrap" style="margin-top:14px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Issue</th>
+          <th>Status</th>
+          <th>Trigger</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody id="game-analysis-issue-table-body">
+        {% for issue in game_analysis_issues %}
+        <tr>
+          <td>
+            <strong>{{ issue.issue_identifier or issue.issue_id }}</strong>
+            <div class="meta" style="margin-top:4px;">{{ issue.title }}</div>
+          </td>
+          <td>{{ issue.issue_status or 'unknown' }}</td>
+          <td>{{ issue.trigger_source }}</td>
+          <td class="meta">{{ issue.created_at_label or issue.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div id="game-analysis-issue-table-empty" class="meta" style="margin-top:14px;">No analysis issue history recorded yet.</div>
+  {% endif %}
+</div>
+<script>
+(function () {
+  const triggerBtn = document.getElementById('game-analysis-trigger-btn');
+  const forceBtn = document.getElementById('game-analysis-force-btn');
+  const statusEl = document.getElementById('game-analysis-trigger-status');
+  if (!triggerBtn || !forceBtn || !statusEl) return;
+
+  const endpoint = '{{ url_for("admin_game_trigger_content_analysis", game_id=game.game_id) }}';
+
+  function setBusy(busy) {
+    triggerBtn.disabled = busy;
+    forceBtn.disabled = busy;
+    triggerBtn.style.opacity = busy ? '0.65' : '1';
+    forceBtn.style.opacity = busy ? '0.65' : '1';
+  }
+
+  async function trigger(force) {
+    setBusy(true);
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = force ? 'Creating a new Paperclip issue…' : 'Checking / triggering analysis issue…';
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ force }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + resp.status));
+      }
+      if (data.status === 'created') {
+        statusEl.style.color = 'var(--win)';
+        statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '. Reloading…';
+      } else if (data.status === 'exists' || data.status === 'already_covered') {
+        statusEl.style.color = 'var(--muted-2)';
+        statusEl.textContent = 'Existing analysis issue found: ' + (data.issue_identifier || data.issue_id || data.status);
+      } else if (data.status === 'waiting_for_pipeline') {
+        statusEl.style.color = 'var(--loss)';
+        statusEl.textContent = 'Pipeline not ready yet (' + (data.pipeline_stage || 'unknown') + ').';
+      } else {
+        statusEl.style.color = 'var(--muted-2)';
+        statusEl.textContent = 'Analysis trigger result: ' + (data.status || 'unknown');
+      }
+      window.setTimeout(function () { window.location.reload(); }, data.status === 'waiting_for_pipeline' ? 0 : 700);
+    } catch (err) {
+      statusEl.style.color = 'var(--loss)';
+      statusEl.textContent = err && err.message ? err.message : 'Failed to trigger analysis issue.';
+      setBusy(false);
+      return;
+    }
+  }
+
+  triggerBtn.addEventListener('click', function () { trigger(false); });
+  forceBtn.addEventListener('click', function () {
+    if (!window.confirm('Create a new Paperclip issue for this game even if one is already recorded?')) return;
+    trigger(true);
+  });
+})();
+</script>
+{% endif %}
+
 <!-- ── Box Score (Team + Players unified) ─────────────────────────── -->
 <div class="card">
   <h2 style="margin-bottom:14px;">{{ t('Team Stats', '球队数据') }}</h2>

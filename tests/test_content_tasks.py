@@ -2,6 +2,7 @@ import sys
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
@@ -10,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
 from tasks.content import ensure_daily_content_analysis_issue  # noqa: E402
 from web.paperclip_bridge import PaperclipBridgeConfig  # noqa: E402
 
@@ -197,11 +199,54 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "created")
-        mock_client.update_issue.assert_called_once()
-        issue_id, payload = mock_client.update_issue.call_args.args
-        self.assertEqual(issue_id, "issue-386")
-        self.assertEqual(payload["status"], "cancelled")
+        mock_client.update_issue.assert_not_called()
         mock_client.create_issue.assert_called_once()
+
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row")
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
+    @patch(
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
+        return_value={
+            "game_ids": ["0022501082"],
+            "ready_game_ids": ["0022501082"],
+            "pending_artifact_game_ids": [],
+            "pending_metric_game_ids": [],
+        },
+    )
+    @patch("content_pipeline.game_analysis_issues._game_source_date_or_raise", return_value=date.fromisoformat("2026-03-29"))
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
+    def test_single_game_trigger_uses_db_record_before_creating_new_issue(
+        self,
+        mock_client_cls,
+        mock_load_cfg,
+        _mock_game_source_date,
+        _mock_pipeline,
+        _mock_covered,
+        mock_latest_issue_row,
+    ):
+        cfg = _config()
+        mock_load_cfg.return_value = cfg
+
+        mock_latest_issue_row.return_value = SimpleNamespace(
+            id=9,
+            paperclip_issue_id="issue-db-1",
+            paperclip_issue_identifier="XIX-999",
+            paperclip_issue_status="todo",
+        )
+
+        mock_client = MagicMock()
+        mock_client.discover_defaults.return_value = cfg
+        mock_client.list_issues.return_value = []
+        mock_client_cls.return_value = mock_client
+
+        result = ensure_game_content_analysis_issue_for_game("0022501082")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "exists")
+        self.assertEqual(result["issue_identifier"], "XIX-999")
+        self.assertEqual(result["db_issue_record_id"], 9)
+        mock_client.create_issue.assert_not_called()
 
 
 if __name__ == "__main__":

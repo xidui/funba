@@ -4,15 +4,17 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError as SAOperationalError
+from sqlalchemy.exc import ProgrammingError as SAProgrammingError
 from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.models import Game, MetricRunLog, SocialPost, Team, engine
+from db.models import Game, GameContentAnalysisIssue, MetricRunLog, SocialPost, Team, engine
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,20 @@ _REQUIRED_TITLE_PLACEHOLDERS = ("{source_date}", "{game_id}", "{matchup}")
 class GameAnalysisIssueTemplate:
     title_template: str
     body_template: str
+
+
+@dataclass(frozen=True)
+class GameAnalysisIssueRecordView:
+    id: int
+    game_id: str
+    source_date: str
+    issue_id: str
+    issue_identifier: str | None
+    issue_status: str | None
+    title: str
+    trigger_source: str
+    created_at: str
+    updated_at: str
 
 
 def _session_factory():
@@ -212,6 +228,157 @@ def game_analysis_issue_search_query(target_date: date) -> str:
     return target_date.isoformat()
 
 
+def _normalize_issue_id(issue: dict) -> str | None:
+    issue_id = str(issue.get("id") or "").strip()
+    return issue_id or None
+
+
+def _utc_now_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _is_missing_issue_table_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, (SAProgrammingError, SAOperationalError)) and (
+        "gamecontentanalysisissue" in text and ("doesn't exist" in text or "no such table" in text)
+    )
+
+
+def _game_analysis_issue_rows(game_id: str, *, source_date: date | None = None) -> list[GameContentAnalysisIssue]:
+    try:
+        with _session_factory()() as session:
+            query = session.query(GameContentAnalysisIssue).filter(GameContentAnalysisIssue.game_id == game_id)
+            if source_date is not None:
+                query = query.filter(GameContentAnalysisIssue.source_date == source_date)
+            rows = (
+                query.order_by(
+                    GameContentAnalysisIssue.created_at.desc(),
+                    GameContentAnalysisIssue.id.desc(),
+                ).all()
+            )
+            return rows
+    except Exception as exc:
+        if _is_missing_issue_table_error(exc):
+            logger.warning("GameContentAnalysisIssue table is not available yet; falling back to remote-only lookup.")
+            return []
+        raise
+
+
+def game_analysis_issue_history(game_id: str) -> list[GameAnalysisIssueRecordView]:
+    rows = _game_analysis_issue_rows(game_id)
+    history: list[GameAnalysisIssueRecordView] = []
+    for row in rows:
+        history.append(
+            GameAnalysisIssueRecordView(
+                id=int(row.id),
+                game_id=str(row.game_id),
+                source_date=row.source_date.isoformat() if row.source_date else "",
+                issue_id=str(row.paperclip_issue_id),
+                issue_identifier=str(row.paperclip_issue_identifier) if row.paperclip_issue_identifier else None,
+                issue_status=str(row.paperclip_issue_status) if row.paperclip_issue_status else None,
+                title=str(row.title),
+                trigger_source=str(row.trigger_source or "automatic"),
+                created_at=row.created_at.isoformat() if row.created_at else "",
+                updated_at=row.updated_at.isoformat() if row.updated_at else "",
+            )
+        )
+    return history
+
+
+def _record_issue_snapshot(
+    game_id: str,
+    source_date: date,
+    issue: dict,
+    *,
+    trigger_source: str,
+) -> GameContentAnalysisIssue | None:
+    issue_id = _normalize_issue_id(issue)
+    if not issue_id:
+        return None
+
+    now = _utc_now_naive()
+    try:
+        with _session_factory()() as session:
+            row = (
+                session.query(GameContentAnalysisIssue)
+                .filter(GameContentAnalysisIssue.paperclip_issue_id == issue_id)
+                .first()
+            )
+            if row is None:
+                row = GameContentAnalysisIssue(
+                    game_id=game_id,
+                    source_date=source_date,
+                    paperclip_issue_id=issue_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(row)
+            row.game_id = game_id
+            row.source_date = source_date
+            row.paperclip_issue_identifier = str(issue.get("identifier") or "").strip() or None
+            row.paperclip_issue_status = str(issue.get("status") or "").strip() or None
+            row.title = str(issue.get("title") or "").strip() or build_game_analysis_issue_title(source_date, game_id)
+            row.trigger_source = trigger_source or row.trigger_source or "automatic"
+            row.updated_at = now
+            session.commit()
+            session.refresh(row)
+            return row
+    except Exception as exc:
+        if _is_missing_issue_table_error(exc):
+            logger.warning("GameContentAnalysisIssue table is not available yet; skipping issue record write.")
+            return None
+        raise
+
+
+def _record_issue_snapshots(
+    game_id: str,
+    source_date: date,
+    issues: list[dict],
+    *,
+    trigger_source: str,
+) -> list[GameContentAnalysisIssue]:
+    recorded = []
+    for issue in issues:
+        row = _record_issue_snapshot(game_id, source_date, issue, trigger_source=trigger_source)
+        if row is not None:
+            recorded.append(row)
+    return recorded
+
+
+def _latest_issue_row(game_id: str, source_date: date) -> GameContentAnalysisIssue | None:
+    rows = _game_analysis_issue_rows(game_id, source_date=source_date)
+    return rows[0] if rows else None
+
+
+def _result_from_issue_row(
+    row: GameContentAnalysisIssue,
+    *,
+    status: str,
+    target_date: date,
+    game_id: str,
+) -> dict:
+    return {
+        "ok": True,
+        "status": status,
+        "source_date": target_date.isoformat(),
+        "game_id": game_id,
+        "issue_id": row.paperclip_issue_id,
+        "issue_identifier": row.paperclip_issue_identifier,
+        "issue_status": row.paperclip_issue_status,
+        "db_issue_record_id": row.id,
+    }
+
+
+def _game_source_date_or_raise(game_id: str) -> date:
+    with _session_factory()() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            raise ValueError(f"Game {game_id} not found")
+        if game.game_date is None:
+            raise ValueError(f"Game {game_id} does not have a game_date")
+        return game.game_date
+
+
 def covered_game_ids_for_date(target_date: date) -> set[str]:
     with _session_factory()() as session:
         rows = session.query(SocialPost.source_game_ids).filter(
@@ -263,6 +430,96 @@ def build_daily_analysis_rerun_comment(target_date: date, game_ids: list[str]) -
     )
 
 
+def _ensure_game_content_analysis_issue_for_game(
+    *,
+    target_date: date,
+    game_id: str,
+    force: bool,
+    trigger_source: str,
+    pipeline: dict,
+    client: PaperclipClient,
+    cfg,
+    issues: list[dict],
+    covered_game_ids: set[str],
+) -> dict:
+    if game_id in pipeline["pending_artifact_game_ids"]:
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "artifacts",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+        }
+    if game_id in pipeline["pending_metric_game_ids"]:
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "metrics",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+        }
+
+    matching_issues = matching_game_analysis_issues(target_date, game_id, issues)
+    if matching_issues:
+        _record_issue_snapshots(game_id, target_date, matching_issues, trigger_source=trigger_source)
+
+    if not force and game_id in covered_game_ids:
+        latest_row = _latest_issue_row(game_id, target_date)
+        if latest_row is not None:
+            return _result_from_issue_row(latest_row, status="already_covered", target_date=target_date, game_id=game_id)
+        chosen = matching_issues[0] if matching_issues else None
+        return {
+            "ok": True,
+            "status": "already_covered",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+            "issue_id": chosen.get("id") if chosen else None,
+            "issue_identifier": chosen.get("identifier") if chosen else None,
+            "issue_status": chosen.get("status") if chosen else None,
+        }
+
+    latest_row = _latest_issue_row(game_id, target_date)
+    if latest_row is not None and not force:
+        return _result_from_issue_row(latest_row, status="exists", target_date=target_date, game_id=game_id)
+
+    if matching_issues and not force:
+        chosen = matching_issues[0]
+        return {
+            "ok": True,
+            "status": "exists",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+            "issue_id": chosen.get("id"),
+            "issue_identifier": chosen.get("identifier"),
+            "issue_status": chosen.get("status"),
+        }
+
+    issue = client.create_issue(
+        {
+            "projectId": cfg.project_id,
+            "title": build_game_analysis_issue_title(target_date, game_id),
+            "description": build_game_analysis_issue_description(target_date, game_id),
+            "status": "todo",
+            "priority": "medium",
+            "assigneeAgentId": cfg.content_analyst_agent_id,
+        }
+    )
+    recorded = _record_issue_snapshot(game_id, target_date, issue, trigger_source=trigger_source)
+    if recorded is not None:
+        result = _result_from_issue_row(recorded, status="created", target_date=target_date, game_id=game_id)
+        result["created_count"] = 1
+        return result
+    return {
+        "ok": True,
+        "status": "created",
+        "source_date": target_date.isoformat(),
+        "game_id": game_id,
+        "issue_id": issue.get("id"),
+        "issue_identifier": issue.get("identifier"),
+        "issue_status": issue.get("status"),
+    }
+
+
 def ensure_game_content_analysis_issues(target_date: date, *, force: bool = False) -> dict:
     pipeline = game_pipeline_status_for_date(target_date)
     game_ids = pipeline["game_ids"]
@@ -285,70 +542,19 @@ def ensure_game_content_analysis_issues(target_date: date, *, force: bool = Fals
     results: list[dict] = []
 
     for game_id in game_ids:
-        if game_id in pipeline["pending_artifact_game_ids"]:
-            results.append({
-                "ok": False,
-                "status": "waiting_for_pipeline",
-                "pipeline_stage": "artifacts",
-                "source_date": target_date.isoformat(),
-                "game_id": game_id,
-            })
-            continue
-        if game_id in pipeline["pending_metric_game_ids"]:
-            results.append({
-                "ok": False,
-                "status": "waiting_for_pipeline",
-                "pipeline_stage": "metrics",
-                "source_date": target_date.isoformat(),
-                "game_id": game_id,
-            })
-            continue
-
-        matching_issues = matching_game_analysis_issues(target_date, game_id, issues)
-        if not force and game_id in covered_game_ids:
-            chosen = matching_issues[0] if matching_issues else None
-            results.append({
-                "ok": True,
-                "status": "already_covered",
-                "source_date": target_date.isoformat(),
-                "game_id": game_id,
-                "issue_id": chosen.get("id") if chosen else None,
-                "issue_identifier": chosen.get("identifier") if chosen else None,
-            })
-            continue
-        if matching_issues and not force:
-            chosen = matching_issues[0]
-            results.append({
-                "ok": True,
-                "status": "exists",
-                "source_date": target_date.isoformat(),
-                "game_id": game_id,
-                "issue_id": chosen.get("id"),
-                "issue_identifier": chosen.get("identifier"),
-            })
-            continue
-        if matching_issues and force:
-            for issue in matching_issues:
-                client.update_issue(issue.get("id"), {"status": "cancelled"})
-
-        issue = client.create_issue(
-            {
-                "projectId": cfg.project_id,
-                "title": build_game_analysis_issue_title(target_date, game_id),
-                "description": build_game_analysis_issue_description(target_date, game_id),
-                "status": "todo",
-                "priority": "medium",
-                "assigneeAgentId": cfg.content_analyst_agent_id,
-            }
+        results.append(
+            _ensure_game_content_analysis_issue_for_game(
+                target_date=target_date,
+                game_id=game_id,
+                force=force,
+                trigger_source="automatic",
+                pipeline=pipeline,
+                client=client,
+                cfg=cfg,
+                issues=issues,
+                covered_game_ids=covered_game_ids,
+            )
         )
-        results.append({
-            "ok": True,
-            "status": "created",
-            "source_date": target_date.isoformat(),
-            "game_id": game_id,
-            "issue_id": issue.get("id"),
-            "issue_identifier": issue.get("identifier"),
-        })
 
     if not results:
         return {"ok": False, "status": "no_games", "source_date": target_date.isoformat(), "game_ids": []}
@@ -383,6 +589,43 @@ def ensure_game_content_analysis_issues(target_date: date, *, force: bool = Fals
     }
 
 
+def ensure_game_content_analysis_issue_for_game(
+    game_id: str,
+    *,
+    force: bool = False,
+    trigger_source: str = "manual",
+) -> dict:
+    target_date = _game_source_date_or_raise(game_id)
+    pipeline = game_pipeline_status_for_date(target_date)
+    if game_id not in set(pipeline.get("game_ids") or []):
+        raise ValueError(f"Game {game_id} not found in pipeline for {target_date.isoformat()}")
+
+    cfg = load_paperclip_bridge_config()
+    if cfg is None:
+        raise PaperclipBridgeError("Paperclip bridge is unavailable.")
+
+    client = PaperclipClient(cfg)
+    cfg = client.discover_defaults()
+    if not cfg.project_id:
+        raise PaperclipBridgeError("Could not resolve Funba project in Paperclip.")
+    if not cfg.content_analyst_agent_id:
+        raise PaperclipBridgeError("Could not resolve Content Analyst agent in Paperclip.")
+
+    issues = client.list_issues(q=game_analysis_issue_search_query(target_date), project_id=cfg.project_id)
+    covered_game_ids = covered_game_ids_for_date(target_date)
+    return _ensure_game_content_analysis_issue_for_game(
+        target_date=target_date,
+        game_id=game_id,
+        force=force,
+        trigger_source=trigger_source,
+        pipeline=pipeline,
+        client=client,
+        cfg=cfg,
+        issues=issues,
+        covered_game_ids=covered_game_ids,
+    )
+
+
 def ensure_recent_game_content_analysis(source_dates: list[date], *, force: bool = False) -> dict:
     deduped_dates = []
     seen: set[date] = set()
@@ -408,8 +651,10 @@ __all__ = [
     "build_game_analysis_issue_description",
     "build_game_analysis_issue_title",
     "covered_game_ids_for_date",
+    "ensure_game_content_analysis_issue_for_game",
     "ensure_game_content_analysis_issues",
     "ensure_recent_game_content_analysis",
+    "game_analysis_issue_history",
     "game_analysis_issue_search_query",
     "game_analysis_issue_title_regex",
     "game_context",

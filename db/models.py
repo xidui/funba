@@ -125,6 +125,28 @@ class Game(Base):
     backfill_mismatch_updated_at = Column(DateTime)
 
 
+class GameContentAnalysisIssue(Base):
+    __tablename__ = "GameContentAnalysisIssue"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(String(50), ForeignKey("Game.game_id", ondelete="CASCADE"), nullable=False)
+    source_date = Column(DATE, nullable=False)
+    paperclip_issue_id = Column(String(64), nullable=False)
+    paperclip_issue_identifier = Column(String(64), nullable=True)
+    paperclip_issue_status = Column(String(16), nullable=True)
+    title = Column(String(255), nullable=False)
+    trigger_source = Column(String(32), nullable=False, default="automatic")
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("paperclip_issue_id", name="uq_GameContentAnalysisIssue_paperclip_issue_id"),
+        Index("ix_GameContentAnalysisIssue_game_id", "game_id"),
+        Index("ix_GameContentAnalysisIssue_source_date", "source_date"),
+        Index("ix_GameContentAnalysisIssue_game_id_source_date", "game_id", "source_date"),
+    )
+
+
 class TeamGameStats(Base):
     __tablename__ = 'TeamGameStats'
 

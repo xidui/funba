@@ -45,7 +45,11 @@ from db.feature_access import (
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
-from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issues
+from content_pipeline.game_analysis_issues import (
+    ensure_game_content_analysis_issue_for_game,
+    ensure_game_content_analysis_issues,
+    game_analysis_issue_history,
+)
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
@@ -5623,6 +5627,22 @@ def game_page(game_id: str):
         road_abbr = _team_abbr(teams, game.road_team_id)
         home_abbr = _team_abbr(teams, game.home_team_id)
         home_team_id = game.home_team_id
+        game_analysis_issues = [
+            {
+                "id": item.id,
+                "issue_id": item.issue_id,
+                "issue_identifier": item.issue_identifier,
+                "issue_status": item.issue_status,
+                "title": item.title,
+                "trigger_source": item.trigger_source,
+                "source_date": item.source_date,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+                "created_at_label": item.created_at.replace("T", " ")[:19] if item.created_at else None,
+                "updated_at_label": item.updated_at.replace("T", " ")[:19] if item.updated_at else None,
+            }
+            for item in game_analysis_issue_history(game_id)
+        ]
 
     return render_template(
         "game.html",
@@ -5648,6 +5668,7 @@ def game_page(game_id: str):
         home_abbr=home_abbr,
         quarter_scores=quarter_scores,
         home_team_id=home_team_id,
+        game_analysis_issues=game_analysis_issues,
     )
 
 
@@ -8131,6 +8152,39 @@ def admin_content_trigger_daily_analysis():
     except Exception as exc:
         logger.exception("Failed to trigger game content analysis for %s", target_date.isoformat())
         return jsonify({"error": str(exc)}), 500
+    return jsonify(result)
+
+
+@app.post("/api/admin/games/<game_id>/content-analysis/trigger")
+def admin_game_trigger_content_analysis(game_id: str):
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    force = bool(data.get("force"))
+    try:
+        result = ensure_game_content_analysis_issue_for_game(game_id, force=force, trigger_source="manual")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except PaperclipBridgeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to trigger game content analysis for game_id=%s", game_id)
+        return jsonify({"error": str(exc)}), 500
+    result["issues"] = [
+        {
+            "id": item.id,
+            "issue_id": item.issue_id,
+            "issue_identifier": item.issue_identifier,
+            "issue_status": item.issue_status,
+            "title": item.title,
+            "trigger_source": item.trigger_source,
+            "source_date": item.source_date,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+        for item in game_analysis_issue_history(game_id)
+    ]
     return jsonify(result)
 
 
