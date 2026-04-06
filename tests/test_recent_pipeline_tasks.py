@@ -22,24 +22,21 @@ def _ctx(session: MagicMock) -> MagicMock:
 
 
 def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
-    with patch.object(
-        content_tasks,
-        "_game_pipeline_status_for_date",
+    with patch(
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0021", "0022"],
             "ready_game_ids": [],
             "pending_artifact_game_ids": ["0021", "0022"],
             "pending_metric_game_ids": [],
         },
-    ), patch.object(
-        content_tasks,
-        "_covered_game_ids_for_date",
+    ), patch(
+        "content_pipeline.game_analysis_issues.covered_game_ids_for_date",
         return_value=set(),
-    ), patch.object(content_tasks, "_all_games_have_metrics") as metrics_mock, patch.object(
-        content_tasks,
-        "load_paperclip_bridge_config",
+    ), patch(
+        "content_pipeline.game_analysis_issues.load_paperclip_bridge_config",
         return_value=object(),
-    ) as cfg_mock, patch.object(content_tasks, "PaperclipClient") as client_cls:
+    ) as cfg_mock, patch("content_pipeline.game_analysis_issues.PaperclipClient") as client_cls:
         client = client_cls.return_value
         client.discover_defaults.return_value = MagicMock(
             project_id="project-1",
@@ -76,7 +73,6 @@ def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
         "issue_id": None,
         "issue_identifier": None,
     }
-    metrics_mock.assert_not_called()
     cfg_mock.assert_called_once()
     client.create_issue.assert_not_called()
 

@@ -265,6 +265,14 @@ Create a SocialPost with variants and delivery destinations.
       "destinations": [
         {"platform": "hupu", "forum": "湿乎乎的话题"}
       ]
+    },
+    {
+      "title": "雷霆这场赢球，真正夸张的是攻防压制力",
+      "content_raw": "小红书图文正文...",
+      "audience_hint": "xiaohongshu nba note",
+      "destinations": [
+        {"platform": "xiaohongshu", "forum": "graph_note"}
+      ]
     }
   ]
 }

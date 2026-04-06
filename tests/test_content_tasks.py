@@ -34,9 +34,9 @@ def _config():
 
 
 class TestGameScopedContentAnalysisIssues(unittest.TestCase):
-    @patch("tasks.content._covered_game_ids_for_date", return_value=set())
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
     @patch(
-        "tasks.content._game_pipeline_status_for_date",
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0022501082"],
             "ready_game_ids": ["0022501082"],
@@ -44,8 +44,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
             "pending_metric_game_ids": [],
         },
     )
-    @patch("tasks.content.load_paperclip_bridge_config")
-    @patch("tasks.content.PaperclipClient")
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
     def test_returns_existing_game_issue_without_force(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
@@ -71,13 +71,13 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(result["results"][0]["issue_identifier"], "XIX-386")
         mock_client.create_issue.assert_not_called()
 
-    @patch("tasks.content._covered_game_ids_for_date", return_value=set())
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
     @patch(
-        "tasks.content._game_context",
+        "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501082", "matchup": "LAL @ BOS", "season": "22025"},
     )
     @patch(
-        "tasks.content._game_pipeline_status_for_date",
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0022501082", "0022501083"],
             "ready_game_ids": ["0022501082"],
@@ -85,8 +85,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
             "pending_metric_game_ids": [],
         },
     )
-    @patch("tasks.content.load_paperclip_bridge_config")
-    @patch("tasks.content.PaperclipClient")
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
     def test_creates_issue_only_for_ready_games(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
@@ -108,19 +108,22 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(result["created_count"], 1)
         self.assertEqual(result["waiting_count"], 1)
         create_payload = mock_client.create_issue.call_args.args[0]
+        description = create_payload["description"]
         self.assertTrue(create_payload["title"].startswith("Game content analysis — funba — 2026-03-29 — 0022501082"))
-        self.assertIn("Game ID: 0022501082", create_payload["description"])
+        self.assertIn("Game ID: 0022501082", description)
+        self.assertIn("one Xiaohongshu note variant", description)
+        self.assertIn("destination `xiaohongshu/graph_note`", description)
         waiting = next(row for row in result["results"] if row["status"] == "waiting_for_pipeline")
         self.assertEqual(waiting["game_id"], "0022501083")
         self.assertEqual(waiting["pipeline_stage"], "artifacts")
 
-    @patch("tasks.content._covered_game_ids_for_date", return_value={"0022501082"})
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value={"0022501082"})
     @patch(
-        "tasks.content._game_context",
+        "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501083", "matchup": "NYK @ PHI", "season": "22025"},
     )
     @patch(
-        "tasks.content._game_pipeline_status_for_date",
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0022501082", "0022501083"],
             "ready_game_ids": ["0022501082", "0022501083"],
@@ -128,8 +131,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
             "pending_metric_game_ids": [],
         },
     )
-    @patch("tasks.content.load_paperclip_bridge_config")
-    @patch("tasks.content.PaperclipClient")
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
     def test_skips_game_with_existing_posts_but_creates_for_new_game(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
@@ -153,13 +156,13 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(covered["game_id"], "0022501082")
         self.assertEqual(created["game_id"], "0022501083")
 
-    @patch("tasks.content._covered_game_ids_for_date", return_value={"0022501082"})
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value={"0022501082"})
     @patch(
-        "tasks.content._game_context",
+        "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501082", "matchup": "LAL @ BOS", "season": "22025"},
     )
     @patch(
-        "tasks.content._game_pipeline_status_for_date",
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
             "game_ids": ["0022501082"],
             "ready_game_ids": ["0022501082"],
@@ -167,8 +170,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
             "pending_metric_game_ids": [],
         },
     )
-    @patch("tasks.content.load_paperclip_bridge_config")
-    @patch("tasks.content.PaperclipClient")
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
     def test_force_cancels_existing_game_issue_and_recreates_it(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg

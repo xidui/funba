@@ -1,0 +1,49 @@
+TITLE: Game content analysis — funba — {source_date} — {game_id} — {matchup}
+
+Run the per-game Funba content analysis pass once NBA ingest and metric computation are stable.
+
+Source date: {source_date}
+Game ID: {game_id}
+Matchup: {matchup}
+Season: {season_label}
+
+Required work:
+1. Read this game's boxscore, triggered metrics, and game detail from Funba localhost APIs.
+2. Create 1-2 strong posts for this single game only. Do not broaden into unrelated same-date games.
+3. For every post, create exactly 3 variants tied to this same game: one general NBA Hupu variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`), one team-fan Hupu variant (destination should be the relevant team forum), and one Xiaohongshu note variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`). Do not skip the Xiaohongshu variant.
+4. Keep the Xiaohongshu variant native to Xiaohongshu: shorter title, faster hook, shorter paragraphs, fewer links in the body, but still factual and grounded in Funba data.
+5. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
+6. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.
+7. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.
+8. Do not publish to external platforms from this issue.
+
+## Topic Selection Rules
+
+- This ticket is for one game. Extract 1-2 distinct story angles from this game, not 5-6 repetitive angles.
+- Avoid duplicate same-game coverage. If another post already covers the same game with a very similar angle, skip it or choose a materially different angle.
+- Do not keep using always-on metrics like common double-doubles / 20+5+5 style triggers as the title hook for the same stars every game.
+- Use those routine metrics only when there is a real milestone, streak, leaderboard movement, unusual efficiency, or broader context.
+- Prefer titles built around what changed, what is rare, what is newly meaningful, or what reshapes the season narrative.
+
+## Image Pool
+
+- Each post must include at least 8 prepared image assets.
+- Prepare the image files yourself before calling Funba, then pass them through `images[].file_path`.
+- Keep all images tied to the same game.
+- Use zero player headshots. Do not use `player_headshot` for this workflow.
+- At least 3 images must be real game or arena-action photos from this specific game context.
+- At least 4 images must be Funba data screenshots (game page, player page, metric page, ranking page, or other relevant Funba data views).
+- At least 1 image must be an AI-generated supporting visual that still matches the same game story.
+- For Funba screenshots, use the dedicated capture CLI instead of taking arbitrary full-page screenshots:
+  `python -m social_media.funba_capture game-boxscore --game-id <game-id> --output <local-file>`
+  `python -m social_media.funba_capture game-metrics --game-id <game-id> --output <local-file>`
+  `python -m social_media.funba_capture player-metrics --player-id <player-id> --scope season --season <season> --output <local-file>`
+  `python -m social_media.funba_capture metric-page --metric-key <metric-key> --season <season> --top-n 5 --output <local-file>`
+- For the required AI-generated supporting visual, use the dedicated image generation CLI instead of ad-hoc SDK code:
+  `python -m social_media.funba_imagegen generate --prompt <prompt> --reference-image <real-game-photo> --output <local-file>`
+- When possible, pass 1-2 real game photos as `--reference-image` so the generated player pose and scene stay grounded in the actual matchup.
+- Reference image assets with slot placeholders like `[[IMAGE:slot=img1]]`.
+- Do not submit a post whose writing depends on images unless those image assets are already prepared and included.
+
+Do not publish externally from this issue.
+

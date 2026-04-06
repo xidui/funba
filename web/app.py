@@ -45,6 +45,7 @@ from db.feature_access import (
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
+from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issues
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
@@ -73,7 +74,6 @@ from web.paperclip_bridge import (
     normalize_admin_comments,
 )
 from runtime_flags import load_runtime_flags, set_runtime_flag
-from tasks.content import ensure_game_content_analysis_issues
 
 _DRAFT_KEY_PREFIX = "_d_"
 _PBP_EVENT_TYPE_LABELS = {
