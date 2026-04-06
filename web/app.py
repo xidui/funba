@@ -432,6 +432,12 @@ def _team_abbr(teams: dict[str, Team], team_id: str | None) -> str:
     return team.abbr or team.full_name or team_id
 
 
+def _team_logo_url(team_id: str | None) -> str | None:
+    if not team_id:
+        return None
+    return f"https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
+
+
 _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "champion": {
         "label": "Champions",
@@ -1551,6 +1557,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     player_ids: set[str] = set()
     team_ids: set[str] = set()
     game_entity_ids: set[str] = set()
+    game_base_ids: set[str] = set()
 
     top3_raw: dict[str, list] = {}
     for key, results in by_metric.items():
@@ -1569,6 +1576,9 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
                     team_ids.add(r.entity_id)
             elif scope == "game" and r.entity_id:
                 game_entity_ids.add(r.entity_id)
+                base_game_id = r.entity_id.split(":")[0] if ":" in r.entity_id else r.entity_id
+                if base_game_id:
+                    game_base_ids.add(base_game_id)
 
     # Bulk resolve names
     player_names = {}
@@ -1585,6 +1595,13 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     game_dates = {}
     if game_entity_ids:
         game_labels, game_dates = _resolve_game_entity_names(session, sorted(game_entity_ids))
+    game_meta = {}
+    if game_base_ids:
+        for game in session.query(Game.game_id, Game.home_team_id, Game.road_team_id).filter(Game.game_id.in_(game_base_ids)).all():
+            game_meta[str(game.game_id)] = {
+                "home_team_id": str(game.home_team_id) if game.home_team_id else None,
+                "road_team_id": str(game.road_team_id) if game.road_team_id else None,
+            }
 
     # Build final output
     result: dict[str, list[dict]] = {}
@@ -1615,10 +1632,14 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
                 game_date = game_dates.get(eid)
                 if game_date:
                     label = f"{label} · {game_date}"
+                base_game_id = eid.split(":")[0] if ":" in eid else eid
+                meta = game_meta.get(base_game_id, {})
                 entry = {
                     "entity_id": eid,
                     "label": label,
                     "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
+                    "road_logo_url": _team_logo_url(meta.get("road_team_id")),
+                    "home_logo_url": _team_logo_url(meta.get("home_team_id")),
                 }
             entries.append(entry)
         if entries:

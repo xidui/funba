@@ -593,6 +593,13 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(page, [{"key": "metric_a_career"}, {"key": "metric_b"}])
         self.assertTrue(has_more)
 
+    def test_team_logo_url_helper_builds_nba_cdn_path(self):
+        self.assertEqual(
+            self.web_app._team_logo_url("1610612743"),
+            "https://cdn.nba.com/logos/nba/1610612743/global/L/logo.svg",
+        )
+        self.assertIsNone(self.web_app._team_logo_url(None))
+
     def test_asc_metric_keys_uses_runtime_catalog(self):
         with patch(
             "metrics.framework.runtime.get_all_metrics",
