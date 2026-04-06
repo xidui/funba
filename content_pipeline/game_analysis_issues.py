@@ -200,7 +200,7 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
             missing_artifacts.append("PBP")
 
         metric_run_count = int(
-            session.query(MetricRunLog.id)
+            session.query(MetricRunLog.game_id)
             .filter(MetricRunLog.game_id == game_id)
             .count()
             or 0
