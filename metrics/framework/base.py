@@ -13,6 +13,15 @@ CAREER_SEASON_PREFIX = "all_"
 SEASON_TYPE_TO_CAREER = {"2": "all_regular", "4": "all_playoffs", "5": "all_playin"}
 CAREER_SEASONS = set(SEASON_TYPE_TO_CAREER.values())
 _CAREER_TO_TYPE = {v: k for k, v in SEASON_TYPE_TO_CAREER.items()}
+METRIC_SEASON_TYPE_OPTIONS = ("regular", "playoffs", "playin")
+SEASON_TYPE_CODE_TO_OPTION = {"2": "regular", "4": "playoffs", "5": "playin"}
+_SEASON_TYPE_OPTION_ALIASES = {
+    "regular": "regular",
+    "playoffs": "playoffs",
+    "playoff": "playoffs",
+    "playin": "playin",
+    "play_in": "playin",
+}
 
 
 def career_season_for(season: str) -> str | None:
@@ -33,6 +42,54 @@ def is_career_season(season: str | None) -> bool:
 def career_season_type_code(career_season: str) -> str | None:
     """Reverse-map career season to type code, e.g. 'all_regular' → '2'."""
     return _CAREER_TO_TYPE.get(career_season)
+
+
+def season_type_for(season: str | None) -> str | None:
+    """Return canonical season type slug for a season token when known."""
+    if not season:
+        return None
+    if is_career_season(season):
+        type_code = career_season_type_code(season)
+        return SEASON_TYPE_CODE_TO_OPTION.get(type_code)
+    if len(season) == 5 and season.isdigit():
+        return SEASON_TYPE_CODE_TO_OPTION.get(season[0])
+    return None
+
+
+def normalize_metric_season_types(season_types) -> tuple[str, ...]:
+    """Normalize a metric's supported season type list."""
+    if season_types is None:
+        return METRIC_SEASON_TYPE_OPTIONS
+
+    if isinstance(season_types, str):
+        raw_values = [season_types]
+    else:
+        raw_values = list(season_types)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        value = _SEASON_TYPE_OPTION_ALIASES.get(str(raw or "").strip().lower())
+        if value is None:
+            raise ValueError(
+                "season_types must use only: " + ", ".join(METRIC_SEASON_TYPE_OPTIONS)
+            )
+        if value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+
+    if not normalized:
+        raise ValueError("season_types must include at least one supported season type")
+    return tuple(normalized)
+
+
+def season_matches_metric_types(season: str | None, season_types) -> bool:
+    """Return True when the metric should run for this season token."""
+    season_type = season_type_for(season)
+    if season_type is None:
+        return True
+    return season_type in normalize_metric_season_types(season_types)
 
 
 @dataclass
@@ -115,6 +172,10 @@ class MetricDefinition(ABC):
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)
     rank_order: str = "desc"
+
+    # Supported season families for season-triggered code metrics.
+    # Defaults to regular season, playoffs, and play-in.
+    season_types: tuple[str, ...] = METRIC_SEASON_TYPE_OPTIONS
 
     # Career sibling overrides (customisable per metric class)
     career_min_sample: int | None = None  # None → min_sample * 5

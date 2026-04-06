@@ -236,6 +236,50 @@ class LowestQuarterScore(MetricDefinition):
         self.assertEqual(metadata["rank_order"], "asc")
         self.assertIn('rank_order = "asc"', metadata["code_python"])
 
+    def test_code_metric_metadata_defaults_season_types_to_all_supported_types(self):
+        metadata = self.web_app._code_metric_metadata_from_code(
+            """
+from metrics.framework.base import MetricDefinition
+
+
+class DemoMetric(MetricDefinition):
+    key = "demo_metric"
+    name = "Demo Metric"
+    description = "Demo."
+    scope = "player"
+    category = "aggregate"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+"""
+        )
+
+        self.assertEqual(metadata["season_types"], ["regular", "playoffs", "playin"])
+
+    def test_code_metric_metadata_applies_season_types_override(self):
+        metadata = self.web_app._code_metric_metadata_from_code(
+            """
+from metrics.framework.base import MetricDefinition
+
+
+class PlayoffMetric(MetricDefinition):
+    key = "playoff_metric"
+    name = "Playoff Metric"
+    description = "Playoff-only demo."
+    scope = "player"
+    category = "aggregate"
+    incremental = False
+
+    def compute(self, session, entity_id, season, game_id=None):
+        return None
+""",
+            season_types_override=["playoffs"],
+        )
+
+        self.assertEqual(metadata["season_types"], ["playoffs"])
+        self.assertIn("season_types = ('playoffs',)", metadata["code_python"])
+
     def test_catalog_prefers_code_metric_name_over_stale_db_name(self):
         row = SimpleNamespace(
             key="single_quarter_team_scoring",

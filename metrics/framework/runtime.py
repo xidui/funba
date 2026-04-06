@@ -21,6 +21,7 @@ from metrics.framework.base import (
     career_season_for,
     career_season_type_code,
     is_career_season,
+    normalize_metric_season_types,
 )
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -213,6 +214,11 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
     trigger = getattr(metric, "trigger", "game")
     if trigger not in {"game", "season"}:
         raise ValueError(f"Generated metric has invalid trigger: {trigger!r}")
+
+    try:
+        metric.season_types = normalize_metric_season_types(getattr(metric, "season_types", None))
+    except ValueError as exc:
+        raise ValueError(f"Generated metric has invalid season_types: {exc}") from exc
 
     metric_cls = type(metric)
     if trigger == "season":
@@ -580,6 +586,7 @@ class RuleMetricDefinition(MetricDefinition):
         self.career_name_suffix = str(self.definition.get("career_name_suffix") or " (Career)")
         career_min_sample = self.definition.get("career_min_sample")
         self.career_min_sample = int(career_min_sample) if career_min_sample is not None else None
+        self.season_types = normalize_metric_season_types(self.definition.get("season_types"))
         self.qualifying_field = self.definition.get("qualifying_field")  # legacy, unused
         explicit_career = self.variant == FAMILY_VARIANT_CAREER
         self.career = explicit_career if career is None else career
@@ -711,6 +718,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_sum_keys = tuple(getattr(self._inner, "career_sum_keys", ()) or ())
         self.career_max_keys = tuple(getattr(self._inner, "career_max_keys", ()) or ())
         self.career_min_keys = tuple(getattr(self._inner, "career_min_keys", ()) or ())
+        self.season_types = normalize_metric_season_types(getattr(self._inner, "season_types", None))
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)

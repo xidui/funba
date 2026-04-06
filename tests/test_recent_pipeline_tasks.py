@@ -193,6 +193,34 @@ def test_compute_season_metric_queues_recent_content_check():
     assert result == {"metric_key": "metric_a", "season": "22025", "results_written": 7}
 
 
+def test_refresh_current_season_metrics_respects_metric_season_types():
+    session = _ctx(MagicMock())
+    season_query = MagicMock()
+    season_query.filter.return_value.distinct.return_value.all.return_value = [("22025",), ("42025",), ("52025",)]
+    session.query.return_value = season_query
+    SessionFactory = MagicMock(return_value=session)
+
+    regular_only = MagicMock(key="salary_per_point", trigger="season", career=False, supports_career=False, season_types=("regular",))
+    playoffs_only = MagicMock(key="playoff_points", trigger="season", career=False, supports_career=True, season_types=("playoffs",))
+
+    with patch.object(metrics_tasks, "sessionmaker", return_value=SessionFactory), patch(
+        "metrics.framework.runtime.get_all_metrics",
+        return_value=[regular_only, playoffs_only],
+    ), patch.object(metrics_tasks.compute_season_metric_task, "delay") as delay_mock:
+        result = metrics_tasks.refresh_current_season_metrics.run([{"game_id": "g1", "new_game": True}])
+
+    assert result == {
+        "seasons": ["22025", "42025", "52025"],
+        "career_buckets": ["all_playin", "all_playoffs", "all_regular"],
+        "metrics": 2,
+        "enqueued": 3,
+    }
+    delay_mock.assert_any_call("salary_per_point", "22025")
+    delay_mock.assert_any_call("playoff_points", "42025")
+    delay_mock.assert_any_call("playoff_points_career", "all_playoffs")
+    assert delay_mock.call_count == 3
+
+
 def test_sync_schedule_games_enables_unplayed_upsert_mode():
     with patch.object(dispatch_tasks, "discover_and_insert_games", return_value={"g1"}) as discover_mock:
         result = dispatch_tasks.sync_schedule_games(date_from="04/01/2026", date_to="05/01/2026")

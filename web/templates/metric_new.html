@@ -378,6 +378,26 @@
   .form-input:focus, .form-select:focus { border-color: var(--accent); }
   .form-input[readonly] { opacity: 0.5; cursor: not-allowed; }
 
+  .season-type-grid {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .season-type-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .season-type-option input {
+    margin: 0;
+  }
+
   .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
   /* ── Preview table ───────────────────────────────────────────────── */
@@ -647,6 +667,17 @@
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label">Season Types</label>
+      <div class="season-type-grid">
+        <label class="season-type-option"><input type="checkbox" name="f-season-type" value="regular" checked> Regular Season</label>
+        <label class="season-type-option"><input type="checkbox" name="f-season-type" value="playoffs" checked> Playoffs</label>
+        <label class="season-type-option"><input type="checkbox" name="f-season-type" value="playin" checked> Play-In</label>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+        Choose which season families this metric should run for. The default is all three.
+      </div>
+    </div>
+    <div class="form-group">
       <label class="form-label">Group Key</label>
       <input id="f-group-key" class="form-input" type="text" placeholder="Optional — group related metrics together" />
       <div style="margin-top:6px;font-size:11px;color:var(--muted);">
@@ -747,6 +778,19 @@
   let isSubmitting = false;
   let limitLocked = false;
   let conversationId = null;
+  const DEFAULT_SEASON_TYPES = ['regular', 'playoffs', 'playin'];
+  const seasonTypeInputs = Array.from(document.querySelectorAll('input[name="f-season-type"]'));
+
+  function readSeasonTypes() {
+    return seasonTypeInputs.filter(input => input.checked).map(input => input.value);
+  }
+
+  function setSeasonTypes(values) {
+    const selected = new Set((Array.isArray(values) && values.length ? values : DEFAULT_SEASON_TYPES).map(String));
+    seasonTypeInputs.forEach(input => {
+      input.checked = selected.has(input.value);
+    });
+  }
 
   // Pre-populate in edit mode
   if (EDIT_MODE) {
@@ -758,6 +802,7 @@
       scope: {{ edit_metric.scope | tojson if edit_metric else 'null' }},
       category: {{ edit_metric.category | tojson if edit_metric else 'null' }},
       rank_order: {{ ((edit_metric.rank_order if edit_metric else 'desc') | tojson) | safe }},
+      season_types: {{ edit_metric.season_types | tojson if edit_metric else 'null' }},
       code: {{ edit_metric.code | tojson if edit_metric else 'null' }},
       min_sample: {{ edit_metric.min_sample if edit_metric else 1 }},
       max_results_per_season: {{ edit_metric.max_results_per_season | tojson if edit_metric else 'null' }},
@@ -773,6 +818,7 @@
   }
 
   if (!conversationId) conversationId = newConversationId();
+  setSeasonTypes(EDIT_MODE && currentSpec ? currentSpec.season_types : DEFAULT_SEASON_TYPES);
 
   const chatMessages = document.getElementById('chat-messages');
   const chatEmpty    = document.getElementById('chat-empty');
@@ -989,6 +1035,7 @@
       document.getElementById('f-scope').value = 'player';
       document.getElementById('f-category').value = 'scoring';
       rankOrderInput.value = 'desc';
+      setSeasonTypes(DEFAULT_SEASON_TYPES);
     }
     syncChatControls();
     chatInput.focus();
@@ -1003,6 +1050,7 @@
     document.getElementById('f-scope').value = currentSpec.scope || 'player';
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
     rankOrderInput.value = currentSpec.rank_order || 'desc';
+    setSeasonTypes(currentSpec.season_types || DEFAULT_SEASON_TYPES);
     document.getElementById('f-max-results').value = currentSpec.max_results_per_season || '';
     document.getElementById('f-group-key').value = currentSpec.group_key || '';
     keyInput.value = EDIT_KEY;
@@ -1125,6 +1173,7 @@
         scope: document.getElementById('f-scope').value,
         category: document.getElementById('f-category').value,
         rank_order: rankOrderInput.value,
+        season_types: readSeasonTypes(),
         code: codeViewer.textContent,
       };
     }
@@ -1168,7 +1217,12 @@
       return;
     }
 
+    const priorSeasonTypes = readSeasonTypes();
     currentSpec = data.spec;
+    currentSpec.season_types = Array.isArray(currentSpec.season_types) && currentSpec.season_types.length
+      ? currentSpec.season_types
+      : priorSeasonTypes;
+    setSeasonTypes(currentSpec.season_types);
     addAiMsg(currentSpec);
 
     if (EDIT_MODE) {
@@ -1177,6 +1231,7 @@
       currentSpec.scope       = document.getElementById('f-scope').value;
       currentSpec.category    = document.getElementById('f-category').value;
       currentSpec.rank_order  = rankOrderInput.value;
+      currentSpec.season_types = readSeasonTypes();
     } else {
       document.getElementById('f-name').value     = currentSpec.name || '';
       document.getElementById('f-desc').value     = currentSpec.description || '';
@@ -1186,6 +1241,7 @@
       }
       rankOrderInput.value = currentSpec.rank_order || rankOrderInput.value || 'desc';
       document.getElementById('f-max-results').value = currentSpec.max_results_per_season || '';
+      setSeasonTypes(currentSpec.season_types || DEFAULT_SEASON_TYPES);
       syncCreateKey(currentSpec, expr);
     }
     codeViewer.textContent = currentSpec.code || '';
@@ -1302,7 +1358,7 @@
       const res = await fetch('/api/metrics/preview', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ code, scope, season, rank_order: rankOrder }),
+        body: JSON.stringify({ code, scope, season, rank_order: rankOrder, season_types: readSeasonTypes() }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -1369,6 +1425,7 @@
       scope:      document.getElementById('f-scope').value,
       category:   document.getElementById('f-category').value,
       rank_order: rankOrderInput.value,
+      season_types: readSeasonTypes(),
       code:       codeViewer.textContent,
       expression: chatHistory.length ? chatHistory[0].content : '',
       min_sample: currentSpec.min_sample || 1,
@@ -1378,6 +1435,11 @@
 
     if (!body.key || !body.name) {
       saveMsg.textContent = 'Name and key are required.';
+      saveMsg.className = 'status-msg error';
+      return;
+    }
+    if (!body.season_types.length) {
+      saveMsg.textContent = 'Select at least one season type.';
       saveMsg.className = 'status-msg error';
       return;
     }

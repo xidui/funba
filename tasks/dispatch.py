@@ -531,7 +531,7 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
     """Enqueue season-triggered metric computation tasks."""
     from celery import chord
 
-    from metrics.framework.base import CAREER_SEASONS, career_season_for
+    from metrics.framework.base import CAREER_SEASONS, career_season_for, season_matches_metric_types
     from metrics.framework.runtime import get_all_metrics, get_metric
     from tasks.metrics import compute_season_metric_task, enqueue_career_metric_family_task
 
@@ -569,33 +569,41 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
     enqueued = 0
     callbacks = 0
     for m in metrics:
+        eligible_seasons = [season for season in seasons if season_matches_metric_types(season, getattr(m, "season_types", None))]
+        eligible_career_buckets = [
+            cb for cb in sorted(CAREER_SEASONS)
+            if season_matches_metric_types(cb, getattr(m, "season_types", None))
+        ]
         if getattr(m, "career", False):
             # Career variant — dispatch with career seasons only
             if args.season:
                 career_bucket = career_season_for(args.season)
-                if career_bucket:
+                if career_bucket and season_matches_metric_types(career_bucket, getattr(m, "season_types", None)):
                     compute_season_metric_task.delay(m.key, career_bucket)
                     enqueued += 1
             else:
-                for cb in sorted(CAREER_SEASONS):
+                for cb in eligible_career_buckets:
                     compute_season_metric_task.delay(m.key, cb)
                     enqueued += 1
         else:
             # Base metric — dispatch with concrete seasons
-            has_career = getattr(m, "supports_career", False) and not args.season
-            task_count = len(seasons) + (3 if has_career else 0)
+            has_career = getattr(m, "supports_career", False) and not args.season and bool(eligible_career_buckets)
+            task_count = len(eligible_seasons) + (len(eligible_career_buckets) if has_career else 0)
+            if task_count == 0:
+                print(f"  {m.key}: no supported seasons for configured season_types, skipping")
+                continue
             run, created = _create_metric_compute_run(m.key, task_count)
             run_id = run.id if created else None
             if not created:
                 print(f"  {m.key}: active compute run exists ({run.id}), skipping progress tracking")
 
             if has_career:
-                season_tasks = [compute_season_metric_task.s(m.key, season, run_id=run_id) for season in seasons]
+                season_tasks = [compute_season_metric_task.s(m.key, season, run_id=run_id) for season in eligible_seasons]
                 chord(season_tasks)(enqueue_career_metric_family_task.s(metric_key=m.key, run_id=run_id))
                 enqueued += len(season_tasks)
                 callbacks += 1
             else:
-                for season in seasons:
+                for season in eligible_seasons:
                     compute_season_metric_task.delay(m.key, season, run_id=run_id)
                     enqueued += 1
 

@@ -719,6 +719,7 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
 def enqueue_career_metric_family_task(self, results: list, metric_key: str, run_id: str | None = None) -> dict:
     """Enqueue the three career buckets after all concrete seasons finish."""
     from metrics.framework.family import family_career_key
+    from metrics.framework.base import season_matches_metric_types
     from metrics.framework.runtime import get_metric
 
     base_metric = get_metric(metric_key)
@@ -734,6 +735,8 @@ def enqueue_career_metric_family_task(self, results: list, metric_key: str, run_
 
     enqueued = 0
     for bucket in ("all_regular", "all_playoffs", "all_playin"):
+        if not season_matches_metric_types(bucket, getattr(career_metric, "season_types", None)):
+            continue
         compute_season_metric_task.delay(career_key, bucket, run_id=run_id)
         enqueued += 1
 
@@ -794,7 +797,7 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
     Detects which seasons were affected from the ingested game IDs, then
     refreshes those seasons plus their corresponding career buckets.
     """
-    from metrics.framework.base import career_season_for
+    from metrics.framework.base import career_season_for, season_matches_metric_types
     from metrics.framework.family import family_career_key
     from metrics.framework.runtime import get_all_metrics
 
@@ -846,23 +849,32 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
     ]
 
     enqueued = 0
+    scheduled_metrics = 0
     for m in metrics:
-        for season in affected_seasons:
+        eligible_seasons = [season for season in affected_seasons if season_matches_metric_types(season, getattr(m, "season_types", None))]
+        eligible_career_buckets = [
+            cb for cb in career_buckets
+            if season_matches_metric_types(cb, getattr(m, "season_types", None))
+        ]
+        if not eligible_seasons and not (getattr(m, "supports_career", False) and eligible_career_buckets):
+            continue
+        scheduled_metrics += 1
+        for season in eligible_seasons:
             compute_season_metric_task.delay(m.key, season)
             enqueued += 1
         if getattr(m, "supports_career", False):
             career_key = family_career_key(m.key)
-            for cb in career_buckets:
+            for cb in eligible_career_buckets:
                 compute_season_metric_task.delay(career_key, cb)
                 enqueued += 1
 
     logger.info(
         "refresh_current_season_metrics: seasons=%s, career_buckets=%s, enqueued %d task(s) for %d metric(s).",
-        affected_seasons, career_buckets, enqueued, len(metrics),
+        affected_seasons, career_buckets, enqueued, scheduled_metrics,
     )
     return {
         "seasons": sorted(affected_seasons),
         "career_buckets": sorted(career_buckets),
-        "metrics": len(metrics),
+        "metrics": scheduled_metrics,
         "enqueued": enqueued,
     }

@@ -82,8 +82,16 @@ class MetricDefinition(ABC):
     incremental: bool = False
     supports_career: bool = True   # auto-creates a career variant. Set False only for game-scope metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
+    season_types: tuple[str, ...] = ("regular", "playoffs", "playin")
     max_results_per_season: int | None = None  # if set, keep only the top N results per season
 ```
+
+### season_types — restrict which season families the metric runs for
+- Default to `("regular", "playoffs", "playin")`.
+- Use `("regular",)` for metrics that only make sense for regular season data (for example salary metrics).
+- Use `("playoffs",)` or `("playin",)` when the user explicitly asks for that season family.
+- If the user does not mention a season family, keep all three enabled by default.
+- Only these values are allowed: `regular`, `playoffs`, `playin`.
 
 ### Execution: trigger="season" (whole-season computation)
 The metric queries all data for the season and returns all results at once.
@@ -300,6 +308,7 @@ If the user is asking you to create or modify a metric, reply with:
   "incremental": false,
   "supports_career": <bool>,
   "rank_order": "desc | asc",
+  "season_types": ["regular", "playoffs", "playin"],
   "code": "<full Python code for the class, with imports>"
 }
 
@@ -313,6 +322,8 @@ IMPORTANT:
   the system works internally, politely redirect them to focus on what metric they
   want to create. Write as if talking to an NBA fan, not a developer.
 - For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
+- Include `season_types` in the JSON spec. Default to `["regular", "playoffs", "playin"]`
+  unless the metric is clearly limited to one or two season families.
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.
 - The generated MetricDefinition subclass must define both `name_zh` and `description_zh` class attributes.
 - Include all necessary imports at the top of the code. Never use __import__() or dynamic imports inside methods.
@@ -341,6 +352,9 @@ IMPORTANT:
 - For metrics with supports_career=True, define:
   `career_aggregate_mode = "season_results"`, `career_sum_keys`, optional
   `career_max_keys`, and `compute_career_value()`.
+- Add `season_types = (...)` as a class attribute in the generated code.
+- If the user clearly asks for playoff-only or play-in-only logic, restrict
+  `season_types` accordingly instead of leaving regular season enabled.
 
 CRITICAL — PBP score parsing:
 - GamePlayByPlay.score is a CUMULATIVE score string like "62 - 51" (home - road).
@@ -519,6 +533,7 @@ def generate(
             f"  scope: {existing.get('scope', '')}\n"
             f"  category: {existing.get('category', '')}\n"
             f"  rank_order: {existing.get('rank_order', '')}\n"
+            f"  season_types: {existing.get('season_types', '')}\n"
             f"\nCurrent code:\n```python\n{existing.get('code', '')}\n```\n\n"
             "User's requested change:\n"
         )
@@ -571,6 +586,7 @@ def generate(
     else:
         spec.setdefault("name_zh", spec.get("name", ""))
         spec.setdefault("description_zh", spec.get("description", ""))
+    spec.setdefault("season_types", ["regular", "playoffs", "playin"])
 
     # Validate required keys
     for key in ("name", "name_zh", "description", "description_zh", "scope", "code"):
@@ -582,7 +598,7 @@ def generate(
 
     # In edit mode, override metadata with the existing values
     if existing:
-        for field in ("key", "name", "name_zh", "description", "description_zh", "scope", "category", "rank_order"):
+        for field in ("key", "name", "name_zh", "description", "description_zh", "scope", "category", "rank_order", "season_types"):
             if field in existing:
                 spec[field] = existing[field]
 

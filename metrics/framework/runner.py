@@ -15,7 +15,13 @@ from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
 from db.models import Game, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
-from metrics.framework.base import MetricResult, career_season_for, is_career_season, merge_totals
+from metrics.framework.base import (
+    MetricResult,
+    career_season_for,
+    is_career_season,
+    merge_totals,
+    season_matches_metric_types,
+)
 from metrics.framework.runtime import _metric_declares_career_reducer, get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
@@ -465,6 +471,10 @@ def run_season_metric(
 
     if getattr(metric_def, "trigger", "game") != "season":
         logger.warning("run_season_metric: metric %r is not trigger=season; skipping.", metric_key)
+        return 0
+
+    if not season_matches_metric_types(season, getattr(metric_def, "season_types", None)):
+        logger.info("run_season_metric: metric %s does not support season %s; skipping.", metric_key, season)
         return 0
 
     started_at = time.perf_counter()
