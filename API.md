@@ -229,6 +229,7 @@ Create a SocialPost with variants and delivery destinations.
   "source_date": "2026-03-28",
   "source_metrics": ["blowout_rate"],
   "source_game_ids": ["0022501066"],
+  "analysis_issue_identifier": "XIX-659",
   "priority": 30,
   "status": "draft",
   "llm_model": "claude-sonnet-4-6",
@@ -284,6 +285,8 @@ Create a SocialPost with variants and delivery destinations.
 | `source_date` | string | yes | | ISO date of the games this post is about |
 | `source_metrics` | string[] | no | [] | Metric keys used as source material |
 | `source_game_ids` | string[] | no | [] | Game IDs referenced |
+| `analysis_issue_id` | string | no | null | Optional Paperclip game-analysis issue ID to link this post back to the triggering game-analysis ticket |
+| `analysis_issue_identifier` | string | no | null | Optional Paperclip game-analysis issue identifier such as `XIX-659`; recommended for agent-created posts spawned from a game-analysis ticket |
 | `priority` | int | no | 50 | 0-20 historic, 20-50 notable, 50-80 interesting |
 | `status` | string | no | "draft" | Initial status: `draft`, `ai_review`, `in_review`, `approved`, `archived` |
 | `llm_model` | string | no | null | Which model generated the content |

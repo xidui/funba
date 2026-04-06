@@ -14,7 +14,15 @@ from sqlalchemy.orm import sessionmaker
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
-from db.models import Game, GameContentAnalysisIssue, MetricRunLog, SocialPost, Team, engine
+from db.models import (
+    Game,
+    GameContentAnalysisIssue,
+    GameContentAnalysisIssuePost,
+    MetricRunLog,
+    SocialPost,
+    Team,
+    engine,
+)
 from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_paperclip_bridge_config
 
 logger = logging.getLogger(__name__)
@@ -53,6 +61,7 @@ class GameAnalysisIssueRecordView:
     trigger_source: str
     created_at: str
     updated_at: str
+    posts: tuple[dict[str, object], ...] = ()
 
 
 def _session_factory():
@@ -200,6 +209,17 @@ def game_analysis_issue_title_regex() -> re.Pattern[str]:
     return re.compile(rf"^{pattern}$")
 
 
+def parse_game_analysis_issue_title(title: str) -> dict[str, str] | None:
+    match = game_analysis_issue_title_regex().match(title) or _LEGACY_GAME_ANALYSIS_TITLE_RE.match(title)
+    if not match:
+        return None
+    return {
+        key: str(value)
+        for key, value in match.groupdict().items()
+        if value is not None
+    }
+
+
 def build_game_analysis_issue_title(target_date: date, game_id: str) -> str:
     ctx = game_context(game_id)
     return load_game_analysis_issue_template().title_template.format(
@@ -266,6 +286,32 @@ def _game_analysis_issue_rows(game_id: str, *, source_date: date | None = None) 
 
 def game_analysis_issue_history(game_id: str) -> list[GameAnalysisIssueRecordView]:
     rows = _game_analysis_issue_rows(game_id)
+    issue_ids = [int(row.id) for row in rows]
+    linked_posts_by_issue: dict[int, list[dict[str, object]]] = {}
+    if issue_ids:
+        try:
+            with _session_factory()() as session:
+                joined_rows = (
+                    session.query(GameContentAnalysisIssuePost, SocialPost)
+                    .join(SocialPost, SocialPost.id == GameContentAnalysisIssuePost.post_id)
+                    .filter(GameContentAnalysisIssuePost.issue_record_id.in_(issue_ids))
+                    .order_by(GameContentAnalysisIssuePost.issue_record_id.asc(), SocialPost.id.asc())
+                    .all()
+                )
+            for link_row, post in joined_rows:
+                linked_posts_by_issue.setdefault(int(link_row.issue_record_id), []).append(
+                    {
+                        "post_id": int(post.id),
+                        "topic": str(post.topic or ""),
+                        "status": str(post.status or ""),
+                        "source_date": post.source_date.isoformat() if post.source_date else "",
+                        "discovered_via": str(link_row.discovered_via or "unknown"),
+                    }
+                )
+        except Exception as exc:
+            if not _is_missing_issue_table_error(exc):
+                raise
+            logger.warning("GameContentAnalysisIssuePost table is not available yet; issue history will omit linked posts.")
     history: list[GameAnalysisIssueRecordView] = []
     for row in rows:
         history.append(
@@ -280,6 +326,7 @@ def game_analysis_issue_history(game_id: str) -> list[GameAnalysisIssueRecordVie
                 trigger_source=str(row.trigger_source or "automatic"),
                 created_at=row.created_at.isoformat() if row.created_at else "",
                 updated_at=row.updated_at.isoformat() if row.updated_at else "",
+                posts=tuple(linked_posts_by_issue.get(int(row.id), [])),
             )
         )
     return history
@@ -348,6 +395,107 @@ def _record_issue_snapshots(
 def _latest_issue_row(game_id: str, source_date: date) -> GameContentAnalysisIssue | None:
     rows = _game_analysis_issue_rows(game_id, source_date=source_date)
     return rows[0] if rows else None
+
+
+def resolve_game_analysis_issue_record(
+    *,
+    analysis_issue_id: str | None = None,
+    analysis_issue_identifier: str | None = None,
+) -> GameContentAnalysisIssue | None:
+    issue_id = str(analysis_issue_id or "").strip() or None
+    issue_identifier = str(analysis_issue_identifier or "").strip() or None
+    if not issue_id and not issue_identifier:
+        return None
+
+    try:
+        with _session_factory()() as session:
+            row = None
+            if issue_id:
+                row = (
+                    session.query(GameContentAnalysisIssue)
+                    .filter(GameContentAnalysisIssue.paperclip_issue_id == issue_id)
+                    .first()
+                )
+            if row is None and issue_identifier:
+                row = (
+                    session.query(GameContentAnalysisIssue)
+                    .filter(GameContentAnalysisIssue.paperclip_issue_identifier == issue_identifier)
+                    .first()
+                )
+            if row is not None:
+                session.expunge(row)
+                return row
+    except Exception as exc:
+        if not _is_missing_issue_table_error(exc):
+            raise
+
+    cfg = load_paperclip_bridge_config()
+    if cfg is None:
+        raise PaperclipBridgeError("Paperclip bridge is unavailable.")
+    client = PaperclipClient(cfg)
+    cfg = client.discover_defaults()
+
+    issue = None
+    if issue_id:
+        issue = client.get_issue(issue_id)
+    elif issue_identifier:
+        candidates = client.list_issues(q=issue_identifier, project_id=cfg.project_id)
+        issue = next((item for item in candidates if str(item.get("identifier") or "").strip() == issue_identifier), None)
+
+    if not issue:
+        return None
+
+    title = str(issue.get("title") or "").strip()
+    parsed = parse_game_analysis_issue_title(title)
+    if not parsed:
+        return None
+
+    source_date = datetime.strptime(parsed["source_date"], "%Y-%m-%d").date()
+    game_id = parsed["game_id"]
+    return _record_issue_snapshot(game_id, source_date, issue, trigger_source="backfill")
+
+
+def link_post_to_game_analysis_issue(
+    post_id: int,
+    *,
+    analysis_issue_id: str | None = None,
+    analysis_issue_identifier: str | None = None,
+    discovered_via: str = "api_create",
+) -> GameContentAnalysisIssuePost | None:
+    issue_row = resolve_game_analysis_issue_record(
+        analysis_issue_id=analysis_issue_id,
+        analysis_issue_identifier=analysis_issue_identifier,
+    )
+    if issue_row is None:
+        return None
+
+    now = _utc_now_naive()
+    try:
+        with _session_factory()() as session:
+            row = (
+                session.query(GameContentAnalysisIssuePost)
+                .filter(
+                    GameContentAnalysisIssuePost.issue_record_id == issue_row.id,
+                    GameContentAnalysisIssuePost.post_id == int(post_id),
+                )
+                .first()
+            )
+            if row is None:
+                row = GameContentAnalysisIssuePost(
+                    issue_record_id=issue_row.id,
+                    post_id=int(post_id),
+                    discovered_via=discovered_via,
+                    created_at=now,
+                )
+                session.add(row)
+                session.commit()
+                session.refresh(row)
+            return row
+    except Exception as exc:
+        if _is_missing_issue_table_error(exc):
+            logger.warning("GameContentAnalysisIssuePost table is not available yet; skipping issue/post link write.")
+            return None
+        raise
 
 
 def _result_from_issue_row(
@@ -659,8 +807,11 @@ __all__ = [
     "game_analysis_issue_title_regex",
     "game_context",
     "game_pipeline_status_for_date",
+    "link_post_to_game_analysis_issue",
     "load_game_analysis_issue_template",
     "matching_game_analysis_issues",
+    "parse_game_analysis_issue_title",
     "recent_game_dates_for_season",
     "recent_target_dates",
+    "resolve_game_analysis_issue_record",
 ]

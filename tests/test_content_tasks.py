@@ -37,6 +37,8 @@ def _config():
 
 class TestGameScopedContentAnalysisIssues(unittest.TestCase):
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
+    @patch("content_pipeline.game_analysis_issues._record_issue_snapshots", return_value=[])
     @patch(
         "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
         return_value={
@@ -48,7 +50,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
     )
     @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
     @patch("content_pipeline.game_analysis_issues.PaperclipClient")
-    def test_returns_existing_game_issue_without_force(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_covered):
+    def test_returns_existing_game_issue_without_force(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_recorded, _mock_latest, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 
@@ -74,6 +76,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         mock_client.create_issue.assert_not_called()
 
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
+    @patch("content_pipeline.game_analysis_issues._record_issue_snapshot", return_value=None)
     @patch(
         "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501082", "matchup": "LAL @ BOS", "season": "22025"},
@@ -89,7 +93,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
     )
     @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
     @patch("content_pipeline.game_analysis_issues.PaperclipClient")
-    def test_creates_issue_only_for_ready_games(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
+    def test_creates_issue_only_for_ready_games(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_record_issue, _mock_latest, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 
@@ -120,6 +124,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(waiting["pipeline_stage"], "artifacts")
 
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value={"0022501082"})
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
+    @patch("content_pipeline.game_analysis_issues._record_issue_snapshot", return_value=None)
     @patch(
         "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501083", "matchup": "NYK @ PHI", "season": "22025"},
@@ -135,7 +141,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
     )
     @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
     @patch("content_pipeline.game_analysis_issues.PaperclipClient")
-    def test_skips_game_with_existing_posts_but_creates_for_new_game(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
+    def test_skips_game_with_existing_posts_but_creates_for_new_game(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_record_issue, _mock_latest, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 
@@ -159,6 +165,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(created["game_id"], "0022501083")
 
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value={"0022501082"})
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
+    @patch("content_pipeline.game_analysis_issues._record_issue_snapshot", return_value=None)
     @patch(
         "content_pipeline.game_analysis_issues.game_context",
         return_value={"game_id": "0022501082", "matchup": "LAL @ BOS", "season": "22025"},
@@ -174,7 +182,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
     )
     @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
     @patch("content_pipeline.game_analysis_issues.PaperclipClient")
-    def test_force_cancels_existing_game_issue_and_recreates_it(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_covered):
+    def test_force_cancels_existing_game_issue_and_recreates_it(self, mock_client_cls, mock_load_cfg, _mock_pipeline, _mock_game_context, _mock_record_issue, _mock_latest, _mock_covered):
         cfg = _config()
         mock_load_cfg.return_value = cfg
 

@@ -147,6 +147,26 @@ class GameContentAnalysisIssue(Base):
     )
 
 
+class GameContentAnalysisIssuePost(Base):
+    __tablename__ = "GameContentAnalysisIssuePost"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    issue_record_id = Column(
+        Integer,
+        ForeignKey("GameContentAnalysisIssue.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    post_id = Column(Integer, ForeignKey("SocialPost.id", ondelete="CASCADE"), nullable=False)
+    discovered_via = Column(String(32), nullable=False, default="api_create")
+    created_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("issue_record_id", "post_id", name="uq_GameContentAnalysisIssuePost_issue_post"),
+        Index("ix_GameContentAnalysisIssuePost_issue_record_id", "issue_record_id"),
+        Index("ix_GameContentAnalysisIssuePost_post_id", "post_id"),
+    )
+
+
 class TeamGameStats(Base):
     __tablename__ = 'TeamGameStats'
 

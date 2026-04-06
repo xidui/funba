@@ -49,6 +49,8 @@ from content_pipeline.game_analysis_issues import (
     ensure_game_content_analysis_issue_for_game,
     ensure_game_content_analysis_issues,
     game_analysis_issue_history,
+    link_post_to_game_analysis_issue,
+    resolve_game_analysis_issue_record,
 )
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
@@ -5640,6 +5642,16 @@ def game_page(game_id: str):
                 "updated_at": item.updated_at,
                 "created_at_label": item.created_at.replace("T", " ")[:19] if item.created_at else None,
                 "updated_at_label": item.updated_at.replace("T", " ")[:19] if item.updated_at else None,
+                "posts": [
+                    {
+                        "post_id": int(post["post_id"]),
+                        "topic": str(post.get("topic") or ""),
+                        "status": str(post.get("status") or ""),
+                        "source_date": str(post.get("source_date") or ""),
+                        "discovered_via": str(post.get("discovered_via") or ""),
+                    }
+                    for post in item.posts
+                ],
             }
             for item in game_analysis_issue_history(game_id)
         ]
@@ -8668,6 +8680,20 @@ def api_content_create_post():
     source_date_str = data.get("source_date")
     if not source_date_str:
         return jsonify({"error": "source_date required"}), 400
+    analysis_issue_id = (data.get("analysis_issue_id") or "").strip() or None
+    analysis_issue_identifier = (data.get("analysis_issue_identifier") or "").strip() or None
+    if analysis_issue_id or analysis_issue_identifier:
+        try:
+            resolved_issue = resolve_game_analysis_issue_record(
+                analysis_issue_id=analysis_issue_id,
+                analysis_issue_identifier=analysis_issue_identifier,
+            )
+        except PaperclipBridgeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+        if resolved_issue is None:
+            return jsonify({"error": "analysis issue not found"}), 400
     try:
         prepared_images = _validate_prepared_image_specs(data.get("images", []))
     except ValueError as exc:
@@ -8692,6 +8718,7 @@ def api_content_create_post():
     now = datetime.utcnow()
     staged_files: list[str] = []
     variant_ids: list[int] = []
+    issue_link_requested = bool(analysis_issue_id or analysis_issue_identifier)
     try:
         with SessionLocal() as s:
             sp = SocialPost(
@@ -8763,6 +8790,13 @@ def api_content_create_post():
                 ))
 
             s.commit()
+            if issue_link_requested:
+                link_post_to_game_analysis_issue(
+                    post_id,
+                    analysis_issue_id=analysis_issue_id,
+                    analysis_issue_identifier=analysis_issue_identifier,
+                    discovered_via="api_create",
+                )
     except Exception as exc:
         for staged_path in staged_files:
             try:

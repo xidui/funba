@@ -11,11 +11,12 @@ Required work:
 1. Read this game's boxscore, triggered metrics, and game detail from Funba localhost APIs.
 2. Create 1-2 strong posts for this single game only. Do not broaden into unrelated same-date games.
 3. For every post, create exactly 3 variants tied to this same game: one general NBA Hupu variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`), one team-fan Hupu variant (destination should be the relevant team forum), and one Xiaohongshu note variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`). Do not skip the Xiaohongshu variant.
-4. Keep the Xiaohongshu variant native to Xiaohongshu: shorter title, faster hook, shorter paragraphs, fewer links in the body, but still factual and grounded in Funba data.
-5. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
-6. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.
-7. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.
-8. Do not publish to external platforms from this issue.
+4. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to this Paperclip issue's identifier so Funba can link the created posts back to this game-analysis ticket.
+5. Keep the Xiaohongshu variant native to Xiaohongshu: shorter title, faster hook, shorter paragraphs, fewer links in the body, but still factual and grounded in Funba data.
+6. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
+7. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.
+8. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.
+9. Do not publish to external platforms from this issue.
 
 ## Topic Selection Rules
 
@@ -46,4 +47,3 @@ Required work:
 - Do not submit a post whose writing depends on images unless those image assets are already prepared and included.
 
 Do not publish externally from this issue.
-
