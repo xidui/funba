@@ -278,6 +278,209 @@
     gap: 6px;
   }
 
+  /* ── Admin Analysis Panel ─────────────────────────────────────── */
+  .game-admin-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .game-admin-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px 18px;
+    flex-wrap: wrap;
+  }
+
+  .game-admin-copy {
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .game-admin-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+  }
+
+  .game-admin-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-dim);
+  }
+
+  .game-admin-heading {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--heading);
+    line-height: 1.2;
+  }
+
+  .game-admin-status {
+    font-size: 13px;
+    color: var(--muted-2);
+    line-height: 1.45;
+  }
+
+  .game-admin-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .game-admin-actions .tab-bar {
+    margin-bottom: 0;
+  }
+
+  .game-admin-action {
+    min-width: 124px;
+  }
+
+  .game-admin-action.trigger {
+    color: var(--accent);
+  }
+
+  .game-admin-action.force {
+    color: var(--muted-2);
+  }
+
+  .game-admin-action:hover {
+    color: var(--heading);
+  }
+
+  .game-admin-action:disabled {
+    opacity: 0.46;
+    cursor: default;
+  }
+
+  .game-admin-history {
+    display: grid;
+    gap: 10px;
+  }
+
+  .game-admin-history-empty {
+    background: var(--surface-2);
+    border: 1px dashed var(--border-2);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .game-admin-issue {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 13px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+  }
+
+  .game-admin-issue-main {
+    min-width: 0;
+  }
+
+  .game-admin-issue-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 5px;
+  }
+
+  .game-admin-issue-id {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--heading);
+    letter-spacing: -0.01em;
+  }
+
+  .game-admin-issue-title {
+    color: var(--muted-2);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  .game-admin-issue-side {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .game-admin-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-3);
+    color: var(--muted-2);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .game-admin-pill.status-todo,
+  .game-admin-pill.status-backlog {
+    border-color: rgba(249, 115, 22, 0.35);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-3));
+  }
+
+  .game-admin-pill.status-in_review,
+  .game-admin-pill.status-in_progress {
+    border-color: rgba(96, 165, 250, 0.32);
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.08);
+  }
+
+  .game-admin-pill.status-done {
+    border-color: rgba(74, 222, 128, 0.3);
+    color: var(--win);
+    background: var(--win-bg);
+  }
+
+  .game-admin-pill.status-blocked,
+  .game-admin-pill.status-cancelled {
+    border-color: rgba(248, 113, 113, 0.3);
+    color: var(--loss);
+    background: var(--loss-bg);
+  }
+
+  .game-admin-pill.trigger-manual {
+    border-color: rgba(249, 115, 22, 0.24);
+    color: var(--accent);
+  }
+
+  @media (max-width: 700px) {
+    .game-admin-issue {
+      grid-template-columns: 1fr;
+    }
+
+    .game-admin-issue-side {
+      justify-content: flex-start;
+    }
+  }
+
   /* ── Box Score (unified card with tabs) ───────────────────────── */
   .boxscore-tabs {
     display: flex;
@@ -561,51 +764,53 @@
 
 {% if is_admin %}
 <div class="card">
-  <div class="analytics-header" style="margin-bottom:12px;">
-    <div class="analytics-icon">A</div>
-    <h2 class="analytics-title" style="margin:0;">Admin Tools</h2>
-  </div>
-  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-    <button id="game-analysis-trigger-btn" class="btn" type="button">Trigger Analysis</button>
-    <button id="game-analysis-force-btn" class="btn" type="button" style="background:var(--surface-3); color:var(--heading); border:1px solid var(--border-2);">Force New Issue</button>
-    <span id="game-analysis-trigger-status" class="meta" style="font-weight:600;">
-      {% if game_analysis_issues %}
-      {{ game_analysis_issues|length }} analysis issue{{ '' if game_analysis_issues|length == 1 else 's' }} recorded for this game.
-      {% else %}
-      No analysis issues recorded for this game yet.
-      {% endif %}
-    </span>
-  </div>
+  <div class="game-admin-panel">
+    <div class="game-admin-top">
+      <div class="game-admin-copy">
+        <div class="game-admin-kicker">
+          <span class="game-admin-dot"></span>
+          Admin Analysis
+        </div>
+        <div class="game-admin-heading">Manual content-analysis trigger for this game</div>
+        <div id="game-analysis-trigger-status" class="game-admin-status">
+          {% if game_analysis_issues %}
+          {{ game_analysis_issues|length }} analysis issue{{ '' if game_analysis_issues|length == 1 else 's' }} recorded for this matchup.
+          {% else %}
+          No analysis issue history recorded for this game yet.
+          {% endif %}
+        </div>
+      </div>
 
-  {% if game_analysis_issues %}
-  <div class="table-wrap" style="margin-top:14px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Issue</th>
-          <th>Status</th>
-          <th>Trigger</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody id="game-analysis-issue-table-body">
-        {% for issue in game_analysis_issues %}
-        <tr>
-          <td>
-            <strong>{{ issue.issue_identifier or issue.issue_id }}</strong>
-            <div class="meta" style="margin-top:4px;">{{ issue.title }}</div>
-          </td>
-          <td>{{ issue.issue_status or 'unknown' }}</td>
-          <td>{{ issue.trigger_source }}</td>
-          <td class="meta">{{ issue.created_at_label or issue.created_at }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+      <div class="game-admin-actions">
+        <div class="tab-bar">
+          <button id="game-analysis-trigger-btn" class="tab-btn game-admin-action trigger" type="button">Check Existing</button>
+          <button id="game-analysis-force-btn" class="tab-btn game-admin-action force" type="button">Force New</button>
+        </div>
+      </div>
+    </div>
+
+    {% if game_analysis_issues %}
+    <div id="game-analysis-issue-list" class="game-admin-history">
+      {% for issue in game_analysis_issues %}
+      <div class="game-admin-issue">
+        <div class="game-admin-issue-main">
+          <div class="game-admin-issue-row">
+            <span class="game-admin-issue-id">{{ issue.issue_identifier or issue.issue_id }}</span>
+            <span class="game-admin-pill trigger-{{ issue.trigger_source }}">{{ issue.trigger_source }}</span>
+          </div>
+          <div class="game-admin-issue-title">{{ issue.title }}</div>
+        </div>
+        <div class="game-admin-issue-side">
+          <span class="game-admin-pill status-{{ (issue.issue_status or 'unknown')|replace(' ', '_') }}">{{ issue.issue_status or 'unknown' }}</span>
+          <span class="game-admin-pill">{{ issue.created_at_label or issue.created_at }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div id="game-analysis-issue-table-empty" class="game-admin-history-empty">No analysis issue history recorded yet.</div>
+    {% endif %}
   </div>
-  {% else %}
-  <div id="game-analysis-issue-table-empty" class="meta" style="margin-top:14px;">No analysis issue history recorded yet.</div>
-  {% endif %}
 </div>
 <script>
 (function () {
