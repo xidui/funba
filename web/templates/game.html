@@ -889,17 +889,22 @@
       if (data.status === 'created') {
         statusEl.style.color = 'var(--win)';
         statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '. Reloading…';
+        window.setTimeout(function () { window.location.reload(); }, 700);
       } else if (data.status === 'exists' || data.status === 'already_covered') {
         statusEl.style.color = 'var(--muted-2)';
         statusEl.textContent = 'Existing analysis issue found: ' + (data.issue_identifier || data.issue_id || data.status);
       } else if (data.status === 'waiting_for_pipeline') {
         statusEl.style.color = 'var(--loss)';
         statusEl.textContent = 'Pipeline not ready yet (' + (data.pipeline_stage || 'unknown') + ').';
+        setBusy(false);
       } else {
         statusEl.style.color = 'var(--muted-2)';
         statusEl.textContent = 'Analysis trigger result: ' + (data.status || 'unknown');
+        setBusy(false);
       }
-      window.setTimeout(function () { window.location.reload(); }, data.status === 'waiting_for_pipeline' ? 0 : 700);
+      if (data.status === 'exists' || data.status === 'already_covered') {
+        setBusy(false);
+      }
     } catch (err) {
       statusEl.style.color = 'var(--loss)';
       statusEl.textContent = err && err.message ? err.message : 'Failed to trigger analysis issue.';
