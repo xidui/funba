@@ -1,6 +1,7 @@
 from datetime import date
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
@@ -356,3 +357,33 @@ def test_matchup_team_role_accepts_vs_without_period():
     assert dispatch_tasks._matchup_team_role("LAL @ BOS") == "road"
     assert dispatch_tasks._matchup_team_role("DAL @ DET", team_abbr="DET") == "home"
     assert dispatch_tasks._matchup_team_role("DAL @ DET", team_abbr="DAL") == "road"
+
+
+def test_cmd_season_metrics_with_explicit_season_enqueues_matching_career_bucket():
+    base_metric = MagicMock(
+        key="metric_a",
+        trigger="season",
+        career=False,
+        supports_career=True,
+        season_types=("regular",),
+    )
+    fake_run = SimpleNamespace(id="run-1")
+    args = SimpleNamespace(metric=None, season="22025")
+
+    with patch("metrics.framework.runtime.get_all_metrics", return_value=[base_metric]), patch(
+        "tasks.dispatch._create_metric_compute_run",
+        return_value=(fake_run, True),
+    ), patch("tasks.metrics.compute_season_metric_task") as compute_task_mock, patch(
+        "tasks.metrics.enqueue_career_metric_family_task",
+    ) as enqueue_career_mock, patch("celery.chord") as chord_mock:
+        dispatch_tasks.cmd_season_metrics(args)
+
+    compute_task_mock.delay.assert_not_called()
+    compute_task_mock.s.assert_called_once_with("metric_a", "22025", run_id="run-1")
+    chord_mock.assert_called_once()
+    season_tasks = chord_mock.call_args.args[0]
+    assert len(season_tasks) == 1
+    assert season_tasks[0] is compute_task_mock.s.return_value
+    enqueue_career_mock.s.assert_called_once_with(metric_key="metric_a", run_id="run-1", buckets=["all_regular"])
+    callback_sig = chord_mock.return_value.call_args.args[0]
+    assert callback_sig is enqueue_career_mock.s.return_value
