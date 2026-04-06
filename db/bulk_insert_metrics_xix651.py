@@ -1624,6 +1624,8 @@ def render_salary_metric(
 
             def _season_salary_year(self, season):
                 text = str(season)
+                if not text.startswith("2"):
+                    return None
                 if len(text) >= 4 and text[-4:].isdigit():
                     return int(text[-4:])
                 return None
