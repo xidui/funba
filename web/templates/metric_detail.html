@@ -885,7 +885,7 @@
     {% if _deep_dive_post %}
       Deep Dive Post #{{ _deep_dive_post.id }}
       {% set _ddw = _deep_dive_post.workflow if _deep_dive_post else none %}
-      {% if _ddw and _ddw.issue_identifier %} · {{ _ddw.issue_identifier }}{% endif %}
+      {% if _ddw and _ddw.issue_identifier %} · {% if _ddw.issue_url %}<a href="{{ _ddw.issue_url }}" target="_blank" rel="noopener noreferrer">{{ _ddw.issue_identifier }}</a>{% else %}{{ _ddw.issue_identifier }}{% endif %}{% endif %}
       {% if _ddw and _ddw.owner_label %} · {{ _ddw.owner_label }}{% endif %}
     {% else %}
       No deep-dive post triggered yet.
@@ -1348,9 +1348,15 @@ function toggleMetricEnabled(metricKey) {
 
     if (post) {
       const parts = [`Post #${post.id}`];
-      if (workflow && workflow.issue_identifier) parts.push(workflow.issue_identifier);
+      if (workflow && workflow.issue_identifier) {
+        if (workflow.issue_url) {
+          parts.push(`<a href="${workflow.issue_url}" target="_blank" rel="noopener noreferrer">${workflow.issue_identifier}</a>`);
+        } else {
+          parts.push(workflow.issue_identifier);
+        }
+      }
       if (workflow && workflow.owner_label) parts.push(`Owner: ${workflow.owner_label}`);
-      meta.textContent = parts.join(' · ');
+      meta.innerHTML = parts.join(' · ');
       openLink.href = post.admin_url;
       openLink.style.display = '';
     } else {

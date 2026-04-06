@@ -827,7 +827,11 @@
       <div class="game-admin-issue">
         <div class="game-admin-issue-main">
           <div class="game-admin-issue-row">
+            {% if issue.issue_url and issue.issue_identifier %}
+            <a class="game-admin-issue-id" href="{{ issue.issue_url }}" target="_blank" rel="noopener noreferrer">{{ issue.issue_identifier }}</a>
+            {% else %}
             <span class="game-admin-issue-id">{{ issue.issue_identifier or issue.issue_id }}</span>
+            {% endif %}
             <span class="game-admin-pill trigger-{{ issue.trigger_source }}">{{ issue.trigger_source }}</span>
           </div>
           <div class="game-admin-issue-title">{{ issue.title }}</div>
@@ -896,8 +900,13 @@
       const row = document.createElement('div');
       row.className = 'game-admin-issue-row';
 
-      const issueId = document.createElement('span');
+      const issueId = issue.issue_url && issue.issue_identifier ? document.createElement('a') : document.createElement('span');
       issueId.className = 'game-admin-issue-id';
+      if (issue.issue_url && issue.issue_identifier) {
+        issueId.href = issue.issue_url;
+        issueId.target = '_blank';
+        issueId.rel = 'noopener noreferrer';
+      }
       issueId.textContent = issue.issue_identifier || issue.issue_id || 'unknown';
       row.appendChild(issueId);
 
@@ -971,10 +980,18 @@
       renderIssues(data.issues || []);
       if (data.status === 'created') {
         statusEl.style.color = 'var(--win)';
-        statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '.';
+        if (data.issue_url && data.issue_identifier) {
+          statusEl.innerHTML = 'Created analysis issue <a href="' + data.issue_url + '" target="_blank" rel="noopener noreferrer">' + data.issue_identifier + '</a>.';
+        } else {
+          statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '.';
+        }
       } else if (data.status === 'exists' || data.status === 'already_covered') {
         statusEl.style.color = 'var(--muted-2)';
-        statusEl.textContent = 'Existing analysis issue found: ' + (data.issue_identifier || data.issue_id || data.status);
+        if (data.issue_url && data.issue_identifier) {
+          statusEl.innerHTML = 'Existing analysis issue found: <a href="' + data.issue_url + '" target="_blank" rel="noopener noreferrer">' + data.issue_identifier + '</a>.';
+        } else {
+          statusEl.textContent = 'Existing analysis issue found: ' + (data.issue_identifier || data.issue_id || data.status);
+        }
       } else if (data.status === 'waiting_for_pipeline') {
         statusEl.style.color = 'var(--loss)';
         statusEl.textContent = 'Pipeline not ready yet (' + (data.pipeline_stage || 'unknown') + ').';

@@ -325,6 +325,11 @@ function triggerDailyAnalysis() {
   const dateInput = document.getElementById('daily-analysis-date');
   const forceInput = document.getElementById('daily-analysis-force');
   const status = document.getElementById('daily-analysis-status');
+  const paperclipIssueBaseUrl = {{ paperclip_issue_base_url | tojson }};
+  function issueLink(identifier) {
+    if (!identifier || !paperclipIssueBaseUrl) return identifier || 'issue ready';
+    return `<a href="${paperclipIssueBaseUrl}/${identifier}" target="_blank" rel="noopener noreferrer">${identifier}</a>`;
+  }
   status.textContent = 'Checking readiness…';
   fetch('/api/admin/content/daily-analysis/trigger', {
     method: 'POST',
@@ -337,11 +342,11 @@ function triggerDailyAnalysis() {
   .then(r => r.json())
   .then(data => {
     if (data.ok) {
-      status.textContent = `${data.status}: ${data.issue_identifier || 'issue ready'}`;
+      status.innerHTML = `${data.status}: ${issueLink(data.issue_identifier)}`;
       return;
     }
     if (data.status) {
-      status.textContent = `${data.status}: ${data.issue_identifier || data.error || 'not ready yet'}`;
+      status.innerHTML = `${data.status}: ${data.issue_identifier ? issueLink(data.issue_identifier) : (data.error || 'not ready yet')}`;
       return;
     }
     status.textContent = data.error || 'Trigger failed.';
@@ -450,7 +455,7 @@ function renderWorkflow(postId, workflow) {
     return;
   }
   const fields = [
-    ['Issue', workflow.issue_identifier || 'Not linked'],
+    ['Issue', workflow.issue_url && workflow.issue_identifier ? `<a href="${workflow.issue_url}" target="_blank" rel="noopener noreferrer">${workflow.issue_identifier}</a>` : (workflow.issue_identifier || 'Not linked')],
     ['Status', workflow.issue_status || '—'],
     ['Owner', workflow.owner_label || 'Unassigned'],
     ['Last Sync', workflow.last_synced_at || 'Never'],

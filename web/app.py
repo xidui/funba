@@ -42,6 +42,11 @@ from db.feature_access import (
     get_feature_access_level,
     set_feature_access_level,
 )
+from db.paperclip_settings import (
+    build_paperclip_issue_url,
+    get_paperclip_issue_base_url,
+    set_paperclip_issue_base_url,
+)
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
 from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
@@ -3143,6 +3148,7 @@ def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
         assignee_user_id=post.paperclip_assignee_user_id,
         cfg=cfg,
     )
+    issue_url = _paperclip_issue_url(post.paperclip_issue_identifier)
     if (
         str(getattr(post, "status", "") or "").strip() == "ai_review"
         and owner_label.startswith("agent:")
@@ -3152,6 +3158,7 @@ def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
         "enabled": _paperclip_bridge_enabled(),
         "issue_id": post.paperclip_issue_id,
         "issue_identifier": post.paperclip_issue_identifier,
+        "issue_url": issue_url,
         "issue_status": post.paperclip_issue_status,
         "owner_label": owner_label,
         "assignee_agent_id": post.paperclip_assignee_agent_id,
@@ -3160,6 +3167,15 @@ def _paperclip_workflow_view(post: SocialPost) -> dict[str, object]:
         "last_synced_at": post.paperclip_last_synced_at.isoformat() if post.paperclip_last_synced_at else None,
         "sync_error": post.paperclip_sync_error,
     }
+
+
+def _paperclip_issue_base_url() -> str | None:
+    with SessionLocal() as session:
+        return get_paperclip_issue_base_url(session)
+
+
+def _paperclip_issue_url(identifier: str | None) -> str | None:
+    return build_paperclip_issue_url(identifier, _paperclip_issue_base_url())
 
 
 def _social_post_source_metrics(post: SocialPost) -> list[str]:
@@ -3786,6 +3802,8 @@ def _sync_social_post_from_paperclip(post_id: int, *, ensure_issue: bool = True)
 @app.context_processor
 def inject_template_helpers():
     from datetime import date
+    with SessionLocal() as session:
+        paperclip_issue_base_url = get_paperclip_issue_base_url(session)
     return {
         "season_label": _season_label,
         "lang": _current_lang(),
@@ -3801,6 +3819,8 @@ def inject_template_helpers():
         "current_user": _current_user(),
         "current_year": date.today().year,
         "clean_key": _strip_draft_prefix,
+        "paperclip_issue_base_url": paperclip_issue_base_url,
+        "paperclip_issue_url": lambda identifier: build_paperclip_issue_url(identifier, paperclip_issue_base_url),
     }
 
 
@@ -5634,6 +5654,7 @@ def game_page(game_id: str):
                 "id": item.id,
                 "issue_id": item.issue_id,
                 "issue_identifier": item.issue_identifier,
+                "issue_url": _paperclip_issue_url(item.issue_identifier),
                 "issue_status": item.issue_status,
                 "title": item.title,
                 "trigger_source": item.trigger_source,
@@ -8164,6 +8185,8 @@ def admin_content_trigger_daily_analysis():
     except Exception as exc:
         logger.exception("Failed to trigger game content analysis for %s", target_date.isoformat())
         return jsonify({"error": str(exc)}), 500
+    if result.get("issue_identifier"):
+        result["issue_url"] = _paperclip_issue_url(result.get("issue_identifier"))
     return jsonify(result)
 
 
@@ -8188,6 +8211,7 @@ def admin_game_trigger_content_analysis(game_id: str):
             "id": item.id,
             "issue_id": item.issue_id,
             "issue_identifier": item.issue_identifier,
+            "issue_url": _paperclip_issue_url(item.issue_identifier),
             "issue_status": item.issue_status,
             "title": item.title,
             "trigger_source": item.trigger_source,
@@ -9329,6 +9353,38 @@ def api_admin_model_config():
                 "available_models": available_llm_models(),
             }
         )
+
+
+@app.get("/api/admin/paperclip-config")
+def api_admin_paperclip_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    with SessionLocal() as session:
+        return jsonify(
+            {
+                "ok": True,
+                "issue_base_url": get_paperclip_issue_base_url(session),
+            }
+        )
+
+
+@app.post("/api/admin/paperclip-config")
+def api_admin_update_paperclip_config():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    body = request.get_json(force=True) or {}
+    try:
+        with SessionLocal() as session:
+            issue_base_url = set_paperclip_issue_base_url(session, body.get("issue_base_url"))
+            session.commit()
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("failed to save paperclip config")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "issue_base_url": issue_base_url})
 
 
 @app.post("/api/admin/model-config")

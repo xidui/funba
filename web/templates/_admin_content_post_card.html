@@ -164,7 +164,7 @@
       <div id="workflow-{{ p.id }}">
         {% if p.workflow.enabled %}
         <div class="workflow-grid">
-          <div class="workflow-field"><strong>Issue</strong>{{ p.workflow.issue_identifier or 'Not linked' }}</div>
+          <div class="workflow-field"><strong>Issue</strong>{% if p.workflow.issue_url and p.workflow.issue_identifier %}<a href="{{ p.workflow.issue_url }}" target="_blank" rel="noopener noreferrer">{{ p.workflow.issue_identifier }}</a>{% else %}{{ p.workflow.issue_identifier or 'Not linked' }}{% endif %}</div>
           <div class="workflow-field"><strong>Status</strong>{{ p.workflow.issue_status or '—' }}</div>
           <div class="workflow-field"><strong>Owner</strong>{{ p.workflow.owner_label or 'Unassigned' }}</div>
           <div class="workflow-field"><strong>Last Sync</strong>{{ p.workflow.last_synced_at or 'Never' }}</div>

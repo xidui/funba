@@ -28,6 +28,18 @@
     font-family: Inter, sans-serif;
   }
 
+  .llm-settings-input {
+    min-width: 320px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+  }
+
   .llm-settings-save {
     height: 36px;
     padding: 0 14px;
@@ -196,6 +208,10 @@
       min-width: auto;
       width: 100%;
     }
+    .llm-settings-input {
+      min-width: auto;
+      width: 100%;
+    }
     .runtime-flag-row {
       flex-direction: column;
       align-items: flex-start;
@@ -246,6 +262,34 @@
       <button id="llm-model-save" class="llm-settings-save" aria-label="Save model settings">Save</button>
     </div>
     <div id="llm-model-status" class="llm-settings-status" role="status"></div>
+  </div>
+
+  <!-- Paperclip Settings -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Paperclip Links</h2>
+    <div class="llm-settings-row">
+      <label class="llm-settings-label" for="paperclip-issue-base-url">
+        <div style="font-weight:600;color:var(--text);">Issue Base URL</div>
+        <div style="margin-top:4px;font-size:12px;color:var(--muted);line-height:1.45;">
+          Prefix used when turning ticket identifiers like <code>XIX-100</code> into clickable links.
+          Example: <code>https://xixihaha.tail35c530.ts.net/XIX/issues</code>
+        </div>
+      </label>
+      <input
+        id="paperclip-issue-base-url"
+        class="llm-settings-input"
+        type="url"
+        placeholder="https://xixihaha.tail35c530.ts.net/XIX/issues"
+        spellcheck="false"
+        autocapitalize="off"
+        autocomplete="off"
+        disabled
+      >
+    </div>
+    <div style="margin-top:10px;">
+      <button id="paperclip-config-save" class="llm-settings-save" aria-label="Save Paperclip settings">Save</button>
+    </div>
+    <div id="paperclip-config-status" class="llm-settings-status" role="status"></div>
   </div>
 
   <!-- AI Usage -->
@@ -465,6 +509,69 @@
       } finally {
         searchSelect.disabled = generateSelect.disabled = false;
         saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveConfig);
+    loadConfig();
+  })();
+
+  /* ── Paperclip Settings ─────────────────────────────────────────── */
+  (function () {
+    const input = document.getElementById('paperclip-issue-base-url');
+    const saveBtn = document.getElementById('paperclip-config-save');
+    const status = document.getElementById('paperclip-config-status');
+    let clearTimer = null;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'llm-settings-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => {
+          status.textContent = '';
+          status.className = 'llm-settings-status';
+        }, 2000);
+      }
+    }
+
+    function setDisabled(disabled) {
+      input.disabled = disabled;
+      saveBtn.disabled = disabled;
+    }
+
+    async function loadConfig() {
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/paperclip-config');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        input.value = data.issue_base_url || '';
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      } finally {
+        setDisabled(false);
+      }
+    }
+
+    async function saveConfig() {
+      setDisabled(true);
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/paperclip-config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({issue_base_url: input.value}),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        input.value = data.issue_base_url || '';
+        setStatus('Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        setDisabled(false);
       }
     }
 
