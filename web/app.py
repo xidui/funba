@@ -144,6 +144,7 @@ def _box_score_source_label(value: str | None) -> str:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 SessionLocal = sessionmaker(bind=engine)
 
 _LOCALIZED_PUBLIC_ENDPOINTS = {
@@ -3894,6 +3895,7 @@ def auth_callback():
                 user.last_login_at = now
             db.commit()
             db.refresh(user)
+            session.permanent = True
             session["user_id"] = user.id
     except Exception:
         logger.exception("auth_callback: DB error")
@@ -4013,6 +4015,7 @@ def auth_magic_verify():
                 user.last_login_at = now
             db.commit()
             db.refresh(user)
+            session.permanent = True
             session["user_id"] = user.id
     except Exception:
         logger.exception("auth_magic_verify: DB error")

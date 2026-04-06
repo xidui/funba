@@ -267,6 +267,10 @@ class TestGoogleOAuth(unittest.TestCase):
 
         # Should redirect (302) on success, not error (500)
         self.assertNotEqual(resp.status_code, 500)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("user_id"), fake_user.id)
+            self.assertTrue(sess.permanent)
+        self.assertEqual(self.app.permanent_session_lifetime.days, 30)
 
     def test_auth_callback_oauth_error_flashes_message(self):
         """If OAuth token exchange fails, redirect to home with flash message."""
