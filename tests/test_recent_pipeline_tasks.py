@@ -90,14 +90,12 @@ def test_ingest_recent_games_enqueues_only_incomplete_games():
         ingest_tasks,
         "_list_incomplete_game_ids",
         return_value=["g2", "g3"],
-    ), patch("celery.chord") as chord_mock, patch(
-        "tasks.metrics.refresh_current_season_metrics",
-    ):
+    ), patch.object(ingest_tasks.ingest_game, "apply_async") as apply_async_mock:
         result = ingest_tasks.ingest_recent_games.run(lookback_days=2)
 
-    assert chord_mock.call_count == 1
-    map_tasks = chord_mock.call_args.args[0]
-    assert len(map_tasks) == 2
+    assert apply_async_mock.call_count == 2
+    apply_async_mock.assert_any_call(args=["g2"])
+    apply_async_mock.assert_any_call(args=["g3"])
     assert result == {
         "lookback_days": 2,
         "discovered": 3,
@@ -105,6 +103,89 @@ def test_ingest_recent_games_enqueues_only_incomplete_games():
         "dates": ["2026-03-31", "2026-04-01"],
         "game_ids": ["g2", "g3"],
     }
+
+
+def test_ingest_yesterday_enqueues_each_game_without_chord():
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 6)
+
+    with patch.object(ingest_tasks, "date", _FakeDate), patch.object(
+        ingest_tasks,
+        "_discover_game_ids_for_date",
+        return_value=["g1", "g2"],
+    ), patch.object(ingest_tasks.ingest_game, "apply_async") as apply_async_mock:
+        result = ingest_tasks.ingest_yesterday.run()
+
+    assert apply_async_mock.call_count == 2
+    apply_async_mock.assert_any_call(args=["g1"])
+    apply_async_mock.assert_any_call(args=["g2"])
+    assert result == {"date": "2026-04-05", "enqueued": 2}
+
+
+def test_ingest_game_enqueues_season_refresh_after_success():
+    before_status = {
+        "exists_game": True,
+        "artifacts_supported": True,
+        "has_detail": True,
+        "has_pbp": True,
+        "has_shot": False,
+        "season": "22025",
+    }
+    after_status = {
+        "exists_game": True,
+        "artifacts_supported": True,
+        "has_detail": True,
+        "has_pbp": True,
+        "has_shot": True,
+        "season": "22025",
+    }
+
+    status_session = _ctx(MagicMock())
+    shot_session = _ctx(MagicMock())
+    final_status_session = _ctx(MagicMock())
+    zero_score_session = _ctx(MagicMock())
+    zero_score_session.query.return_value.filter.return_value.first.return_value = None
+    line_score_session = _ctx(MagicMock())
+    line_score_session.query.return_value.filter.return_value.first.return_value = None
+
+    ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
+    try:
+        with patch.object(
+            ingest_tasks,
+            "_session_factory",
+            return_value=MagicMock(
+                side_effect=[
+                    status_session,
+                    shot_session,
+                    final_status_session,
+                    zero_score_session,
+                    line_score_session,
+                ]
+            ),
+        ), patch.object(
+            ingest_tasks,
+            "_load_game_artifact_status",
+            side_effect=[before_status, after_status],
+        ), patch.object(
+            ingest_tasks,
+            "back_fill_game_shot_record",
+        ) as shot_mock, patch.object(
+            ingest_tasks,
+            "has_game_line_score",
+            return_value=True,
+        ), patch(
+            "tasks.metrics.refresh_current_season_metrics.delay",
+        ) as refresh_delay_mock:
+            result = ingest_tasks.ingest_game.run("g1")
+    finally:
+        ingest_tasks.ingest_game.pop_request()
+
+    shot_mock.assert_called_once()
+    refresh_delay_mock.assert_called_once_with([result])
+    assert result["game_id"] == "g1"
+    assert result["shot_refreshed"] is True
 
 
 def test_ingest_game_retries_when_artifacts_still_incomplete():

@@ -265,11 +265,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             metric_keys,
         )
 
-    logger.info(
-        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
-        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
-    )
-    return {
+    result = {
         "game_id": game_id,
         "status": "ok",
         "new_game": not game_exists,
@@ -278,6 +274,25 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         "line_score_rows": int(line_score_rows),
         "metric_tasks_enqueued": len(keys_to_run),
     }
+
+    if result["new_game"] or result["detail_pbp_refreshed"] or result["shot_refreshed"]:
+        try:
+            from tasks.metrics import refresh_current_season_metrics
+
+            refresh_current_season_metrics.delay([result])
+        except Exception as exc:
+            logger.warning(
+                "ingest_game %s: failed to enqueue season metric refresh: %s",
+                game_id,
+                exc,
+                exc_info=True,
+            )
+
+    logger.info(
+        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
+        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
+    )
+    return result
 
 
 def _recent_target_dates(lookback_days: int) -> list[date]:
@@ -324,9 +339,6 @@ def ingest_yesterday(self) -> dict:
     After all games finish ingesting, a chord callback triggers season metric
     refresh for the current season.
     """
-    from celery import chord
-    from tasks.metrics import refresh_current_season_metrics
-
     yesterday = date.today() - timedelta(days=1)
 
     # Discover from NBA API first — this catches brand-new games
@@ -336,11 +348,10 @@ def ingest_yesterday(self) -> dict:
         logger.info("ingest_yesterday: no completed games found for %s.", yesterday)
         return {"date": str(yesterday), "enqueued": 0}
 
-    # Chord: ingest all games → then refresh season metrics
-    ingest_tasks = [ingest_game.s(gid) for gid in game_ids]
-    chord(ingest_tasks)(refresh_current_season_metrics.s())
+    for gid in game_ids:
+        ingest_game.apply_async(args=[gid])
 
-    logger.info("ingest_yesterday: enqueued %d games for %s (chord → season metric refresh).", len(game_ids), yesterday)
+    logger.info("ingest_yesterday: enqueued %d games for %s.", len(game_ids), yesterday)
     return {"date": str(yesterday), "enqueued": len(game_ids)}
 
 
@@ -357,9 +368,6 @@ def ingest_recent_games(self, lookback_days: int = 3) -> dict:
     API artifacts (box/PBP/shot) are still delayed. The task keeps retrying on
     later scans until the game becomes complete.
     """
-    from celery import chord
-    from tasks.metrics import refresh_current_season_metrics
-
     discovered_by_date: dict[str, list[str]] = {}
     discovered_ids: set[str] = set()
     for target_date in _recent_target_dates(lookback_days):
@@ -386,8 +394,8 @@ def ingest_recent_games(self, lookback_days: int = 3) -> dict:
             "dates": sorted(discovered_by_date.keys()),
         }
 
-    ingest_tasks = [ingest_game.s(gid) for gid in incomplete_game_ids]
-    chord(ingest_tasks)(refresh_current_season_metrics.s())
+    for gid in incomplete_game_ids:
+        ingest_game.apply_async(args=[gid])
     logger.info(
         "ingest_recent_games: discovered=%d incomplete=%d dates=%s",
         len(discovered_ids),
