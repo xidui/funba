@@ -55,6 +55,20 @@ score (str, format "HOME - ROAD" cumulative, e.g. "62 - 51"),
 score_margin (str, home perspective, e.g. "11" or "-5"),
 player1_id, player2_id, player3_id
 
+High-value foul semantics:
+- `event_msg_type = 6` means foul.
+- Offensive fouls often appear as `event_msg_action_type = 4` or text containing `OFF.Foul`.
+- Offensive charge fouls often appear as `event_msg_action_type = 26` or text containing `Offensive Charge Foul`.
+- For these offensive foul / charge events, `player1_id` is typically the player committing the foul and
+  `player2_id` is typically the defender who drew it when available.
+
+Available cached helpers from `metrics.helpers`:
+- `game_pbp_rows(session, game_id)` → all PBP rows for one game (cached per Session/game)
+- `pbp_offensive_foul_events(session, game_id)` → normalized offensive-foul events with
+  `foul_player_id`, `drawn_by_player_id`, and `is_charge`
+- `pbp_charge_events(session, game_id)` → normalized offensive-charge events only
+Prefer these helpers over re-parsing raw PBP foul descriptions in each generated metric.
+
 ### ShotRecord (one row per shot attempt)
 id (PK), game_id, team_id, player_id, season, period, min, sec,
 event_type, action_type, shot_type, shot_zone_basic, shot_zone_area,

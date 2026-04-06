@@ -161,6 +161,85 @@ def game_pbp_rows(session: Session, game_id: str) -> list[GamePlayByPlay]:
     return rows
 
 
+def _pbp_description(row: GamePlayByPlay) -> str:
+    return str(
+        row.home_description
+        or row.visitor_description
+        or row.neutral_description
+        or ""
+    ).strip()
+
+
+def _is_offensive_foul_row(row: GamePlayByPlay) -> bool:
+    action_type = int(row.event_msg_action_type or 0)
+    text = _pbp_description(row)
+    return action_type in {4, 26} or "OFF.Foul" in text or "Offensive Charge Foul" in text
+
+
+def _is_charge_row(row: GamePlayByPlay) -> bool:
+    action_type = int(row.event_msg_action_type or 0)
+    text = _pbp_description(row)
+    return action_type == 26 or "Offensive Charge Foul" in text
+
+
+def pbp_offensive_foul_events(session: Session, game_id: str) -> list[dict]:
+    """Return normalized offensive-foul events for one game, cached per Session/game.
+
+    Each item includes:
+    {
+      "game_id": "...",
+      "event_num": 123,
+      "period": 4,
+      "pc_time": "2:31",
+      "description": "...",
+      "action_type": 4|26|...,
+      "foul_player_id": "player1_id",
+      "drawn_by_player_id": "player2_id" | None,
+      "is_charge": bool,
+    }
+    """
+    cache = _metric_helper_cache(session)
+    cache_key = ("pbp_offensive_foul_events", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    events = [
+        {
+            "game_id": str(game_id),
+            "event_num": int(row.event_num or 0),
+            "period": int(row.period or 0),
+            "pc_time": row.pc_time,
+            "description": _pbp_description(row),
+            "action_type": int(row.event_msg_action_type or 0),
+            "foul_player_id": str(row.player1_id) if row.player1_id else None,
+            "drawn_by_player_id": str(row.player2_id) if row.player2_id else None,
+            "is_charge": _is_charge_row(row),
+        }
+        for row in game_pbp_rows(session, game_id)
+        if (row.event_msg_type or 0) == 6 and _is_offensive_foul_row(row)
+    ]
+    cache[cache_key] = events
+    return events
+
+
+def pbp_charge_events(session: Session, game_id: str) -> list[dict]:
+    """Return normalized offensive-charge events for one game, cached per Session/game."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("pbp_charge_events", str(game_id))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    events = [
+        event
+        for event in pbp_offensive_foul_events(session, game_id)
+        if event["is_charge"]
+    ]
+    cache[cache_key] = events
+    return events
+
+
 def pbp_clock_seconds_left(pc_time: str | None) -> int | None:
     """Parse a PBP clock string like '1:23' into seconds remaining."""
     if not pc_time:
