@@ -1,5 +1,6 @@
 import sys
 import unittest
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +37,47 @@ def _config():
 
 
 class TestGameScopedContentAnalysisIssues(unittest.TestCase):
+    @patch("content_pipeline.game_analysis_issues._game_analysis_issue_creation_lock", return_value=nullcontext())
+    @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
+    @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
+    @patch("content_pipeline.game_analysis_issues._record_issue_snapshots", return_value=[])
+    @patch(
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
+        return_value={
+            "game_ids": ["0022501082"],
+            "ready_game_ids": ["0022501082"],
+            "pending_artifact_game_ids": [],
+            "pending_metric_game_ids": [],
+        },
+    )
+    @patch("content_pipeline.game_analysis_issues.load_paperclip_bridge_config")
+    @patch("content_pipeline.game_analysis_issues.PaperclipClient")
+    def test_batch_issue_creation_uses_date_lock(
+        self,
+        mock_client_cls,
+        mock_load_cfg,
+        _mock_pipeline,
+        _mock_recorded,
+        _mock_latest,
+        _mock_covered,
+        mock_lock,
+    ):
+        cfg = _config()
+        mock_load_cfg.return_value = cfg
+        mock_client = MagicMock()
+        mock_client.discover_defaults.return_value = cfg
+        mock_client.list_issues.return_value = []
+        mock_client.create_issue.return_value = {
+            "id": "issue-386",
+            "identifier": "XIX-386",
+            "status": "todo",
+        }
+        mock_client_cls.return_value = mock_client
+
+        ensure_daily_content_analysis_issue(date.fromisoformat("2026-03-29"))
+
+        mock_lock.assert_called_once_with(date.fromisoformat("2026-03-29"))
+
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
     @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)
     @patch("content_pipeline.game_analysis_issues._record_issue_snapshots", return_value=[])
@@ -211,6 +253,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         mock_client.create_issue.assert_called_once()
 
     @patch("content_pipeline.game_analysis_issues._latest_issue_row")
+    @patch("content_pipeline.game_analysis_issues._game_analysis_issue_creation_lock", return_value=nullcontext())
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
     @patch(
         "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
@@ -230,6 +273,7 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         mock_load_cfg,
         _mock_game_source_date,
         _mock_pipeline,
+        _mock_lock,
         _mock_covered,
         mock_latest_issue_row,
     ):
