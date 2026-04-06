@@ -67,6 +67,10 @@ Available cached helpers from `metrics.helpers`:
 - `pbp_offensive_foul_events(session, game_id)` → normalized offensive-foul events with
   `foul_player_id`, `drawn_by_player_id`, and `is_charge`
 - `pbp_charge_events(session, game_id)` → normalized offensive-charge events only
+- `season_pbp_offensive_foul_events(session, season)` → normalized offensive-foul events for the full season
+- `season_pbp_charge_events(session, season)` → normalized offensive-charge events for the full season
+For trigger="season" metrics, prefer the season-level helpers so the code bulk-loads
+the full season in one query instead of calling per-game helpers inside a loop.
 Prefer these helpers over re-parsing raw PBP foul descriptions in each generated metric.
 
 ### ShotRecord (one row per shot attempt)

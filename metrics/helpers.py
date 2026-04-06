@@ -11,6 +11,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from db.models import Game, GameLineScore, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
+from metrics.framework.base import career_season_type_code, is_career_season
 
 
 def _metric_helper_cache(session: Session) -> dict:
@@ -234,6 +235,75 @@ def pbp_charge_events(session: Session, game_id: str) -> list[dict]:
     events = [
         event
         for event in pbp_offensive_foul_events(session, game_id)
+        if event["is_charge"]
+    ]
+    cache[cache_key] = events
+    return events
+
+
+def season_pbp_offensive_foul_events(session: Session, season: str) -> list[dict]:
+    """Return normalized offensive-foul events for an entire season, cached per Session/season."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("season_pbp_offensive_foul_events", str(season))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    query = (
+        session.query(GamePlayByPlay, Game)
+        .join(Game, Game.game_id == GamePlayByPlay.game_id)
+        .filter(GamePlayByPlay.event_msg_type == 6)
+    )
+    if is_career_season(season):
+        code = career_season_type_code(season)
+        if not code:
+            cache[cache_key] = []
+            return []
+        query = query.filter(Game.season.like(f"{code}%"))
+    else:
+        query = query.filter(Game.season == season)
+
+    rows = (
+        query.order_by(
+            Game.game_date.asc(),
+            GamePlayByPlay.game_id.asc(),
+            GamePlayByPlay.period.asc(),
+            GamePlayByPlay.event_num.asc(),
+            GamePlayByPlay.id.asc(),
+        ).all()
+    )
+    events = [
+        {
+            "game_id": str(game.game_id),
+            "season": str(game.season) if game.season is not None else None,
+            "game_date": game.game_date.isoformat() if game.game_date else None,
+            "event_num": int(row.event_num or 0),
+            "period": int(row.period or 0),
+            "pc_time": row.pc_time,
+            "description": _pbp_description(row),
+            "action_type": int(row.event_msg_action_type or 0),
+            "foul_player_id": str(row.player1_id) if row.player1_id else None,
+            "drawn_by_player_id": str(row.player2_id) if row.player2_id else None,
+            "is_charge": _is_charge_row(row),
+        }
+        for row, game in rows
+        if _is_offensive_foul_row(row)
+    ]
+    cache[cache_key] = events
+    return events
+
+
+def season_pbp_charge_events(session: Session, season: str) -> list[dict]:
+    """Return normalized offensive-charge events for an entire season, cached per Session/season."""
+    cache = _metric_helper_cache(session)
+    cache_key = ("season_pbp_charge_events", str(season))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    events = [
+        event
+        for event in season_pbp_offensive_foul_events(session, season)
         if event["is_charge"]
     ]
     cache[cache_key] = events
