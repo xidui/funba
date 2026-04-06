@@ -20,7 +20,7 @@ import logging
 from datetime import datetime
 from random import randint
 
-from celery import shared_task
+from celery import chord, shared_task
 from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError as SAOperationalError
@@ -716,7 +716,13 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
     queue="metrics",
     ignore_result=True,
 )
-def enqueue_career_metric_family_task(self, results: list, metric_key: str, run_id: str | None = None) -> dict:
+def enqueue_career_metric_family_task(
+    self,
+    results: list,
+    metric_key: str,
+    run_id: str | None = None,
+    buckets: list[str] | tuple[str, ...] | None = None,
+) -> dict:
     """Enqueue the three career buckets after all concrete seasons finish."""
     from metrics.framework.family import family_career_key
     from metrics.framework.base import season_matches_metric_types
@@ -734,7 +740,8 @@ def enqueue_career_metric_family_task(self, results: list, metric_key: str, run_
         return {"metric_key": metric_key, "skipped": True, "reason": "missing_career_metric"}
 
     enqueued = 0
-    for bucket in ("all_regular", "all_playoffs", "all_playin"):
+    candidate_buckets = list(buckets) if buckets is not None else ["all_regular", "all_playoffs", "all_playin"]
+    for bucket in candidate_buckets:
         if not season_matches_metric_types(bucket, getattr(career_metric, "season_types", None)):
             continue
         compute_season_metric_task.delay(career_key, bucket, run_id=run_id)
@@ -849,6 +856,7 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
     ]
 
     enqueued = 0
+    callbacks = 0
     scheduled_metrics = 0
     for m in metrics:
         eligible_seasons = [season for season in affected_seasons if season_matches_metric_types(season, getattr(m, "season_types", None))]
@@ -859,22 +867,30 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
         if not eligible_seasons and not (getattr(m, "supports_career", False) and eligible_career_buckets):
             continue
         scheduled_metrics += 1
-        for season in eligible_seasons:
-            compute_season_metric_task.delay(m.key, season)
-            enqueued += 1
-        if getattr(m, "supports_career", False):
-            career_key = family_career_key(m.key)
-            for cb in eligible_career_buckets:
-                compute_season_metric_task.delay(career_key, cb)
+        if getattr(m, "supports_career", False) and eligible_career_buckets:
+            season_tasks = [compute_season_metric_task.s(m.key, season) for season in eligible_seasons]
+            chord(season_tasks)(
+                enqueue_career_metric_family_task.s(
+                    metric_key=m.key,
+                    run_id=None,
+                    buckets=eligible_career_buckets,
+                )
+            )
+            enqueued += len(season_tasks)
+            callbacks += 1
+        else:
+            for season in eligible_seasons:
+                compute_season_metric_task.delay(m.key, season)
                 enqueued += 1
 
     logger.info(
-        "refresh_current_season_metrics: seasons=%s, career_buckets=%s, enqueued %d task(s) for %d metric(s).",
-        affected_seasons, career_buckets, enqueued, scheduled_metrics,
+        "refresh_current_season_metrics: seasons=%s, career_buckets=%s, enqueued %d season task(s) with %d career callback(s) for %d metric(s).",
+        affected_seasons, career_buckets, enqueued, callbacks, scheduled_metrics,
     )
     return {
         "seasons": sorted(affected_seasons),
         "career_buckets": sorted(career_buckets),
         "metrics": scheduled_metrics,
         "enqueued": enqueued,
+        "callbacks": callbacks,
     }

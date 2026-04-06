@@ -206,19 +206,27 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     with patch.object(metrics_tasks, "sessionmaker", return_value=SessionFactory), patch(
         "metrics.framework.runtime.get_all_metrics",
         return_value=[regular_only, playoffs_only],
-    ), patch.object(metrics_tasks.compute_season_metric_task, "delay") as delay_mock:
+    ), patch.object(metrics_tasks.compute_season_metric_task, "delay") as delay_mock, patch(
+        "tasks.metrics.chord",
+    ) as chord_mock:
         result = metrics_tasks.refresh_current_season_metrics.run([{"game_id": "g1", "new_game": True}])
 
     assert result == {
         "seasons": ["22025", "42025", "52025"],
         "career_buckets": ["all_playin", "all_playoffs", "all_regular"],
         "metrics": 2,
-        "enqueued": 3,
+        "enqueued": 2,
+        "callbacks": 1,
     }
     delay_mock.assert_any_call("salary_per_point", "22025")
-    delay_mock.assert_any_call("playoff_points", "42025")
-    delay_mock.assert_any_call("playoff_points_career", "all_playoffs")
-    assert delay_mock.call_count == 3
+    assert delay_mock.call_count == 1
+    chord_mock.assert_called_once()
+    season_tasks = chord_mock.call_args.args[0]
+    assert len(season_tasks) == 1
+    assert season_tasks[0].args == ("playoff_points", "42025")
+    callback_sig = chord_mock.return_value.call_args.args[0]
+    assert callback_sig.kwargs["metric_key"] == "playoff_points"
+    assert callback_sig.kwargs["buckets"] == ["all_playoffs"]
 
 
 def test_sync_schedule_games_enables_unplayed_upsert_mode():
