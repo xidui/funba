@@ -776,7 +776,14 @@ class CodeMetricDefinition(MetricDefinition):
         return fn(ReadOnlySession(session), season)
 
     def compute_career_value(self, totals, season, entity_id):
-        result = self._inner.compute_career_value(totals, season, entity_id)
+        original_supports_career = getattr(self._inner, "supports_career", False)
+        if self.career and not original_supports_career and _metric_declares_career_reducer(self):
+            self._inner.supports_career = True
+        try:
+            result = self._inner.compute_career_value(totals, season, entity_id)
+        finally:
+            if self.career and not original_supports_career and _metric_declares_career_reducer(self):
+                self._inner.supports_career = original_supports_career
         if result and self.career:
             result.metric_key = self.key
         return result

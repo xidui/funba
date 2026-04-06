@@ -360,6 +360,72 @@ class CachedMetric(MetricDefinition):
             ],
         )
 
+    def test_code_metric_definition_career_reducer_works_when_career_variant_disables_supports_career(self):
+        runtime = self._load_runtime()
+        row = types.SimpleNamespace(
+            key="custom_metric_career",
+            name="Custom Metric (Career)",
+            description="Career metric",
+            scope="player",
+            category="aggregate",
+            min_sample=5,
+            source_type="code",
+            status="published",
+            group_key=None,
+            family_key="custom_metric",
+            variant="career",
+            base_metric_key="custom_metric",
+            managed_family=True,
+            max_results_per_season=None,
+            code_python="""
+from metrics.framework.base import MetricDefinition, MetricResult
+
+
+class CustomMetricCareer(MetricDefinition):
+    key = "custom_metric_career"
+    name = "Custom Metric (Career)"
+    description = "Career metric"
+    scope = "player"
+    category = "aggregate"
+    min_sample = 5
+    trigger = "season"
+    incremental = False
+    career = True
+    supports_career = False
+    career_aggregate_mode = "season_results"
+    career_sum_keys = ("count", "games")
+
+    def compute_season(self, session, season):
+        return []
+
+    def compute_career_value(self, totals, season, entity_id):
+        if not self.supports_career:
+            return None
+        count = int(totals.get("count", 0))
+        games = int(totals.get("games", 0))
+        if games < self.min_sample or count == 0:
+            return None
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            value_num=float(count),
+            value_str=str(count),
+            context={"count": count, "games": games},
+        )
+""",
+        )
+
+        metric = runtime.CodeMetricDefinition(row)
+        result = metric.compute_career_value({"count": 7, "games": 82}, "all_regular", "p1")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.metric_key, "custom_metric_career")
+        self.assertEqual(result.entity_id, "p1")
+        self.assertEqual(result.value_num, 7.0)
+
 
 class TestReadOnlySession(unittest.TestCase):
     def setUp(self):
