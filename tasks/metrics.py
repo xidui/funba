@@ -17,8 +17,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from random import randint
+import uuid
 
 from celery import chord, shared_task
 from sqlalchemy import func, text
@@ -115,6 +116,132 @@ _SessionLocal = sessionmaker(bind=engine)
 
 def _session_factory():
     return _SessionLocal
+
+
+def _parse_optional_date(value: str | None):
+    return date.fromisoformat(value) if value else None
+
+
+def create_metric_compute_run(
+    metric_key: str,
+    target_game_count: int,
+    *,
+    season: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> tuple[MetricComputeRun, bool]:
+    """Create a new MetricComputeRun unless one is already active for this metric."""
+    with _session_factory()() as session:
+        existing = (
+            session.query(MetricComputeRun)
+            .filter(
+                MetricComputeRun.metric_key == metric_key,
+                MetricComputeRun.status.in_(("mapping", "reducing")),
+            )
+            .order_by(MetricComputeRun.created_at.desc())
+            .first()
+        )
+        if existing is not None:
+            session.expunge(existing)
+            return existing, False
+
+        session.query(MetricComputeRun).filter(
+            MetricComputeRun.metric_key == metric_key,
+            MetricComputeRun.status.in_(("complete", "failed")),
+        ).delete(synchronize_session=False)
+
+        run = MetricComputeRun(
+            id=str(uuid.uuid4()),
+            metric_key=metric_key,
+            status="mapping",
+            target_season=season,
+            target_date_from=_parse_optional_date(date_from),
+            target_date_to=_parse_optional_date(date_to),
+            target_game_count=int(target_game_count),
+            created_at=datetime.utcnow(),
+            started_at=datetime.utcnow(),
+        )
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+        session.expunge(run)
+        return run, True
+
+
+def enqueue_season_metric_refresh(
+    seasons: list[str] | set[str],
+    *,
+    metrics: list | None = None,
+) -> dict:
+    from metrics.framework.base import CAREER_SEASONS, career_season_for, season_matches_metric_types
+    from metrics.framework.runtime import get_all_metrics
+
+    affected_seasons = sorted({season for season in seasons if season})
+    if not affected_seasons:
+        return {"status": "no_seasons"}
+
+    if metrics is None:
+        metrics = [
+            m for m in get_all_metrics()
+            if getattr(m, "trigger", "game") == "season" and not getattr(m, "career", False)
+        ]
+
+    career_buckets = {career_season_for(season) for season in affected_seasons if career_season_for(season)}
+
+    enqueued = 0
+    callbacks = 0
+    scheduled_metrics = 0
+    for m in metrics:
+        eligible_seasons = [
+            season for season in affected_seasons
+            if season_matches_metric_types(season, getattr(m, "season_types", None))
+        ]
+        eligible_career_buckets = [
+            bucket for bucket in sorted(CAREER_SEASONS)
+            if bucket in career_buckets and season_matches_metric_types(bucket, getattr(m, "season_types", None))
+        ]
+        if not eligible_seasons and not (getattr(m, "supports_career", False) and eligible_career_buckets):
+            continue
+
+        scheduled_metrics += 1
+        has_career = getattr(m, "supports_career", False) and bool(eligible_career_buckets)
+        task_count = len(eligible_seasons) + (len(eligible_career_buckets) if has_career else 0)
+        run, created = create_metric_compute_run(m.key, task_count)
+        run_id = run.id if created else None
+        if not created:
+            logger.info("season metric refresh: active compute run exists for %s (%s)", m.key, run.id)
+
+        if has_career:
+            season_tasks = [compute_season_metric_task.s(m.key, season, run_id=run_id) for season in eligible_seasons]
+            chord(season_tasks)(
+                enqueue_career_metric_family_task.s(
+                    metric_key=m.key,
+                    run_id=run_id,
+                    buckets=eligible_career_buckets,
+                )
+            )
+            enqueued += len(season_tasks)
+            callbacks += 1
+        else:
+            for season in eligible_seasons:
+                compute_season_metric_task.delay(m.key, season, run_id=run_id)
+                enqueued += 1
+
+    logger.info(
+        "enqueue_season_metric_refresh: seasons=%s, career_buckets=%s, enqueued %d season task(s) with %d career callback(s) for %d metric(s).",
+        affected_seasons,
+        sorted(career_buckets),
+        enqueued,
+        callbacks,
+        scheduled_metrics,
+    )
+    return {
+        "seasons": affected_seasons,
+        "career_buckets": sorted(career_buckets),
+        "metrics": scheduled_metrics,
+        "enqueued": enqueued,
+        "callbacks": callbacks,
+    }
 
 
 @contextmanager
@@ -804,10 +931,6 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
     Detects which seasons were affected from the ingested game IDs, then
     refreshes those seasons plus their corresponding career buckets.
     """
-    from metrics.framework.base import career_season_for, season_matches_metric_types
-    from metrics.framework.family import family_career_key
-    from metrics.framework.runtime import get_all_metrics
-
     Session = sessionmaker(bind=engine)
 
     # Extract game_ids from ingest results; skip if nothing actually changed
@@ -842,55 +965,4 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
 
     if not affected_seasons:
         return {"status": "no_seasons"}
-
-    # Dedupe career buckets (e.g. 22025 and 42025 both map to different buckets)
-    career_buckets = set()
-    for s in affected_seasons:
-        cb = career_season_for(s)
-        if cb:
-            career_buckets.add(cb)
-
-    metrics = [
-        m for m in get_all_metrics()
-        if getattr(m, "trigger", "game") == "season" and not getattr(m, "career", False)
-    ]
-
-    enqueued = 0
-    callbacks = 0
-    scheduled_metrics = 0
-    for m in metrics:
-        eligible_seasons = [season for season in affected_seasons if season_matches_metric_types(season, getattr(m, "season_types", None))]
-        eligible_career_buckets = [
-            cb for cb in career_buckets
-            if season_matches_metric_types(cb, getattr(m, "season_types", None))
-        ]
-        if not eligible_seasons and not (getattr(m, "supports_career", False) and eligible_career_buckets):
-            continue
-        scheduled_metrics += 1
-        if getattr(m, "supports_career", False) and eligible_career_buckets:
-            season_tasks = [compute_season_metric_task.s(m.key, season) for season in eligible_seasons]
-            chord(season_tasks)(
-                enqueue_career_metric_family_task.s(
-                    metric_key=m.key,
-                    run_id=None,
-                    buckets=eligible_career_buckets,
-                )
-            )
-            enqueued += len(season_tasks)
-            callbacks += 1
-        else:
-            for season in eligible_seasons:
-                compute_season_metric_task.delay(m.key, season)
-                enqueued += 1
-
-    logger.info(
-        "refresh_current_season_metrics: seasons=%s, career_buckets=%s, enqueued %d season task(s) with %d career callback(s) for %d metric(s).",
-        affected_seasons, career_buckets, enqueued, callbacks, scheduled_metrics,
-    )
-    return {
-        "seasons": sorted(affected_seasons),
-        "career_buckets": sorted(career_buckets),
-        "metrics": scheduled_metrics,
-        "enqueued": enqueued,
-        "callbacks": callbacks,
-    }
+    return enqueue_season_metric_refresh(affected_seasons)

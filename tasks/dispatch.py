@@ -114,59 +114,6 @@ def _parse_optional_date(value: str | None):
     return _date.fromisoformat(value) if value else None
 
 
-def _create_metric_compute_run(
-    metric_key: str,
-    target_game_count: int,
-    *,
-    season: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-) -> tuple[MetricComputeRun, bool]:
-    """Create a new MetricComputeRun unless one is already active for this metric."""
-    sess = _session()
-    try:
-        existing = (
-            sess.query(MetricComputeRun)
-            .filter(
-                MetricComputeRun.metric_key == metric_key,
-                MetricComputeRun.status.in_(("mapping", "reducing")),
-            )
-            .order_by(MetricComputeRun.created_at.desc())
-            .first()
-        )
-        if existing is not None:
-            run_id = existing.id
-            sess.expunge(existing)
-            return existing, False
-
-        # Delete old completed/failed runs — keep only one run per metric
-        sess.query(MetricComputeRun).filter(
-            MetricComputeRun.metric_key == metric_key,
-            MetricComputeRun.status.in_(("complete", "failed")),
-        ).delete(synchronize_session=False)
-
-        run_id = str(uuid.uuid4())
-        now = datetime.utcnow()
-        run = MetricComputeRun(
-            id=run_id,
-            metric_key=metric_key,
-            status="mapping",
-            target_season=season,
-            target_date_from=_parse_optional_date(date_from),
-            target_date_to=_parse_optional_date(date_to),
-            target_game_count=int(target_game_count),
-            created_at=now,
-            started_at=now,
-        )
-        sess.add(run)
-        sess.commit()
-        sess.refresh(run)
-        sess.expunge(run)
-        return run, True
-    finally:
-        sess.close()
-
-
 def discover_and_insert_games(
     season: str | None = None,
     season_types: list[str] | None = None,
@@ -398,7 +345,7 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
     """
     from celery import chord
 
-    from tasks.metrics import chord_reduce_callback, compute_game_delta
+    from tasks.metrics import chord_reduce_callback, compute_game_delta, create_metric_compute_run
     from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 
     if args.metric:
@@ -436,7 +383,7 @@ def cmd_metric_backfill(args: argparse.Namespace) -> None:
     run_count = 0
     skipped_active: list[str] = []
     for key in metric_keys:
-        run, created = _create_metric_compute_run(
+        run, created = create_metric_compute_run(
             key,
             len(game_ids),
             season=args.season,
@@ -529,11 +476,8 @@ def cmd_metric_retry_failed(args: argparse.Namespace) -> None:
 
 def cmd_season_metrics(args: argparse.Namespace) -> None:
     """Enqueue season-triggered metric computation tasks."""
-    from celery import chord
-
-    from metrics.framework.base import CAREER_SEASONS, career_season_for, season_matches_metric_types
     from metrics.framework.runtime import get_all_metrics, get_metric
-    from tasks.metrics import compute_season_metric_task, enqueue_career_metric_family_task
+    from tasks.metrics import enqueue_season_metric_refresh
 
     if args.metric:
         m = get_metric(args.metric)
@@ -566,68 +510,15 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
         finally:
             sess.close()
 
-    enqueued = 0
-    callbacks = 0
-    for m in metrics:
-        eligible_seasons = [season for season in seasons if season_matches_metric_types(season, getattr(m, "season_types", None))]
-        if args.season:
-            career_bucket = career_season_for(args.season)
-            eligible_career_buckets = (
-                [career_bucket]
-                if career_bucket and season_matches_metric_types(career_bucket, getattr(m, "season_types", None))
-                else []
-            )
-        else:
-            eligible_career_buckets = [
-                cb for cb in sorted(CAREER_SEASONS)
-                if season_matches_metric_types(cb, getattr(m, "season_types", None))
-            ]
-        if getattr(m, "career", False):
-            # Career variant — dispatch with career seasons only
-            if args.season:
-                career_bucket = career_season_for(args.season)
-                if career_bucket and season_matches_metric_types(career_bucket, getattr(m, "season_types", None)):
-                    compute_season_metric_task.delay(m.key, career_bucket)
-                    enqueued += 1
-            else:
-                for cb in eligible_career_buckets:
-                    compute_season_metric_task.delay(m.key, cb)
-                    enqueued += 1
-        else:
-            # Base metric — dispatch with concrete seasons
-            has_career = getattr(m, "supports_career", False) and bool(eligible_career_buckets)
-            task_count = len(eligible_seasons) + (len(eligible_career_buckets) if has_career else 0)
-            if task_count == 0:
-                print(f"  {m.key}: no supported seasons for configured season_types, skipping")
-                continue
-            run, created = _create_metric_compute_run(m.key, task_count)
-            run_id = run.id if created else None
-            if not created:
-                print(f"  {m.key}: active compute run exists ({run.id}), skipping progress tracking")
+    result = enqueue_season_metric_refresh(seasons, metrics=metrics)
 
-            if has_career:
-                season_tasks = [compute_season_metric_task.s(m.key, season, run_id=run_id) for season in eligible_seasons]
-                chord(season_tasks)(
-                    enqueue_career_metric_family_task.s(
-                        metric_key=m.key,
-                        run_id=run_id,
-                        buckets=eligible_career_buckets,
-                    )
-                )
-                enqueued += len(season_tasks)
-                callbacks += 1
-            else:
-                for season in eligible_seasons:
-                    compute_season_metric_task.delay(m.key, season, run_id=run_id)
-                    enqueued += 1
-
-    if callbacks:
+    if result.get("callbacks"):
         print(
-            f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s) "
-            f"with {callbacks} career callback chord(s)."
+            f"Enqueued {result['enqueued']} season metric task(s) for {len(metrics)} metric(s) "
+            f"with {result['callbacks']} career callback chord(s)."
         )
     else:
-        print(f"Enqueued {enqueued} season metric task(s) for {len(metrics)} metric(s).")
+        print(f"Enqueued {result['enqueued']} season metric task(s) for {len(metrics)} metric(s).")
 
 
 def main() -> None:

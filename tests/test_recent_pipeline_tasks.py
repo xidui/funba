@@ -284,6 +284,10 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     with patch.object(metrics_tasks, "sessionmaker", return_value=SessionFactory), patch(
         "metrics.framework.runtime.get_all_metrics",
         return_value=[regular_only, playoffs_only],
+    ), patch.object(
+        metrics_tasks,
+        "create_metric_compute_run",
+        side_effect=[(SimpleNamespace(id="run-regular"), True), (SimpleNamespace(id="run-playoffs"), True)],
     ), patch.object(metrics_tasks.compute_season_metric_task, "delay") as delay_mock, patch(
         "tasks.metrics.chord",
     ) as chord_mock:
@@ -296,14 +300,16 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
         "enqueued": 2,
         "callbacks": 1,
     }
-    delay_mock.assert_any_call("salary_per_point", "22025")
+    delay_mock.assert_any_call("salary_per_point", "22025", run_id="run-regular")
     assert delay_mock.call_count == 1
     chord_mock.assert_called_once()
     season_tasks = chord_mock.call_args.args[0]
     assert len(season_tasks) == 1
     assert season_tasks[0].args == ("playoff_points", "42025")
+    assert season_tasks[0].kwargs == {"run_id": "run-playoffs"}
     callback_sig = chord_mock.return_value.call_args.args[0]
     assert callback_sig.kwargs["metric_key"] == "playoff_points"
+    assert callback_sig.kwargs["run_id"] == "run-playoffs"
     assert callback_sig.kwargs["buckets"] == ["all_playoffs"]
 
 
@@ -367,23 +373,21 @@ def test_cmd_season_metrics_with_explicit_season_enqueues_matching_career_bucket
         supports_career=True,
         season_types=("regular",),
     )
-    fake_run = SimpleNamespace(id="run-1")
     args = SimpleNamespace(metric=None, season="22025")
 
     with patch("metrics.framework.runtime.get_all_metrics", return_value=[base_metric]), patch(
-        "tasks.dispatch._create_metric_compute_run",
-        return_value=(fake_run, True),
-    ), patch("tasks.metrics.compute_season_metric_task") as compute_task_mock, patch(
-        "tasks.metrics.enqueue_career_metric_family_task",
-    ) as enqueue_career_mock, patch("celery.chord") as chord_mock:
+        "tasks.metrics.enqueue_season_metric_refresh",
+        return_value={
+            "seasons": ["22025"],
+            "career_buckets": ["all_regular"],
+            "metrics": 1,
+            "enqueued": 1,
+            "callbacks": 1,
+        },
+    ) as enqueue_refresh_mock:
         dispatch_tasks.cmd_season_metrics(args)
 
-    compute_task_mock.delay.assert_not_called()
-    compute_task_mock.s.assert_called_once_with("metric_a", "22025", run_id="run-1")
-    chord_mock.assert_called_once()
-    season_tasks = chord_mock.call_args.args[0]
-    assert len(season_tasks) == 1
-    assert season_tasks[0] is compute_task_mock.s.return_value
-    enqueue_career_mock.s.assert_called_once_with(metric_key="metric_a", run_id="run-1", buckets=["all_regular"])
-    callback_sig = chord_mock.return_value.call_args.args[0]
-    assert callback_sig is enqueue_career_mock.s.return_value
+    enqueue_refresh_mock.assert_called_once()
+    call_args, call_kwargs = enqueue_refresh_mock.call_args
+    assert call_args == (["22025"],)
+    assert call_kwargs["metrics"] == [base_metric]
