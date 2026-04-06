@@ -1013,10 +1013,7 @@
   }
 
   triggerBtn.addEventListener('click', function () { trigger(false); });
-  forceBtn.addEventListener('click', function () {
-    if (!window.confirm('Create a new Paperclip issue for this game even if one is already recorded?')) return;
-    trigger(true);
-  });
+  forceBtn.addEventListener('click', function () { trigger(true); });
 })();
 </script>
 {% endif %}
