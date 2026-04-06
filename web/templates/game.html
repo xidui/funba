@@ -974,7 +974,10 @@
         body: JSON.stringify({ force }),
       });
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data.ok) {
+      if (!resp.ok) {
+        throw new Error(data.error || ('HTTP ' + resp.status));
+      }
+      if (!data.ok && data.status !== 'waiting_for_pipeline') {
         throw new Error(data.error || ('HTTP ' + resp.status));
       }
       renderIssues(data.issues || []);
