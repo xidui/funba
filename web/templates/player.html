@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% set player_name = display_player_name(player) %}
-{% block title %}{{ player_name }} — FUNBA{% endblock %}
+{% block title %}{{ player_name }} — {{ site_name }}{% endblock %}
 {% block meta_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics on FUNBA.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
-{% block og_title %}{{ player_name }} — FUNBA{% endblock %}
+{% block og_title %}{{ player_name }} — {{ site_name }}{% endblock %}
 {% block og_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
 {% block og_type %}profile{% endblock %}
-{% block tw_title %}{{ player_name }} — FUNBA{% endblock %}
+{% block tw_title %}{{ player_name }} — {{ site_name }}{% endblock %}
 {% block tw_description %}{{ player_name }} {{ t('career stats, shot charts, and game log.', '球员生涯数据、投篮图和比赛日志。') }}{% endblock %}
 {% block content %}
 <style>

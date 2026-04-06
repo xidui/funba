@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% set team_name = display_team_name(team) %}
-{% block title %}{{ team_name }} — FUNBA{% endblock %}
+{% block title %}{{ team_name }} — {{ site_name }}{% endblock %}
 {% block meta_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
-{% block og_title %}{{ team_name }} — FUNBA{% endblock %}
+{% block og_title %}{{ team_name }} — {{ site_name }}{% endblock %}
 {% block og_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
-{% block tw_title %}{{ team_name }} — FUNBA{% endblock %}
+{% block tw_title %}{{ team_name }} — {{ site_name }}{% endblock %}
 {% block tw_description %}{{ team_name }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
 {% block content %}
 <style>

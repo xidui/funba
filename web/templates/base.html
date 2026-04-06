@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{% block title %}{{ title or "FUNBA" }}{% endblock %}</title>
+    <title>{% block title %}{{ title or site_name }}{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}NBA stats, metrics, and analytics — player profiles, team standings, game breakdowns, and shot charts.{% endblock %}" />
     <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml" />
 
     <!-- Open Graph -->
-    <meta property="og:site_name" content="FUNBA" />
+    <meta property="og:site_name" content="{{ site_name }}" />
     <meta property="og:type" content="{% block og_type %}website{% endblock %}" />
-    <meta property="og:title" content="{% block og_title %}{{ title or 'FUNBA — NBA Analytics' }}{% endblock %}" />
+    <meta property="og:title" content="{% block og_title %}{{ title or (site_name ~ ' — NBA Analytics') }}{% endblock %}" />
     <meta property="og:description" content="{% block og_description %}NBA stats, metrics, and analytics — player profiles, team standings, game breakdowns, and shot charts.{% endblock %}" />
     <meta property="og:url" content="{{ request.url }}" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="{% block tw_title %}{{ title or 'FUNBA — NBA Analytics' }}{% endblock %}" />
+    <meta name="twitter:title" content="{% block tw_title %}{{ title or (site_name ~ ' — NBA Analytics') }}{% endblock %}" />
     <meta name="twitter:description" content="{% block tw_description %}NBA stats, metrics, and analytics.{% endblock %}" />
 
     <script>
@@ -1294,7 +1294,7 @@
             src="{{ url_for('static', filename='branding/funba-icon-rim-arc.svg') }}"
             alt=""
           />
-          <span class="brand-name">FUNBA</span>
+          <span class="brand-name">{{ site_name }}</span>
         </a>
 
         <div class="gs-wrap">
@@ -1513,7 +1513,7 @@
               src="{{ url_for('static', filename='branding/funba-icon-rim-arc.svg') }}"
               alt=""
             />
-            <span class="brand-name">FUNBA</span>
+            <span class="brand-name">{{ site_name }}</span>
           </a>
           <p class="footer-desc">{{ t('Independent NBA analytics — shot quality, behavioral metrics, and play-by-play breakdowns for every game.', '独立 NBA 数据分析网站，覆盖投篮质量、行为指标和逐回合比赛拆解。') }}</p>
         </div>
@@ -1542,7 +1542,7 @@
       </div>
 
       <div class="footer-bottom">
-        <span>&copy; {{ current_year }} FUNBA. All rights reserved.</span>
+        <span>&copy; {{ current_year }} {{ site_name }}. All rights reserved.</span>
         <span class="footer-disclaimer">{{ t('Data sourced from NBA Stats API. Not affiliated with the NBA.', '数据来自 NBA Stats API，与 NBA 官方无关联。') }}</span>
       </div>
     </footer>

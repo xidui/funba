@@ -48,7 +48,7 @@ from db.paperclip_settings import (
     set_paperclip_issue_base_url,
 )
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
-from db.models import Award, Feedback, Game, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameContentAnalysisIssuePost, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from content_pipeline.game_analysis_issues import (
     ensure_game_content_analysis_issue_for_game,
@@ -3025,13 +3025,16 @@ def _track_page_view():
         return
     if not app.config.get("TESTING") and _is_bot():
         return
+    # Skip tracking for localhost requests
+    if _real_ip() in ("127.0.0.1", "::1"):
+        return
     # Skip tracking for admin / owner sessions
     _uid = session.get("user_id")
     if _uid:
         try:
             with SessionLocal() as _db:
                 _u = _db.get(User, _uid)
-                if _u and (_u.is_admin or _u.email == "yuewang.sj@gmail.com"):
+                if _u and (_u.is_admin or _u.email in ("yuewang.sj@gmail.com", "yuewang9269@gmail.com")):
                     return
         except Exception:
             pass
@@ -3818,6 +3821,7 @@ def inject_template_helpers():
         "is_admin": is_admin(),
         "is_pro": is_pro(),
         "current_user": _current_user(),
+        "site_name": _t("FUNBA", "智趣NBA"),
         "current_year": date.today().year,
         "clean_key": _strip_draft_prefix,
         "paperclip_issue_base_url": paperclip_issue_base_url,
@@ -8733,6 +8737,18 @@ def api_content_create_post():
             return jsonify({"error": str(exc)}), 400
         if resolved_issue is None:
             return jsonify({"error": "analysis issue not found"}), 400
+        # Enforce one-post-per-game-analysis-issue rule
+        with SessionLocal() as s:
+            existing_link = (
+                s.query(GameContentAnalysisIssuePost)
+                .filter(GameContentAnalysisIssuePost.issue_record_id == resolved_issue.id)
+                .first()
+            )
+            if existing_link:
+                return jsonify({
+                    "error": "this game-analysis issue already has a linked post",
+                    "existing_post_id": existing_link.post_id,
+                }), 409
     try:
         prepared_images = _validate_prepared_image_specs(data.get("images", []))
     except ValueError as exc:
