@@ -9,8 +9,8 @@ Season: {season_label}
 
 Required work:
 1. Read this game's boxscore, triggered metrics, and game detail from Funba localhost APIs.
-2. Create 1-2 strong posts for this single game only. Do not broaden into unrelated same-date games.
-3. For every post, create exactly 3 variants tied to this same game: one general NBA Hupu variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`), one team-fan Hupu variant (destination should be the relevant team forum), and one Xiaohongshu note variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`). Do not skip the Xiaohongshu variant.
+2. Create exactly 1 strong `SocialPost` for this single game only. Do not broaden into unrelated same-date games and do not split this game into multiple `SocialPost` records.
+3. Inside that single `SocialPost`, create exactly 3 variants tied to this same game: one general NBA Hupu variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`), one team-fan Hupu variant (destination should be the relevant team forum), and one Xiaohongshu note variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`). Do not skip the Xiaohongshu variant.
 4. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to this Paperclip issue's identifier so Funba can link the created posts back to this game-analysis ticket.
 5. Keep the Xiaohongshu variant native to Xiaohongshu: shorter title, faster hook, shorter paragraphs, fewer links in the body, but still factual and grounded in Funba data.
 6. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
@@ -20,7 +20,8 @@ Required work:
 
 ## Topic Selection Rules
 
-- This ticket is for one game. Extract 1-2 distinct story angles from this game, not 5-6 repetitive angles.
+- This ticket is for one game and should produce one `SocialPost`. Pick the single strongest angle for that game.
+- If the game supports multiple useful sub-angles, combine them into one coherent post and express audience differences through variants instead of creating multiple posts.
 - Avoid duplicate same-game coverage. If another post already covers the same game with a very similar angle, skip it or choose a materially different angle.
 - Do not keep using always-on metrics like common double-doubles / 20+5+5 style triggers as the title hook for the same stars every game.
 - Use those routine metrics only when there is a real milestone, streak, leaderboard movement, unusual efficiency, or broader context.
