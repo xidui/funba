@@ -1550,6 +1550,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     # Collect all entity IDs we need to resolve
     player_ids: set[str] = set()
     team_ids: set[str] = set()
+    game_entity_ids: set[str] = set()
 
     top3_raw: dict[str, list] = {}
     for key, results in by_metric.items():
@@ -1566,6 +1567,8 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
             elif scope == "team":
                 if r.entity_id:
                     team_ids.add(r.entity_id)
+            elif scope == "game" and r.entity_id:
+                game_entity_ids.add(r.entity_id)
 
     # Bulk resolve names
     player_names = {}
@@ -1577,6 +1580,11 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     if team_ids:
         for t in session.query(Team.team_id, Team.abbr, Team.full_name, Team.full_name_zh).filter(Team.team_id.in_(team_ids)).all():
             team_labels[t.team_id] = t.full_name_zh if _is_zh() and getattr(t, "full_name_zh", None) else (t.full_name or t.abbr)
+
+    game_labels = {}
+    game_dates = {}
+    if game_entity_ids:
+        game_labels, game_dates = _resolve_game_entity_names(session, sorted(game_entity_ids))
 
     # Build final output
     result: dict[str, list[dict]] = {}
@@ -1603,10 +1611,13 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
                     "logo_url": f"https://cdn.nba.com/logos/nba/{eid}/global/L/logo.svg",
                 }
             else:
-                # game scope — just show value_str
+                label = game_labels.get(eid, eid)
+                game_date = game_dates.get(eid)
+                if game_date:
+                    label = f"{label} · {game_date}"
                 entry = {
                     "entity_id": eid,
-                    "label": r.value_str or "",
+                    "label": label,
                     "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
                 }
             entries.append(entry)
