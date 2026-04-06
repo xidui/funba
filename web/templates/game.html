@@ -822,8 +822,7 @@
       </div>
     </div>
 
-    {% if game_analysis_issues %}
-    <div id="game-analysis-issue-list" class="game-admin-history">
+    <div id="game-analysis-issue-list" class="game-admin-history"{% if not game_analysis_issues %} hidden{% endif %}>
       {% for issue in game_analysis_issues %}
       <div class="game-admin-issue">
         <div class="game-admin-issue-main">
@@ -850,9 +849,7 @@
       </div>
       {% endfor %}
     </div>
-    {% else %}
-    <div id="game-analysis-issue-table-empty" class="game-admin-history-empty">No analysis issue history recorded yet.</div>
-    {% endif %}
+    <div id="game-analysis-issue-table-empty" class="game-admin-history-empty"{% if game_analysis_issues %} hidden{% endif %}>No analysis issue history recorded yet.</div>
   </div>
 </div>
 <script>
@@ -860,15 +857,100 @@
   const triggerBtn = document.getElementById('game-analysis-trigger-btn');
   const forceBtn = document.getElementById('game-analysis-force-btn');
   const statusEl = document.getElementById('game-analysis-trigger-status');
-  if (!triggerBtn || !forceBtn || !statusEl) return;
+  const issueListEl = document.getElementById('game-analysis-issue-list');
+  const emptyEl = document.getElementById('game-analysis-issue-table-empty');
+  if (!triggerBtn || !forceBtn || !statusEl || !issueListEl || !emptyEl) return;
 
   const endpoint = '{{ url_for("admin_game_trigger_content_analysis", game_id=game.game_id) }}';
+  const adminPostBase = '/admin/content/';
 
   function setBusy(busy) {
     triggerBtn.disabled = busy;
     forceBtn.disabled = busy;
     triggerBtn.style.opacity = busy ? '0.65' : '1';
     forceBtn.style.opacity = busy ? '0.65' : '1';
+  }
+
+  function pillClass(prefix, value) {
+    return prefix + '-' + String(value || 'unknown').replace(/\s+/g, '_');
+  }
+
+  function renderIssues(issues) {
+    const rows = Array.isArray(issues) ? issues : [];
+    issueListEl.innerHTML = '';
+    if (!rows.length) {
+      issueListEl.hidden = true;
+      emptyEl.hidden = false;
+      return;
+    }
+    issueListEl.hidden = false;
+    emptyEl.hidden = true;
+
+    rows.forEach(function (issue) {
+      const card = document.createElement('div');
+      card.className = 'game-admin-issue';
+
+      const main = document.createElement('div');
+      main.className = 'game-admin-issue-main';
+
+      const row = document.createElement('div');
+      row.className = 'game-admin-issue-row';
+
+      const issueId = document.createElement('span');
+      issueId.className = 'game-admin-issue-id';
+      issueId.textContent = issue.issue_identifier || issue.issue_id || 'unknown';
+      row.appendChild(issueId);
+
+      const triggerPill = document.createElement('span');
+      triggerPill.className = 'game-admin-pill ' + pillClass('trigger', issue.trigger_source || 'unknown');
+      triggerPill.textContent = issue.trigger_source || 'unknown';
+      row.appendChild(triggerPill);
+      main.appendChild(row);
+
+      const title = document.createElement('div');
+      title.className = 'game-admin-issue-title';
+      title.textContent = issue.title || '';
+      main.appendChild(title);
+
+      if (Array.isArray(issue.posts) && issue.posts.length) {
+        const postLinks = document.createElement('div');
+        postLinks.className = 'game-admin-post-links';
+        issue.posts.forEach(function (post) {
+          const link = document.createElement('a');
+          link.className = 'game-admin-post-link';
+          link.href = adminPostBase + String(post.post_id || '');
+
+          const label = document.createElement('span');
+          label.textContent = 'Post ' + String(post.post_id || '');
+          link.appendChild(label);
+
+          const badge = document.createElement('span');
+          badge.className = 'badge badge-neutral';
+          badge.textContent = post.status || 'unknown';
+          link.appendChild(badge);
+
+          postLinks.appendChild(link);
+        });
+        main.appendChild(postLinks);
+      }
+
+      const side = document.createElement('div');
+      side.className = 'game-admin-issue-side';
+
+      const statusPill = document.createElement('span');
+      statusPill.className = 'game-admin-pill ' + pillClass('status', issue.issue_status || 'unknown');
+      statusPill.textContent = issue.issue_status || 'unknown';
+      side.appendChild(statusPill);
+
+      const createdPill = document.createElement('span');
+      createdPill.className = 'game-admin-pill';
+      createdPill.textContent = issue.created_at_label || issue.created_at || '';
+      side.appendChild(createdPill);
+
+      card.appendChild(main);
+      card.appendChild(side);
+      issueListEl.appendChild(card);
+    });
   }
 
   async function trigger(force) {
@@ -886,10 +968,10 @@
       if (!resp.ok || !data.ok) {
         throw new Error(data.error || ('HTTP ' + resp.status));
       }
+      renderIssues(data.issues || []);
       if (data.status === 'created') {
         statusEl.style.color = 'var(--win)';
-        statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '. Reloading…';
-        window.setTimeout(function () { window.location.reload(); }, 700);
+        statusEl.textContent = 'Created analysis issue ' + (data.issue_identifier || data.issue_id || '') + '.';
       } else if (data.status === 'exists' || data.status === 'already_covered') {
         statusEl.style.color = 'var(--muted-2)';
         statusEl.textContent = 'Existing analysis issue found: ' + (data.issue_identifier || data.issue_id || data.status);
@@ -902,7 +984,7 @@
         statusEl.textContent = 'Analysis trigger result: ' + (data.status || 'unknown');
         setBusy(false);
       }
-      if (data.status === 'exists' || data.status === 'already_covered') {
+      if (data.status === 'created' || data.status === 'exists' || data.status === 'already_covered') {
         setBusy(false);
       }
     } catch (err) {

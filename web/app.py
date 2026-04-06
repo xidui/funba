@@ -8194,6 +8194,18 @@ def admin_game_trigger_content_analysis(game_id: str):
             "source_date": item.source_date,
             "created_at": item.created_at,
             "updated_at": item.updated_at,
+            "created_at_label": item.created_at.replace("T", " ")[:19] if item.created_at else None,
+            "updated_at_label": item.updated_at.replace("T", " ")[:19] if item.updated_at else None,
+            "posts": [
+                {
+                    "post_id": int(post["post_id"]),
+                    "topic": str(post.get("topic") or ""),
+                    "status": str(post.get("status") or ""),
+                    "source_date": str(post.get("source_date") or ""),
+                    "discovered_via": str(post.get("discovered_via") or ""),
+                }
+                for post in item.posts
+            ],
         }
         for item in game_analysis_issue_history(game_id)
     ]
