@@ -9542,6 +9542,36 @@ def api_admin_ai_usage():
         return jsonify({"ok": True, "dashboard": get_ai_usage_dashboard(session)})
 
 
+@app.get("/api/admin/visitor-timeseries")
+def api_admin_visitor_timeseries():
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from datetime import datetime, timedelta
+    from sqlalchemy import cast, Date as SADate
+
+    days = min(int(request.args.get("days", 90)), 365)
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    with SessionLocal() as session:
+        rows = (
+            session.query(
+                cast(PageView.created_at, SADate).label("day"),
+                func.count(PageView.id).label("views"),
+                func.count(func.distinct(PageView.visitor_id)).label("unique"),
+            )
+            .filter(PageView.created_at >= cutoff)
+            .group_by("day")
+            .order_by("day")
+            .all()
+        )
+        data = [
+            {"date": str(r.day), "views": r.views, "unique": r.unique}
+            for r in rows
+        ]
+    return jsonify({"ok": True, "series": data})
+
+
 @app.post("/api/admin/runtime-flags")
 def api_admin_update_runtime_flags():
     denied = _require_admin_json()
