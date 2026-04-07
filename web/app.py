@@ -9548,25 +9548,37 @@ def api_admin_visitor_timeseries():
     if denied:
         return denied
     from datetime import datetime, timedelta
-    from sqlalchemy import cast, Date as SADate
+    from sqlalchemy import extract
 
     days = min(int(request.args.get("days", 90)), 365)
     cutoff = datetime.utcnow() - timedelta(days=days)
 
+    year_col = extract("year", PageView.created_at)
+    month_col = extract("month", PageView.created_at)
+    day_col = extract("day", PageView.created_at)
+    hour_col = extract("hour", PageView.created_at)
+
     with SessionLocal() as session:
         rows = (
             session.query(
-                cast(PageView.created_at, SADate).label("day"),
+                year_col.label("y"),
+                month_col.label("m"),
+                day_col.label("d"),
+                hour_col.label("h"),
                 func.count(PageView.id).label("views"),
                 func.count(func.distinct(PageView.visitor_id)).label("unique"),
             )
             .filter(PageView.created_at >= cutoff)
-            .group_by("day")
-            .order_by("day")
+            .group_by("y", "m", "d", "h")
+            .order_by("y", "m", "d", "h")
             .all()
         )
         data = [
-            {"date": str(r.day), "views": r.views, "unique": r.unique}
+            {
+                "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00",
+                "views": r.views,
+                "unique": r.unique,
+            }
             for r in rows
         ]
     return jsonify({"ok": True, "series": data})
