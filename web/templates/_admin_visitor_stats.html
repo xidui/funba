@@ -37,11 +37,31 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js"></script>
 <script>
 (function() {
+  var SCRIPTS = [
+    'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
+    'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js',
+    'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js',
+  ];
+
+  function loadScript(url) {
+    return new Promise(function(resolve, reject) {
+      if (document.querySelector('script[src="' + url + '"]')) { resolve(); return; }
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadAll(urls) {
+    var p = Promise.resolve();
+    urls.forEach(function(u) { p = p.then(function() { return loadScript(u); }); });
+    return p;
+  }
+
   var canvas = document.getElementById('vs-chart');
   var rangeSelect = document.getElementById('vs-range-select');
   var resetBtn = document.getElementById('vs-reset-zoom');
@@ -157,6 +177,8 @@
     resetBtn.style.display = 'none';
   });
 
-  loadData();
+  loadAll(SCRIPTS).then(loadData).catch(function() {
+    canvas.parentElement.innerHTML = '<div style="color:var(--loss);font-size:13px;text-align:center;padding:20px;">Failed to load chart libraries</div>';
+  });
 })();
 </script>
