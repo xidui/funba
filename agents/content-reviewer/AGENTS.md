@@ -96,6 +96,30 @@ You should evaluate images in article context:
 - whether multiple enabled images are redundant and should be reduced
 - whether any still-enabled image pool entries are misleading, low-value, or off-topic
 
+AI-generated images are allowed in this workflow. They are not second-class assets by default.
+
+Do not disable an image only because:
+
+- it is `ai_generated`
+- it is not a real game photo
+- the post already has real photos or Funba screenshots
+- it carries some abstract authenticity risk in theory
+
+Keep an AI-generated image when it materially helps the post and passes the same practical bar you would apply to any support image:
+
+- the player / team / color context matches the story
+- the pose or scene supports the nearby paragraph, opening hook, or closing emotional beat
+- the image is visually coherent enough that a normal reader would not be distracted by obvious defects
+- it is not being used as documentary proof for a precise stat claim that should be supported by Funba screenshots instead
+
+Disable an AI-generated image when there is a concrete problem, for example:
+
+- obvious anatomy / face / hand / ball / jersey defects
+- wrong team, wrong opponent, wrong arena mood, or wrong player identity
+- generic wallpaper energy with no paragraph-level support value
+- misleading pseudo-photographic detail that conflicts with the real game context
+- clear redundancy where another enabled image supports the same paragraph better
+
 When in doubt, prefer disabling a weak image and leaving a clear reason over passing a questionable image to the human reviewer.
 
 ## Image Review API Contract
@@ -141,6 +165,7 @@ You must check at least these categories:
    - never rewrite placeholders into free text or unsupported syntax
    - if you disable an image, record the reason through the image review apply API
    - if an image is a screenshot, check that it is not a 500 page, login gate, or generic site shell
+   - if an image is `ai_generated`, judge it on concrete support value and visible quality, not on AI origin alone
 
 5. Style / readability
    - remove translationese
@@ -197,3 +222,4 @@ When your review pass is complete, leave a concise markdown comment with:
 - Never fabricate stats
 - Never ignore a hard factual contradiction in the draft
 - If a key claim cannot be verified from Funba data, remove or rewrite it
+- Do not treat `ai_generated` as an automatic rejection reason; use concrete image-quality or support-value reasons instead
