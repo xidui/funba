@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.reddit.post import (  # noqa: E402
     _build_submit_url,
+    _cookie_for_playwright,
     _extract_post_url_from_page_state,
     _extract_post_url_from_text,
     _normalize_post_url,
@@ -50,6 +51,23 @@ class TestRedditPostHelpers(unittest.TestCase):
     def test_normalize_subreddit_strips_r_prefix(self):
         self.assertEqual(_normalize_subreddit("r/nba"), "nba")
         self.assertEqual(_normalize_subreddit("/r/warriors/"), "warriors")
+
+    def test_cookie_for_playwright_prefers_domain_path_over_url(self):
+        cookie = _cookie_for_playwright(
+            {
+                "name": "csrf_token",
+                "value": "abc",
+                "domain": ".reddit.com",
+                "path": "/",
+                "secure": True,
+                "url": "https://reddit.com",
+                "expires": 123,
+            }
+        )
+        self.assertEqual(cookie["domain"], ".reddit.com")
+        self.assertEqual(cookie["path"], "/")
+        self.assertNotIn("url", cookie)
+        self.assertEqual(cookie["expires"], 123)
 
     def test_build_submit_url_prefills_submit_params(self):
         url = _build_submit_url(subreddit="nba", title="Box Score", content="Line 1\nLine 2")

@@ -37,6 +37,33 @@ _MEDIUM_SLEEP = 0.4
 _LONG_SLEEP = 1.0
 
 
+def _cookie_for_playwright(cookie: dict[str, Any]) -> dict[str, Any]:
+    entry = {
+        "name": str(cookie["name"]),
+        "value": str(cookie.get("value", "")),
+    }
+    domain = str(cookie.get("domain", "") or "").strip()
+    url = str(cookie.get("url", "") or "").strip()
+    if domain:
+        entry["domain"] = domain
+        entry["path"] = str(cookie.get("path", "/") or "/")
+    elif url:
+        entry["url"] = url
+    else:
+        raise ValueError(f"Cookie {entry['name']!r} is missing both domain and url")
+    if cookie.get("secure"):
+        entry["secure"] = True
+    if cookie.get("httpOnly"):
+        entry["httpOnly"] = True
+    expires = cookie.get("expires")
+    if expires is not None:
+        entry["expires"] = int(expires)
+    same_site = str(cookie.get("sameSite", "") or "").strip()
+    if same_site in {"Strict", "Lax", "None"}:
+        entry["sameSite"] = same_site
+    return entry
+
+
 def _slugify_artifact_part(value: str | None) -> str:
     cleaned = re.sub(r"[^\w-]+", "-", str(value or "").strip())
     cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-")
@@ -174,7 +201,7 @@ def _create_context(pw, *, headless: bool) -> BrowserContext:
     )
     cookies = load_cookies()
     if cookies:
-        context.add_cookies(cookies)
+        context.add_cookies([_cookie_for_playwright(cookie) for cookie in cookies])
     return context
 
 
@@ -191,6 +218,16 @@ def _set_control_value(page: Page, selectors: list[str], value: str) -> str | No
     el.focus();
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       el.value = value;
+      dispatch(el);
+      return selector;
+    }
+    if (typeof el.value !== "undefined") {
+      try {
+        el.value = value;
+      } catch (_) {}
+      if (typeof el.setAttribute === "function") {
+        el.setAttribute("value", value);
+      }
       dispatch(el);
       return selector;
     }
@@ -244,6 +281,7 @@ def _fill_submission_form(page: Page, *, subreddit: str, title: str, content: st
     title_selector = _set_control_value(
         page,
         [
+            'faceplate-textarea-input[name="title"]',
             'textarea[name="title"]',
             'input[name="title"]',
             'textarea[placeholder*="title" i]',
