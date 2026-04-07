@@ -1,0 +1,104 @@
+<div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;gap:4px;flex-wrap:wrap;">
+      {% for window_key in ["1d", "3d", "7d"] %}
+      <button
+        type="button"
+        class="cov-toggle {{ 'active' if selected_window == window_key else '' }}"
+        data-window="{{ window_key }}"
+        onclick="loadTopPagesWindow(this)"
+      >{{ window_key }}</button>
+      {% endfor %}
+    </div>
+    <span style="font-size:10px;color:var(--muted);">Times are UTC</span>
+  </div>
+
+  <div style="margin-top:14px;" class="section-label">Top Pages</div>
+  {% if top_pages %}
+  <div class="table-scroll">
+    <table class="usage-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">#</th>
+          <th>Path</th>
+          <th style="width:80px;">Views</th>
+          <th class="hide-mobile" style="width:80px;">Unique</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_pages %}
+        <tr>
+          <td>{{ row.rank }}</td>
+          <td title="{{ row.path }}">
+            <div style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.path }}</div>
+          </td>
+          <td>{{ row.views }}</td>
+          <td class="hide-mobile">{{ row.unique_visitors }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No page views recorded for this window.</div>
+  {% endif %}
+
+  <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+
+  <div class="section-label">Top Referrers</div>
+  {% if top_referrers %}
+  <div class="table-scroll">
+    <table class="usage-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">#</th>
+          <th>Source</th>
+          <th style="width:80px;">Views</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_referrers %}
+        <tr>
+          <td>{{ row.rank }}</td>
+          <td>{{ row.source }}</td>
+          <td>{{ row.views }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No referrers recorded for this window.</div>
+  {% endif %}
+</div>
+
+<script>
+  function loadTopPagesWindow(button) {
+    if (!button) return;
+    var panel = button.closest('.async-panel[data-fragment="top-pages"]');
+    if (!panel) return;
+
+    var windowKey = button.dataset.window || '1d';
+    panel.innerHTML = '<p style="color:var(--muted);padding:16px">Loading…</p>';
+
+    fetch('/admin/fragment/top-pages?window=' + encodeURIComponent(windowKey), {
+      headers: {'X-Requested-With': 'fetch'},
+      credentials: 'same-origin'
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.text();
+      })
+      .then(function (html) {
+        panel.innerHTML = html;
+        panel.querySelectorAll('script').forEach(function (oldScript) {
+          var newScript = document.createElement('script');
+          newScript.textContent = oldScript.textContent;
+          oldScript.replaceWith(newScript);
+        });
+      })
+      .catch(function () {
+        panel.innerHTML = '<p style="color:var(--loss)">Failed to load analytics.</p>';
+      });
+  }
+</script>
