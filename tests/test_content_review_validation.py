@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def _make_app_module():
+    original_game_analysis = sys.modules.get("content_pipeline.game_analysis_issues")
     fake_engine = MagicMock()
     fake_user_cls = MagicMock()
     fake_user_cls.__name__ = "User"
@@ -30,7 +31,21 @@ def _make_app_module():
         if key == "web.app" or key.startswith("web.app."):
             del sys.modules[key]
 
+    fake_game_analysis = types.ModuleType("content_pipeline.game_analysis_issues")
+    fake_game_analysis.ensure_game_content_analysis_issue_for_game = MagicMock()
+    fake_game_analysis.ensure_game_content_analysis_issues = MagicMock()
+    fake_game_analysis.game_analysis_readiness_detail = MagicMock(return_value=None)
+    fake_game_analysis.game_analysis_issue_history = MagicMock(return_value=[])
+    fake_game_analysis.link_post_to_game_analysis_issue = MagicMock()
+    fake_game_analysis.resolve_game_analysis_issue_record = MagicMock(return_value=None)
+    sys.modules["content_pipeline.game_analysis_issues"] = fake_game_analysis
+
     import web.app as web_app
+
+    if original_game_analysis is not None:
+        sys.modules["content_pipeline.game_analysis_issues"] = original_game_analysis
+    else:
+        sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
     web_app.app.config["TESTING"] = True
     return web_app
@@ -140,6 +155,42 @@ class TestContentReviewValidation(unittest.TestCase):
         self.assertEqual(rendered["status"], "failed")
         self.assertIsNone(rendered["published_url"])
         self.assertIn("Invalid Hupu published_url recorded", rendered["error_message"])
+
+    def test_add_reddit_destination_normalizes_forum_and_updates_audience_hint(self):
+        variant = SimpleNamespace(
+            id=11,
+            post_id=1,
+            audience_hint="general nba",
+            updated_at=None,
+        )
+
+        variant_query = MagicMock()
+        variant_query.filter.return_value.first.return_value = variant
+
+        session = _session_ctx(MagicMock())
+        session.query.return_value = variant_query
+        session.add.side_effect = lambda obj: setattr(obj, "id", 501)
+
+        with self.web_app.app.test_client() as client:
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_require_admin_json", return_value=None), \
+                 patch.object(self.web_app, "SocialPostDelivery", side_effect=lambda **kwargs: SimpleNamespace(**kwargs)), \
+                 patch.object(self.web_app, "_ensure_paperclip_issue_for_post"):
+                resp = client.post(
+                    "/api/admin/content/1/variants/11/destinations",
+                    json={"platform": "reddit", "forum": "r/nba"},
+                    headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        created_delivery = session.add.call_args[0][0]
+        self.assertEqual(created_delivery.platform, "reddit")
+        self.assertEqual(created_delivery.forum, "nba")
+        self.assertIn("write in English for r/nba readers", variant.audience_hint)
+        session.commit.assert_called_once()
 
     def test_social_post_image_error_view_classifies_auto_review_reason(self):
         rendered = self.web_app._social_post_image_error_view(

@@ -3546,6 +3546,30 @@ def _is_valid_hupu_thread_url(url: str | None) -> bool:
     return bool(re.fullmatch(r"https://bbs\.hupu\.com/\d{6,12}\.html(?:[?#].*)?", candidate))
 
 
+def _normalize_reddit_forum(forum: str | None) -> str | None:
+    candidate = re.sub(r"^/+", "", str(forum or "").strip())
+    candidate = re.sub(r"^(?i:r/)", "", candidate)
+    candidate = candidate.strip("/") or ""
+    if not candidate:
+        return None
+    return candidate
+
+
+def _reddit_english_audience_hint(audience_hint: str | None, *, forum: str | None) -> str:
+    normalized_forum = _normalize_reddit_forum(forum)
+    forum_label = f"r/{normalized_forum}" if normalized_forum else "Reddit"
+    existing = str(audience_hint or "").strip()
+    lowered = existing.lower()
+    if "reddit" in lowered and "english" in lowered:
+        return existing
+    suffix = f"write in English for {forum_label} readers"
+    if existing:
+        if suffix.lower() in lowered:
+            return existing
+        return f"{existing}; {suffix}"
+    return f"English-language {forum_label} readers"
+
+
 def _social_post_delivery_view(delivery) -> dict[str, object]:
     status = delivery.status
     published_url = delivery.published_url
@@ -8363,6 +8387,8 @@ def admin_content_add_destination(post_id: int, variant_id: int):
     forum = (data.get("forum") or "").strip() or None
     if platform.lower() == "hupu":
         forum = normalize_hupu_forum(forum)
+    if platform.lower() == "reddit":
+        forum = _normalize_reddit_forum(forum)
     if not platform:
         return jsonify({"error": "platform required"}), 400
     now = datetime.utcnow()
@@ -8383,6 +8409,9 @@ def admin_content_add_destination(post_id: int, variant_id: int):
             updated_at=now,
         )
         s.add(d)
+        if platform.lower() == "reddit":
+            v.audience_hint = _reddit_english_audience_hint(v.audience_hint, forum=forum)
+            v.updated_at = now
         s.commit()
         delivery_id = d.id
     _ensure_paperclip_issue_for_post(post_id)
@@ -8877,11 +8906,19 @@ def api_content_create_post():
                 vcontent = (vd.get("content_raw") or "").strip()
                 if not vtitle or not vcontent:
                     continue
+                destinations = vd.get("destinations", [])
+                audience_hint = (vd.get("audience_hint") or "").strip() or None
+                for dest in destinations:
+                    if str(dest.get("platform") or "").strip().lower() == "reddit":
+                        audience_hint = _reddit_english_audience_hint(
+                            audience_hint,
+                            forum=dest.get("forum"),
+                        )
                 sv = SocialPostVariant(
                     post_id=sp.id,
                     title=vtitle,
                     content_raw=vcontent,
-                    audience_hint=(vd.get("audience_hint") or "").strip() or None,
+                    audience_hint=audience_hint,
                     created_at=now,
                     updated_at=now,
                 )
@@ -8889,11 +8926,13 @@ def api_content_create_post():
                 s.flush()
                 variant_ids.append(sv.id)
 
-                for dest in vd.get("destinations", []):
+                for dest in destinations:
                     platform = (dest.get("platform") or "").strip()
                     forum = (dest.get("forum") or "").strip() or None
                     if platform.lower() == "hupu":
                         forum = normalize_hupu_forum(forum)
+                    if platform.lower() == "reddit":
+                        forum = _normalize_reddit_forum(forum)
                     if platform:
                         s.add(SocialPostDelivery(
                             variant_id=sv.id,
