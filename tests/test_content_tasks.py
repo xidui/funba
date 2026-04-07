@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+from content_pipeline.game_analysis_issues import _game_analysis_issue_creation_lock  # noqa: E402
 from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
 from tasks.content import ensure_daily_content_analysis_issue  # noqa: E402
 from web.paperclip_bridge import PaperclipBridgeConfig  # noqa: E402
@@ -37,6 +38,22 @@ def _config():
 
 
 class TestGameScopedContentAnalysisIssues(unittest.TestCase):
+    @patch("content_pipeline.game_analysis_issues._LOCK_ENGINE")
+    def test_game_analysis_lock_uses_dedicated_lock_engine(self, lock_engine):
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.__exit__.return_value = False
+        acquired_result = MagicMock()
+        acquired_result.scalar.return_value = 1
+        release_result = MagicMock()
+        connection.execute.side_effect = [acquired_result, release_result]
+        lock_engine.connect.return_value = connection
+
+        with _game_analysis_issue_creation_lock(date.fromisoformat("2026-04-06")):
+            pass
+
+        lock_engine.connect.assert_called_once()
+
     @patch("content_pipeline.game_analysis_issues._game_analysis_issue_creation_lock", return_value=nullcontext())
     @patch("content_pipeline.game_analysis_issues.covered_game_ids_for_date", return_value=set())
     @patch("content_pipeline.game_analysis_issues._latest_issue_row", return_value=None)

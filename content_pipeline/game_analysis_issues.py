@@ -9,13 +9,15 @@ from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlalchemy.exc import ProgrammingError as SAProgrammingError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from db.backfill_nba_game_detail import is_game_detail_back_filled
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
+from db.config import get_database_url
 from db.models import (
     Game,
     GameContentAnalysisIssue,
@@ -30,6 +32,9 @@ from web.paperclip_bridge import PaperclipBridgeError, PaperclipClient, load_pap
 logger = logging.getLogger(__name__)
 
 _SessionLocal = sessionmaker(bind=engine)
+# Workers can run with DB_POOL_SIZE=1. Advisory locks must not occupy that
+# single pooled connection while the analysis code opens ORM sessions.
+_LOCK_ENGINE = create_engine(get_database_url(), poolclass=NullPool, pool_pre_ping=True)
 _ISSUE_TEMPLATE_PATH = Path(__file__).resolve().with_name("game_content_analysis_issue.md")
 _SUPPORTED_ISSUE_STATUSES = {"backlog", "todo", "in_progress", "in_review", "done", "blocked"}
 _TITLE_FIELD_PREFIX = "TITLE:"
@@ -81,7 +86,7 @@ def _game_analysis_lock_name(target_date: date) -> str:
 @contextmanager
 def _game_analysis_issue_creation_lock(target_date: date, timeout_seconds: int = 15):
     lock_name = _game_analysis_lock_name(target_date)
-    with engine.connect() as lock_conn:
+    with _LOCK_ENGINE.connect() as lock_conn:
         acquired = lock_conn.execute(
             text("SELECT GET_LOCK(:name, :timeout_seconds)"),
             {"name": lock_name, "timeout_seconds": int(timeout_seconds)},
