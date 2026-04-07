@@ -62,7 +62,7 @@ def load_paperclip_bridge_config(environ: Mapping[str, str] | None = None) -> Pa
         content_reviewer_name=(env.get("PAPERCLIP_CONTENT_REVIEWER_NAME") or "Content Reviewer").strip(),
         delivery_publisher_name=(env.get("PAPERCLIP_DELIVERY_PUBLISHER_NAME") or "Delivery Publisher").strip(),
         review_user_name=(env.get("PAPERCLIP_CONTENT_REVIEW_USER_NAME") or "Reviewer").strip(),
-        company_name=(env.get("PAPERCLIP_COMPANY_NAME") or "xixihaha").strip(),
+        company_name=(env.get("PAPERCLIP_COMPANY_NAME") or "FUNBA").strip(),
         timeout_seconds=float((env.get("PAPERCLIP_TIMEOUT_SECONDS") or "10").strip()),
     )
 

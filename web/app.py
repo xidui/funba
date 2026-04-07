@@ -3008,8 +3008,8 @@ def _block_bots():
         return
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
-    # Exempt localhost API calls (Paperclip)
-    if request.path.startswith(("/api/content/", "/api/data/")) and request.remote_addr in ("127.0.0.1", "::1"):
+    # Exempt localhost API calls (Paperclip agents and admin tools)
+    if request.path.startswith(("/api/content/", "/api/data/", "/api/admin/")) and request.remote_addr in ("127.0.0.1", "::1"):
         return
     if _is_bot():
         return "Forbidden", 403
