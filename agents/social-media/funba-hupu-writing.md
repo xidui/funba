@@ -106,10 +106,14 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
 
 2. Length
    - Long-form Chinese forum post
-   - Target roughly 900-1400 Chinese characters minimum
-   - Longer is acceptable when the story supports it
+   - Target visible正文 roughly 1800-2000 Chinese characters for normal production posts
+   - Treat 1800 as the working minimum unless the operator explicitly asks for a shorter experiment
+   - A little above 2000 is acceptable only when the story clearly benefits from the extra depth
    - Do not produce one-paragraph mini posts
    - Do not use markdown tables in Hupu-targeted content
+   - Count visible正文, not raw `content_raw` storage length
+   - Do not count markdown URL strings, `[[IMAGE:...]]` placeholders, `[[TAGS:...]]` placeholders, or line-break bookkeeping toward the target
+   - This means a body with many `funba` links may need significantly more raw characters than the visible正文 target suggests
 
 3. Structure
    - hook / framing question
@@ -150,6 +154,7 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
    - When a paragraph is centered on one player, prefer linking that player's `funba` page at the first natural mention or in the nearby supporting sentence
    - Use natural Chinese anchor text, not naked raw URLs, in the main body whenever possible
    - The goal is that data-heavy claims in the article have visible nearby source paths, not only a link dump at the end
+   - Because raw markdown links add many hidden URL characters, do not mistake raw storage length for visible正文 length
 
 7. Image placeholders
    - Add placeholders when rankings, leaderboards, charts, or game visuals clearly improve the story
@@ -186,6 +191,10 @@ Required rules:
   - short comparison paragraphs
 - keep spacing simple and deliberate
 - prefer readable paragraph breaks over fancy markdown constructs
+- when checking whether a draft is long enough, estimate the visible正文 after stripping:
+  - markdown URL bodies
+  - `[[IMAGE:...]]`
+  - `[[TAGS:...]]`
 
 ## Chinese Basketball Language
 

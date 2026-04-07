@@ -104,7 +104,7 @@ For `Funba content` issues assigned to you:
 4. If the Funba post is clearly a metric-page placeholder workflow (for example: the current variant is placeholder copy and the admin comments / issue thread contain a metric deep-dive brief):
    - treat the current variant as a placeholder draft to replace
    - use the issue brief / Funba comments to understand which metric view or season direction the LLM should dig into
-   - write one professional long-form Chinese post around 1000-2000 Chinese characters
+   - for Hupu-targeted long-form output, write toward 1800-2000 visible Chinese characters, following the Hupu writing playbook's visible正文 counting rule
    - go beyond the primary metric into the strongest related Funba metrics and historical framing
    - decide the best Hupu destination(s) yourself; if the placeholder post does not already have the right destinations, add them via:
      - `/api/admin/content/{post_id}/variants/{variant_id}/destinations`

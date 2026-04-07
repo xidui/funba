@@ -147,6 +147,7 @@ You must check at least these categories:
    - keep Chinese basketball phrasing natural
    - tighten repetitive paragraphs
    - ensure each variant matches its target platform instead of carrying another platform's title pattern, footer pattern, slang, or length profile
+   - for Hupu variants, verify the visible正文 is in the intended long-form band instead of relying on raw `content_raw` length inflated by URLs or placeholders
 
 6. Platform fit
    - if one variant is trying to serve incompatible platforms, split it or send it back for revision instead of compromising the copy
