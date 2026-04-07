@@ -31,11 +31,12 @@ def _import_helper():
     original_db_models = sys.modules.get("db.models")
     original_backfill = sys.modules.get("db.backfill_nba_player_shot_detail")
     original_line = sys.modules.get("db.backfill_nba_game_line_score")
+    original_game_analysis = sys.modules.get("content_pipeline.game_analysis_issues")
     fake_engine = MagicMock()
 
     fake_models = types.ModuleType("db.models")
     for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
+        "Award", "Feedback", "Game", "GameContentAnalysisIssuePost", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
         "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView", "Player",
         "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery", "User",
         "GameLineScore",
@@ -59,6 +60,18 @@ def _import_helper():
     fake_line.has_game_line_score = MagicMock(return_value=False)
     fake_line.normalize_game_line_score_payload = MagicMock()
     sys.modules["db.backfill_nba_game_line_score"] = fake_line
+
+    fake_game_analysis = types.ModuleType("content_pipeline.game_analysis_issues")
+    for name in (
+        "ensure_game_content_analysis_issue_for_game",
+        "ensure_game_content_analysis_issues",
+        "game_analysis_readiness_detail",
+        "game_analysis_issue_history",
+        "link_post_to_game_analysis_issue",
+        "resolve_game_analysis_issue_record",
+    ):
+        setattr(fake_game_analysis, name, MagicMock())
+    sys.modules["content_pipeline.game_analysis_issues"] = fake_game_analysis
 
     # Clear any cached web.app so the stubs are picked up.
     for key in list(sys.modules):
@@ -91,6 +104,11 @@ def _import_helper():
         sys.modules["db.backfill_nba_game_line_score"] = original_line
     else:
         sys.modules.pop("db.backfill_nba_game_line_score", None)
+
+    if original_game_analysis is not None:
+        sys.modules["content_pipeline.game_analysis_issues"] = original_game_analysis
+    else:
+        sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
     return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
 

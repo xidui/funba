@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import time
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,86 @@ def _box_score_source_label(value: str | None) -> str:
     if source in mapping:
         return mapping[source]
     return source.replace("_", " ").strip().title()
+
+
+_ADMIN_TOP_PAGES_WINDOWS = {
+    "1d": timedelta(days=1),
+    "3d": timedelta(days=3),
+    "7d": timedelta(days=7),
+}
+
+
+def _admin_top_pages_window(raw_value: str | None) -> str:
+    value = (raw_value or "1d").strip().lower()
+    return value if value in _ADMIN_TOP_PAGES_WINDOWS else "1d"
+
+
+def _extract_referrer_source(referrer: str | None) -> str:
+    value = (referrer or "").strip()
+    if not value:
+        return "Direct"
+
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    host = (parsed.hostname or parsed.netloc or value).strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or "Direct"
+
+
+def _load_admin_top_pages_panel(session, raw_window: str | None):
+    selected_window = _admin_top_pages_window(raw_window)
+    cutoff = datetime.utcnow() - _ADMIN_TOP_PAGES_WINDOWS[selected_window]
+
+    top_page_rows = (
+        session.query(
+            PageView.path.label("path"),
+            func.count(PageView.id).label("views"),
+            func.count(func.distinct(PageView.visitor_id)).label("unique_visitors"),
+        )
+        .filter(PageView.created_at >= cutoff)
+        .group_by(PageView.path)
+        .order_by(func.count(PageView.id).desc(), PageView.path.asc())
+        .limit(20)
+        .all()
+    )
+
+    top_pages = [
+        {
+            "rank": index,
+            "path": row.path or "/",
+            "views": int(row.views or 0),
+            "unique_visitors": int(row.unique_visitors or 0),
+        }
+        for index, row in enumerate(top_page_rows, start=1)
+    ]
+
+    raw_referrer_rows = (
+        session.query(
+            PageView.referrer.label("referrer"),
+            func.count(PageView.id).label("views"),
+        )
+        .filter(PageView.created_at >= cutoff)
+        .group_by(PageView.referrer)
+        .all()
+    )
+
+    referrer_totals: dict[str, int] = defaultdict(int)
+    for row in raw_referrer_rows:
+        referrer_totals[_extract_referrer_source(row.referrer)] += int(row.views or 0)
+
+    top_referrers = [
+        {"rank": index, "source": source, "views": views}
+        for index, (source, views) in enumerate(
+            sorted(referrer_totals.items(), key=lambda item: (-item[1], item[0]))[:10],
+            start=1,
+        )
+    ]
+
+    return {
+        "selected_window": selected_window,
+        "top_pages": top_pages,
+        "top_referrers": top_referrers,
+    }
 
 
 app = Flask(__name__)
@@ -9046,7 +9127,6 @@ def admin_fragment(section: str):
 
     with SessionLocal() as session:
         if section == "visitor-stats":
-            from datetime import datetime, timedelta
             now_dt = datetime.utcnow()
             cutoff_24h = now_dt - timedelta(hours=24)
             cutoff_7d  = now_dt - timedelta(days=7)
@@ -9061,6 +9141,15 @@ def admin_fragment(section: str):
                 "unique_30d":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
             }
             return render_template("_admin_visitor_stats.html", visitor_stats=visitor_stats)
+
+        if section == "top-pages":
+            panel = _load_admin_top_pages_panel(session, request.args.get("window"))
+            return render_template(
+                "_admin_top_pages.html",
+                selected_window=panel["selected_window"],
+                top_pages=panel["top_pages"],
+                top_referrers=panel["top_referrers"],
+            )
 
         if section == "coverage":
             now = time.time()
