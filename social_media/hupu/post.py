@@ -19,14 +19,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import html
 import json
 import re
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 try:
     from playwright.sync_api import sync_playwright, Page, BrowserContext
@@ -74,6 +77,116 @@ FORUMS = {
     "nba": {"composer_id": NBA_COMPOSER_FORUM_ID, "label": "湿乎乎的话题", "aliases": ("nba", "NBA版", "湿乎乎的话题", "篮球场")},
     "cba": {"composer_id": CBA_COMPOSER_FORUM_ID, "label": "CBA版", "aliases": ("cba", "CBA版")},
 }
+
+
+def _slugify_artifact_part(value: str | None) -> str:
+    cleaned = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", str(value or "").strip(), flags=re.UNICODE)
+    cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-")
+    return cleaned or "artifact"
+
+
+def _resolve_artifact_dir(requested_path: str | None, *, post_id: int | None, forum_label: str) -> Path:
+    if requested_path:
+        path = Path(requested_path).expanduser()
+    else:
+        stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        parts = [stamp]
+        if post_id is not None:
+            parts.append(f"post{post_id}")
+        parts.append(_slugify_artifact_part(forum_label))
+        path = Path.cwd() / "logs" / "hupu_post" / "-".join(parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path.resolve()
+
+
+def _write_text_artifact(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(content or ""), encoding="utf-8")
+
+
+def _write_json_artifact(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _safe_page_url(page: Page | None) -> str | None:
+    if page is None:
+        return None
+    try:
+        return str(page.url)
+    except Exception:
+        return None
+
+
+def _safe_page_html(page: Page | None) -> str:
+    if page is None:
+        return ""
+    try:
+        return page.content()
+    except Exception as exc:
+        return f"<failed to capture html: {exc}>"
+
+
+def _safe_page_body_text(page: Page | None) -> str:
+    if page is None:
+        return ""
+    try:
+        return page.locator("body").inner_text(timeout=5000)
+    except Exception as exc:
+        return f"<failed to capture body text: {exc}>"
+
+
+def _safe_current_forum_label(page: Page | None) -> str | None:
+    if page is None:
+        return None
+    try:
+        return _current_forum_label(page)
+    except Exception:
+        return None
+
+
+def _safe_page_screenshot(page: Page | None, path: Path) -> None:
+    if page is None:
+        return
+    try:
+        page.screenshot(path=str(path), full_page=True)
+    except Exception as exc:
+        _write_text_artifact(path.with_suffix(".error.txt"), str(exc))
+
+
+def _persist_hupu_failure_artifacts(
+    artifact_dir: Path,
+    *,
+    page: Page | None,
+    stage: str,
+    requested_forum_label: str,
+    title: str,
+    content: str,
+    post_id: int | None,
+    exception: BaseException,
+    browser_events: dict[str, list[dict[str, str]]] | None = None,
+) -> None:
+    body_text = _safe_page_body_text(page)
+    html_text = _safe_page_html(page)
+    state = {
+        "stage": stage,
+        "post_id": post_id,
+        "requested_forum_label": requested_forum_label,
+        "current_forum_label": _safe_current_forum_label(page),
+        "page_url": _safe_page_url(page),
+        "title": title,
+        "content_preview": content[:500],
+        "exception_type": type(exception).__name__,
+        "exception_message": str(exception),
+        "captured_at": datetime.utcnow().isoformat() + "Z",
+    }
+    _write_json_artifact(artifact_dir / "failure_state.json", state)
+    _write_text_artifact(artifact_dir / "failure_traceback.txt", traceback.format_exc())
+    _write_text_artifact(artifact_dir / "failure_body.txt", body_text)
+    _write_text_artifact(artifact_dir / "failure_page.html", html_text)
+    if browser_events is not None:
+        _write_json_artifact(artifact_dir / "browser_events.json", browser_events)
+    _safe_page_screenshot(page, artifact_dir / "failure.png")
 
 
 def _playwright():
@@ -655,6 +768,26 @@ def _normalize_thread_url(value: str | None) -> str | None:
     return None
 
 
+def _extract_thread_url_from_url_like(value: str | None) -> str | None:
+    normalized = _normalize_thread_url(value)
+    if normalized:
+        return normalized
+    if not value:
+        return None
+    try:
+        parsed = urlparse(str(value))
+        query = parse_qs(parsed.query or "")
+    except Exception:
+        return None
+    for key in ("tid", "threadId", "thread_id", "postId", "post_id"):
+        values = query.get(key) or []
+        for candidate in values:
+            normalized = _normalize_thread_url(candidate)
+            if normalized:
+                return normalized
+    return None
+
+
 def _extract_thread_url_from_response_body(body: str) -> str | None:
     extracted = _extract_thread_url_from_html(body)
     if extracted:
@@ -665,6 +798,7 @@ def _extract_thread_url_from_response_body(body: str) -> str | None:
         r'"thread_id"\s*:\s*"?(?P<tid>\d{6,12})"?',
         r'"postId"\s*:\s*"?(?P<tid>\d{6,12})"?',
         r'"post_id"\s*:\s*"?(?P<tid>\d{6,12})"?',
+        r'(?:[?&](?:tid|threadId|thread_id|postId|post_id)=)(?P<tid>\d{6,12})',
     ]
     for pattern in tid_patterns:
         match = re.search(pattern, body)
@@ -677,6 +811,20 @@ def _extract_thread_url_from_response(response: Any) -> str | None:
     response_url = str(getattr(response, "url", "") or "")
     if "hupu.com" not in response_url:
         return None
+    extracted = _extract_thread_url_from_url_like(response_url)
+    if extracted:
+        return extracted
+    headers_reader = getattr(response, "headers", None)
+    if callable(headers_reader):
+        try:
+            headers = headers_reader() or {}
+        except Exception:
+            headers = {}
+        if isinstance(headers, dict):
+            for key in ("location", "Location"):
+                extracted = _extract_thread_url_from_url_like(headers.get(key))
+                if extracted:
+                    return extracted
     for attr in ("text", "body"):
         reader = getattr(response, attr, None)
         if not callable(reader):
@@ -695,6 +843,79 @@ def _extract_thread_url_from_response(response: Any) -> str | None:
         extracted = _extract_thread_url_from_response_body(payload)
         if extracted:
             return extracted
+    return None
+
+
+def _extract_thread_url_from_page_state(page: Page) -> str | None:
+    extracted = _extract_thread_url_from_url_like(getattr(page, "url", None))
+    if extracted:
+        return extracted
+    try:
+        html = page.content()
+    except Exception:
+        html = ""
+    extracted = _extract_thread_url_from_response_body(html)
+    if extracted:
+        return extracted
+    state = {}
+    evaluator = getattr(page, "evaluate", None)
+    if callable(evaluator):
+        try:
+            state = evaluator(
+                """() => {
+                let historyState = "";
+                let documentTitle = "";
+                let bodyText = "";
+                let anchorHrefs = [];
+                let resourceUrls = [];
+                try { historyState = JSON.stringify(history.state || null); } catch {}
+                try { documentTitle = document.title || ""; } catch {}
+                try { bodyText = (document.body && document.body.innerText ? document.body.innerText : "").slice(0, 5000); } catch {}
+                try {
+                    anchorHrefs = Array.from(document.querySelectorAll("a[href]"))
+                        .map(node => node.href || "")
+                        .slice(0, 200);
+                } catch {}
+                try {
+                    resourceUrls = performance.getEntriesByType("resource")
+                        .map(entry => entry.name || "")
+                        .slice(-200);
+                } catch {}
+                return {
+                    history_state: historyState,
+                    document_title: documentTitle,
+                    body_text: bodyText,
+                    anchor_hrefs: anchorHrefs,
+                    resource_urls: resourceUrls,
+                };
+            }"""
+            ) or {}
+        except Exception:
+            state = {}
+    if not isinstance(state, dict):
+        return None
+
+    blob_candidates = [
+        state.get("history_state"),
+        state.get("document_title"),
+        state.get("body_text"),
+    ]
+    for candidate in blob_candidates:
+        extracted = _extract_thread_url_from_response_body(str(candidate or ""))
+        if extracted:
+            return extracted
+
+    for key in ("anchor_hrefs", "resource_urls"):
+        values = state.get(key) or []
+        if not isinstance(values, list):
+            continue
+        for candidate in values:
+            extracted = _extract_thread_url_from_url_like(str(candidate or ""))
+            if extracted:
+                return extracted
+            extracted = _extract_thread_url_from_response_body(str(candidate or ""))
+            if extracted:
+                return extracted
     return None
 
 
@@ -723,14 +944,7 @@ def _wait_for_final_post_url(page: Page, timeout_seconds: float = 20.0) -> str |
     """
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        current_url = page.url
-        if re.search(r"/\d+\.html($|[?#])", current_url):
-            return current_url
-        try:
-            html = page.content()
-        except Exception:
-            html = ""
-        extracted = _extract_thread_url_from_html(html)
+        extracted = _extract_thread_url_from_page_state(page)
         if extracted:
             return extracted
         time.sleep(_SHORT_SLEEP)
@@ -839,7 +1053,16 @@ def cmd_post(args: argparse.Namespace) -> None:
         print(f"Unknown forum: {forum!r}. Available aliases: {available} or any Chinese Hupu forum label like '勇士专区'")
         sys.exit(1)
 
+    artifact_dir = _resolve_artifact_dir(getattr(args, "artifact_dir", None), post_id=post_id, forum_label=forum_label)
     resolved_images, temp_images = _prepare_placeholder_images(content, images, post_id=post_id)
+    stage = "starting"
+    context = None
+    page = None
+    browser_events: dict[str, list[dict[str, str]]] = {
+        "console": [],
+        "pageerror": [],
+        "requestfailed": [],
+    }
 
     print(f"Forum: {forum_key} / {forum_label} (composer page {composer_id})")
     print(f"Title: {title}")
@@ -849,65 +1072,154 @@ def cmd_post(args: argparse.Namespace) -> None:
     if link_url:
         print(f"Link: {link_text or link_url} -> {link_url}")
     print(f"Submit: {'YES' if submit else 'NO (dry run)'}")
+    print(f"Artifacts: {artifact_dir}")
     print()
 
-    with _playwright() as pw:
-        context = _create_context(pw, headless=False)
-        page = context.new_page()
+    _write_json_artifact(
+        artifact_dir / "request.json",
+        {
+            "post_id": post_id,
+            "forum": forum,
+            "forum_label": forum_label,
+            "forum_key": forum_key,
+            "composer_id": composer_id,
+            "title": title,
+            "submit": bool(submit),
+            "image_count": len(resolved_images),
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        },
+    )
 
-        # Check login
-        page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(_HOME_PAGE_LOAD_SLEEP)
-        logged_in, details = _login_state(page)
-        if not logged_in:
-            print("ERROR: Not logged in. Run: python -m social_media.hupu.post login")
-            print(f"Reason: {_login_failure_reason(details)}")
-            context.close()
-            sys.exit(1)
-        print("Logged in.")
+    try:
+        with _playwright() as pw:
+            context = _create_context(pw, headless=False)
+            page = context.new_page()
 
-        # Navigate to post page
-        post_url = f"{HUPU_HOME}/newpost/{composer_id}"
-        page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(_POST_PAGE_LOAD_SLEEP)
-        print(f"Post page loaded: {page.url}")
-        _ensure_forum_selected(page, forum_label)
-        print(f"Forum selected: {forum_label}")
-
-        # Fill title
-        title_input = page.query_selector('input[placeholder*="标题"]')
-        if not title_input:
-            print("ERROR: Title input not found")
-            context.close()
-            sys.exit(1)
-        title_input.fill(title)
-        print(f"Title filled.")
-
-        # Build footer HTML (links)
-        footer_parts = []
-        if link_url:
-            display = link_text or link_url
-            footer_parts.append(
-                f'<p><a href="{link_url}" target="_blank">{display}</a></p>'
+            _add_page_listener(
+                page,
+                "console",
+                lambda msg: browser_events["console"].append(
+                    {
+                        "type": str(getattr(msg, "type", "unknown")),
+                        "text": str(getattr(msg, "text", "")),
+                    }
+                ),
             )
-        footer_html = "".join(footer_parts) if footer_parts else None
+            _add_page_listener(
+                page,
+                "pageerror",
+                lambda exc: browser_events["pageerror"].append({"text": str(exc)}),
+            )
+            _add_page_listener(
+                page,
+                "requestfailed",
+                lambda request: browser_events["requestfailed"].append(
+                    {
+                        "url": str(getattr(request, "url", "")),
+                        "method": str(getattr(request, "method", "")),
+                        "failure": str(request.failure) if getattr(request, "failure", None) else "",
+                    }
+                ),
+            )
 
-        _fill_editor_with_content_blocks(page, content, images=resolved_images, footer_html=footer_html)
-        print(f"Content filled.")
+            try:
+                stage = "check_login"
+                page.goto(HUPU_HOME, wait_until="domcontentloaded", timeout=15000)
+                time.sleep(_HOME_PAGE_LOAD_SLEEP)
+                logged_in, details = _login_state(page)
+                _write_json_artifact(artifact_dir / "login_state.json", details)
+                if not logged_in:
+                    raise RuntimeError(
+                        "Not logged in. Run: python -m social_media.hupu.post login. "
+                        f"Reason: {_login_failure_reason(details)}"
+                    )
+                print("Logged in.")
 
-        time.sleep(_LONG_SLEEP)
-        page.screenshot(path="/tmp/hupu_post_filled.png")
-        print("Screenshot: /tmp/hupu_post_filled.png")
+                stage = "open_composer"
+                post_url = f"{HUPU_HOME}/newpost/{composer_id}"
+                page.goto(post_url, wait_until="domcontentloaded", timeout=15000)
+                time.sleep(_POST_PAGE_LOAD_SLEEP)
+                print(f"Post page loaded: {page.url}")
+                _safe_page_screenshot(page, artifact_dir / "composer_loaded.png")
 
-        if submit:
-            final_url = _click_submit(page)
-            page.screenshot(path="/tmp/hupu_post_submitted.png")
-            print(f"Post submitted! URL: {final_url}")
-        else:
-            print("\n[DRY RUN] Content filled but not submitted.")
-            print("Pass --submit to actually post.")
+                stage = "select_forum"
+                _ensure_forum_selected(page, forum_label)
+                print(f"Forum selected: {forum_label}")
+                _safe_page_screenshot(page, artifact_dir / "forum_selected.png")
 
-        context.close()
+                stage = "fill_title"
+                title_input = page.query_selector('input[placeholder*="标题"]')
+                if not title_input:
+                    raise RuntimeError("Title input not found")
+                title_input.fill(title)
+                print("Title filled.")
+
+                footer_parts = []
+                if link_url:
+                    display = link_text or link_url
+                    footer_parts.append(
+                        f'<p><a href="{link_url}" target="_blank">{display}</a></p>'
+                    )
+                footer_html = "".join(footer_parts) if footer_parts else None
+
+                stage = "fill_content"
+                _fill_editor_with_content_blocks(page, content, images=resolved_images, footer_html=footer_html)
+                print("Content filled.")
+
+                time.sleep(_LONG_SLEEP)
+                filled_screenshot = artifact_dir / "filled.png"
+                _safe_page_screenshot(page, filled_screenshot)
+                print(f"Screenshot: {filled_screenshot}")
+
+                if submit:
+                    stage = "submit"
+                    final_url = _click_submit(page)
+                    submitted_screenshot = artifact_dir / "submitted.png"
+                    _safe_page_screenshot(page, submitted_screenshot)
+                    _write_json_artifact(
+                        artifact_dir / "result.json",
+                        {
+                            "status": "published",
+                            "final_url": final_url,
+                            "page_url": _safe_page_url(page),
+                            "captured_at": datetime.utcnow().isoformat() + "Z",
+                        },
+                    )
+                    print(f"Post submitted! URL: {final_url}")
+                else:
+                    _write_json_artifact(
+                        artifact_dir / "result.json",
+                        {
+                            "status": "dry_run",
+                            "page_url": _safe_page_url(page),
+                            "captured_at": datetime.utcnow().isoformat() + "Z",
+                        },
+                    )
+                    print("\n[DRY RUN] Content filled but not submitted.")
+                    print("Pass --submit to actually post.")
+            except Exception as exc:
+                _persist_hupu_failure_artifacts(
+                    artifact_dir,
+                    page=page,
+                    stage=stage,
+                    requested_forum_label=forum_label,
+                    title=title,
+                    content=content,
+                    post_id=post_id,
+                    exception=exc,
+                    browser_events=browser_events,
+                )
+                raise
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        print(f"Artifacts saved to: {artifact_dir}")
+        sys.exit(1)
+    finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
 
     for path in temp_images:
         try:
@@ -944,6 +1256,7 @@ def main() -> None:
     p_post.add_argument("--link-text", help="Display text for footer link")
     p_post.add_argument("--link-url", help="URL for footer link")
     p_post.add_argument("--post-id", type=int, dest="post_id", help="SocialPost ID — resolve slot-based images from the image pool")
+    p_post.add_argument("--artifact-dir", help="Directory for debug screenshots/logs/artifacts")
     p_post.add_argument("--submit", action="store_true", help="Actually submit (default: dry run)")
 
     args = parser.parse_args()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 import unittest
 from pathlib import Path
@@ -12,8 +14,11 @@ if str(REPO_ROOT) not in sys.path:
 from social_media.hupu.post import (  # noqa: E402
     NBA_COMPOSER_FORUM_ID,
     _click_submit,
+    _extract_thread_url_from_page_state,
     _extract_thread_url_from_html,
+    _extract_thread_url_from_response,
     _extract_thread_url_from_response_body,
+    _extract_thread_url_from_url_like,
     _forum_label_matches,
     _is_logged_in,
     _parse_image_placeholder,
@@ -49,6 +54,33 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         payload = '{"data":{"tid":"638233167"}}'
         self.assertEqual(
             _extract_thread_url_from_response_body(payload),
+            "https://bbs.hupu.com/638233167.html",
+        )
+
+    def test_extract_thread_url_from_url_like_tid_query(self):
+        self.assertEqual(
+            _extract_thread_url_from_url_like("https://bbs.hupu.com/api/post/submit?tid=638233167"),
+            "https://bbs.hupu.com/638233167.html",
+        )
+
+    def test_extract_thread_url_from_response_prefers_response_url_query(self):
+        response = _FakeResponse(
+            "https://bbs.hupu.com/api/post/submit?tid=638233167",
+            "{}",
+        )
+        self.assertEqual(
+            _extract_thread_url_from_response(response),
+            "https://bbs.hupu.com/638233167.html",
+        )
+
+    def test_extract_thread_url_from_response_supports_location_header(self):
+        response = _FakeResponse(
+            "https://bbs.hupu.com/api/post/submit",
+            "{}",
+            headers={"Location": "/638233167.html"},
+        )
+        self.assertEqual(
+            _extract_thread_url_from_response(response),
             "https://bbs.hupu.com/638233167.html",
         )
 
@@ -114,13 +146,17 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
 
 
 class _FakeResponse:
-    def __init__(self, url: str, body: str, *, status: int | None = None):
+    def __init__(self, url: str, body: str, *, status: int | None = None, headers=None):
         self.url = url
         self._body = body
         self.status = status
+        self._headers = dict(headers or {})
 
     def text(self):
         return self._body
+
+    def headers(self):
+        return dict(self._headers)
 
 
 class _FakeLocator:
@@ -140,13 +176,15 @@ class _FakeContext:
 
 
 class _FakePage:
-    def __init__(self, *, url: str, body_text: str = "", responses=None, cookies=None):
+    def __init__(self, *, url: str, body_text: str = "", responses=None, cookies=None, html: str = "", eval_result=None):
         self.url = url
         self._body_text = body_text
         self._responses = list(responses or [])
         self._listeners = {}
         self.clicked = []
         self.context = _FakeContext(cookies)
+        self._html = html
+        self._eval_result = eval_result
 
     def on(self, event, handler):
         self._listeners.setdefault(event, []).append(handler)
@@ -163,6 +201,12 @@ class _FakePage:
     def locator(self, selector):
         self.assert_selector(selector)
         return _FakeLocator(self._body_text)
+
+    def content(self):
+        return self._html
+
+    def evaluate(self, _script):
+        return self._eval_result
 
     def assert_selector(self, selector):
         if selector != "body":
@@ -211,6 +255,40 @@ class TestHupuSubmitFlow(unittest.TestCase):
             _click_submit(page)
 
         wait_mock.assert_called_once_with(page)
+
+    def test_extract_thread_url_from_page_state_history_state(self):
+        page = _FakePage(
+            url="https://bbs.hupu.com/newpost/179",
+            eval_result={
+                "history_state": '{"threadId":"638233167"}',
+                "document_title": "",
+                "body_text": "",
+                "anchor_hrefs": [],
+                "resource_urls": [],
+            },
+        )
+
+        self.assertEqual(
+            _extract_thread_url_from_page_state(page),
+            "https://bbs.hupu.com/638233167.html",
+        )
+
+    def test_extract_thread_url_from_page_state_resource_url(self):
+        page = _FakePage(
+            url="https://bbs.hupu.com/newpost/179",
+            eval_result={
+                "history_state": "",
+                "document_title": "",
+                "body_text": "",
+                "anchor_hrefs": [],
+                "resource_urls": ["https://bbs.hupu.com/api/post/detail?postId=638233167"],
+            },
+        )
+
+        self.assertEqual(
+            _extract_thread_url_from_page_state(page),
+            "https://bbs.hupu.com/638233167.html",
+        )
 
 
 class TestHupuLoginState(unittest.TestCase):
