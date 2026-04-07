@@ -185,7 +185,13 @@ def main() -> int:
     parser.add_argument("--post-id", type=int, required=True)
     parser.add_argument("--delivery-id", type=int, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=180)
-    parser.add_argument("--funba-base-url", default="http://127.0.0.1:5001")
+    parser.add_argument(
+        "--funba-base-url",
+        "--funba-admin-base-url",
+        dest="funba_base_url",
+        default="http://127.0.0.1:5001",
+        help="Funba admin API base URL for fetching delivery payloads and updating delivery status.",
+    )
     parser.add_argument("--funba-repo-root", default=str(_default_funba_repo_root()))
     args = parser.parse_args()
 

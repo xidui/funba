@@ -7,6 +7,8 @@ description: Use when an agent needs compact Funba screenshots for social conten
 
 Run these commands from the `funba` repo root.
 
+By default the capture CLI targets the public logged-out site at `https://funba.app`, not local `localhost`. Only pass `--base-url http://localhost:5001` or `url --allow-private-hosts` when you intentionally need unpublished local UI.
+
 Use the most specific command that matches the panel you want:
 
 - Player summary / bio header:
@@ -29,6 +31,7 @@ Fallback only when there is no better specific command:
 Rules:
 
 - Prefer the panel-specific commands over the raw URL fallback.
+- Public `funba.app` URLs are preferred for screenshots so admin-only localhost UI does not leak into assets.
 - Do not take arbitrary full-page screenshots when one of these commands fits.
 - Save the resulting file locally, then pass it into Funba through `images[].file_path`.
 - Keep screenshot types honest in metadata:
