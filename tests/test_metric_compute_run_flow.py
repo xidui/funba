@@ -41,7 +41,7 @@ def test_cmd_metric_backfill_creates_runs_and_skips_active_metrics():
     with patch.object(dispatch, "_query_games", return_value=["g1", "g2"]), \
          patch("metrics.framework.runtime.get_all_metrics", return_value=[SimpleNamespace(key="clutch_fg_pct")]), \
          patch("metrics.framework.runtime.expand_metric_keys", return_value=["clutch_fg_pct", "clutch_fg_pct_career"]), \
-         patch.object(dispatch, "_create_metric_compute_run", side_effect=[(created_run, True), (active_run, False)]), \
+         patch("tasks.metrics.create_metric_compute_run", side_effect=[(created_run, True), (active_run, False)]), \
          patch("celery.chord") as chord_mock, \
          patch("builtins.print") as print_mock:
         dispatch.cmd_metric_backfill(args)

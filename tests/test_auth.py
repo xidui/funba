@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import ANY, patch, MagicMock
 
+from tests.db_model_stubs import install_fake_db_module
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -56,22 +58,12 @@ def _make_app():
     fake_user_cls = MagicMock()
     fake_user_cls.__name__ = "User"
 
-    fake_models = types.ModuleType("db.models")
-    for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
-        "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery",
-        "GameLineScore", "Setting",
-    ):
-        setattr(fake_models, name, MagicMock())
-    fake_models.User = fake_user_cls
-    fake_models.engine = fake_engine
-    sys.modules["db.models"] = fake_models
-
-    fake_db = types.ModuleType("db")
-    fake_db.__path__ = [str(REPO_ROOT / "db")]
-    fake_db.models = fake_models
-    sys.modules["db"] = fake_db
+    fake_models = install_fake_db_module(
+        REPO_ROOT,
+        user_cls=fake_user_cls,
+        engine=fake_engine,
+        extra_model_names=("Setting",),
+    )
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record = MagicMock()
@@ -90,8 +82,18 @@ def _make_app():
         if key.startswith("web.app") or key == "web.app":
             del sys.modules[key]
 
-    from web.app import app, is_admin, _VISITOR_COOKIE
-    return app, is_admin, _VISITOR_COOKIE
+    import web.app as web_app
+
+    def _session_ctx():
+        fake_session = MagicMock()
+        fake_session.__enter__ = MagicMock(return_value=fake_session)
+        fake_session.__exit__ = MagicMock(return_value=False)
+        fake_session.get.return_value = None
+        return fake_session
+
+    web_app.SessionLocal = MagicMock(side_effect=_session_ctx)
+
+    return web_app.app, web_app.is_admin, web_app._VISITOR_COOKIE
 
 
 class TestIsAdmin(unittest.TestCase):
@@ -186,7 +188,7 @@ class TestIsAdmin(unittest.TestCase):
             mock_session_cls.return_value = mock_session
             # Patch render_template to avoid template loading
             with patch("web.app.render_template", return_value="<html></html>"):
-                resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "127.0.0.1"})
+                resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
         self.assertIn(self.cookie_name, resp.headers.get("Set-Cookie", ""))
 
     def test_returning_visitor_no_new_cookie(self):
@@ -199,7 +201,7 @@ class TestIsAdmin(unittest.TestCase):
             with patch("web.app.render_template", return_value="<html></html>"):
                 # Simulate pre-existing cookie
                 self.client.set_cookie(self.cookie_name, "existing-visitor-uuid")
-                resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "127.0.0.1"})
+                resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
         self.assertNotIn(self.cookie_name, resp.headers.get("Set-Cookie", ""))
 
     def test_new_visitor_no_500_on_first_get(self):
