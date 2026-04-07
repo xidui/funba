@@ -35,6 +35,9 @@ def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
         "content_pipeline.game_analysis_issues.covered_game_ids_for_date",
         return_value=set(),
     ), patch(
+        "content_pipeline.game_analysis_issues._game_analysis_issue_creation_lock",
+        return_value=_ctx(MagicMock()),
+    ), patch(
         "content_pipeline.game_analysis_issues.load_paperclip_bridge_config",
         return_value=object(),
     ) as cfg_mock, patch("content_pipeline.game_analysis_issues.PaperclipClient") as client_cls:
