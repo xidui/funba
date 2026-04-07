@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def _make_app_module():
+    original_game_analysis = sys.modules.get("content_pipeline.game_analysis_issues")
     fake_engine = MagicMock()
     fake_user_cls = MagicMock()
     fake_user_cls.__name__ = "User"
@@ -56,6 +57,11 @@ def _make_app_module():
             del sys.modules[key]
 
     import web.app as web_app
+
+    if original_game_analysis is not None:
+        sys.modules["content_pipeline.game_analysis_issues"] = original_game_analysis
+    else:
+        sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
     web_app.app.config["TESTING"] = True
     web_app.PageView = SimpleNamespace(

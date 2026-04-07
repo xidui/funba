@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from tests.db_model_stubs import install_fake_db_module
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -14,21 +16,11 @@ def _make_app_module():
     fake_user_cls = MagicMock()
     fake_user_cls.__name__ = "User"
 
-    fake_models = types.ModuleType("db.models")
-    for name in (
-        "Award", "Feedback", "Game", "GameLineScore", "GamePlayByPlay", "MagicToken",
-        "MetricComputeRun", "MetricDefinition", "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView",
-        "Player", "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery",
-    ):
-        setattr(fake_models, name, MagicMock())
-    fake_models.User = fake_user_cls
-    fake_models.engine = fake_engine
-    sys.modules["db.models"] = fake_models
-
-    fake_db = types.ModuleType("db")
-    fake_db.__path__ = [str(REPO_ROOT / "db")]
-    fake_db.models = fake_models
-    sys.modules["db"] = fake_db
+    install_fake_db_module(
+        REPO_ROOT,
+        user_cls=fake_user_cls,
+        engine=fake_engine,
+    )
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record_from_api = MagicMock()

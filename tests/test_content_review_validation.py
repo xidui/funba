@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from tests.db_model_stubs import install_fake_db_module
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -17,22 +19,12 @@ def _make_app_module():
     fake_user_cls = MagicMock()
     fake_user_cls.__name__ = "User"
 
-    fake_models = types.ModuleType("db.models")
-    for name in (
-        "Award", "Feedback", "Game", "GamePlayByPlay", "MagicToken", "MetricComputeRun",
-        "MetricDefinition", "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostImage",
-        "SocialPostVariant", "SocialPostDelivery", "GameLineScore", "Setting",
-    ):
-        setattr(fake_models, name, MagicMock())
-    fake_models.User = fake_user_cls
-    fake_models.engine = fake_engine
-    sys.modules["db.models"] = fake_models
-
-    fake_db = types.ModuleType("db")
-    fake_db.__path__ = [str(REPO_ROOT / "db")]
-    fake_db.models = fake_models
-    sys.modules["db"] = fake_db
+    install_fake_db_module(
+        REPO_ROOT,
+        user_cls=fake_user_cls,
+        engine=fake_engine,
+        extra_model_names=("Setting",),
+    )
 
     for key in list(sys.modules):
         if key == "web.app" or key.startswith("web.app."):

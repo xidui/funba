@@ -9,6 +9,8 @@ from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from tests.db_model_stubs import install_fake_db_module
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -21,37 +23,11 @@ def _import_web_helpers():
     original_line = sys.modules.get("db.backfill_nba_game_line_score")
     fake_engine = MagicMock()
 
-    fake_models = types.ModuleType("db.models")
-    for name in (
-        "Award",
-        "Feedback",
-        "Game",
-        "GamePlayByPlay",
-        "MetricComputeRun",
-        "MetricDefinition",
-        "MetricPerfLog",
-        "MetricResult",
-        "MetricRunLog",
-        "PageView",
-        "Player",
-        "PlayerGameStats",
-        "PlayerSalary",
-        "ShotRecord",
-        "Team",
-        "TeamGameStats",
-        "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery",
-        "GameLineScore",
-        "MagicToken",
-    ):
-        setattr(fake_models, name, MagicMock())
-    fake_models.User = MagicMock()
-    fake_models.engine = fake_engine
-    sys.modules["db.models"] = fake_models
-
-    fake_db = types.ModuleType("db")
-    fake_db.__path__ = [str(REPO_ROOT / "db")]
-    fake_db.models = fake_models
-    sys.modules["db"] = fake_db
+    fake_models = install_fake_db_module(
+        REPO_ROOT,
+        user_cls=MagicMock(),
+        engine=fake_engine,
+    )
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
     fake_backfill.back_fill_game_shot_record = MagicMock()
