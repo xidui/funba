@@ -7582,6 +7582,7 @@ def metric_detail(metric_key: str):
         is_career_metric=is_career_metric,
         related_metrics=related_metrics,
         season_label=display_season_label,
+        current_metric_season=current_metric_season,
         current_metric_season_label=current_metric_season_label,
         fmt_season=_season_label,
         fmt_season_short=_season_year_label,

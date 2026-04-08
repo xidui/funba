@@ -137,6 +137,13 @@
   .scope-badge.game   { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
   .scope-badge.season { background: color-mix(in srgb, #a78bfa 15%, transparent); color: #a78bfa; }
 
+  .ongoing-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 1px 6px; border-radius: 999px; margin-left: 6px;
+    background: color-mix(in srgb, #facc15 15%, transparent); color: #facc15;
+  }
+  tr.season-ongoing { background: color-mix(in srgb, #facc15 4%, transparent); }
+
   .detail-desc {
     font-size: 13px;
     color: var(--muted-2);
@@ -998,7 +1005,7 @@
       {% set ns = namespace(prev_entity=None) %}
       {% for r in result_rows %}
       {% set is_repeat = has_sub_keys and expand and r.entity_id == ns.prev_entity %}
-      <tr class="{% if r.is_notable %}notable-row{% endif %}{% if is_repeat %} repeat-entity{% endif %}">
+      <tr class="{% if r.is_notable %}notable-row{% endif %}{% if is_repeat %} repeat-entity{% endif %}{% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %} season-ongoing{% endif %}">
         <td>
           <span class="rank-num{% if r.rank <= 3 %} top3{% endif %}">#{{ r.rank }}</span>
         </td>
@@ -1020,6 +1027,9 @@
               <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
             {% elif r.entity_type == 'season' %}
               <span class="entity-link" style="font-weight:500;">{{ r.entity_label }}</span>
+              {% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %}
+              <span class="ongoing-badge">ongoing</span>
+              {% endif %}
             {% elif r.entity_type == 'game' %}
               <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
                 {% if r.road_team_id %}
