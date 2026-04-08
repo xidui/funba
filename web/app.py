@@ -9651,12 +9651,18 @@ def api_admin_update_runtime_flags():
     if denied:
         return denied
     body = request.get_json(force=True) or {}
-    if "legacy_game_metric_fanout" not in body:
-        return jsonify({"ok": False, "error": "legacy_game_metric_fanout required"}), 400
-    try:
-        flags = set_runtime_flag("legacy_game_metric_fanout", body.get("legacy_game_metric_fanout"))
-    except KeyError:
-        return jsonify({"ok": False, "error": "unknown runtime flag"}), 400
+    from runtime_flags import DEFAULT_RUNTIME_FLAGS
+    flags = load_runtime_flags()
+    updated = False
+    for key in DEFAULT_RUNTIME_FLAGS:
+        if key in body:
+            try:
+                flags = set_runtime_flag(key, body[key])
+                updated = True
+            except KeyError:
+                return jsonify({"ok": False, "error": f"unknown runtime flag: {key}"}), 400
+    if not updated:
+        return jsonify({"ok": False, "error": "no recognized flags in request body"}), 400
     return jsonify({"ok": True, "flags": flags})
 
 

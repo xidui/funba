@@ -10,7 +10,7 @@ Season: {season_label}
 Required work:
 1. Read this game's boxscore, triggered metrics, and game detail from Funba localhost APIs.
 2. Create exactly 1 strong `SocialPost` for this single game only. Do not broaden into unrelated same-date games and do not split this game into multiple `SocialPost` records.
-3. Inside that single `SocialPost`, create variants for all platforms listed in the default target set in your role instructions (`agents/content-analyst/AGENTS.md`). Read the per-platform writing playbooks under `agents/social-media/` for tone, length, and formatting rules. Do not skip any platform in the default target set.
+3. Inside that single `SocialPost`, create variants for all platforms listed in the default target set in your role instructions (`agents/content-analyst/AGENTS.md`). Read the per-platform writing playbooks under `agents/social-media/` for tone, length, and formatting rules. Only create variants for currently enabled platforms: **{enabled_platforms}**. Skip any platform not in this list.
 4. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to this Paperclip issue's identifier so Funba can link the created posts back to this game-analysis ticket.
 5. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
 6. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.

@@ -9,6 +9,9 @@ from typing import Any
 
 DEFAULT_RUNTIME_FLAGS: dict[str, bool] = {
     "legacy_game_metric_fanout": False,
+    "platform_hupu": True,
+    "platform_xiaohongshu": True,
+    "platform_reddit": True,
 }
 
 
@@ -40,6 +43,16 @@ def get_runtime_flag(key: str) -> bool:
     if key not in DEFAULT_RUNTIME_FLAGS:
         raise KeyError(key)
     return load_runtime_flags()[key]
+
+
+_PLATFORM_FLAG_PREFIX = "platform_"
+
+KNOWN_PLATFORMS = ["hupu", "xiaohongshu", "reddit"]
+
+
+def get_enabled_platforms() -> list[str]:
+    flags = load_runtime_flags()
+    return [p for p in KNOWN_PLATFORMS if flags.get(f"{_PLATFORM_FLAG_PREFIX}{p}", True)]
 
 
 def set_runtime_flag(key: str, value: Any) -> dict[str, bool]:

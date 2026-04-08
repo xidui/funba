@@ -348,6 +348,17 @@
     <div id="feature-access-status" class="llm-settings-status" role="status"></div>
   </div>
 
+  <!-- Platform Publishing -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Platform Publishing</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.45;">
+      Control which platforms receive new variants when game analysis is triggered. Disabling a platform here skips it in future content generation issues.
+    </div>
+    <div id="platform-toggles" style="display:flex;flex-direction:column;gap:10px;">
+    </div>
+    <div id="platform-toggle-status" class="runtime-flag-status" role="status"></div>
+  </div>
+
   <!-- Metric Pipeline Flags -->
   <div class="card">
     <h2 style="margin-bottom:14px;">Metric Pipeline Flags</h2>
@@ -715,6 +726,91 @@
 
     saveBtn.addEventListener('click', saveConfig);
     loadConfig();
+  })();
+
+  /* ── Platform Publishing Toggles ─────────────────────────────────── */
+  (function () {
+    const container = document.getElementById('platform-toggles');
+    const status = document.getElementById('platform-toggle-status');
+    if (!container) return;
+
+    const PLATFORMS = [
+      { key: 'platform_hupu', label: 'Hupu', help: '虎扑 — 湿乎乎的话题 + team forums' },
+      { key: 'platform_xiaohongshu', label: 'Xiaohongshu', help: '小红书 — graph note format' },
+      { key: 'platform_reddit', label: 'Reddit', help: 'Reddit — r/nba + team subreddits' },
+    ];
+    let clearTimer = null;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'runtime-flag-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => { status.textContent = ''; status.className = 'runtime-flag-status'; }, 2000);
+      }
+    }
+
+    function render(flags) {
+      container.innerHTML = PLATFORMS.map(p => {
+        const checked = flags[p.key] ? ' checked' : '';
+        return `
+          <div class="runtime-flag-row">
+            <div class="runtime-flag-copy">
+              <div class="runtime-flag-label">${p.label}</div>
+              <div class="runtime-flag-help">${p.help}</div>
+            </div>
+            <label class="runtime-flag-switch">
+              <input type="checkbox" data-flag-key="${p.key}"${checked}>
+              <span>${flags[p.key] ? 'On' : 'Off'}</span>
+            </label>
+          </div>`;
+      }).join('');
+      container.querySelectorAll('input[data-flag-key]').forEach(input => {
+        input.addEventListener('change', () => saveFlag(input));
+      });
+    }
+
+    async function loadFlags() {
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/runtime-flags');
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load.');
+        render(data.flags || {});
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      }
+    }
+
+    async function saveFlag(input) {
+      const key = input.dataset.flagKey;
+      const label = input.closest('.runtime-flag-switch').querySelector('span');
+      input.disabled = true;
+      setStatus('');
+      try {
+        const body = {};
+        body[key] = input.checked;
+        const res = await fetch('/api/admin/runtime-flags', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        const newVal = data.flags && data.flags[key];
+        input.checked = !!newVal;
+        label.textContent = newVal ? 'On' : 'Off';
+        setStatus('Saved', 'success');
+      } catch (err) {
+        input.checked = !input.checked;
+        label.textContent = input.checked ? 'On' : 'Off';
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        input.disabled = false;
+      }
+    }
+
+    loadFlags();
   })();
 
   /* ── Pipeline Flags ─────────────────────────────────────────────── */

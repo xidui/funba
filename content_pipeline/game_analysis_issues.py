@@ -337,12 +337,15 @@ def build_game_analysis_issue_title(target_date: date, game_id: str) -> str:
 
 
 def build_game_analysis_issue_description(target_date: date, game_id: str) -> str:
+    from runtime_flags import get_enabled_platforms
     ctx = game_context(game_id)
+    enabled = get_enabled_platforms()
     return load_game_analysis_issue_template().body_template.format(
         source_date=target_date.isoformat(),
         game_id=game_id,
         matchup=ctx["matchup"],
         season_label=ctx["season"] or "(unknown)",
+        enabled_platforms=", ".join(enabled) if enabled else "(none)",
     )
 
 
