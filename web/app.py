@@ -9620,7 +9620,32 @@ def api_admin_visitor_timeseries():
             }
             for r in rows
         ]
-    return jsonify({"ok": True, "series": data})
+
+        # Published posts in the same window
+        posts = (
+            session.query(
+                SocialPostDelivery.published_at,
+                SocialPostDelivery.platform,
+                SocialPostVariant.title,
+            )
+            .join(SocialPostVariant, SocialPostDelivery.variant_id == SocialPostVariant.id)
+            .filter(
+                SocialPostDelivery.status == "published",
+                SocialPostDelivery.published_at >= cutoff,
+                SocialPostDelivery.published_at.isnot(None),
+            )
+            .order_by(SocialPostDelivery.published_at)
+            .all()
+        )
+        post_markers = [
+            {
+                "date": p.published_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "platform": p.platform,
+                "title": (p.title or "")[:60],
+            }
+            for p in posts
+        ]
+    return jsonify({"ok": True, "series": data, "posts": post_markers})
 
 
 @app.post("/api/admin/runtime-flags")

@@ -43,6 +43,7 @@
     'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
     'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js',
     'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js',
+    'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3/dist/chartjs-plugin-annotation.min.js',
   ];
 
   function loadScript(url) {
@@ -74,7 +75,43 @@
   var borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#1e293b';
   var textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e2e8f0';
 
-  function buildChart(series) {
+  var PLATFORM_COLORS = {
+    hupu: '#e74c3c',
+    reddit: '#ff4500',
+    discord: '#5865f2',
+    twitter: '#1da1f2',
+    facebook: '#1877f2',
+  };
+
+  function buildAnnotations(posts) {
+    var annotations = {};
+    (posts || []).forEach(function(p, i) {
+      var color = PLATFORM_COLORS[p.platform] || '#a78bfa';
+      annotations['post' + i] = {
+        type: 'line',
+        xMin: p.date,
+        xMax: p.date,
+        borderColor: color,
+        borderWidth: 1.5,
+        borderDash: [4, 2],
+        label: {
+          display: true,
+          content: p.platform + ': ' + p.title,
+          position: 'start',
+          backgroundColor: color + 'cc',
+          color: '#fff',
+          font: { size: 9, weight: 600 },
+          padding: { top: 2, bottom: 2, left: 4, right: 4 },
+          borderRadius: 3,
+          rotation: -90,
+          yAdjust: 0,
+        }
+      };
+    });
+    return annotations;
+  }
+
+  function buildChart(series, posts) {
     var labels = series.map(function(d) { return d.date; });
     var uniqueData = series.map(function(d) { return d.unique; });
     var viewsData = series.map(function(d) { return d.views; });
@@ -141,6 +178,9 @@
             padding: 10,
             cornerRadius: 8,
           },
+          annotation: {
+            annotations: buildAnnotations(posts),
+          },
           zoom: {
             pan: { enabled: true, mode: 'x' },
             zoom: {
@@ -164,7 +204,7 @@
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.ok && data.series) {
-        buildChart(data.series);
+        buildChart(data.series, data.posts || []);
         resetBtn.style.display = 'none';
       }
     })
