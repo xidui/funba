@@ -7248,7 +7248,7 @@ def metric_detail(metric_key: str):
                 "seasons": [{"value": s, "label": _CAREER_SEASON_LABELS.get(s, s)} for s in career_season_options],
             }]
         elif is_season_scope:
-            # Season-scope: always show cross-season leaderboard, no per-season filter
+            # Season-scope: cross-season leaderboard, dropdown only shows type groups (no individual seasons)
             show_all_seasons = True
             if not all_season_type:
                 all_season_type = "2"  # default to regular season
@@ -7277,7 +7277,7 @@ def metric_detail(metric_key: str):
                             "Pre Seasons": "季前赛", "All Star": "全明星",
                         }.get(_SEASON_TYPE_PLURAL.get(type_code, type_code), _SEASON_TYPE_PLURAL.get(type_code, type_code))),
                         "all_value": f"all_{type_code}",
-                        "seasons": _type_buckets[type_code],
+                        "seasons": [],
                     })
         else:
             season_options = sorted(
