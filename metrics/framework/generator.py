@@ -174,9 +174,10 @@ def compute_season(self, session, season):
     )]
 ```
 
-For season-scope metrics that COUNT qualifying events (e.g. "140+ point games"),
-ALWAYS implement compute_qualifications() so users can drill down into which
-games qualified:
+For season-scope metrics, decide whether compute_qualifications() makes sense:
+- YES for count-based metrics (e.g. "140+ point games") — users want to see which games qualified
+- NO for ratio/rate metrics or metrics where nearly every game qualifies — drill-down would be noisy
+If appropriate, implement it:
 ```python
 def compute_qualifications(self, session, season):
     if is_career_season(season):
