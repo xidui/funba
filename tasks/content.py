@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from datetime import date, timedelta
 from importlib import import_module
 
@@ -10,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def _game_analysis_issues_module():
+    # Celery prefork workers may drop '' from sys.path, so ensure CWD is importable.
+    cwd = os.getcwd()
+    if cwd not in sys.path and "" not in sys.path:
+        sys.path.insert(0, cwd)
     return import_module("content_pipeline.game_analysis_issues")
 
 
