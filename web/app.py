@@ -9614,7 +9614,7 @@ def api_admin_visitor_timeseries():
         )
         data = [
             {
-                "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00",
+                "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00Z",
                 "views": r.views,
                 "unique": r.unique,
             }
