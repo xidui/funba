@@ -3547,12 +3547,8 @@ def _is_valid_hupu_thread_url(url: str | None) -> bool:
 
 
 def _normalize_reddit_forum(forum: str | None) -> str | None:
-    candidate = re.sub(r"^/+", "", str(forum or "").strip())
-    candidate = re.sub(r"^(?i:r/)", "", candidate)
-    candidate = candidate.strip("/") or ""
-    if not candidate:
-        return None
-    return candidate
+    from social_media.reddit.forums import normalize_reddit_subreddit
+    return normalize_reddit_subreddit(forum)
 
 
 def _reddit_english_audience_hint(audience_hint: str | None, *, forum: str | None) -> str:

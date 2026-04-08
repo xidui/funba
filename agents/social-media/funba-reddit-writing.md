@@ -44,9 +44,11 @@ If the same post has both an `r/nba` variant and a team subreddit variant, write
 
 ## Reddit Team Subreddit Vocabulary
 
-Use these exact subreddit names in generated destinations:
+The canonical source of truth for Reddit subreddit names is `social_media/reddit/forums.py`. The delivery pipeline normalizes team names, abbreviations, and city names to the correct subreddit at publish time.
 
-- `atlantahawks`
+Current canonical subreddits (from `NBA_TEAM_SUBREDDITS`):
+
+- `AtlantaHawks`
 - `bostonceltics`
 - `GoNets`
 - `CharlotteHornets`
@@ -77,7 +79,7 @@ Use these exact subreddit names in generated destinations:
 - `UtahJazz`
 - `washingtonwizards`
 
-Use those exact subreddit names. Do not guess — Reddit subreddit names are case-insensitive but must match the actual community name.
+You may use team common names (e.g. `thunder`, `lakers`) or abbreviations (e.g. `okc`, `lal`) in generated destinations — the normalizer in `forums.py` will resolve them to the correct subreddit. But prefer the canonical names above when possible.
 
 ## Default Variant Count
 
