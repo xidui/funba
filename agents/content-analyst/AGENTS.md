@@ -135,11 +135,11 @@ For `Funba content` issues assigned to you:
 4. Revise the relevant variants in Funba via:
    - `/api/admin/content/{post_id}/variants/{variant_id}/update`
    - if a variant needs to serve a different platform, rewrite or split it into a platform-native variant instead of trimming another platform's copy
-6. When revision is ready, move the post back to `ai_review` through:
+5. When revision is ready, move the post back to `ai_review` through:
    - `/api/admin/content/{post_id}/update`
    with `{ "status": "ai_review" }`
-7. Do not directly reassign the Paperclip issue yourself if the Funba status change already does it through the bridge.
-8. Leave a concise comment describing what changed, then stop.
+6. Do not directly reassign the Paperclip issue yourself if the Funba status change already does it through the bridge.
+7. Leave a concise comment describing what changed, then stop.
 
 ## Image Asset Rule
 

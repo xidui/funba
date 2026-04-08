@@ -4,15 +4,13 @@ Parallel to game_analysis_issues.py but for the metric data series.
 """
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import MetricResult as MetricResultModel, MetricDefinition as MetricDefinitionModel, Game
+from db.models import MetricResult as MetricResultModel, Player, Team
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +60,7 @@ def compute_metric_highlights(session: Session, metric_key: str) -> dict:
     runtime_metric = _get_metric(base_key, session=session)
     has_career = runtime_metric is not None and getattr(runtime_metric, "supports_career", False)
     scope = getattr(runtime_metric, "scope", "player") if runtime_metric else "player"
+    rank_order = getattr(runtime_metric, "rank_order", "desc") if runtime_metric else "desc"
 
     # Find current season (latest regular season with data)
     regular_seasons = sorted(
@@ -88,7 +87,8 @@ def compute_metric_highlights(session: Session, metric_key: str) -> dict:
             q = q.filter(MetricResultModel.season == season_filter)
         elif season_prefix:
             q = q.filter(MetricResultModel.season.like(f"{season_prefix}%"))
-        q = q.order_by(MetricResultModel.value_num.desc()).limit(limit)
+        order_col = MetricResultModel.value_num.asc() if rank_order == "asc" else MetricResultModel.value_num.desc()
+        q = q.order_by(order_col).limit(limit)
         results = []
         for i, r in enumerate(q.all(), 1):
             results.append({
@@ -139,8 +139,51 @@ def compute_metric_highlights(session: Session, metric_key: str) -> dict:
     }
 
 
-def _format_highlights_text(highlights_data: dict) -> str:
+def _resolve_entity_labels(session: Session, scope: str, highlights_data: dict) -> dict[str, str]:
+    """Bulk-resolve entity_ids to human-readable labels."""
+    all_ids: set[str] = set()
+    for view in highlights_data.get("highlights", {}).values():
+        for r in view.get("results", []):
+            if r.get("entity_id"):
+                all_ids.add(r["entity_id"])
+    if not all_ids:
+        return {}
+
+    labels: dict[str, str] = {}
+    if scope in ("player", "player_franchise"):
+        player_ids = {eid.split(":")[0] for eid in all_ids}
+        for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(player_ids)).all():
+            labels[str(p.player_id)] = p.full_name
+        if scope == "player_franchise":
+            team_ids = {eid.split(":")[1] for eid in all_ids if ":" in eid}
+            team_map = {str(t.team_id): (t.full_name or t.abbr) for t in session.query(Team).filter(Team.team_id.in_(team_ids)).all()}
+            for eid in all_ids:
+                if ":" in eid:
+                    pid, tid = eid.split(":", 1)
+                    labels[eid] = f"{labels.get(pid, pid)} — {team_map.get(tid, tid)}"
+    elif scope == "team":
+        for t in session.query(Team.team_id, Team.full_name, Team.abbr).filter(Team.team_id.in_(all_ids)).all():
+            labels[str(t.team_id)] = t.full_name or t.abbr
+    elif scope == "season":
+        for eid in all_ids:
+            if len(eid) == 5 and eid.isdigit():
+                type_names = {"1": "Pre Season", "2": "Regular Season", "3": "All Star", "4": "Playoffs", "5": "Play-In"}
+                year = eid[1:]
+                try:
+                    next_yr = str(int(year) + 1)[-2:]
+                    labels[eid] = f"{year}-{next_yr} {type_names.get(eid[0], '')}"
+                except ValueError:
+                    labels[eid] = eid
+            else:
+                labels[eid] = eid
+    return labels
+
+
+def _format_highlights_text(highlights_data: dict, labels: dict[str, str]) -> str:
     """Format highlights dict into human-readable text for the issue description."""
+    def _label(entity_id: str) -> str:
+        return labels.get(entity_id, entity_id)
+
     lines = []
     hl = highlights_data.get("highlights", {})
 
@@ -148,7 +191,7 @@ def _format_highlights_text(highlights_data: dict) -> str:
         cs = hl["current_season"]
         lines.append(f"### Current Season ({cs['season']})")
         for r in cs["results"]:
-            lines.append(f"  {r['rank']}. {r['entity_id']} — {r['value_str'] or r['value_num']}")
+            lines.append(f"  {r['rank']}. {_label(r['entity_id'])} — {r['value_str'] or r['value_num']}")
         lines.append("")
 
     if "all_regular" in hl:
@@ -156,7 +199,7 @@ def _format_highlights_text(highlights_data: dict) -> str:
         lines.append(f"### {ar['label']}")
         for r in ar["results"]:
             season_label = r.get("season", "")
-            lines.append(f"  {r['rank']}. {r['entity_id']} ({season_label}) — {r['value_str'] or r['value_num']}")
+            lines.append(f"  {r['rank']}. {_label(r['entity_id'])} ({season_label}) — {r['value_str'] or r['value_num']}")
         lines.append("")
 
     if "all_playoff" in hl:
@@ -164,14 +207,14 @@ def _format_highlights_text(highlights_data: dict) -> str:
         lines.append(f"### {ap['label']}")
         for r in ap["results"]:
             season_label = r.get("season", "")
-            lines.append(f"  {r['rank']}. {r['entity_id']} ({season_label}) — {r['value_str'] or r['value_num']}")
+            lines.append(f"  {r['rank']}. {_label(r['entity_id'])} ({season_label}) — {r['value_str'] or r['value_num']}")
         lines.append("")
 
     if "career" in hl:
         c = hl["career"]
         lines.append(f"### {c['label']}")
         for r in c["results"]:
-            lines.append(f"  {r['rank']}. {r['entity_id']} — {r['value_str'] or r['value_num']}")
+            lines.append(f"  {r['rank']}. {_label(r['entity_id'])} — {r['value_str'] or r['value_num']}")
         lines.append("")
 
     return "\n".join(lines) if lines else "(no highlights available)"
@@ -189,7 +232,8 @@ def build_metric_analysis_issue_description(
 ) -> str:
     """Build the full issue description with pre-computed highlights."""
     highlights_data = compute_metric_highlights(session, metric_key)
-    highlights_text = _format_highlights_text(highlights_data)
+    labels = _resolve_entity_labels(session, highlights_data["scope"], highlights_data)
+    highlights_text = _format_highlights_text(highlights_data, labels)
 
     tpl = load_metric_analysis_issue_template()
     return tpl.body_template.format(
