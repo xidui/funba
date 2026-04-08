@@ -174,6 +174,20 @@ def compute_season(self, session, season):
     )]
 ```
 
+For season-scope metrics that COUNT qualifying events (e.g. "140+ point games"),
+ALWAYS implement compute_qualifications() so users can drill down into which
+games qualified:
+```python
+def compute_qualifications(self, session, season):
+    if is_career_season(season):
+        return None
+    # Return one dict per qualifying game
+    return [
+        {"entity_id": season, "game_id": game_id, "qualified": True}
+        for game_id in qualifying_game_ids
+    ]
+```
+
 For NEW season metrics with supports_career=True, choose ONE of three career modes:
 
 **Mode A — Accumulate (sum/rate metrics, most common):**

@@ -535,7 +535,7 @@ def run_season_metric(
                 _log_run(
                     game_id=q["game_id"],
                     metric_key=metric_key,
-                    entity_type=q.get("entity_type", "player"),
+                    entity_type=q.get("entity_type", metric_def.scope),
                     entity_id=q["entity_id"],
                     season=season,
                     delta=None,
