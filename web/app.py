@@ -9621,7 +9621,7 @@ def api_admin_visitor_timeseries():
             for r in rows
         ]
 
-        # Published posts in the same window
+        # Published posts in the same window — group by hour bucket
         posts = (
             session.query(
                 SocialPostDelivery.published_at,
@@ -9637,15 +9637,16 @@ def api_admin_visitor_timeseries():
             .order_by(SocialPostDelivery.published_at)
             .all()
         )
-        post_markers = [
-            {
-                "date": p.published_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "platform": p.platform,
-                "title": (p.title or "")[:60],
-            }
-            for p in posts
-        ]
-    return jsonify({"ok": True, "series": data, "posts": post_markers})
+        from collections import OrderedDict
+        post_buckets: dict[str, dict] = OrderedDict()
+        for p in posts:
+            key = p.published_at.strftime("%Y-%m-%dT%H:00:00Z")
+            bucket = post_buckets.setdefault(key, {"date": key, "count": 0, "titles": []})
+            bucket["count"] += 1
+            label = f"[{p.platform}] {(p.title or '')[:60]}"
+            bucket["titles"].append(label)
+        post_data = list(post_buckets.values())
+    return jsonify({"ok": True, "series": data, "posts": post_data})
 
 
 @app.post("/api/admin/runtime-flags")

@@ -43,7 +43,6 @@
     'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
     'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js',
     'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js',
-    'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3/dist/chartjs-plugin-annotation.min.js',
   ];
 
   function loadScript(url) {
@@ -69,52 +68,27 @@
   if (!canvas) return;
 
   var chart = null;
+  var postTitleMap = {};  // date string -> titles array
 
   var accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f97316';
   var mutedColor = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#94a3b8';
   var borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#1e293b';
   var textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e2e8f0';
-
-  var PLATFORM_COLORS = {
-    hupu: '#e74c3c',
-    reddit: '#ff4500',
-    discord: '#5865f2',
-    twitter: '#1da1f2',
-    facebook: '#1877f2',
-  };
-
-  function buildAnnotations(posts) {
-    var annotations = {};
-    (posts || []).forEach(function(p, i) {
-      var color = PLATFORM_COLORS[p.platform] || '#a78bfa';
-      annotations['post' + i] = {
-        type: 'line',
-        xMin: p.date,
-        xMax: p.date,
-        borderColor: color,
-        borderWidth: 1.5,
-        borderDash: [4, 2],
-        label: {
-          display: true,
-          content: p.platform + ': ' + p.title,
-          position: 'start',
-          backgroundColor: color + 'cc',
-          color: '#fff',
-          font: { size: 9, weight: 600 },
-          padding: { top: 2, bottom: 2, left: 4, right: 4 },
-          borderRadius: 3,
-          rotation: -90,
-          yAdjust: 0,
-        }
-      };
-    });
-    return annotations;
-  }
+  var postColor = '#a78bfa';
 
   function buildChart(series, posts) {
     var labels = series.map(function(d) { return d.date; });
     var uniqueData = series.map(function(d) { return d.unique; });
     var viewsData = series.map(function(d) { return d.views; });
+
+    // Build post count aligned to the same hourly labels, and title map
+    postTitleMap = {};
+    var postByDate = {};
+    (posts || []).forEach(function(p) {
+      postByDate[p.date] = p.count;
+      postTitleMap[p.date] = p.titles || [];
+    });
+    var postData = labels.map(function(l) { return postByDate[l] || 0; });
 
     if (chart) { chart.destroy(); chart = null; }
 
@@ -133,6 +107,7 @@
             pointRadius: 2,
             pointHoverRadius: 5,
             borderWidth: 2,
+            yAxisID: 'y',
           },
           {
             label: 'Page Views',
@@ -145,6 +120,18 @@
             pointHoverRadius: 4,
             borderWidth: 1.5,
             borderDash: [4, 3],
+            yAxisID: 'y',
+          },
+          {
+            label: 'Posts Published',
+            data: postData,
+            type: 'bar',
+            backgroundColor: postColor + '88',
+            borderColor: postColor,
+            borderWidth: 1,
+            yAxisID: 'yPosts',
+            barPercentage: 0.9,
+            categoryPercentage: 0.9,
           }
         ]
       },
@@ -161,8 +148,16 @@
           },
           y: {
             beginAtZero: true,
+            position: 'left',
             grid: { color: borderColor },
             ticks: { color: mutedColor, font: { size: 10 }, precision: 0 },
+          },
+          yPosts: {
+            beginAtZero: true,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { color: postColor, font: { size: 10 }, precision: 0, stepSize: 1 },
+            title: { display: true, text: 'Posts', color: postColor, font: { size: 10 } },
           }
         },
         plugins: {
@@ -177,9 +172,18 @@
             borderWidth: 1,
             padding: 10,
             cornerRadius: 8,
-          },
-          annotation: {
-            annotations: buildAnnotations(posts),
+            callbacks: {
+              afterBody: function(items) {
+                if (!items.length) return '';
+                var label = items[0].label;
+                // Find the matching date key
+                var idx = items[0].dataIndex;
+                var dateKey = chart.data.labels[idx];
+                var titles = postTitleMap[dateKey];
+                if (!titles || !titles.length) return '';
+                return [''].concat(titles.map(function(t) { return '  ' + t; }));
+              }
+            }
           },
           zoom: {
             pan: { enabled: true, mode: 'x' },
