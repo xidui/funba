@@ -14,5 +14,7 @@ Current documents:
 - `funba-hupu-delivery.md` — Hupu publishing and image-placeholder handling rules
 - `funba-xiaohongshu-writing.md` — Xiaohongshu-oriented content generation rules for Funba
 - `funba-xiaohongshu-delivery.md` — Xiaohongshu publishing rules for Funba
+- `funba-reddit-writing.md` — Reddit-oriented English content generation rules for Funba
+- `funba-reddit-delivery.md` — Reddit publishing rules for Funba
 
 If Funba adds another platform later, add a new playbook here instead of bloating the role-level `AGENTS.md`.

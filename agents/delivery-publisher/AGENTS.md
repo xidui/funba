@@ -62,6 +62,19 @@ For Xiaohongshu deliveries:
 - if the body is too long for the current Xiaohongshu graph-note flow or the post has no enabled images, mark the delivery `failed` with the wrapper's concrete error so the post goes back for revision
 - published URL is best-effort; success without a detected public URL can still be written back as `published`
 
+## Reddit Rules
+
+For Reddit deliveries:
+
+- use `python3 scripts/funba_reddit_publish.py --post-id <post_id> --delivery-id <delivery_id> --submit --timeout-seconds 120`
+- this wrapper already runs `social_media.reddit.post check`, performs the publish with retries (up to 3 attempts), and writes status back to Funba
+- if session is expired, stop and mark the delivery `failed`
+- Reddit posts are text-only; do not attempt image uploads
+- pass the forum (subreddit) value stored in Funba directly into the publish flow
+- the tool normalizes subreddit names automatically (strips `r/` prefix, validates format)
+- only mark a Reddit delivery `failed` after the tool itself reports a non-retryable error
+- always run with `--submit` for real publishes; omit it for dry runs
+
 ## Funba Writeback
 
 Use:
