@@ -33,7 +33,7 @@
     <canvas id="vs-chart"></canvas>
   </div>
   <div id="vs-chart-hint" style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;">
-    Scroll to zoom &middot; Drag to pan
+    Drag to select range &middot; Shift+drag to pan &middot; Scroll to zoom
   </div>
 </div>
 
@@ -186,10 +186,16 @@
             }
           },
           zoom: {
-            pan: { enabled: true, mode: 'x' },
+            pan: { enabled: true, mode: 'x', modifierKey: 'shift' },
             zoom: {
               wheel: { enabled: true },
               pinch: { enabled: true },
+              drag: {
+                enabled: true,
+                backgroundColor: accentColor + '18',
+                borderColor: accentColor + '66',
+                borderWidth: 1,
+              },
               mode: 'x',
               onZoomComplete: function() { resetBtn.style.display = 'inline-block'; },
             }
