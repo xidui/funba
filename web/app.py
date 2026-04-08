@@ -3333,33 +3333,28 @@ def _metric_deep_dive_state(session, metric_key: str) -> dict[str, object]:
 
 def _build_metric_deep_dive_brief(
     *,
+    session,
     metric_name: str,
+    metric_name_zh: str,
     metric_key: str,
+    metric_description: str,
+    metric_scope: str,
     metric_page_url: str,
-    selected_view_label: str,
-    current_season_label: str | None,
 ) -> str:
-    lines = [
-        "Metric deep-dive brief",
-        "",
-        f"Primary metric: {metric_name} ({metric_key})",
-        f"Metric page: {metric_page_url}",
-        f"Admin-selected view: {selected_view_label}",
-    ]
-    if current_season_label:
-        lines.append(f"Current season to compare against: {current_season_label}")
-    lines.extend(
-        [
-            "",
-            "Required work:",
-            "1. Write one professional Chinese post around 1000-2000 Chinese characters.",
-            "2. Deeply analyze this metric first, then expand into the most relevant supporting or contrasting Funba metrics.",
-            "3. Use the selected view above as the main digging direction. If current-season framing matters, compare it against the current season as well.",
-            "4. Decide which Hupu destination(s) make sense and add them in Funba yourself.",
-            "5. Replace the placeholder draft in Funba and move the post to ai_review when ready.",
-        ]
+    from content_pipeline.metric_analysis_issues import build_metric_analysis_issue_description
+    from runtime_flags import get_enabled_platforms
+
+    enabled = get_enabled_platforms()
+    return build_metric_analysis_issue_description(
+        session=session,
+        metric_key=metric_key,
+        metric_name=metric_name,
+        metric_name_zh=metric_name_zh,
+        metric_description=metric_description,
+        metric_scope=metric_scope,
+        metric_page_url=metric_page_url,
+        enabled_platforms=enabled,
     )
-    return "\n".join(lines)
 
 
 def _social_post_image_spec(raw_spec: str | None) -> tuple[object | None, str | None]:
@@ -8214,15 +8209,9 @@ def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str,
         origin="system",
         event_type=_SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF,
     )
-    placeholder_title = f"智趣NBA: {metric_name} 深度分析"
-    placeholder_body = (
-        "Placeholder draft.\n\n"
-        "Content Analyst should replace this with one professional 1000-2000字中文深度分析。"
-        "具体挖掘方向见 comments / Paperclip brief。"
-    )
     with SessionLocal() as s:
         post = SocialPost(
-            topic=f"{metric_name} 深度分析",
+            topic=f"{metric_name} 数据分析",
             source_date=date.today(),
             source_metrics=json.dumps([metric_key], ensure_ascii=False),
             source_game_ids=json.dumps([], ensure_ascii=False),
@@ -8234,17 +8223,6 @@ def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str,
             updated_at=now,
         )
         s.add(post)
-        s.flush()
-        s.add(
-            SocialPostVariant(
-                post_id=post.id,
-                title=placeholder_title,
-                content_raw=placeholder_body,
-                audience_hint="general nba",
-                created_at=now,
-                updated_at=now,
-            )
-        )
         s.commit()
         return post.id, brief_timestamp
 
@@ -8255,8 +8233,6 @@ def admin_metric_trigger_deep_dive_post(metric_key: str):
     if denied:
         return denied
     data = request.get_json(force=True) or {}
-    selected_view_label = (data.get("selected_view_label") or "").strip() or "Current view"
-    current_season_label = (data.get("current_season_label") or "").strip() or None
     metric_page_url = (data.get("metric_page_url") or "").strip()
     if metric_page_url.startswith("/"):
         metric_page_url = request.url_root.rstrip("/") + metric_page_url
@@ -8288,13 +8264,16 @@ def admin_metric_trigger_deep_dive_post(metric_key: str):
         if not deep_dive_state["can_trigger"]:
             return jsonify({"error": "already_running", "metric_deep_dive": deep_dive_state}), 409
 
-    brief_text = _build_metric_deep_dive_brief(
-        metric_name=metric_def.name,
-        metric_key=metric_key,
-        metric_page_url=metric_page_url,
-        selected_view_label=selected_view_label,
-        current_season_label=current_season_label,
-    )
+        brief_text = _build_metric_deep_dive_brief(
+            session=s,
+            metric_name=metric_def.name_en,
+            metric_name_zh=metric_def.name_zh,
+            metric_key=metric_key,
+            metric_description=metric_def.description_en,
+            metric_scope=metric_def.scope,
+            metric_page_url=metric_page_url,
+        )
+
     post_id, brief_timestamp = _create_metric_deep_dive_placeholder_post(metric_key, metric_def.name, brief_text)
     _ensure_paperclip_issue_for_post(post_id)
 

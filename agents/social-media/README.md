@@ -10,11 +10,23 @@ Scaling rule:
 
 Current documents:
 
+### Game Analysis Series (赛后系列)
+
 - `funba-hupu-writing.md` — Hupu-oriented content generation rules for Funba
 - `funba-hupu-delivery.md` — Hupu publishing and image-placeholder handling rules
 - `funba-xiaohongshu-writing.md` — Xiaohongshu-oriented content generation rules for Funba
 - `funba-xiaohongshu-delivery.md` — Xiaohongshu publishing rules for Funba
 - `funba-reddit-writing.md` — Reddit-oriented English content generation rules for Funba
 - `funba-reddit-delivery.md` — Reddit publishing rules for Funba
+
+### Metric Data Series (数据系列)
+
+- `metric-hupu-writing.md` — Hupu writing rules for metric data series
+- `metric-xiaohongshu-writing.md` — Xiaohongshu writing rules for metric data series
+- `metric-reddit-writing.md` — Reddit writing rules for metric data series (image posts)
+
+### Delivery Playbooks (shared across series)
+
+Delivery playbooks (`funba-*-delivery.md`) are shared across content series. The delivery publisher follows the same publishing flow regardless of which series produced the content.
 
 If Funba adds another platform later, add a new playbook here instead of bloating the role-level `AGENTS.md`.

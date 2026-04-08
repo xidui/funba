@@ -41,14 +41,25 @@ Treat the content hierarchy as:
 Do not split the same story angle into separate `SocialPost` records just because it will be published to multiple platforms.
 Split into multiple `SocialPost` records only when the underlying story angles are materially different.
 
-## Issue Types
+## Work Modes
 
-You may receive two kinds of issues:
+You operate in different modes depending on the ticket type. Each mode has its own set of documents — only load the documents for the active mode.
 
-1. `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
-2. `Funba content — YYYY-MM-DD — ...`
+### 赛后系列 (Game Analysis)
+Ticket pattern: `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
+- Read `content_pipeline/game_content_analysis_issue.md` for issue template rules
+- Read `agents/social-media/funba-*-writing.md` for platform writing playbooks
+- Read `skills/funba-capture/SKILL.md` and `skills/funba-imagegen/SKILL.md` for image tools
 
-Handle them differently.
+### 数据系列 (Metric Analysis)
+Ticket pattern: `Metric content analysis — funba — METRIC_KEY`
+- Read `content_pipeline/metric_content_analysis_issue.md` for issue template rules
+- Read `agents/social-media/metric-*-writing.md` for platform writing playbooks
+- Read `skills/funba-capture/SKILL.md` for screenshot tool (no AI image generation needed)
+
+### Revision
+Ticket pattern: `Funba content — YYYY-MM-DD — ...`
+- Read the linked post and review comments to understand what needs revision
 
 ## Game Analysis Workflow
 
@@ -80,6 +91,21 @@ For `Game content analysis` issues:
 7. Add a close-out comment that includes created post IDs and the required close-out contract fields (`Summary:` and `PR:`).
 8. Mark the daily analysis issue `done`.
 
+## Metric Analysis Workflow
+
+For `Metric content analysis` issues:
+
+1. Read `AGENTS.md` and `API.md` in the Funba repo.
+2. Read the issue description — it contains pre-computed highlights (top results across seasons) and the metric details.
+3. Read the metric-series platform playbooks listed in the Work Modes section above. Do NOT read game-series playbooks for this workflow.
+4. Pick the single strongest angle from the highlights data.
+5. Capture metric ranking screenshots using the Funba capture CLI (see issue description for the exact command).
+6. Create exactly one `SocialPost` with multi-platform variants for all enabled platforms listed in the issue description.
+7. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to the current Paperclip issue identifier.
+8. Leave the post in `ai_review` status.
+9. Add a close-out comment with created post IDs and close-out contract fields.
+10. Mark the issue `done`.
+
 ## Close-out Contract (Required)
 
 Any time you close an issue as `done`, include at least:
@@ -106,14 +132,7 @@ For `Funba content` issues assigned to you:
 2. Read the linked post details from Funba:
    - `/api/admin/content/{post_id}`
 3. Read the latest review comments from the issue thread and the Funba comment thread.
-4. If the Funba post is clearly a metric-page placeholder workflow (for example: the current variant is placeholder copy and the admin comments / issue thread contain a metric deep-dive brief):
-   - treat the current variant as a placeholder draft to replace
-   - use the issue brief / Funba comments to understand which metric view or season direction the LLM should dig into
-   - for Hupu-targeted long-form output, write toward 1800-2000 visible Chinese characters, following the Hupu writing playbook's visible正文 counting rule
-   - go beyond the primary metric into the strongest related Funba metrics and historical framing
-   - decide the best Hupu destination(s) yourself; if the placeholder post does not already have the right destinations, add them via:
-     - `/api/admin/content/{post_id}/variants/{variant_id}/destinations`
-5. Revise the relevant variants in Funba via:
+4. Revise the relevant variants in Funba via:
    - `/api/admin/content/{post_id}/variants/{variant_id}/update`
    - if a variant needs to serve a different platform, rewrite or split it into a platform-native variant instead of trimming another platform's copy
 6. When revision is ready, move the post back to `ai_review` through:
