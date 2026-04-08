@@ -70,6 +70,7 @@ For `Game content analysis` issues:
    - one Reddit general variant (`audience_hint=r/nba english`, destination `reddit/nba`)
    - one Reddit team-subreddit variant (destination from the Reddit writing playbook subreddit vocabulary)
    - optional extra variants only when they add real review value
+   - **important**: if the issue description specifies an `enabled_platforms` list, only create variants for platforms in that list — skip any platform not listed, even if it appears in the default target set above
    - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for both Hupu team forums and Reddit team subreddits
    - if multiple platforms are involved, create separate platform-native variants instead of reusing one platform's copy for another platform
    - Reddit variants must be written in English; read the Reddit writing playbook for tone, subreddit vocabulary, and formatting rules
