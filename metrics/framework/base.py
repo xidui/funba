@@ -96,7 +96,7 @@ def season_matches_metric_types(season: str | None, season_types) -> bool:
 class MetricResult:
     """In-memory result produced by a MetricDefinition before persistence."""
     metric_key: str
-    entity_type: str          # 'player' | 'team' | 'game' | 'league'
+    entity_type: str          # 'player' | 'team' | 'game' | 'league' | 'season'
     entity_id: str | None     # player_id or team_id; None for league-scope
     season: str | None
     game_id: str | None       # game that triggered the run; None for season-agg
@@ -157,7 +157,7 @@ class MetricDefinition(ABC):
     name_zh: str = ""
     description: str
     description_zh: str = ""
-    scope: str       # 'player' | 'player_franchise' | 'team' | 'game' | 'league'
+    scope: str       # 'player' | 'player_franchise' | 'team' | 'game' | 'league' | 'season'
     category: str
     min_sample: int = 10
 

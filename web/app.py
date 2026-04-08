@@ -1643,17 +1643,18 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     if not metric_info:
         return {}
 
-    season_keys = [k for k, v in metric_info.items() if not v[2]]
+    season_keys = [k for k, v in metric_info.items() if not v[2] and v[0] != "season"]
+    season_scope_keys = [k for k, v in metric_info.items() if not v[2] and v[0] == "season"]
     career_keys = [k for k, v in metric_info.items() if v[2]]
 
-    def _fetch_top_rows(metric_keys: list[str], *, season_value: str, rank_order: str) -> list[SimpleNamespace]:
+    def _fetch_top_rows(metric_keys: list[str], *, season_value: str | None = None, season_prefix: str | None = None, rank_order: str) -> list[SimpleNamespace]:
         if not metric_keys:
             return []
         order_columns = [
             MetricResultModel.value_num.desc() if rank_order == "desc" else MetricResultModel.value_num.asc(),
             MetricResultModel.entity_id.asc(),
         ]
-        ranked = (
+        base_q = (
             session.query(
                 MetricResultModel.metric_key.label("metric_key"),
                 MetricResultModel.entity_id.label("entity_id"),
@@ -1668,11 +1669,14 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
             )
             .filter(
                 MetricResultModel.metric_key.in_(metric_keys),
-                MetricResultModel.season == season_value,
                 MetricResultModel.value_num.isnot(None),
             )
-            .subquery()
         )
+        if season_value is not None:
+            base_q = base_q.filter(MetricResultModel.season == season_value)
+        elif season_prefix is not None:
+            base_q = base_q.filter(MetricResultModel.season.like(f"{season_prefix}%"))
+        ranked = base_q.subquery()
         return [
             SimpleNamespace(
                 metric_key=row.metric_key,
@@ -1696,10 +1700,14 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     season_asc = [k for k in season_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
     career_desc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
     career_asc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
+    season_scope_desc = [k for k in season_scope_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
+    season_scope_asc = [k for k in season_scope_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
     rows.extend(_fetch_top_rows(season_desc, season_value=current_season, rank_order="desc"))
     rows.extend(_fetch_top_rows(season_asc, season_value=current_season, rank_order="asc"))
     rows.extend(_fetch_top_rows(career_desc, season_value="all_regular", rank_order="desc"))
     rows.extend(_fetch_top_rows(career_asc, season_value="all_regular", rank_order="asc"))
+    rows.extend(_fetch_top_rows(season_scope_desc, season_prefix="2", rank_order="desc"))
+    rows.extend(_fetch_top_rows(season_scope_asc, season_prefix="2", rank_order="asc"))
 
     # Group by metric_key, sort, take top 3
     from collections import defaultdict
@@ -1728,6 +1736,8 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
             elif scope == "team":
                 if r.entity_id:
                     team_ids.add(r.entity_id)
+            elif scope == "season":
+                pass  # season entities use _season_label(), no DB lookup needed
             elif scope == "game" and r.entity_id:
                 game_entity_ids.add(r.entity_id)
                 base_game_id = r.entity_id.split(":")[0] if ":" in r.entity_id else r.entity_id
@@ -1780,6 +1790,13 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
                     "label": label,
                     "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
                     "logo_url": f"https://cdn.nba.com/logos/nba/{eid}/global/L/logo.svg",
+                }
+            elif scope == "season":
+                label = _season_label(eid)
+                entry = {
+                    "entity_id": eid,
+                    "label": label,
+                    "value_str": r.value_str or (f"{r.value_num:.1f}" if r.value_num is not None else ""),
                 }
             else:
                 label = game_labels.get(eid, eid)
@@ -5955,6 +5972,7 @@ def my_metrics():
             "player_franchise": "Player Franchise",
             "team": "Team",
             "game": "Game",
+            "season": "Season",
         },
         **_build_metric_feature_context(feature_access),
     )
@@ -7122,6 +7140,8 @@ def _resolve_entity_labels(session, rows):
     } if game_ids else {}
 
     def _label(entity_type, entity_id):
+        if entity_type == "season":
+            return _season_label(entity_id)
         if entity_type == "player":
             return player_names.get(entity_id) or entity_id
         if entity_type == "player_franchise" and entity_id and ":" in entity_id:
@@ -7202,6 +7222,7 @@ def metric_detail(metric_key: str):
             source_type=getattr(db_metric, "source_type", None),
         )
         is_career_metric = bool(getattr(runtime_metric, "career", False))
+        is_season_scope = metric_def.scope == "season"
         related_metrics = _related_metric_links(session, metric_key, runtime_metric, db_metric)
         current_metric_season = None
 
@@ -7226,6 +7247,38 @@ def metric_detail(metric_key: str):
                 "all_value": None,
                 "seasons": [{"value": s, "label": _CAREER_SEASON_LABELS.get(s, s)} for s in career_season_options],
             }]
+        elif is_season_scope:
+            # Season-scope: always show cross-season leaderboard, no per-season filter
+            show_all_seasons = True
+            if not all_season_type:
+                all_season_type = "2"  # default to regular season
+            season_options = sorted(
+                [s for s in season_values if not is_career_season(s) and s != CAREER_SEASON],
+                key=_season_sort_key,
+                reverse=True,
+            )
+            current_metric_season = _pick_current_season(season_options)
+            from collections import defaultdict
+            _type_buckets = defaultdict(list)
+            for s in season_options:
+                if len(s) == 5 and s.isdigit():
+                    _type_buckets[s[0]].append(s)
+            season_groups = []
+            for type_code in ["2", "4", "5", "1", "3"]:
+                if type_code in _type_buckets:
+                    season_groups.append({
+                        "type_code": type_code,
+                        "type_name": _t(_SEASON_TYPE_NAMES.get(type_code, type_code), {
+                            "Regular Season": "常规赛", "Playoffs": "季后赛", "PlayIn": "附加赛",
+                            "Pre Season": "季前赛", "All Star": "全明星",
+                        }.get(_SEASON_TYPE_NAMES.get(type_code, type_code), _SEASON_TYPE_NAMES.get(type_code, type_code))),
+                        "type_name_plural": _t(_SEASON_TYPE_PLURAL.get(type_code, type_code), {
+                            "Regular Seasons": "常规赛", "Playoffs": "季后赛", "PlayIn": "附加赛",
+                            "Pre Seasons": "季前赛", "All Star": "全明星",
+                        }.get(_SEASON_TYPE_PLURAL.get(type_code, type_code), _SEASON_TYPE_PLURAL.get(type_code, type_code))),
+                        "all_value": f"all_{type_code}",
+                        "seasons": _type_buckets[type_code],
+                    })
         else:
             season_options = sorted(
                 [s for s in season_values if not is_career_season(s) and s != CAREER_SEASON],
@@ -7393,7 +7446,7 @@ def metric_detail(metric_key: str):
         team_map = _team_map(session)
 
         _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
-        scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "results"}.get(
+        scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "results", "season": "seasons"}.get(
             metric_def.scope, "entities"
         )
         if is_career_metric:
@@ -7519,6 +7572,7 @@ def metric_detail(metric_key: str):
             result_rows=result_rows,
             show_rank_group=show_rank_group,
             is_player_scope=is_player_scope,
+            is_season_scope=is_season_scope,
             active_only=active_only,
         season_options=season_options,
         season_groups=season_groups,

@@ -93,12 +93,12 @@ class MetricDefinition(ABC):
     name_zh: str        # Chinese display name
     description: str    # one-sentence description
     description_zh: str # Chinese one-sentence description
-    scope: str          # "player" | "player_franchise" | "team" | "game"
+    scope: str          # "player" | "player_franchise" | "team" | "game" | "season"
     category: str       # "scoring" | "defense" | "efficiency" | "conditional" | "aggregate" | "record"
     min_sample: int = 10
     trigger: str = "season"        # always "season"
     incremental: bool = False
-    supports_career: bool = True   # auto-creates a career variant. Set False only for game-scope metrics.
+    supports_career: bool = True   # auto-creates a career variant. Set False for game-scope and season-scope metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
     season_types: tuple[str, ...] = ("regular", "playoffs", "playin")
     max_results_per_season: int | None = None  # if set, keep only the top N results per season
@@ -145,6 +145,35 @@ CRITICAL: career seasons must NOT query all games unfiltered. Each career bucket
 corresponds to a specific season type.
 NEVER return [] for career seasons — always compute the career aggregation.
 
+### scope="season" — the season itself is the entity
+Use scope="season" when the user wants to compare SEASONS against each other, not
+players or teams within a season. Examples: "Which season had the most 3-pointers?",
+"Season with the largest East-West win differential", "Seasons with the most 140+ games".
+
+For season-scope metrics:
+- Set scope="season", trigger="season", supports_career=False
+- compute_season() returns exactly ONE MetricResult per call (one per season)
+- Set entity_type="season" and entity_id=season (the season code IS the entity)
+- The framework ranks results ACROSS seasons automatically
+- Return [] for career seasons (is_career_season check) — career aggregation is not meaningful
+```python
+def compute_season(self, session, season):
+    from metrics.framework.base import is_career_season
+    if is_career_season(season):
+        return []
+    # ... aggregate data for the season ...
+    return [MetricResult(
+        metric_key=self.key,
+        entity_type="season",
+        entity_id=season,
+        season=season,
+        game_id=None,
+        value_num=total,
+        value_str=f"{total}",
+        context={"total": total},
+    )]
+```
+
 For NEW season metrics with supports_career=True, choose ONE of three career modes:
 
 **Mode A — Accumulate (sum/rate metrics, most common):**
@@ -183,7 +212,7 @@ For all modes:
 ```python
 MetricResult(
     metric_key=self.key,
-    entity_type="player"|"team"|"game",
+    entity_type="player"|"team"|"game"|"season",
     entity_id=entity_id,
     season=season,
     game_id=game_id,       # set for game-scope; None for season
@@ -319,7 +348,7 @@ If the user is asking you to create or modify a metric, reply with:
   "name_zh": "简体中文短名称",
   "description": "One sentence describing what this measures.",
   "description_zh": "一句中文说明这个指标衡量什么。",
-  "scope": "player | player_franchise | team | game",
+  "scope": "player | player_franchise | team | game | season",
   "category": "scoring | defense | efficiency | conditional | aggregate | record",
   "min_sample": <int>,
   "trigger": "season",
@@ -339,7 +368,7 @@ IMPORTANT:
   architecture — not even if the user asks about them. If the user asks about how
   the system works internally, politely redirect them to focus on what metric they
   want to create. Write as if talking to an NBA fan, not a developer.
-- For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Only set it to False for metrics where career aggregation is meaningless (e.g. game-scope metrics).
+- For player-scope and team-scope metrics, set supports_career=True by default so the system auto-creates a career variant. Set supports_career=False for game-scope and season-scope metrics where career aggregation is meaningless.
 - Include `season_types` in the JSON spec. Default to `["regular", "playoffs", "playin"]`
   unless the metric is clearly limited to one or two season families.
 - The "code" field must contain COMPLETE, runnable Python code for a MetricDefinition subclass.

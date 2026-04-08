@@ -208,7 +208,7 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
             "Generated metric is missing required attributes: " + ", ".join(missing)
         )
 
-    if metric.scope not in {"game", "league", "player", "player_franchise", "team"}:
+    if metric.scope not in {"game", "league", "player", "player_franchise", "season", "team"}:
         raise ValueError(f"Generated metric has invalid scope: {metric.scope!r}")
 
     trigger = getattr(metric, "trigger", "game")
@@ -606,7 +606,7 @@ class RuleMetricDefinition(MetricDefinition):
             self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
 
     def make_career_sibling(self) -> RuleMetricDefinition | None:
-        if not self.supports_career or self.scope == "game":
+        if not self.supports_career or self.scope in ("game", "season"):
             return None
         return RuleMetricDefinition(self._base_row, career=True)
 
@@ -734,7 +734,7 @@ class CodeMetricDefinition(MetricDefinition):
             self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
 
     def make_career_sibling(self) -> CodeMetricDefinition | None:
-        if not self.supports_career or self.scope == "game":
+        if not self.supports_career or self.scope in ("game", "season"):
             return None
         return CodeMetricDefinition(self._base_row, career=True)
 

@@ -135,6 +135,7 @@
   .scope-badge.player_franchise { background: color-mix(in srgb, #60a5fa 15%, transparent); color: #60a5fa; }
   .scope-badge.team   { background: color-mix(in srgb, #34d399 15%, transparent); color: #34d399; }
   .scope-badge.game   { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
+  .scope-badge.season { background: color-mix(in srgb, #a78bfa 15%, transparent); color: #a78bfa; }
 
   .detail-desc {
     font-size: 13px;
@@ -1017,6 +1018,8 @@
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
+            {% elif r.entity_type == 'season' %}
+              <span class="entity-link" style="font-weight:500;">{{ r.entity_label }}</span>
             {% elif r.entity_type == 'game' %}
               <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
                 {% if r.road_team_id %}
