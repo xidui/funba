@@ -64,10 +64,12 @@ For `Game content analysis` issues:
 3. Stay scoped to that single game. Pick the single strongest post angle from that game only. Avoid low-signal filler and do not spawn multiple `SocialPost` records for one game-analysis ticket.
 4. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
    Default target set inside that one post:
-   - one `hupu/nba` variant with `general nba` tone
-   - one or more team-forum variants when there is a clear team-specific forum from the 30-team Hupu vocabulary and the story genuinely benefits from a team-fan voice
+   - one Hupu general variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`)
+   - one Hupu team-forum variant (destination from the 30-team Hupu vocabulary) when the story genuinely benefits from a team-fan voice
+   - one Xiaohongshu variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`)
+   - one Reddit general variant (`audience_hint=r/nba english`, destination `reddit/nba`)
+   - one Reddit team-subreddit variant (destination from the Reddit writing playbook subreddit vocabulary)
    - optional extra variants only when they add real review value
-   - for normal game-analysis output, the standard target is one general Hupu variant, one team-forum Hupu variant, one Xiaohongshu variant, one Reddit `r/nba` variant, and one Reddit team-subreddit variant in the same post
    - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for both Hupu team forums and Reddit team subreddits
    - if multiple platforms are involved, create separate platform-native variants instead of reusing one platform's copy for another platform
    - Reddit variants must be written in English; read the Reddit writing playbook for tone, subreddit vocabulary, and formatting rules
