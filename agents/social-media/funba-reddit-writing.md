@@ -36,11 +36,57 @@ Write variants from the destination subreddit backward:
   tone = general NBA audience
   broader league context, more comparison across teams, neutral voice
 
-- team subreddits (e.g. `r/Thunder`, `r/warriors`)
+- team subreddits (e.g. `r/thunder`, `r/warriors`)
   tone = team fan audience
   more team-specific context, fan-friendly framing, emphasis on why this matters to that fanbase
 
 If the same post has both an `r/nba` variant and a team subreddit variant, write them separately with appropriate tone shifts.
+
+## Reddit Team Subreddit Vocabulary
+
+Use these exact subreddit names in generated destinations:
+
+- `atlantahawks`
+- `bostonceltics`
+- `GoNets`
+- `CharlotteHornets`
+- `chicagobulls`
+- `clevelandcavs`
+- `Mavericks`
+- `denvernuggets`
+- `DetroitPistons`
+- `warriors`
+- `rockets`
+- `pacers`
+- `LAClippers`
+- `lakers`
+- `memphisgrizzlies`
+- `heat`
+- `MkeBucks`
+- `timberwolves`
+- `NOLAPelicans`
+- `NYKnicks`
+- `Thunder`
+- `OrlandoMagic`
+- `sixers`
+- `suns`
+- `ripcity`
+- `kings`
+- `NBASpurs`
+- `torontoraptors`
+- `UtahJazz`
+- `washingtonwizards`
+
+Use those exact subreddit names. Do not guess — Reddit subreddit names are case-insensitive but must match the actual community name.
+
+## Default Variant Count
+
+Default for game-analysis posts:
+
+- one variant for `r/nba` (general audience)
+- one variant for the relevant team subreddit when the story clearly benefits from a fan-specific voice
+
+For ranking/leaderboard stories, follow the same expansion rule as Hupu: look at the top 3 entities and create extra team-subreddit variants when distinct fan-facing angles exist.
 
 ## Length
 

@@ -67,10 +67,11 @@ For `Game content analysis` issues:
    - one `hupu/nba` variant with `general nba` tone
    - one or more team-forum variants when there is a clear team-specific forum from the 30-team Hupu vocabulary and the story genuinely benefits from a team-fan voice
    - optional extra variants only when they add real review value
-   - for normal game-analysis output, the standard target is one general Hupu variant, one team-forum Hupu variant, one Xiaohongshu variant, and one Reddit `r/nba` variant in the same post
-   - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule instead of stopping at one team variant
+   - for normal game-analysis output, the standard target is one general Hupu variant, one team-forum Hupu variant, one Xiaohongshu variant, one Reddit `r/nba` variant, and one Reddit team-subreddit variant in the same post
+   - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for both Hupu team forums and Reddit team subreddits
    - if multiple platforms are involved, create separate platform-native variants instead of reusing one platform's copy for another platform
-   - Reddit variants must be written in English; read the Reddit writing playbook for tone, length, and formatting rules
+   - Reddit variants must be written in English; read the Reddit writing playbook for tone, subreddit vocabulary, and formatting rules
+   - Reddit team-subreddit variants should use the exact subreddit names from the Reddit writing playbook's vocabulary list
 5. When calling `POST /api/content/posts` for output created from this ticket, include `analysis_issue_identifier` set to the current Paperclip issue identifier so Funba can link the created posts back to this game-analysis ticket.
 6. Leave each post in Funba with `status: "ai_review"` so the Content Reviewer agent can audit and polish it before human review.
 7. Add a close-out comment that includes created post IDs and the required close-out contract fields (`Summary:` and `PR:`).
