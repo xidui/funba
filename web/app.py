@@ -4656,6 +4656,8 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                 "road_largest_lead": max(road_lead, 0),
                 "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
                 "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
+                "home_fg3_pct": round(home_ts.fg3_pct * 100, 1) if home_ts and home_ts.fg3_pct else None,
+                "road_fg3_pct": round(road_ts.fg3_pct * 100, 1) if road_ts and road_ts.fg3_pct else None,
                 "home_scorer": _leader(top_scorer_map.get((g.game_id, g.home_team_id)), "pts"),
                 "road_scorer": _leader(top_scorer_map.get((g.game_id, g.road_team_id)), "pts"),
                 "home_rebounder": _leader(top_rebounder_map.get((g.game_id, g.home_team_id)), "reb"),
