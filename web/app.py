@@ -88,6 +88,7 @@ from web.paperclip_bridge import (
 from web.auth_routes import _safe_redirect_url, create_oauth, register_auth_routes
 from web.billing_routes import register_billing_routes
 from web.admin_content_routes import register_admin_content_routes
+from web.admin_misc_routes import register_admin_misc_routes
 from web.detail_routes import register_detail_routes
 from web.feedback_routes import register_feedback_routes
 from web.metrics_read_routes import register_metrics_read_routes
@@ -5386,666 +5387,71 @@ api_content_delivery_status = _admin_content_views.api_content_delivery_status
 # Data API for Paperclip (localhost, read-only NBA data)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/data/games")
-def api_data_games():
-    """Get games for a date. Query: ?date=2026-03-28"""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    date_str = request.args.get("date")
-    if not date_str:
-        return jsonify({"error": "date required"}), 400
-    from tasks.topics import get_games_by_date
-    result = get_games_by_date(date.fromisoformat(date_str))
-    return jsonify({"date": date_str, "games": result})
-
-
-@app.get("/api/data/games/<game_id>/boxscore")
-def api_data_boxscore(game_id: str):
-    """Get box score for a game."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from tasks.topics import get_game_box_score
-    return jsonify(get_game_box_score(game_id))
-
-
-@app.get("/api/data/games/<game_id>/pbp")
-def api_data_pbp(game_id: str):
-    """Get play-by-play for a game period. Query: ?period=4"""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    period = int(request.args.get("period", 4))
-    from tasks.topics import get_game_play_by_play
-    return jsonify({"game_id": game_id, "period": period, "plays": get_game_play_by_play(game_id, period)})
-
-
-@app.get("/api/data/games/<game_id>/metrics")
-def api_data_game_metrics(game_id: str):
-    """Get all metrics triggered by a single game."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from tasks.topics import get_game_metrics
-    return jsonify({"game_id": game_id, "metrics": get_game_metrics(game_id)})
-
-
-@app.get("/api/data/metrics/<metric_key>/top")
-def api_data_metric_top(metric_key: str):
-    """Get top N results for a metric. Query: ?season=22025&limit=10"""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    season = request.args.get("season")
-    limit = min(int(request.args.get("limit", 10)), 100)
-    from tasks.topics import get_metric_top_results
-    return jsonify({"metric_key": metric_key, "results": get_metric_top_results(metric_key, season, limit)})
-
-
-@app.get("/api/data/metrics/triggered")
-def api_data_triggered_metrics():
-    """Get triggered metrics for a date. Query: ?date=2026-03-28"""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    date_str = request.args.get("date")
-    if not date_str:
-        return jsonify({"error": "date required"}), 400
-    from tasks.topics import get_triggered_metrics
-    result = get_triggered_metrics(date.fromisoformat(date_str))
-    return jsonify({"date": date_str, "metrics": result})
-
-
-@app.get("/admin/fragment/<section>")
-def admin_fragment(section: str):
-    denied = _require_admin_page()
-    if denied:
-        return denied
-
-    section = (section or "").strip().lower()
-    runs_page_size = 25
-    recent_page_size = 25
-    perf_page_size = 20
-
-    with SessionLocal() as session:
-        if section == "visitor-stats":
-            now_dt = datetime.utcnow()
-            cutoff_24h = now_dt - timedelta(hours=24)
-            cutoff_7d  = now_dt - timedelta(days=7)
-            cutoff_30d = now_dt - timedelta(days=30)
-            visitor_stats = {
-                "user_count":   session.query(func.count(User.id)).scalar() or 0,
-                "views_24h":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-                "views_7d":     session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-                "views_30d":    session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
-                "unique_24h":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-                "unique_7d":    session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-                "unique_30d":   session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
-            }
-            return render_template("_admin_visitor_stats.html", visitor_stats=visitor_stats)
-
-        if section == "top-pages":
-            panel = _load_admin_top_pages_panel(session, request.args.get("window"))
-            return render_template(
-                "_admin_top_pages.html",
-                selected_window=panel["selected_window"],
-                top_pages=panel["top_pages"],
-                top_referrers=panel["top_referrers"],
-            )
-
-        if section == "coverage":
-            now = time.time()
-            if "coverage" not in _admin_cache or now - _admin_cache.get("ts", 0) > _ADMIN_CACHE_TTL:
-                from sqlalchemy import text as sa_text
-                coverage_rows = session.execute(sa_text("""
-                    SELECT
-                        g.season,
-                        COUNT(DISTINCT g.game_id)   AS total,
-                        COUNT(DISTINCT box.game_id) AS has_detail,
-                        COUNT(DISTINCT pbp.game_id) AS has_pbp,
-                        COUNT(DISTINCT gls.game_id) AS has_line,
-                        COUNT(DISTINCT sr.game_id)  AS has_shot,
-                        COALESCE(SUM(mrl_agg.metric_cnt > 0), 0) AS has_metrics,
-                        0                                        AS active_claims
-                    FROM Game g
-                    LEFT JOIN (
-                        SELECT DISTINCT game_id FROM TeamGameStats
-                        UNION
-                        SELECT DISTINCT game_id FROM PlayerGameStats
-                    ) box ON box.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
-                    LEFT JOIN (
-                        SELECT game_id,
-                               COUNT(DISTINCT metric_key) AS metric_cnt
-                        FROM MetricRunLog
-                        GROUP BY game_id
-                    ) mrl_agg ON mrl_agg.game_id = g.game_id
-                    WHERE g.game_date IS NOT NULL
-                    GROUP BY g.season
-                    ORDER BY g.season DESC
-                """)).fetchall()
-                coverage_source_rows = session.execute(sa_text("""
-                    SELECT
-                        g.season,
-                        COALESCE(g.data_source, 'unknown') AS data_source,
-                        COUNT(DISTINCT g.game_id) AS detail_games
-                    FROM Game g
-                    JOIN (
-                        SELECT DISTINCT game_id FROM TeamGameStats
-                        UNION
-                        SELECT DISTINCT game_id FROM PlayerGameStats
-                    ) box ON box.game_id = g.game_id
-                    WHERE g.game_date IS NOT NULL
-                    GROUP BY g.season, COALESCE(g.data_source, 'unknown')
-                    ORDER BY g.season DESC, data_source ASC
-                """)).fetchall()
-                _admin_cache["coverage"] = {
-                    "rows": coverage_rows,
-                    "sources": coverage_source_rows,
-                }
-                _admin_cache["ts"] = now
-            else:
-                cached_coverage = _admin_cache["coverage"]
-                if isinstance(cached_coverage, list):
-                    coverage_rows = cached_coverage
-                    coverage_source_rows = []
-                else:
-                    coverage_rows = cached_coverage["rows"]
-                    coverage_source_rows = cached_coverage["sources"]
-            source_counts_by_season: dict[str, list[dict[str, object]]] = defaultdict(list)
-            for row in coverage_source_rows:
-                season_key = str(row.season)
-                source_counts_by_season[season_key].append(
-                    {
-                        "source": row.data_source,
-                        "label": _box_score_source_label(row.data_source),
-                        "count": int(row.detail_games or 0),
-                    }
-                )
-            coverage = [
-                {
-                    "season": _season_label(row.season),
-                    "season_raw": row.season,
-                    "total": row.total,
-                    "detail": row.has_detail,
-                    "detail_sources": source_counts_by_season.get(str(row.season), []),
-                    "detail_remaining": max(int(row.total or 0) - int(row.has_detail or 0), 0),
-                    "pbp": row.has_pbp,
-                    "line": row.has_line,
-                    "shot": row.has_shot,
-                    "metrics": row.has_metrics,
-                    "active_claims": row.active_claims,
-                    "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
-                }
-                for row in coverage_rows
-            ]
-            return render_template("_admin_coverage.html", coverage=coverage)
-
-        if section == "compute-runs":
-            panel = _load_admin_compute_runs_panel(session, runs_page=_admin_page_arg("runs_page"), runs_page_size=runs_page_size)
-            return render_template(
-                "_admin_compute_runs_card.html",
-                compute_run_counts=panel["compute_run_counts"],
-                compute_runs=panel["compute_runs"],
-                runs_page=panel["runs_page"],
-                runs_total_pages=panel["runs_total_pages"],
-                admin_page_url=_admin_page_url,
-                admin_fragment_url=_admin_fragment_url,
-            )
-
-        if section == "recent-runs":
-            panel = _load_admin_recent_runs_panel(session, recent_page=_admin_page_arg("recent_page"), recent_page_size=recent_page_size)
-            return render_template(
-                "_admin_recent_runs_card.html",
-                recent=panel["recent"],
-                recent_page=panel["recent_page"],
-                recent_has_prev=panel["recent_has_prev"],
-                recent_has_next=panel["recent_has_next"],
-                admin_page_url=_admin_page_url,
-                admin_fragment_url=_admin_fragment_url,
-            )
-
-        if section == "metric-perf":
-            panel = _load_admin_metric_perf_panel(
-                session,
-                perf_page=_admin_page_arg("perf_page"),
-                perf_page_size=perf_page_size,
-            )
-            return render_template(
-                "_admin_metric_perf.html",
-                perf_data=panel["perf_data"],
-                perf_page=panel["perf_page"],
-                perf_total_pages=panel["perf_total_pages"],
-                perf_has_prev=panel["perf_has_prev"],
-                perf_has_next=panel["perf_has_next"],
-                admin_page_url=_admin_page_url,
-                admin_fragment_url=_admin_fragment_url,
-            )
-
-        if section == "missing":
-            season_filter = Game.season.like("22024%") | Game.season.like("22025%")
-            def _missing(joined_model, joined_col, limit=20):
-                rows = (
-                    session.query(Game.game_id, Game.game_date, Game.season)
-                    .outerjoin(joined_model, joined_col == Game.game_id)
-                    .filter(season_filter, Game.game_date.isnot(None), joined_col.is_(None))
-                    .order_by(Game.game_date)
-                    .limit(limit + 1)
-                    .all()
-                )
-                overflow = len(rows) > limit
-                rows = rows[:limit]
-                total = len(rows) + (1 if overflow else 0)
-                return {
-                    "total": total,
-                    "overflow": overflow,
-                    "rows": [{"game_id": r.game_id, "game_date": r.game_date, "season": _season_label(r.season)} for r in rows],
-                }
-            return render_template(
-                "_admin_missing.html",
-                missing_detail=_missing(PlayerGameStats, PlayerGameStats.game_id),
-                missing_shot=_missing(ShotRecord, ShotRecord.game_id),
-                missing_metrics=_missing(MetricRunLog, MetricRunLog.game_id),
-            )
-
-    abort(404)
-
-
-@app.get("/api/admin/infra-status")
-def api_admin_infra_status():
-    """Return Redis broker status, queue lengths, and Celery worker status."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-
-    # Redis broker status and queue lengths
-    queues = []
-    broker_ok = False
-    try:
-        import redis as _redis
-        r = _redis.Redis.from_url(os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"), socket_timeout=2)
-        r.ping()
-        broker_ok = True
-    except Exception:
-        pass
-
-    # Celery inspect — get worker queues, concurrency, and active task counts
-    workers = []
-    try:
-        from tasks.celery_app import app as celery_app
-        inspector = celery_app.control.inspect(timeout=1.5)
-        ping_result = celery_app.control.ping(timeout=1.5)
-        active_queues = inspector.active_queues() or {}
-        stats = inspector.stats() or {}
-        active_tasks = inspector.active() or {}
-
-        pinged = set()
-        for entry in ping_result:
-            for worker_name in entry:
-                pinged.add(worker_name)
-
-        for worker_name in pinged:
-            wq = active_queues.get(worker_name, [])
-            queue_names = sorted(set(q["name"] for q in wq if not q["name"].endswith(".pidbox")))
-            ws = stats.get(worker_name, {})
-            pool = ws.get("pool", {})
-            concurrency = pool.get("max-concurrency", None)
-            active_count = len(active_tasks.get(worker_name, []))
-            role = ", ".join(queue_names) if queue_names else "unknown"
-            workers.append({
-                "name": worker_name,
-                "role": role,
-                "concurrency": concurrency,
-                "active": active_count,
-                "ok": True,
-            })
-        workers.sort(key=lambda w: w["role"])
-
-        # Build queue info from Redis lengths + worker consumer counts
-        if broker_ok:
-            import redis as _redis
-            r = _redis.Redis.from_url(os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"), socket_timeout=2)
-            consumer_count: dict[str, int] = {}
-            for wq_list in active_queues.values():
-                for q in wq_list:
-                    qn = q.get("name", "")
-                    if not qn.endswith(".pidbox"):
-                        consumer_count[qn] = consumer_count.get(qn, 0) + 1
-            for qname in ("ingest", "metrics", "reduce"):
-                length = r.llen(qname) or 0
-                queues.append({"name": qname, "ready": length, "unacked": 0, "consumers": consumer_count.get(qname, 0)})
-    except Exception:
-        pass
-
-    # Scheduled tasks from Celery Beat config
-    scheduled = []
-    try:
-        from tasks.celery_app import app as _celery_app
-        for name, entry in (_celery_app.conf.beat_schedule or {}).items():
-            scheduled.append({
-                "name": name,
-                "task": entry.get("task", ""),
-                "every": str(entry.get("schedule", "")),
-            })
-    except Exception:
-        pass
-
-    return jsonify({"ok": True, "broker_ok": broker_ok, "queues": queues, "workers": workers, "scheduled": scheduled})
-
-
-def _serialize_feature_access(session) -> list[dict]:
-    config = get_feature_access_config(session)
-    serialized = []
-    for descriptor in feature_access_descriptors():
-        serialized.append(
-            {
-                "key": descriptor["key"],
-                "label": descriptor["label"],
-                "description": descriptor["description"],
-                "default_level": descriptor["default_level"],
-                "current_level": config[descriptor["key"]],
-                "allowed_levels": [
-                    {"value": level, "label": access_level_label(level)}
-                    for level in descriptor["allowed_levels"]
-                ],
-            }
-        )
-    return serialized
-
-
-@app.get("/api/admin/feature-access")
-def api_admin_feature_access():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        return jsonify({"ok": True, "features": _serialize_feature_access(session)})
-
-
-@app.post("/api/admin/feature-access")
-def api_admin_update_feature_access():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    body = request.get_json(force=True) or {}
-    try:
-        with SessionLocal() as session:
-            updated = {}
-            for descriptor in feature_access_descriptors():
-                feature_key = descriptor["key"]
-                if feature_key in body:
-                    updated[feature_key] = set_feature_access_level(
-                        session, feature_key, body[feature_key]
-                    )
-            session.commit()
-            features = _serialize_feature_access(session)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("failed to save feature access config")
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    return jsonify({"ok": True, "updated": updated, "features": features})
-
-
-@app.get("/api/admin/model-config")
-def api_admin_model_config():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        return jsonify(
-            {
-                "default_model": get_default_llm_model_for_ui(session),
-                "search_model": get_llm_model_for_purpose(session, "search"),
-                "generate_model": get_llm_model_for_purpose(session, "generate"),
-                "available_models": available_llm_models(),
-            }
-        )
-
-
-@app.get("/api/admin/paperclip-config")
-def api_admin_paperclip_config():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        return jsonify(
-            {
-                "ok": True,
-                "issue_base_url": get_paperclip_issue_base_url(session),
-            }
-        )
-
-
-@app.post("/api/admin/paperclip-config")
-def api_admin_update_paperclip_config():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    body = request.get_json(force=True) or {}
-    try:
-        with SessionLocal() as session:
-            issue_base_url = set_paperclip_issue_base_url(session, body.get("issue_base_url"))
-            session.commit()
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("failed to save paperclip config")
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    return jsonify({"ok": True, "issue_base_url": issue_base_url})
-
-
-@app.post("/api/admin/model-config")
-def api_admin_update_model_config():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    body = request.get_json(force=True) or {}
-    try:
-        with SessionLocal() as session:
-            result = {}
-            if "search_model" in body:
-                result["search_model"] = set_llm_model_for_purpose(session, "search", body["search_model"])
-            if "generate_model" in body:
-                result["generate_model"] = set_llm_model_for_purpose(session, "generate", body["generate_model"])
-            if "default_model" in body:
-                result["default_model"] = set_default_llm_model(session, body["default_model"])
-            session.commit()
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except Exception as exc:
-        logger.exception("failed to save admin model config")
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    return jsonify(
-        {
-            "ok": True,
-            **result,
-            "available_models": available_llm_models(),
-        }
-    )
-
-
-@app.get("/api/admin/runtime-flags")
-def api_admin_runtime_flags():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    return jsonify({"ok": True, "flags": load_runtime_flags()})
-
-
-@app.get("/api/admin/ai-usage")
-def api_admin_ai_usage():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        return jsonify({"ok": True, "dashboard": get_ai_usage_dashboard(session)})
-
-
-@app.get("/api/admin/visitor-timeseries")
-def api_admin_visitor_timeseries():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from datetime import datetime, timedelta
-    from sqlalchemy import extract
-
-    days = min(int(request.args.get("days", 90)), 365)
-    cutoff = datetime.utcnow() - timedelta(days=days)
-
-    year_col = extract("year", PageView.created_at)
-    month_col = extract("month", PageView.created_at)
-    day_col = extract("day", PageView.created_at)
-    hour_col = extract("hour", PageView.created_at)
-
-    with SessionLocal() as session:
-        rows = (
-            session.query(
-                year_col.label("y"),
-                month_col.label("m"),
-                day_col.label("d"),
-                hour_col.label("h"),
-                func.count(PageView.id).label("views"),
-                func.count(func.distinct(PageView.visitor_id)).label("unique"),
-            )
-            .filter(PageView.created_at >= cutoff)
-            .group_by("y", "m", "d", "h")
-            .order_by("y", "m", "d", "h")
-            .all()
-        )
-        data = [
-            {
-                "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00Z",
-                "views": r.views,
-                "unique": r.unique,
-            }
-            for r in rows
-        ]
-
-        # Published posts in the same window — group by hour bucket
-        posts = (
-            session.query(
-                SocialPostDelivery.published_at,
-                SocialPostDelivery.platform,
-                SocialPostVariant.title,
-            )
-            .join(SocialPostVariant, SocialPostDelivery.variant_id == SocialPostVariant.id)
-            .filter(
-                SocialPostDelivery.status == "published",
-                SocialPostDelivery.published_at >= cutoff,
-                SocialPostDelivery.published_at.isnot(None),
-            )
-            .order_by(SocialPostDelivery.published_at)
-            .all()
-        )
-        from collections import OrderedDict
-        post_buckets: dict[str, dict] = OrderedDict()
-        for p in posts:
-            key = p.published_at.strftime("%Y-%m-%dT%H:00:00Z")
-            bucket = post_buckets.setdefault(key, {"date": key, "count": 0, "titles": []})
-            bucket["count"] += 1
-            label = f"[{p.platform}] {(p.title or '')[:60]}"
-            bucket["titles"].append(label)
-        post_data = list(post_buckets.values())
-    return jsonify({"ok": True, "series": data, "posts": post_data})
-
-
-@app.post("/api/admin/runtime-flags")
-def api_admin_update_runtime_flags():
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    body = request.get_json(force=True) or {}
-    from runtime_flags import DEFAULT_RUNTIME_FLAGS
-    flags = load_runtime_flags()
-    updated = False
-    for key in DEFAULT_RUNTIME_FLAGS:
-        if key in body:
-            try:
-                flags = set_runtime_flag(key, body[key])
-                updated = True
-            except KeyError:
-                return jsonify({"ok": False, "error": f"unknown runtime flag: {key}"}), 400
-    if not updated:
-        return jsonify({"ok": False, "error": "no recognized flags in request body"}), 400
-    return jsonify({"ok": True, "flags": flags})
-
-
-@app.post("/admin/backfill/<season>")
-def admin_backfill(season: str):
-    """Discover + insert any missing games from NBA API, then enqueue ingest for the season."""
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    from tasks.ingest import ingest_game
-    from tasks.celery_app import app as celery_app
-    from tasks.dispatch import discover_and_insert_games
-    from metrics.framework.runtime import get_all_metrics as _get_runtime_metrics
-
-    # Convert DB season code (e.g. "22025") → NBA API season string + type
-    _type_map = {"2": "Regular Season", "4": "Playoffs", "5": "PlayIn", "1": "Pre Season"}
-    prefix = season[0] if season else "2"
-    year = int(season[1:]) if len(season) > 1 else 0
-    nba_season = f"{year}-{(year + 1) % 100:02d}"
-    season_type = _type_map.get(prefix, "Regular Season")
-
-    game_ids = discover_and_insert_games(
-        season=nba_season,
-        season_types=[season_type],
-    )
-
-    if not game_ids:
-        return jsonify({"error": f"No games found for season {season}"}), 404
-
-    # Use the pre-configured Queue object (with DLX args) so RabbitMQ doesn't
-    # reject the declaration as inequivalent to the existing queue.
-    ingest_q = next(q for q in celery_app.conf.task_queues if q.name == "ingest")
-    metric_keys = [m.key for m in _get_runtime_metrics()]
-    for gid in game_ids:
-        ingest_game.apply_async(args=[gid], kwargs={"metric_keys": metric_keys}, declare=[ingest_q])
-
-    return jsonify({"season": season, "enqueued": len(game_ids)})
-
-
-@app.post("/games/<game_id>/shotchart/backfill")
-def game_shotchart_backfill(game_id: str):
-    denied = _require_admin_page()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        game = session.query(Game).filter(Game.game_id == game_id).first()
-        if game is None:
-            abort(404, description=f"Game {game_id} not found")
-
-        try:
-            count = back_fill_game_shot_record_from_api(session, game_id, commit=True, replace_existing=False)
-            return redirect(url_for("game_page", game_id=game_id, shot_backfill="ok", shot_count=count))
-        except Exception:
-            session.rollback()
-            app.logger.exception("manual shotchart backfill failed for game_id=%s", game_id)
-            return redirect(url_for("game_page", game_id=game_id, shot_backfill="error"))
-
-
-@app.post("/api/games/<game_id>/shotchart/backfill")
-def game_shotchart_backfill_api(game_id: str):
-    denied = _require_admin_json()
-    if denied:
-        return denied
-    with SessionLocal() as session:
-        game = session.query(Game).filter(Game.game_id == game_id).first()
-        if game is None:
-            return jsonify({"ok": False, "error": f"Game {game_id} not found"}), 404
-
-        try:
-            count = back_fill_game_shot_record_from_api(session, game_id, commit=True, replace_existing=False)
-            return jsonify({"ok": True, "game_id": game_id, "shot_count": int(count)})
-        except Exception as exc:
-            session.rollback()
-            app.logger.exception("manual shotchart backfill failed for game_id=%s", game_id)
-            return jsonify({"ok": False, "error": str(exc)}), 500
+_admin_misc_views = register_admin_misc_routes(
+    app,
+    SimpleNamespace(
+        require_admin_json=lambda: _require_admin_json,
+        require_admin_page=lambda: _require_admin_page,
+        session_local=lambda: SessionLocal,
+        render_template=lambda: render_template,
+        admin_page_arg=lambda: _admin_page_arg,
+        admin_page_url=lambda: _admin_page_url,
+        admin_fragment_url=lambda: _admin_fragment_url,
+        load_admin_top_pages_panel=lambda: _load_admin_top_pages_panel,
+        load_admin_compute_runs_panel=lambda: _load_admin_compute_runs_panel,
+        load_admin_recent_runs_panel=lambda: _load_admin_recent_runs_panel,
+        load_admin_metric_perf_panel=lambda: _load_admin_metric_perf_panel,
+        admin_cache=lambda: _admin_cache,
+        admin_cache_ttl=lambda: _ADMIN_CACHE_TTL,
+        time_module=lambda: time,
+        box_score_source_label=lambda: _box_score_source_label,
+        season_label=lambda: _season_label,
+        logger=lambda: logger,
+        page_view_model=lambda: PageView,
+        user_model=lambda: User,
+        game_model=lambda: Game,
+        player_game_stats_model=lambda: PlayerGameStats,
+        shot_record_model=lambda: ShotRecord,
+        metric_run_log_model=lambda: MetricRunLog,
+        social_post_delivery_model=lambda: SocialPostDelivery,
+        social_post_variant_model=lambda: SocialPostVariant,
+        feature_access_descriptors=lambda: feature_access_descriptors,
+        set_feature_access_level=lambda: set_feature_access_level,
+        serialize_feature_access=lambda: _serialize_feature_access,
+        get_default_llm_model_for_ui=lambda: get_default_llm_model_for_ui,
+        get_llm_model_for_purpose=lambda: get_llm_model_for_purpose,
+        available_llm_models=lambda: available_llm_models,
+        get_paperclip_issue_base_url=lambda: get_paperclip_issue_base_url,
+        set_paperclip_issue_base_url=lambda: set_paperclip_issue_base_url,
+        load_runtime_flags=lambda: load_runtime_flags,
+        default_runtime_flags=lambda: lambda: __import__("runtime_flags", fromlist=["DEFAULT_RUNTIME_FLAGS"]).DEFAULT_RUNTIME_FLAGS,
+        set_runtime_flag=lambda: set_runtime_flag,
+        get_ai_usage_dashboard=lambda: get_ai_usage_dashboard,
+        app=lambda: app,
+        back_fill_game_shot_record_from_api=lambda: back_fill_game_shot_record_from_api,
+    ),
+)
+api_data_games = _admin_misc_views.api_data_games
+api_data_boxscore = _admin_misc_views.api_data_boxscore
+api_data_pbp = _admin_misc_views.api_data_pbp
+api_data_game_metrics = _admin_misc_views.api_data_game_metrics
+api_data_metric_top = _admin_misc_views.api_data_metric_top
+api_data_triggered_metrics = _admin_misc_views.api_data_triggered_metrics
+admin_fragment = _admin_misc_views.admin_fragment
+api_admin_infra_status = _admin_misc_views.api_admin_infra_status
+api_admin_feature_access = _admin_misc_views.api_admin_feature_access
+api_admin_update_feature_access = _admin_misc_views.api_admin_update_feature_access
+api_admin_model_config = _admin_misc_views.api_admin_model_config
+api_admin_paperclip_config = _admin_misc_views.api_admin_paperclip_config
+api_admin_update_paperclip_config = _admin_misc_views.api_admin_update_paperclip_config
+api_admin_update_model_config = _admin_misc_views.api_admin_update_model_config
+api_admin_runtime_flags = _admin_misc_views.api_admin_runtime_flags
+api_admin_ai_usage = _admin_misc_views.api_admin_ai_usage
+api_admin_visitor_timeseries = _admin_misc_views.api_admin_visitor_timeseries
+api_admin_update_runtime_flags = _admin_misc_views.api_admin_update_runtime_flags
+admin_backfill = _admin_misc_views.admin_backfill
+game_shotchart_backfill = _admin_misc_views.game_shotchart_backfill
+game_shotchart_backfill_api = _admin_misc_views.game_shotchart_backfill_api
 
 
 if __name__ == "__main__":
