@@ -22,7 +22,7 @@ import uuid as _uuid_mod
 from flask import Flask, abort, after_this_request, flash, g, get_flashed_messages, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 
-from sqlalchemy import and_, case, func, or_, text
+from sqlalchemy import and_, case, distinct, func, or_, text
 from sqlalchemy.orm import sessionmaker
 from social_media.hupu.forums import normalize_hupu_forum
 from social_media.images import store_prepared_image
@@ -86,6 +86,9 @@ from web.paperclip_bridge import (
     normalize_admin_comments,
 )
 from web.auth_routes import _safe_redirect_url, create_oauth, register_auth_routes
+from web.billing_routes import register_billing_routes
+from web.feedback_routes import register_feedback_routes
+from web.public_routes import register_public_routes
 from runtime_flags import load_runtime_flags, set_runtime_flag
 
 _DRAFT_KEY_PREFIX = "_d_"
@@ -302,6 +305,34 @@ def _language_toggle_url() -> str | None:
     return _localized_url_for(base_endpoint, _lang="en" if _is_zh() else "zh", **values)
 
 
+def _canonical_url() -> str | None:
+    """Return the canonical (English) absolute URL for the current page."""
+    if not has_request_context() or not request.endpoint:
+        return None
+    base_endpoint = _base_public_endpoint(request.endpoint)
+    if base_endpoint not in _LOCALIZED_PUBLIC_ENDPOINTS:
+        return request.url
+    values = dict(request.view_args or {})
+    return url_for(base_endpoint, _external=True, **values)
+
+
+def _hreflang_links() -> list[dict[str, str]]:
+    """Return hreflang alternate link dicts for the current page."""
+    if not has_request_context() or not request.endpoint:
+        return []
+    base_endpoint = _base_public_endpoint(request.endpoint)
+    if base_endpoint not in _LOCALIZED_PUBLIC_ENDPOINTS:
+        return []
+    values = dict(request.view_args or {})
+    en_url = url_for(base_endpoint, _external=True, **values)
+    zh_url = url_for(_LOCALIZED_PUBLIC_ENDPOINTS[base_endpoint], _external=True, **values)
+    return [
+        {"lang": "en", "url": en_url},
+        {"lang": "zh-CN", "url": zh_url},
+        {"lang": "x-default", "url": en_url},
+    ]
+
+
 def _localized_metric_name(name: str | None, name_zh: str | None = None) -> str:
     localized = (name_zh or "").strip()
     if _is_zh() and localized:
@@ -410,24 +441,86 @@ def robots_txt():
     return make_response("\n".join(lines)), 200, {"Content-Type": "text/plain"}
 
 
-@app.route("/sitemap.xml")
-def sitemap_xml():
-    urls = [
-        "https://funba.app/",
-        "https://funba.app/games",
-        "https://funba.app/awards",
-        "https://funba.app/metrics",
+_SITEMAP_BASE = "https://funba.app"
+_SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+
+
+def _xml_response(xml_lines: list[str]):
+    return make_response("\n".join(xml_lines)), 200, {"Content-Type": "application/xml"}
+
+
+def _urlset(urls: list[str]):
+    xml = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<urlset xmlns="{_SITEMAP_NS}">',
     ]
-    with SessionLocal() as db:
-        teams = db.query(Team.team_id).all()
-        for (tid,) in teams:
-            urls.append(f"https://funba.app/teams/{tid}")
-    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
-    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
     for url in urls:
         xml.append(f"  <url><loc>{url}</loc></url>")
     xml.append("</urlset>")
-    return make_response("\n".join(xml)), 200, {"Content-Type": "application/xml"}
+    return xml
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    """Sitemap index pointing to sub-sitemaps."""
+    subs = [
+        f"{_SITEMAP_BASE}/sitemap-static.xml",
+        f"{_SITEMAP_BASE}/sitemap-teams.xml",
+        f"{_SITEMAP_BASE}/sitemap-players.xml",
+        f"{_SITEMAP_BASE}/sitemap-metrics.xml",
+    ]
+    with SessionLocal() as db:
+        seasons = [s for (s,) in db.query(distinct(Game.season)).order_by(Game.season).all()]
+    for season in seasons:
+        subs.append(f"{_SITEMAP_BASE}/sitemap-games-{season}.xml")
+    xml = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<sitemapindex xmlns="{_SITEMAP_NS}">',
+    ]
+    for loc in subs:
+        xml.append(f"  <sitemap><loc>{loc}</loc></sitemap>")
+    xml.append("</sitemapindex>")
+    return _xml_response(xml)
+
+
+@app.route("/sitemap-static.xml")
+def sitemap_static_xml():
+    return _xml_response(_urlset([
+        f"{_SITEMAP_BASE}/",
+        f"{_SITEMAP_BASE}/games",
+        f"{_SITEMAP_BASE}/awards",
+        f"{_SITEMAP_BASE}/metrics",
+    ]))
+
+
+@app.route("/sitemap-teams.xml")
+def sitemap_teams_xml():
+    with SessionLocal() as db:
+        teams = db.query(Team.team_id).all()
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/teams/{tid}" for (tid,) in teams]))
+
+
+@app.route("/sitemap-players.xml")
+def sitemap_players_xml():
+    with SessionLocal() as db:
+        players = db.query(Player.player_id).all()
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/players/{pid}" for (pid,) in players]))
+
+
+@app.route("/sitemap-metrics.xml")
+def sitemap_metrics_xml():
+    with SessionLocal() as db:
+        metrics = db.query(MetricDefinitionModel.key).all()
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/metrics/{k}" for (k,) in metrics]))
+
+
+@app.route("/sitemap-games-<int:season>.xml")
+def sitemap_games_xml(season: int):
+    with SessionLocal() as db:
+        games = db.query(Game.game_id).filter(Game.season == season).all()
+    if not games:
+        abort(404)
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/games/{gid}" for (gid,) in games]))
 
 
 # ── Google OAuth ─────────────────────────────────────────────────────────────
@@ -3954,6 +4047,8 @@ def inject_template_helpers():
         "clean_key": _strip_draft_prefix,
         "paperclip_issue_base_url": paperclip_issue_base_url,
         "paperclip_issue_url": lambda identifier: build_paperclip_issue_url(identifier, paperclip_issue_base_url),
+        "canonical_url": _canonical_url(),
+        "hreflang_links": _hreflang_links(),
     }
 
 
@@ -3978,1204 +4073,96 @@ auth_logout = _auth_views.auth_logout
 
 # ── Subscription routes ──────────────────────────────────────────────────────
 
-_stripe_price_cache: dict = {}  # {"amount": 900, "currency": "usd", "interval": "month", "fetched_at": ...}
-
-
-def _get_stripe_price() -> dict | None:
-    """Fetch Pro price from Stripe, cached for 1 hour."""
-    import time
-    cached = _stripe_price_cache.get("data")
-    if cached and time.time() - _stripe_price_cache.get("fetched_at", 0) < 3600:
-        return cached
-    price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
-    secret_key = os.environ.get("STRIPE_SECRET_KEY", "")
-    if not price_id or not secret_key:
-        return None
-    try:
-        import stripe
-        stripe.api_key = secret_key
-        price = stripe.Price.retrieve(price_id)
-        data = {
-            "amount": price.unit_amount,  # cents
-            "currency": (price.currency or "usd").upper(),
-            "interval": price.recurring.interval if price.recurring else "month",
-        }
-        _stripe_price_cache["data"] = data
-        _stripe_price_cache["fetched_at"] = time.time()
-        return data
-    except Exception:
-        logger.exception("Failed to fetch Stripe price")
-        return cached  # return stale cache if available
-
-
-@app.route("/cn/pricing", endpoint="pricing_zh")
-@app.route("/pricing")
-def pricing():
-    price_info = _get_stripe_price()
-    return render_template("pricing.html", price_info=price_info)
-
-
-@app.route("/cn/account", endpoint="account_page_zh")
-@app.route("/account")
-def account_page():
-    user = _current_user()
-    if not user:
-        return redirect(url_for("auth_login", next=_localized_url_for("account_page")))
-    return render_template("account.html", user=user, checkout=request.args.get("checkout"))
-
-
-@app.post("/subscribe/checkout")
-def subscribe_checkout():
-    import stripe
-    user = _current_user()
-    if not user:
-        return redirect(url_for("auth_login", next=_localized_url_for("pricing")))
-
-    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
-    if not stripe.api_key:
-        flash("Payment is not configured yet.", "error")
-        return redirect(_localized_url_for("pricing"))
-
-    # Create or retrieve Stripe Customer
-    if not user.stripe_customer_id:
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.display_name,
-            metadata={"funba_user_id": user.id},
-        )
-        with SessionLocal() as db:
-            db_user = db.get(User, user.id)
-            db_user.stripe_customer_id = customer.id
-            db.commit()
-        customer_id = customer.id
-    else:
-        customer_id = user.stripe_customer_id
-
-    price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
-    if not price_id:
-        flash("Payment is not configured yet.", "error")
-        return redirect(_localized_url_for("pricing"))
-
-    checkout_session = stripe.checkout.Session.create(
-        customer=customer_id,
-        mode="subscription",
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=_localized_url_for("account_page", checkout="success", _external=True),
-        cancel_url=_localized_url_for("pricing", _external=True),
-    )
-    return redirect(checkout_session.url, code=303)
-
-
-@app.post("/subscribe/portal")
-def subscribe_portal():
-    import stripe
-    user = _current_user()
-    if not user or not user.stripe_customer_id:
-        return redirect(_localized_url_for("pricing"))
-
-    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
-    portal_session = stripe.billing_portal.Session.create(
-        customer=user.stripe_customer_id,
-        return_url=_localized_url_for("account_page", _external=True),
-    )
-    return redirect(portal_session.url, code=303)
-
-
-@app.post("/stripe/webhook")
-def stripe_webhook():
-    import stripe
-    payload = request.get_data()
-    sig_header = request.headers.get("Stripe-Signature")
-    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-    except (ValueError, stripe.error.SignatureVerificationError):
-        return "Invalid signature", 400
-
-    _handle_stripe_event(event)
-    return "", 200
-
-
-def _handle_stripe_event(event):
-    event_type = event["type"]
-    data = event["data"]["object"]
-
-    if event_type == "checkout.session.completed":
-        _on_checkout_completed(data)
-    elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
-        _on_subscription_changed(data)
-    elif event_type == "invoice.payment_failed":
-        _on_payment_failed(data)
-
-
-def _on_checkout_completed(session_data):
-    customer_id = session_data.get("customer")
-    if not customer_id:
-        return
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
-        if user:
-            user.subscription_tier = "pro"
-            user.subscription_status = "active"
-            user.subscription_expires_at = None
-            db.commit()
-
-
-def _on_subscription_changed(subscription):
-    from datetime import datetime as _dt
-    customer_id = subscription.get("customer")
-    if not customer_id:
-        return
-    status = subscription.get("status", "")
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
-        if not user:
-            return
-        user.subscription_status = status
-        if status == "active":
-            user.subscription_tier = "pro"
-            user.subscription_expires_at = None
-        elif status == "canceled":
-            period_end = subscription.get("current_period_end")
-            if period_end:
-                user.subscription_expires_at = _dt.utcfromtimestamp(period_end)
-            else:
-                user.subscription_tier = "free"
-        elif status in ("unpaid", "incomplete_expired"):
-            user.subscription_tier = "free"
-            user.subscription_expires_at = None
-        db.commit()
-
-
-def _on_payment_failed(invoice):
-    customer_id = invoice.get("customer")
-    if not customer_id:
-        return
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
-        if user:
-            user.subscription_status = "past_due"
-            db.commit()
+_billing_views = register_billing_routes(
+    app,
+    get_session_local=lambda: SessionLocal,
+    get_current_user=lambda: _current_user(),
+    get_localized_url_for=_localized_url_for,
+    get_user_model=lambda: User,
+    get_logger=lambda: logger,
+)
+pricing = _billing_views.pricing
+account_page = _billing_views.account_page
+subscribe_checkout = _billing_views.subscribe_checkout
+subscribe_portal = _billing_views.subscribe_portal
+stripe_webhook = _billing_views.stripe_webhook
+_get_stripe_price = _billing_views.get_stripe_price
+_handle_stripe_event = _billing_views.handle_stripe_event
+_on_checkout_completed = _billing_views.on_checkout_completed
+_on_subscription_changed = _billing_views.on_subscription_changed
+_on_payment_failed = _billing_views.on_payment_failed
 
 
 # ── Feedback routes ───────────────────────────────────────────────────────────
 
-@app.post("/feedback")
-@limiter.limit("10 per minute")
-def submit_feedback():
-    user = _current_user()
-    if not user:
-        return {"error": "login_required"}, 401
-    content = (request.json or {}).get("content", "").strip()
-    if not content:
-        return {"error": "empty"}, 400
-    if len(content) > 2000:
-        return {"error": "too_long"}, 400
-    page_url = (request.json or {}).get("page_url", "")[:500] or None
-    from datetime import datetime
-    with SessionLocal() as db:
-        fb = Feedback(
-            user_id=user.id,
-            content=content,
-            page_url=page_url,
-            created_at=datetime.utcnow(),
-        )
-        db.add(fb)
-        db.commit()
-    return {"ok": True}, 201
-
-
-@app.get("/admin/feedback")
-def admin_feedback():
-    denied = _require_admin_page()
-    if denied:
-        return denied
-    with SessionLocal() as db:
-        rows = (
-            db.query(Feedback, User)
-            .join(User, Feedback.user_id == User.id)
-            .order_by(Feedback.created_at.desc())
-            .limit(200)
-            .all()
-        )
-    items = [
-        {
-            "id": fb.id,
-            "content": fb.content,
-            "page_url": fb.page_url,
-            "created_at": fb.created_at,
-            "user_display_name": u.display_name,
-            "user_email": u.email,
-            "user_avatar": u.avatar_url,
-        }
-        for fb, u in rows
-    ]
-    return render_template("admin_feedback.html", items=items)
+_feedback_views = register_feedback_routes(
+    app,
+    get_session_local=lambda: SessionLocal,
+    get_current_user=lambda: _current_user(),
+    get_feedback_model=lambda: Feedback,
+    get_user_model=lambda: User,
+    require_admin_page=_require_admin_page,
+    limiter=limiter,
+)
+submit_feedback = _feedback_views.submit_feedback
+admin_feedback = _feedback_views.admin_feedback
 
 
 # ── Page routes ───────────────────────────────────────────────────────────────
 
-@app.route("/cn/", endpoint="home_zh")
-@app.route("/")
-def home():
-    with SessionLocal() as session:
-        teams = (
-            session.query(Team)
-            .filter(Team.is_legacy.is_(False))
-            .order_by(Team.full_name.asc())
-            .limit(30)
-            .all()
-        )
-        team_lookup = _team_map(session)
-
-        # Available regular seasons for standings
-        standing_season_ids = [
-            r.season for r in session.query(Game.season)
-            .filter(Game.season.like("2%"))
-            .distinct().all()
-        ]
-        standing_season_ids = sorted(standing_season_ids, key=_season_sort_key, reverse=True)
-        selected_standing_season = request.args.get("season") or (standing_season_ids[0] if standing_season_ids else None)
-
-        # Conference membership (static)
-        _EAST = {
-            "1610612737", "1610612751", "1610612738", "1610612766", "1610612741",
-            "1610612739", "1610612765", "1610612754", "1610612748", "1610612749",
-            "1610612752", "1610612753", "1610612755", "1610612761", "1610612764",
-        }
-
-        # Compute standings: wins/losses per team for selected season
-        east_standings, west_standings = [], []
-        if selected_standing_season:
-            rows = (
-                session.query(
-                    TeamGameStats.team_id,
-                    func.sum(case((TeamGameStats.win.is_(True), 1), else_=0)).label("wins"),
-                    func.sum(case((TeamGameStats.win.is_(False), 1), else_=0)).label("losses"),
-                )
-                .join(Game, TeamGameStats.game_id == Game.game_id)
-                .filter(
-                    Game.season == selected_standing_season,
-                    TeamGameStats.win.isnot(None),
-                )
-                .group_by(TeamGameStats.team_id)
-                .all()
-            )
-            for r in rows:
-                team = team_lookup.get(r.team_id)
-                abbr, full_name = _franchise_display(r.team_id, selected_standing_season, team)
-                w, l = int(r.wins or 0), int(r.losses or 0)
-                total = w + l
-                entry = {
-                    "team_id": r.team_id,
-                    "abbr": abbr,
-                    "full_name": full_name,
-                    "wins": w,
-                    "losses": l,
-                    "win_pct": w / total if total > 0 else 0.0,
-                }
-                if r.team_id in _EAST:
-                    east_standings.append(entry)
-                else:
-                    west_standings.append(entry)
-            east_standings.sort(key=lambda x: x["win_pct"], reverse=True)
-            west_standings.sort(key=lambda x: x["win_pct"], reverse=True)
-
-    # Build team map data for D3 map
-    team_map_data = []
-    for team in teams:
-        pos = _TEAM_MAP_POSITIONS.get(team.abbr)
-        if pos:
-            team_map_data.append({
-                "abbr": team.abbr,
-                "full_name": _display_team_name(team),
-                "team_id": team.team_id,
-                "lat": pos[0],
-                "lon": pos[1],
-            })
-
-    # Today's games with triggered metrics
-    today_games_data = _build_today_games(team_lookup)
-
-    return render_template(
-        "home.html",
-        teams=teams,
-        team_map_data=team_map_data,
-        east_standings=east_standings,
-        west_standings=west_standings,
-        standing_season_ids=standing_season_ids,
-        selected_standing_season=selected_standing_season,
-        fmt_season=_season_label,
-        today_games=today_games_data,
-    )
-
-
-def _build_today_games(team_lookup: dict) -> list[dict]:
-    """Build today's games with fixed stats for the home page.
-
-    Each game shows: lead changes, each team's largest lead,
-    each team's top scorer (with player_id for headshot), and FG%.
-    """
-    from datetime import date, timedelta
-    from collections import defaultdict
-
-    with SessionLocal() as session:
-        today = date.today()
-        games = (
-            session.query(Game)
-            .filter(Game.game_date == today, Game.home_team_score.isnot(None))
-            .order_by(Game.game_id.asc())
-            .all()
-        )
-        if not games:
-            games = (
-                session.query(Game)
-                .filter(Game.game_date == today - timedelta(days=1), Game.home_team_score.isnot(None))
-                .order_by(Game.game_id.asc())
-                .all()
-            )
-            if not games:
-                return []
-
-        game_date = games[0].game_date
-        game_ids = [g.game_id for g in games]
-
-        # Bulk load lead_changes metric
-        lc_rows = (
-            session.query(MetricResultModel.game_id, MetricResultModel.value_num)
-            .filter(
-                MetricResultModel.game_id.in_(game_ids),
-                MetricResultModel.metric_key == "lead_changes",
-            )
-            .all()
-        )
-        lead_changes_map = {r.game_id: int(r.value_num) for r in lc_rows}
-
-        # Bulk load TeamGameStats for FG%
-        all_ts = (
-            session.query(TeamGameStats)
-            .filter(TeamGameStats.game_id.in_(game_ids))
-            .all()
-        )
-        ts_map: dict[tuple[str, str], TeamGameStats] = {}
-        for ts in all_ts:
-            ts_map[(ts.game_id, ts.team_id)] = ts
-
-        # Bulk load player stats per game — find top scorer, rebounder, assister per team
-        all_ps = (
-            session.query(PlayerGameStats)
-            .filter(PlayerGameStats.game_id.in_(game_ids))
-            .all()
-        )
-        # Group by (game_id, team_id), find best in each category
-        from collections import defaultdict
-        _ps_by_gt: dict[tuple[str, str], list] = defaultdict(list)
-        for ps in all_ps:
-            _ps_by_gt[(ps.game_id, ps.team_id)].append(ps)
-
-        def _top_by(rows, field):
-            return max(rows, key=lambda r: int(getattr(r, field, 0) or 0), default=None)
-
-        top_scorer_map: dict[tuple[str, str], PlayerGameStats] = {}
-        top_rebounder_map: dict[tuple[str, str], PlayerGameStats] = {}
-        top_assister_map: dict[tuple[str, str], PlayerGameStats] = {}
-        for key, rows in _ps_by_gt.items():
-            top_scorer_map[key] = _top_by(rows, "pts")
-            top_rebounder_map[key] = _top_by(rows, "reb")
-            top_assister_map[key] = _top_by(rows, "ast")
-
-        # Bulk resolve player names
-        _all_leader_ids = set()
-        for m in (top_scorer_map, top_rebounder_map, top_assister_map):
-            for ps in m.values():
-                if ps:
-                    _all_leader_ids.add(ps.player_id)
-        player_names = {}
-        if _all_leader_ids:
-            from db.models import Player
-            prows = session.query(Player.player_id, Player.full_name, Player.full_name_zh).filter(
-                Player.player_id.in_(_all_leader_ids)
-            ).all()
-            for p in prows:
-                player_names[p.player_id] = p.full_name_zh if _is_zh() and p.full_name_zh else p.full_name
-
-        # Bulk load largest lead per team from PBP score_margin
-        all_pbp_margins = (
-            session.query(GamePlayByPlay.game_id, GamePlayByPlay.score_margin)
-            .filter(
-                GamePlayByPlay.game_id.in_(game_ids),
-                GamePlayByPlay.score_margin.isnot(None),
-                GamePlayByPlay.score_margin != "TIE",
-            )
-            .all()
-        )
-        margins_by_game: dict[str, list[int]] = defaultdict(list)
-        for r in all_pbp_margins:
-            try:
-                margins_by_game[r.game_id].append(int(r.score_margin))
-            except (ValueError, TypeError):
-                pass
-
-        result = []
-        for g in games:
-            home_team = team_lookup.get(g.home_team_id)
-            road_team = team_lookup.get(g.road_team_id)
-            home_won = g.wining_team_id == g.home_team_id if g.wining_team_id else None
-
-            # Largest lead: positive margin = home leads, negative = road leads
-            gm = margins_by_game.get(g.game_id, [])
-            home_lead = max(gm, default=0) if gm else 0
-            road_lead = max((-m for m in gm), default=0) if gm else 0
-
-            # FG%
-            home_ts = ts_map.get((g.game_id, g.home_team_id))
-            road_ts = ts_map.get((g.game_id, g.road_team_id))
-
-            def _leader(ps, stat):
-                if not ps:
-                    return None
-                return {
-                    "player_id": ps.player_id,
-                    "name": player_names.get(ps.player_id, ""),
-                    "value": int(getattr(ps, stat, 0) or 0),
-                }
-
-            result.append({
-                "game_id": g.game_id,
-                "game_date": game_date,
-                "home_team_id": g.home_team_id,
-                "road_team_id": g.road_team_id,
-                "home_abbr": home_team.abbr if home_team else "???",
-                "road_abbr": road_team.abbr if road_team else "???",
-                "home_score": g.home_team_score,
-                "road_score": g.road_team_score,
-                "home_won": home_won,
-                "lead_changes": lead_changes_map.get(g.game_id),
-                "home_largest_lead": max(home_lead, 0),
-                "road_largest_lead": max(road_lead, 0),
-                "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
-                "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
-                "home_fg3_pct": round(home_ts.fg3_pct * 100, 1) if home_ts and home_ts.fg3_pct else None,
-                "road_fg3_pct": round(road_ts.fg3_pct * 100, 1) if road_ts and road_ts.fg3_pct else None,
-                "home_scorer": _leader(top_scorer_map.get((g.game_id, g.home_team_id)), "pts"),
-                "road_scorer": _leader(top_scorer_map.get((g.game_id, g.road_team_id)), "pts"),
-                "home_rebounder": _leader(top_rebounder_map.get((g.game_id, g.home_team_id)), "reb"),
-                "road_rebounder": _leader(top_rebounder_map.get((g.game_id, g.road_team_id)), "reb"),
-                "home_assister": _leader(top_assister_map.get((g.game_id, g.home_team_id)), "ast"),
-                "road_assister": _leader(top_assister_map.get((g.game_id, g.road_team_id)), "ast"),
-            })
-        return result
-
-
-@app.route("/cn/games", endpoint="games_list_zh")
-@app.route("/games")
-def games_list():
-    PAGE_SIZE = 30
-    with SessionLocal() as session:
-        all_season_ids = sorted(
-            {r.season for r in session.query(Game.season).filter(Game.season.isnot(None)).all()},
-            key=_season_sort_key, reverse=True,
-        )
-        selected_season = request.args.get("season") or (all_season_ids[0] if all_season_ids else None)
-        selected_team = (request.args.get("team") or "").strip() or None
-        try:
-            page = max(1, int(request.args.get("page", 1)))
-        except ValueError:
-            page = 1
-
-        all_teams = (
-            session.query(Team)
-            .filter(Team.is_legacy.is_(False))
-            .order_by(Team.full_name.asc(), Team.abbr.asc())
-            .all()
-        )
-        games_q = session.query(Game).filter(Game.game_date.isnot(None))
-        if selected_season:
-            games_q = games_q.filter(Game.season == selected_season)
-        if selected_team:
-            games_q = games_q.filter(
-                or_(Game.home_team_id == selected_team, Game.road_team_id == selected_team)
-            )
-        games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
-
-        total = games_q.count()
-        total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
-        page = min(page, total_pages)
-        games = games_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
-
-        team_lookup = _team_map(session)
-        selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
-        if selected_team_obj is None and selected_team:
-            selected_team_obj = team_lookup.get(selected_team)
-
-    return render_template(
-        "games_list.html",
-        games=games,
-        team_lookup=team_lookup,
-        all_teams=all_teams,
-        all_season_ids=all_season_ids,
-        selected_season=selected_season,
-        selected_team=selected_team,
-        selected_team_obj=selected_team_obj,
-        fmt_date=_fmt_date,
-        fmt_season=_season_label,
-        page=page,
-        total_pages=total_pages,
-        total=total,
-    )
-
-
-@app.route("/cn/awards", endpoint="awards_page_zh")
-@app.route("/awards")
-def awards_page():
-    selected_award_type = request.args.get("type", "champion")
-    if selected_award_type not in _AWARD_TYPE_META:
-        selected_award_type = "champion"
-
-    with SessionLocal() as session:
-        season_rows = session.query(Award.season).distinct().order_by(Award.season.desc()).all()
-        season_options = [int(row[0]) for row in season_rows if _coerce_award_season(row[0]) is not None]
-        selected_season = _coerce_award_season(request.args.get("season"))
-        if selected_season not in season_options:
-            selected_season = None
-
-        award_query = (
-            session.query(
-                Award.id,
-                Award.award_type,
-                Award.season,
-                Award.player_id,
-                Award.team_id,
-                Award.notes,
-                Player.full_name.label("player_name"),
-                Player.full_name_zh.label("player_name_zh"),
-                Team.full_name.label("team_name"),
-                Team.full_name_zh.label("team_name_zh"),
-                Team.abbr.label("team_abbr"),
-            )
-            .outerjoin(Player, Award.player_id == Player.player_id)
-            .outerjoin(Team, Award.team_id == Team.team_id)
-        )
-        if selected_season is not None:
-            award_query = award_query.filter(Award.season == selected_season)
-        else:
-            award_query = award_query.filter(Award.award_type == selected_award_type)
-
-        award_rows = award_query.order_by(_award_order_case(Award.award_type), Award.season.desc(), Award.id.asc()).all()
-        teams = _team_map(session)
-        award_entries = [_award_entry_from_row(row, teams) for row in award_rows]
-        award_sections = _group_award_entries(award_entries)
-
-    return render_template(
-        "awards.html",
-        title="Awards • FUNBA",
-        award_tab_groups=[
-            {
-                "label": group["label"],
-                "tabs": [{"award_type": award_type, "label": _award_type_label(award_type)} for award_type in group["types"] if award_type in _AWARD_TYPE_META],
-            }
-            for group in _AWARD_TAB_GROUPS
-        ],
-        award_sections=award_sections,
-        selected_award_type=selected_award_type,
-        season_options=season_options,
-        selected_season=selected_season,
-    )
-
-
-@app.route("/api/players/hints")
-@limiter.limit("60 per minute")
-def player_hints_api():
-    query = (request.args.get("q") or "").strip()
-    try:
-        limit = int(request.args.get("limit", 12))
-    except ValueError:
-        limit = 12
-    limit = max(1, min(limit, 30))
-
-    with SessionLocal() as session:
-        q = session.query(Player).filter(Player.full_name.isnot(None))
-        if query:
-            q = q.filter(
-                or_(
-                    Player.full_name.ilike(f"%{query}%"),
-                    Player.full_name_zh.ilike(f"%{query}%"),
-                )
-            )
-        players = q.order_by(Player.is_active.desc(), Player.full_name.asc()).limit(limit).all()
-
-    items = [
-        {
-            "player_id": p.player_id,
-            "full_name": p.full_name_zh if _is_zh() and getattr(p, "full_name_zh", None) else p.full_name,
-        }
-        for p in players
-        if p.player_id and p.full_name
-    ]
-    return jsonify({"items": items})
-
-
-_COMPARE_EMPTY_MARK = "—"
-_COMPARE_STATS_ROWS = [
-    ("ppg", "PPG"),
-    ("rpg", "RPG"),
-    ("apg", "APG"),
-    ("mpg", "MPG"),
-    ("fg_pct", "FG%"),
-    ("fg3_pct", "3P%"),
-    ("ft_pct", "FT%"),
-]
-
-
-def _player_summary_fields(played_condition):
-    return [
-        func.count(PlayerGameStats.game_id).label("games_tracked"),
-        func.sum(case((played_condition, 1), else_=0)).label("games_played"),
-        func.sum(func.coalesce(PlayerGameStats.min, 0)).label("total_min"),
-        func.sum(func.coalesce(PlayerGameStats.sec, 0)).label("total_sec"),
-        func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("pts"),
-        func.sum(func.coalesce(PlayerGameStats.reb, 0)).label("reb"),
-        func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
-        func.sum(func.coalesce(PlayerGameStats.stl, 0)).label("stl"),
-        func.sum(func.coalesce(PlayerGameStats.blk, 0)).label("blk"),
-        func.sum(func.coalesce(PlayerGameStats.tov, 0)).label("tov"),
-        func.sum(func.coalesce(PlayerGameStats.fgm, 0)).label("fgm"),
-        func.sum(func.coalesce(PlayerGameStats.fga, 0)).label("fga"),
-        func.sum(func.coalesce(PlayerGameStats.fg3m, 0)).label("fg3m"),
-        func.sum(func.coalesce(PlayerGameStats.fg3a, 0)).label("fg3a"),
-        func.sum(func.coalesce(PlayerGameStats.ftm, 0)).label("ftm"),
-        func.sum(func.coalesce(PlayerGameStats.fta, 0)).label("fta"),
-    ]
-
-
-def _player_summary_from_row(raw_row) -> dict[str, str | int]:
-    games_tracked = int(raw_row.games_tracked or 0)
-    games_played = int(raw_row.games_played or 0)
-    total_sec = int(raw_row.total_sec or 0)
-    total_min = int(raw_row.total_min or 0) + (total_sec // 60)
-
-    summary = {
-        "games_tracked": games_tracked,
-        "games_played": games_played,
-        "minutes": total_min,
-        "pts": int(raw_row.pts or 0),
-        "reb": int(raw_row.reb or 0),
-        "ast": int(raw_row.ast or 0),
-        "stl": int(raw_row.stl or 0),
-        "blk": int(raw_row.blk or 0),
-        "tov": int(raw_row.tov or 0),
-        "fgm": int(raw_row.fgm or 0),
-        "fga": int(raw_row.fga or 0),
-        "fg3m": int(raw_row.fg3m or 0),
-        "fg3a": int(raw_row.fg3a or 0),
-        "ftm": int(raw_row.ftm or 0),
-        "fta": int(raw_row.fta or 0),
-    }
-    summary["fg_pct"] = _pct_text(summary["fgm"], summary["fga"])
-    summary["fg3_pct"] = _pct_text(summary["fg3m"], summary["fg3a"])
-    summary["ft_pct"] = _pct_text(summary["ftm"], summary["fta"])
-
-    if games_played > 0:
-        summary["mpg"] = f"{summary['minutes'] / games_played:.1f}"
-        summary["ppg"] = f"{summary['pts'] / games_played:.1f}"
-        summary["rpg"] = f"{summary['reb'] / games_played:.1f}"
-        summary["apg"] = f"{summary['ast'] / games_played:.1f}"
-        summary["spg"] = f"{summary['stl'] / games_played:.1f}"
-        summary["bpg"] = f"{summary['blk'] / games_played:.1f}"
-        summary["tpg"] = f"{summary['tov'] / games_played:.1f}"
-    else:
-        summary["mpg"] = "-"
-        summary["ppg"] = "-"
-        summary["rpg"] = "-"
-        summary["apg"] = "-"
-        summary["spg"] = "-"
-        summary["bpg"] = "-"
-        summary["tpg"] = "-"
-    return summary
-
-
-def _player_stat_summary(
-    session,
-    player_id: str,
-    *,
-    season: str | None = None,
-    season_prefix: str | None = None,
-) -> dict[str, str | int]:
-    played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
-    query = (
-        session.query(*_player_summary_fields(played_condition))
-        .join(Game, PlayerGameStats.game_id == Game.game_id)
-        .filter(PlayerGameStats.player_id == player_id)
-    )
-    if season:
-        query = query.filter(Game.season == season)
-    elif season_prefix:
-        query = query.filter(Game.season.like(f"{season_prefix}%"))
-    return _player_summary_from_row(query.one())
-
-
-def _player_career_summary(
-    session,
-    player_id: str,
-    *,
-    season_prefix: str,
-    teams: dict[str, Team],
-) -> tuple[dict[str, str | int], list[dict[str, object]]]:
-    played_condition = (func.coalesce(PlayerGameStats.min, 0) > 0) | (func.coalesce(PlayerGameStats.sec, 0) > 0)
-    season_rows_raw = (
-        session.query(
-            Game.season.label("season"),
-            *_player_summary_fields(played_condition),
-        )
-        .join(Game, PlayerGameStats.game_id == Game.game_id)
-        .filter(
-            PlayerGameStats.player_id == player_id,
-            Game.season.like(f"{season_prefix}%"),
-        )
-        .group_by(Game.season)
-        .all()
-    )
-
-    career_season_rows = []
-    for row in season_rows_raw:
-        career_season_rows.append(
-            {
-                "season": row.season,
-                "stats": _player_summary_from_row(row),
-            }
-        )
-    career_season_rows.sort(key=lambda row: _season_sort_key(row["season"]), reverse=True)
-
-    season_team_rows = (
-        session.query(Game.season, PlayerGameStats.team_id)
-        .join(Game, PlayerGameStats.game_id == Game.game_id)
-        .filter(
-            PlayerGameStats.player_id == player_id,
-            Game.season.like(f"{season_prefix}%"),
-            PlayerGameStats.team_id.isnot(None),
-        )
-        .distinct()
-        .all()
-    )
-    season_team_abbrs: dict[str, list[str]] = defaultdict(list)
-    for st_row in season_team_rows:
-        abbr = _team_abbr(teams, st_row.team_id)
-        if abbr not in season_team_abbrs[st_row.season]:
-            season_team_abbrs[st_row.season].append(abbr)
-    for row in career_season_rows:
-        row["team_abbrs"] = season_team_abbrs.get(row["season"], [])
-
-    return _player_stat_summary(session, player_id, season_prefix=season_prefix), career_season_rows
-
-
-def _latest_regular_season(session) -> str | None:
-    seasons = [
-        row.season
-        for row in session.query(Game.season.label("season"))
-        .filter(Game.season.like("2%"))
-        .distinct()
-        .all()
-        if row.season
-    ]
-    return _pick_current_season(seasons) or "22025"
-
-
-def _compare_metric_label(session, metric_key: str) -> str:
-    return _metric_name_for_key(session, metric_key)
-
-
-def _compare_metric_value_text(entry: dict | None, missing: str = "N/A") -> str:
-    if not entry:
-        return missing
-    if entry.get("value_str"):
-        return str(entry["value_str"])
-    if entry.get("value_num") is None:
-        return missing
-    return f"{float(entry['value_num']):.1f}"
-
-
-def _compare_summary_value(summary: dict[str, str | int] | None, key: str, missing: str = _COMPARE_EMPTY_MARK) -> str:
-    if not summary or int(summary.get("games_played") or 0) <= 0:
-        return missing
-    value = summary.get(key)
-    if value in (None, "-", ""):
-        return missing
-    if key.endswith("_pct") and isinstance(value, str):
-        return pct_fmt(value)
-    return str(value)
-
-
-def _compare_numeric_value(value) -> float | None:
-    if value in (None, "", "-", _COMPARE_EMPTY_MARK, "N/A"):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _compare_best_index(values: list[float | None], *, ascending: bool = False) -> int | None:
-    scored = [(idx, value) for idx, value in enumerate(values) if value is not None]
-    if not scored:
-        return None
-    if ascending:
-        best_idx, _best_value = min(scored, key=lambda item: item[1])
-    else:
-        best_idx, _best_value = max(scored, key=lambda item: item[1])
-    return best_idx
-
-
-def _compare_metric_scope_label(entry: dict) -> str:
-    season = str(entry.get("season") or "").strip()
-    if len(season) == 5 and season.isdigit():
-        return _season_label(season)
-    career_labels = {
-        "all_regular": _t("Regular Season Career", "常规赛生涯"),
-        "all_playoffs": _t("Playoffs Career", "季后赛生涯"),
-        "all_playin": _t("Play-In Career", "附加赛生涯"),
-    }
-    if season in career_labels:
-        return career_labels[season]
-    return entry.get("career_type_label") or _t("Career", "生涯")
-
-
-def _build_compare_stat_rows(player_cards: list[dict]) -> list[dict]:
-    rows = []
-    for stat_key, label in _COMPARE_STATS_ROWS:
-        values = [_compare_summary_value(card.get("career_summary"), stat_key) for card in player_cards]
-        best_index = _compare_best_index([_compare_numeric_value(value) for value in values])
-        rows.append(
-            {
-                "label": label,
-                "values": values,
-                "best_index": best_index,
-            }
-        )
-    return rows
-
-
-def _build_compare_current_rows(player_cards: list[dict]) -> list[dict]:
-    rows = []
-    for stat_key, label in _COMPARE_STATS_ROWS:
-        values = [_compare_summary_value(card.get("current_summary"), stat_key) for card in player_cards]
-        best_index = _compare_best_index([_compare_numeric_value(value) for value in values])
-        rows.append(
-            {
-                "label": label,
-                "values": values,
-                "best_index": best_index,
-            }
-        )
-    return rows
-
-
-def _build_compare_metric_sections(session, player_cards: list[dict]) -> list[dict]:
-    sections: list[dict] = []
-    asc_keys = _asc_metric_keys(session)
-
-    def build_rows(entries_by_card: list[list[dict]], *, group_title: str | None = None) -> dict | None:
-        row_map: dict[str, dict] = {}
-        for player_idx, entries in enumerate(entries_by_card):
-            for entry in entries:
-                row_key = entry["metric_key"]
-                row = row_map.setdefault(
-                    row_key,
-                    {
-                        "metric_key": entry["metric_key"],
-                        "label": _compare_metric_label(session, entry["metric_key"]),
-                        "href": _localized_url_for("metric_detail", metric_key=entry["metric_key"]),
-                        "values": [None] * len(player_cards),
-                        "ascending": entry["metric_key"].removesuffix("_career") in asc_keys,
-                    },
-                )
-                row["values"][player_idx] = entry
-        if not row_map:
-            return None
-
-        rows = []
-        for row in sorted(row_map.values(), key=lambda item: item["label"].lower()):
-            numeric_values = [
-                float(value["value_num"]) if value and value.get("value_num") is not None else None
-                for value in row["values"]
-            ]
-            best_index = _compare_best_index(numeric_values, ascending=row["ascending"])
-            display_values = [
-                {
-                    "text": _compare_metric_value_text(value),
-                    "aria_label": (
-                        f"Best: {_compare_metric_value_text(value)}"
-                        if best_index == idx and value is not None
-                        else None
-                    ),
-                    "context_label": value.get("context_label") if value else None,
-                }
-                for idx, value in enumerate(row["values"])
-            ]
-            rows.append(
-                {
-                    "label": row["label"],
-                    "href": row["href"],
-                    "values": display_values,
-                    "best_index": best_index,
-                }
-            )
-        return {"title": group_title, "rows": rows}
-
-    season_section = build_rows([card["metrics"]["season"] for card in player_cards], group_title=None)
-    if season_section is not None:
-        sections.append(season_section)
-
-    grouped_alltime: dict[str, list[list[dict]]] = {}
-    for card in player_cards:
-        grouped: dict[str, list[dict]] = defaultdict(list)
-        for entry in card["metrics"]["alltime"]:
-            grouped[entry.get("career_type_label") or _t("Career", "生涯")].append(entry)
-        for title in grouped:
-            grouped_alltime.setdefault(title, [[] for _ in player_cards])
-    for idx, card in enumerate(player_cards):
-        grouped: dict[str, list[dict]] = defaultdict(list)
-        for entry in card["metrics"]["alltime"]:
-            grouped[entry.get("career_type_label") or _t("Career", "生涯")].append(entry)
-        for title, lists in grouped_alltime.items():
-            lists[idx] = grouped.get(title, [])
-
-    for title in sorted(grouped_alltime.keys()):
-        section = build_rows(grouped_alltime[title], group_title=f"{title}{_t(' Career', '生涯')}")
-        if section is not None:
-            sections.append(section)
-
-    return sections
-
-
-def _player_compare_team_abbrs(
-    session,
-    player_id: str,
-    teams: dict[str, Team],
-    *,
-    preferred_season: str | None = None,
-) -> list[str]:
-    def load_for_season(season_value: str | None) -> list[str]:
-        if not season_value:
-            return []
-        rows = (
-            session.query(PlayerGameStats.team_id)
-            .join(Game, PlayerGameStats.game_id == Game.game_id)
-            .filter(
-                PlayerGameStats.player_id == player_id,
-                PlayerGameStats.team_id.isnot(None),
-                Game.season == season_value,
-            )
-            .distinct()
-            .all()
-        )
-        abbrs: list[str] = []
-        for row in rows:
-            abbr = _team_abbr(teams, row.team_id)
-            if abbr not in abbrs:
-                abbrs.append(abbr)
-        return abbrs
-
-    abbrs = load_for_season(preferred_season)
-    if abbrs:
-        return abbrs
-
-    latest_row = (
-        session.query(Game.season)
-        .join(PlayerGameStats, PlayerGameStats.game_id == Game.game_id)
-        .filter(
-            PlayerGameStats.player_id == player_id,
-            PlayerGameStats.team_id.isnot(None),
-            Game.season.isnot(None),
-        )
-        .order_by(Game.season.desc(), Game.game_date.desc(), Game.game_id.desc())
-        .first()
-    )
-    return load_for_season(latest_row.season if latest_row else None)
-
-
-def _get_player_top_rankings(
-    session,
-    player_id: str,
-    *,
-    current_season: str | None,
-    limit: int = 3,
-) -> list[dict]:
-    from metrics.framework.base import CAREER_SEASON_PREFIX, SEASON_TYPE_TO_CAREER
-
-    asc_keys = _asc_metric_keys(session)
-    filters = [
-        MetricResultModel.entity_type == "player",
-        MetricResultModel.value_num.isnot(None),
-    ]
-    season_filters = []
-    if current_season:
-        season_filters.append(MetricResultModel.season == current_season)
-        current_type = current_season[0] if len(current_season) == 5 and current_season.isdigit() else None
-        matching_career = SEASON_TYPE_TO_CAREER.get(current_type) if current_type else None
-        if matching_career:
-            season_filters.append(MetricResultModel.season == matching_career)
-        else:
-            season_filters.append(MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
-    if season_filters:
-        filters.append(or_(*season_filters))
-
-    rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-    rank_value = case(
-        (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
-        else_=MetricResultModel.value_num,
-    )
-    inner = (
-        session.query(
-            MetricResultModel.metric_key.label("metric_key"),
-            MetricResultModel.entity_id.label("entity_id"),
-            MetricResultModel.season.label("season"),
-            MetricResultModel.value_num.label("value_num"),
-            MetricResultModel.value_str.label("value_str"),
-            MetricResultModel.noteworthiness.label("noteworthiness"),
-            func.rank().over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                order_by=rank_value.desc(),
-            ).label("rank"),
-            func.count(MetricResultModel.id).over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-            ).label("total"),
-        )
-        .filter(*filters)
-        .subquery()
-    )
-    rows = (
-        session.query(inner)
-        .filter(inner.c.entity_id == player_id)
-        .order_by(
-            func.coalesce(inner.c.noteworthiness, -1).desc(),
-            inner.c.rank.asc(),
-            inner.c.metric_key.asc(),
-        )
-        .limit(limit)
-        .all()
-    )
-
-    rankings = []
-    for row in rows:
-        metric_key = row.metric_key
-        label = _compare_metric_label(session, metric_key)
-        scope_label = _compare_metric_scope_label({"season": row.season})
-        badge = f"#{int(row.rank)} of {int(row.total)} · {label}" if row.rank and row.total else label
-        rankings.append(
-            {
-                "metric_key": metric_key,
-                "label": label,
-                "badge": badge,
-                "scope_label": scope_label,
-                "href": _localized_url_for("metric_detail", metric_key=metric_key, season=row.season)
-                if row.season
-                else _localized_url_for("metric_detail", metric_key=metric_key),
-            }
-        )
-    return rankings
-
-
-@app.route("/cn/players/compare", endpoint="players_compare_zh")
-@app.route("/players/compare")
-def players_compare():
-    raw_ids = [part.strip() for part in (request.args.get("ids") or "").split(",") if part.strip()]
-    requested_ids: list[str] = []
-    for player_id in raw_ids:
-        if player_id not in requested_ids:
-            requested_ids.append(player_id)
-        if len(requested_ids) == 4:
-            break
-
-    with SessionLocal() as session:
-        players_by_id = {
-            player.player_id: player
-            for player in session.query(Player)
-            .filter(Player.player_id.in_(requested_ids))
-            .all()
-        } if requested_ids else {}
-        players = [players_by_id[player_id] for player_id in requested_ids if player_id in players_by_id]
-        teams = _team_map(session)
-        current_season = _latest_regular_season(session)
-
-        season_rows: list[dict] = []
-        current_rows: list[dict] = []
-        metric_sections: list[dict] = []
-
-        player_cards = []
-        for player in players:
-            team_abbrs = _player_compare_team_abbrs(session, player.player_id, teams, preferred_season=current_season)
-            player_cards.append(
-                {
-                    "player": player,
-                    "headshot_url": _player_headshot_url(player.player_id),
-                    "team_abbrs": team_abbrs,
-                    "team_label": " / ".join(team_abbrs) if team_abbrs else "NBA",
-                    "career_summary": _player_stat_summary(session, player.player_id, season_prefix="2"),
-                    "current_summary": _player_stat_summary(session, player.player_id, season=current_season),
-                    "metrics": _get_metric_results(session, "player", player.player_id, current_season),
-                    "top_rankings": _get_player_top_rankings(session, player.player_id, current_season=current_season),
-                }
-            )
-
-        if len(player_cards) >= 2:
-            season_rows = _build_compare_stat_rows(player_cards)
-            current_rows = _build_compare_current_rows(player_cards)
-            metric_sections = _build_compare_metric_sections(session, player_cards)
-
-    return render_template(
-        "compare.html",
-        requested_ids=requested_ids,
-        players=player_cards,
-        active_player_ids=[card["player"].player_id for card in player_cards],
-        comparison_count=len(player_cards),
-        can_compare=len(player_cards) >= 2,
-        current_season=current_season,
-        season_rows=season_rows,
-        current_rows=current_rows,
-        metric_sections=metric_sections,
-    )
-
-
-@app.route("/cn/draft/<int:year>", endpoint="draft_page_zh")
-@app.route("/draft/<int:year>")
-def draft_page(year: int):
-    current_year = date.today().year
-    if year < 1947 or year > current_year:
-        abort(404)
-
-    with SessionLocal() as session:
-        min_year, max_year = (
-            session.query(
-                func.min(Player.draft_year),
-                func.max(Player.draft_year),
-            )
-            .filter(Player.draft_year.isnot(None))
-            .one()
-        )
-
-        draft_players = (
-            session.query(Player)
-            .filter(Player.draft_year == year)
-            .order_by(
-                func.coalesce(Player.draft_round, 99).asc(),
-                func.coalesce(Player.draft_number, 99).asc(),
-                Player.full_name.asc(),
-            )
-            .all()
-        )
-
-    min_year = min_year or year
-    max_year = max_year or year
-
-    return render_template(
-        "draft.html",
-        year=year,
-        draft_players=draft_players,
-        draft_count=len(draft_players),
-        min_year=min_year,
-        max_year=max_year,
-    )
+_public_views = register_public_routes(
+    app,
+    get_session_local=lambda: SessionLocal,
+    get_render_template=lambda: render_template,
+    get_team_model=lambda: Team,
+    get_game_model=lambda: Game,
+    get_team_game_stats_model=lambda: TeamGameStats,
+    get_player_game_stats_model=lambda: PlayerGameStats,
+    get_metric_result_model=lambda: MetricResultModel,
+    get_game_pbp_model=lambda: GamePlayByPlay,
+    get_player_model=lambda: Player,
+    get_award_model=lambda: Award,
+    get_team_map=_team_map,
+    get_season_sort_key=lambda: _season_sort_key,
+    get_franchise_display=lambda: _franchise_display,
+    get_display_team_name=lambda: _display_team_name,
+    get_season_label=lambda: _season_label,
+    get_is_zh=lambda: _is_zh(),
+    get_team_map_positions=lambda: _TEAM_MAP_POSITIONS,
+    get_fmt_date=lambda: _fmt_date,
+    get_coerce_award_season=lambda: _coerce_award_season,
+    get_award_type_meta=lambda: _AWARD_TYPE_META,
+    get_award_order_case=lambda: _award_order_case,
+    get_award_entry_from_row=lambda: _award_entry_from_row,
+    get_group_award_entries=lambda: _group_award_entries,
+    get_award_tab_groups=lambda: _AWARD_TAB_GROUPS,
+    get_award_type_label=lambda: _award_type_label,
+    limiter=limiter,
+    get_pct_text=lambda: _pct_text,
+    get_pick_current_season=lambda: _pick_current_season,
+    get_team_abbr=lambda: _team_abbr,
+    get_metric_name_for_key=lambda: _metric_name_for_key,
+    get_asc_metric_keys=lambda: _asc_metric_keys,
+    get_metric_results=lambda: _get_metric_results,
+    get_player_headshot_url=lambda: _player_headshot_url,
+    get_localized_url_for=lambda: _localized_url_for,
+    get_t=lambda: _t,
+    get_pct_fmt=lambda: pct_fmt,
+)
+home = _public_views.home
+games_list = _public_views.games_list
+awards_page = _public_views.awards_page
+player_hints_api = _public_views.player_hints_api
+players_compare = _public_views.players_compare
+draft_page = _public_views.draft_page
+_player_stat_summary = _public_views.player_stat_summary
+_player_career_summary = _public_views.player_career_summary
+_latest_regular_season = _public_views.latest_regular_season
+_build_compare_stat_rows = _public_views.build_compare_stat_rows
+_build_compare_current_rows = _public_views.build_compare_current_rows
+_build_compare_metric_sections = _public_views.build_compare_metric_sections
+_player_compare_team_abbrs = _public_views.player_compare_team_abbrs
+_get_player_top_rankings = _public_views.get_player_top_rankings
 
 
 @app.route("/cn/players/<player_id>", endpoint="player_page_zh")
