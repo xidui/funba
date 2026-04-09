@@ -9,7 +9,7 @@
         <th>Avg</th>
         <th class="hide-mobile">Latest</th>
         <th class="hide-mobile">Range</th>
-        <th class="hide-mobile">Recent 5</th>
+        <th class="hide-mobile">Trend</th>
         <th>DB R/W</th>
         <th>Last Run</th>
       </tr>
@@ -21,7 +21,35 @@
         <td><strong>{{ row.avg_ms }}ms</strong> <span class="mono">(n={{ row.sample_count }})</span></td>
         <td class="hide-mobile">{{ row.latest_ms ~ 'ms' if row.latest_ms is not none else '—' }}</td>
         <td class="hide-mobile">{{ row.min_ms }}ms / {{ row.max_ms }}ms</td>
-        <td class="hide-mobile mono">{{ row.samples_ms|join('ms, ') ~ 'ms' if row.samples_ms else '—' }}</td>
+        <td class="hide-mobile">
+          {% if row.samples_ms %}
+          {% set max_val = row.samples_ms|max %}
+          {% set avg_val = row.avg_ms %}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="perf-spark">
+              {% for ms in row.samples_ms|reverse %}
+              {% set h = ((ms / max_val) * 20)|int + 4 if max_val > 0 else 12 %}
+              <div class="spark-bar {{ 'fast' if ms <= avg_val * 0.75 else ('slow' if ms >= avg_val * 1.4 else 'mid') }}"
+                   style="height:{{ h }}px;"
+                   title="{{ ms }}ms"></div>
+              {% endfor %}
+            </div>
+            {% if row.samples_ms|length >= 2 %}
+            {% set newest = row.samples_ms[0] %}
+            {% set oldest = row.samples_ms[-1] %}
+            {% if newest > oldest * 1.15 %}
+            <span class="perf-trend slower" title="Getting slower: {{ oldest }}ms → {{ newest }}ms">▲ {{ newest }}ms</span>
+            {% elif newest < oldest * 0.85 %}
+            <span class="perf-trend faster" title="Getting faster: {{ oldest }}ms → {{ newest }}ms">▼ {{ newest }}ms</span>
+            {% else %}
+            <span class="perf-trend flat" title="Stable: {{ oldest }}ms → {{ newest }}ms">{{ newest }}ms</span>
+            {% endif %}
+            {% endif %}
+          </div>
+          {% else %}
+          —
+          {% endif %}
+        </td>
         <td class="mono">{{ row.db_reads if row.db_reads is not none else '—' }} / {{ row.db_writes if row.db_writes is not none else '—' }}</td>
         <td class="js-local-time" data-utc="{{ row.last_run_at.strftime('%Y-%m-%dT%H:%M:%SZ') if row.last_run_at else '' }}">{{ row.last_run_at.strftime('%m/%d %H:%M:%S') if row.last_run_at else '—' }}</td>
       </tr>

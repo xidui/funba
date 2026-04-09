@@ -82,6 +82,35 @@
   .recent-row td:last-child { color: var(--muted); font-size: 12px; }
   .mono { font-family: monospace; font-size: 12px; }
 
+  /* Metric perf sparkline */
+  .perf-spark {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 26px;
+    padding: 1px 0;
+  }
+  .spark-bar {
+    width: 7px;
+    border-radius: 2px 2px 0 0;
+    min-height: 4px;
+    cursor: default;
+    transition: opacity 0.15s;
+  }
+  .spark-bar:hover { opacity: 0.7; }
+  .spark-bar.fast { background: var(--win); }
+  .spark-bar.mid  { background: #facc15; }
+  .spark-bar.slow { background: var(--loss); }
+  .perf-trend {
+    font-size: 11px;
+    font-family: Outfit, sans-serif;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .perf-trend.slower { color: var(--loss); }
+  .perf-trend.faster { color: var(--win); }
+  .perf-trend.flat   { color: var(--muted-2); }
+
   .cov-toggles { display: flex; gap: 4px; }
   .cov-toggle {
     font-size: 11px; font-family: Outfit, sans-serif; font-weight: 700;
