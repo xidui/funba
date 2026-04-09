@@ -549,9 +549,9 @@
 
   /* ── Player stats two-column ──────────────────────────────────── */
   .box-score-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
   }
 
   .box-score-team h3 {
@@ -564,9 +564,34 @@
     margin-top: 0;
   }
 
-  @media (max-width: 860px) {
-    .box-score-grid { grid-template-columns: 1fr; }
+  .box-score-team table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
+  .box-score-team th {
+    text-align: right;
+    padding: 5px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+  .box-score-team th:first-child { text-align: left; }
+  .box-score-team td {
+    text-align: right;
+    padding: 6px 6px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .box-score-team td:first-child { text-align: left; }
+  .box-score-team tr:last-child td { border-bottom: none; }
+  .box-score-team tr:hover td { background: var(--surface-2); }
 
   /* ── Shot chart grid ──────────────────────────────────────────── */
   .shot-charts-grid {
