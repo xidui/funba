@@ -4642,11 +4642,15 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                     "player_id": home_scorer.player_id,
                     "name": player_names.get(home_scorer.player_id, ""),
                     "pts": home_scorer.pts,
+                    "reb": home_scorer.reb,
+                    "ast": home_scorer.ast,
                 } if home_scorer else None,
                 "road_scorer": {
                     "player_id": road_scorer.player_id,
                     "name": player_names.get(road_scorer.player_id, ""),
                     "pts": road_scorer.pts,
+                    "reb": road_scorer.reb,
+                    "ast": road_scorer.ast,
                 } if road_scorer else None,
             })
         return result

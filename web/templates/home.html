@@ -392,9 +392,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .ts-statline {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted-2);
+    white-space: nowrap;
+  }
   .ts-pts {
     font-family: 'Outfit', sans-serif;
-    font-size: 13px;
     font-weight: 800;
     color: var(--accent);
   }
@@ -447,7 +452,7 @@
     .today-stats { padding: 6px 8px; gap: 4px; }
     .ts-headshot { width: 28px; height: 20px; }
     .ts-player-name { font-size: 10px; }
-    .ts-pts { font-size: 11px; }
+    .ts-statline { font-size: 9px; }
     .ts-middle { padding: 0 8px; }
     .ts-val-side { font-size: 11px; min-width: 24px; }
     .ts-label { font-size: 8px; }
@@ -630,7 +635,7 @@
                alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
           <div class="ts-scorer-info">
             <span class="ts-player-name">{{ g.road_scorer.name }}</span>
-            <span class="ts-pts">{{ g.road_scorer.pts }} {{ t('PTS', '分') }}</span>
+            <span class="ts-statline"><span class="ts-pts">{{ g.road_scorer.pts }}</span> PTS · {{ g.road_scorer.reb }} REB · {{ g.road_scorer.ast }} AST</span>
           </div>
           {% endif %}
         </div>
@@ -658,7 +663,7 @@
           {% if g.home_scorer %}
           <div class="ts-scorer-info" style="text-align:right;">
             <span class="ts-player-name">{{ g.home_scorer.name }}</span>
-            <span class="ts-pts">{{ g.home_scorer.pts }} {{ t('PTS', '分') }}</span>
+            <span class="ts-statline"><span class="ts-pts">{{ g.home_scorer.pts }}</span> PTS · {{ g.home_scorer.reb }} REB · {{ g.home_scorer.ast }} AST</span>
           </div>
           <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ g.home_scorer.player_id }}.png"
                alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
