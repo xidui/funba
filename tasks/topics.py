@@ -17,6 +17,27 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://funba.app"
 
+
+def _trigger_rate(mr) -> float | None:
+    """Return qualifying_games / total_games from context_json, or None if unavailable.
+
+    Only meaningful for count-based metrics where value_num is an integer game count.
+    Returns None for rate/pct metrics.
+    """
+    if mr.value_num is None:
+        return None
+    # Rate metrics have fractional values — trigger_rate doesn't apply.
+    if mr.value_num != int(mr.value_num) or mr.value_num < 1:
+        return None
+    try:
+        ctx = json.loads(mr.context_json) if mr.context_json else {}
+    except (json.JSONDecodeError, TypeError):
+        return None
+    games = ctx.get("games") or ctx.get("games_played") or ctx.get("total_games")
+    if not games:
+        return None
+    return round(mr.value_num / games, 4)
+
 Session = sessionmaker(bind=engine)
 
 
@@ -307,6 +328,7 @@ def get_triggered_metrics(target_date: date) -> list[dict]:
                 "total": total,
                 "rank_pct": pct,
                 "notable": pct <= 0.25,
+                "trigger_rate": _trigger_rate(mr),
                 "metric_url": f"{_BASE_URL}/metrics/{mk}",
             }
 
@@ -415,6 +437,7 @@ def get_game_metrics(game_id: str) -> list[dict]:
                 "total": total,
                 "rank_pct": pct,
                 "notable": pct <= 0.25,
+                "trigger_rate": _trigger_rate(mr),
                 "metric_url": f"{_BASE_URL}/metrics/{mk}",
             })
 
