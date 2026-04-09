@@ -270,6 +270,143 @@
       display: grid;
     }
   }
+
+  /* Today's Games */
+  .today-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .today-date {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--surface-2);
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  .today-games-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .today-game {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .today-matchup {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 16px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.1s;
+  }
+  .today-matchup:hover { background: var(--surface-3); text-decoration: none; }
+
+  .today-team {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .today-team.home {
+    flex-direction: row;
+  }
+
+  .today-logo {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .today-abbr {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted-2);
+    min-width: 36px;
+  }
+  .today-team.winner .today-abbr { color: var(--heading); }
+
+  .today-score {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--muted);
+    min-width: 36px;
+    text-align: center;
+  }
+  .today-score.win { color: var(--heading); }
+
+  .today-at {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .today-metrics {
+    display: flex;
+    gap: 0;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .today-metrics::-webkit-scrollbar { display: none; }
+
+  .today-metric {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    text-decoration: none;
+    color: inherit;
+    border-right: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .today-metric:last-child { border-right: none; }
+  .today-metric:hover { background: var(--surface-3); text-decoration: none; }
+
+  .tm-name {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .tm-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+
+  @media (max-width: 640px) {
+    .today-matchup { padding: 10px 12px; gap: 8px; }
+    .today-logo { width: 22px; height: 22px; }
+    .today-abbr { font-size: 12px; min-width: 30px; }
+    .today-score { font-size: 1.1rem; min-width: 30px; }
+    .today-metric { padding: 6px 4px; }
+    .tm-name { font-size: 8px; }
+    .tm-val { font-size: 13px; }
+  }
 </style>
 
 <div class="home-hero">
@@ -413,6 +550,46 @@
     });
 })();
 </script>
+
+{% if today_games %}
+<div class="card">
+  <div class="today-header">
+    <h2 style="margin:0;">{{ t("Today's Games", '今日比赛') }}</h2>
+    <span class="today-date">{{ today_games[0].game_date.strftime('%b %d') if today_games else '' }}</span>
+  </div>
+  <div class="today-games-list">
+    {% for g in today_games %}
+    <div class="today-game">
+      <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-matchup">
+        <div class="today-team{% if g.home_won == false %} winner{% endif %}">
+          <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg"
+               alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
+          <span class="today-abbr">{{ g.road_abbr }}</span>
+          <span class="today-score{% if g.home_won == false %} win{% endif %}">{{ g.road_score }}</span>
+        </div>
+        <span class="today-at">@</span>
+        <div class="today-team home{% if g.home_won == true %} winner{% endif %}">
+          <span class="today-score{% if g.home_won == true %} win{% endif %}">{{ g.home_score }}</span>
+          <span class="today-abbr">{{ g.home_abbr }}</span>
+          <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg"
+               alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
+        </div>
+      </a>
+      {% if g.metrics %}
+      <div class="today-metrics">
+        {% for m in g.metrics %}
+        <a href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" class="today-metric">
+          <span class="tm-name">{{ m.metric_name }}</span>
+          <span class="tm-val">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% if east_standings or west_standings %}
 <div class="card">

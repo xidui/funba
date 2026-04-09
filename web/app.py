@@ -4495,6 +4495,9 @@ def home():
                 "lon": pos[1],
             })
 
+    # Today's games with triggered metrics
+    today_games_data = _build_today_games(team_lookup)
+
     return render_template(
         "home.html",
         teams=teams,
@@ -4504,7 +4507,101 @@ def home():
         standing_season_ids=standing_season_ids,
         selected_standing_season=selected_standing_season,
         fmt_season=_season_label,
+        today_games=today_games_data,
     )
+
+
+def _build_today_games(team_lookup: dict) -> list[dict]:
+    """Build today's games with top triggered metrics for the home page."""
+    from datetime import date, timedelta
+
+    with SessionLocal() as session:
+        today = date.today()
+        games = (
+            session.query(Game)
+            .filter(Game.game_date == today, Game.home_team_score.isnot(None))
+            .order_by(Game.game_id.asc())
+            .all()
+        )
+        # If no games today, try yesterday
+        if not games:
+            games = (
+                session.query(Game)
+                .filter(Game.game_date == today - timedelta(days=1), Game.home_team_score.isnot(None))
+                .order_by(Game.game_id.asc())
+                .all()
+            )
+            if not games:
+                return []
+
+        game_date = games[0].game_date
+        game_ids = [g.game_id for g in games]
+
+        # Bulk load game-scope metrics for all today's games
+        _highlight_keys = [
+            "combined_score", "lead_changes", "top_scorer", "multi_20pt_game",
+            "game_margin", "game_total_three_pointers",
+        ]
+        game_metric_rows = (
+            session.query(
+                MetricResultModel.game_id,
+                MetricResultModel.metric_key,
+                MetricResultModel.value_num,
+                MetricResultModel.value_str,
+            )
+            .filter(
+                MetricResultModel.game_id.in_(game_ids),
+                MetricResultModel.entity_type == "game",
+                MetricResultModel.value_num.isnot(None),
+                MetricResultModel.metric_key.in_(_highlight_keys),
+            )
+            .all()
+        )
+
+        # Resolve metric names in bulk
+        all_keys = {r.metric_key for r in game_metric_rows}
+        _name_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh).filter(
+            MetricDefinitionModel.key.in_(all_keys)
+        ).all() if all_keys else []
+        _name_map = {r.key: (r.name_zh if _is_zh() and r.name_zh else r.name) for r in _name_rows}
+
+        # Group by game_id, ordered by _highlight_keys priority
+        from collections import defaultdict
+        _key_order = {k: i for i, k in enumerate(_highlight_keys)}
+        _raw_by_game: dict[str, list] = defaultdict(list)
+        for r in game_metric_rows:
+            _raw_by_game[r.game_id].append(r)
+        metrics_by_game: dict[str, list] = {}
+        for gid, rows in _raw_by_game.items():
+            rows.sort(key=lambda r: _key_order.get(r.metric_key, 99))
+            metrics_by_game[gid] = [
+                {
+                    "metric_key": r.metric_key,
+                    "metric_name": _name_map.get(r.metric_key, r.metric_key),
+                    "value_num": r.value_num,
+                    "value_str": r.value_str,
+                }
+                for r in rows[:4]
+            ]
+
+        result = []
+        for g in games:
+            home_team = team_lookup.get(g.home_team_id)
+            road_team = team_lookup.get(g.road_team_id)
+            home_won = g.wining_team_id == g.home_team_id if g.wining_team_id else None
+            result.append({
+                "game_id": g.game_id,
+                "game_date": game_date,
+                "home_team_id": g.home_team_id,
+                "road_team_id": g.road_team_id,
+                "home_abbr": home_team.abbr if home_team else "???",
+                "road_abbr": road_team.abbr if road_team else "???",
+                "home_score": g.home_team_score,
+                "road_score": g.road_team_score,
+                "home_won": home_won,
+                "metrics": metrics_by_game.get(g.game_id, []),
+            })
+        return result
 
 
 @app.route("/cn/games", endpoint="games_list_zh")
