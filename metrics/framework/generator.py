@@ -205,10 +205,16 @@ Use when career = best single-season value (highest scoring game, most assists, 
 - Implement `compute_career_value(self, totals, season, entity_id)`
 - NOTE: only the aggregated numeric keys survive; other context fields are lost.
   Use this only when the career result needs just the number, not the full context.
+- NEVER use Mode B for streak metrics. max(per-season best streaks) misses streaks
+  that span across season boundaries. Use Mode C instead.
 
-**Mode C — Pick-best-row (record-type metrics):**
-Use when the career result must preserve the FULL context from the best season (e.g.
-fastest double-double: need the game_id, player stats, time, not just the number).
+**Mode C — Direct scan (streaks and record-type metrics):**
+Use when the career result cannot be correctly derived from per-season aggregates:
+- **Streak metrics**: a streak starting at the end of one season can continue into the
+  next. Mode B's max(per-season best) would miss this. Mode C scans all games
+  chronologically so cross-season streaks are captured naturally.
+- **Record-type metrics**: career result must preserve full context from the best row
+  (e.g. fastest double-double: need game_id, player stats, time, not just the number).
 - Do NOT set `career_aggregate_mode`, `career_sum_keys`, `career_max_keys`, or
   `compute_career_value`. Leave them all out.
 - Your `compute_season()` already handles career seasons via `is_career_season()`,
@@ -431,6 +437,8 @@ CRITICAL — performance:
 - NEVER implement career by scanning all historical raw rows for `all_regular` /
   `all_playoffs` / `all_playin` unless absolutely necessary.
   Prefer season-result aggregation via `compute_career_value()`.
+  Exception: streak metrics MUST scan raw rows for career (Mode C) because streaks
+  can span season boundaries.
 - If you use PBP data, do NOT loop over every game twice. Build qualifications during
   the same pass as the season computation.
 - If exact career aggregation cannot be expressed from season result context, return
