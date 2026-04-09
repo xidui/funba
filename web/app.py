@@ -22,7 +22,6 @@ import uuid as _uuid_mod
 from flask import Flask, abort, after_this_request, flash, g, get_flashed_messages, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 
-from authlib.integrations.flask_client import OAuth
 from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import sessionmaker
 from social_media.hupu.forums import normalize_hupu_forum
@@ -86,6 +85,7 @@ from web.paperclip_bridge import (
     merge_paperclip_comments,
     normalize_admin_comments,
 )
+from web.auth_routes import _safe_redirect_url, create_oauth, register_auth_routes
 from runtime_flags import load_runtime_flags, set_runtime_flag
 
 _DRAFT_KEY_PREFIX = "_d_"
@@ -431,14 +431,7 @@ def sitemap_xml():
 
 
 # ── Google OAuth ─────────────────────────────────────────────────────────────
-oauth = OAuth(app)
-oauth.register(
-    name="google",
-    client_id=os.environ.get("GOOGLE_CLIENT_ID"),
-    client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_kwargs={"scope": "openid email profile"},
-)
+oauth = create_oauth(app)
 
 # Real lat/lon for each NBA team (slight offsets for same-city pairs)
 _TEAM_MAP_POSITIONS: dict[str, tuple[float, float]] = {
@@ -3079,10 +3072,25 @@ def _record_ai_usage_event(
         logger.exception("AI usage logging failed for %s/%s", feature, operation)
 
 
+# Search engine crawlers to allow through (checked before bot block list)
+_SEARCH_ENGINE_SIGNATURES = (
+    "googlebot", "google-inspectiontool", "apis-google",
+    "bingbot", "bingpreview",
+    "baiduspider", "sogou", "360spider",
+    "yandexbot",
+    "duckduckbot",
+    "slurp",  # Yahoo
+    "applebot",
+    "mediapartners-google",  # AdSense
+    "facebookexternalhit", "meta-webindexer",  # social previews
+    "twitterbot",
+    "linkedinbot",
+)
+
 _BOT_SIGNATURES = (
     "bot", "crawl", "spider", "slurp", "mediapartners",
-    "meta-webindexer", "facebookexternalhit", "bytespider",
-    "gptbot", "claudebot", "bingpreview", "yandex",
+    "bytespider",
+    "gptbot", "claudebot",
     "curl/", "wget/", "httpie/", "python-requests", "python-urllib",
     "go-http-client", "java/", "okhttp", "axios/", "node-fetch",
     "scrapy", "headlesschrome", "phantomjs", "selenium",
@@ -3096,6 +3104,9 @@ def _is_bot() -> bool:
     ua = (request.user_agent.string or "").lower().strip()
     if not ua or len(ua) < _MIN_REAL_UA_LENGTH:
         return True
+    # Allow search engines and social preview crawlers
+    if any(sig in ua for sig in _SEARCH_ENGINE_SIGNATURES):
+        return False
     return any(sig in ua for sig in _BOT_SIGNATURES)
 
 
@@ -3106,8 +3117,12 @@ def _block_bots():
         return
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
-    # Exempt localhost API calls (Paperclip agents and admin tools)
-    if request.path.startswith(("/api/content/", "/api/data/", "/api/admin/")) and request.remote_addr in ("127.0.0.1", "::1"):
+    # Exempt all localhost requests (curl, Paperclip agents, admin tools)
+    if request.remote_addr in ("127.0.0.1", "::1"):
+        return
+    # Exempt AI coding tools (Claude Code, Codex) by User-Agent
+    ua = (request.user_agent.string or "").lower()
+    if any(sig in ua for sig in ("claude-code", "codex", "anthropic", "openai")):
         return
     if _is_bot():
         return "Forbidden", 403
@@ -3943,237 +3958,22 @@ def inject_template_helpers():
 
 
 # ── Auth routes ──────────────────────────────────────────────────────────────
-
-def _safe_redirect_url(url: str | None) -> str:
-    """Return a safe local redirect target; fall back to home.
-
-    Accepts:
-    - Local paths: /foo, /foo?q=1
-    - Same-origin absolute URLs: http://localhost:5001/foo — normalized to /foo
-
-    Rejects protocol-relative (//evil.com) and cross-origin URLs.
-    """
-    if not url:
-        return url_for("home")
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    # Path-only (no scheme, no netloc): must start with / and not be //
-    if not parsed.scheme and not parsed.netloc:
-        if parsed.path.startswith("/") and not url.startswith("//"):
-            return url
-        return url_for("home")
-    # Absolute URL: accept only same-origin (current request host)
-    if parsed.scheme in ("http", "https") and parsed.netloc == request.host:
-        path = parsed.path or "/"
-        if parsed.query:
-            path += "?" + parsed.query
-        if parsed.fragment:
-            path += "#" + parsed.fragment
-        return path
-    return url_for("home")
-
-
-@app.route("/auth/login")
-def auth_login():
-    """Show login page with Google and email options."""
-    next_url = _safe_redirect_url(request.args.get("next") or request.referrer)
-    session["oauth_next"] = next_url
-    return render_template("login.html", next_url=next_url)
-
-
-@app.route("/auth/google")
-def auth_google():
-    """Redirect to Google OAuth consent screen."""
-    if not os.environ.get("GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID", "").startswith("REPLACE_"):
-        flash("Google sign-in is not configured on this server.", "error")
-        return redirect(url_for("home"))
-    next_url = _safe_redirect_url(request.args.get("next") or request.referrer)
-    session["oauth_next"] = next_url
-    callback = url_for("auth_callback", _external=True)
-    return oauth.google.authorize_redirect(callback)
-
-
-@app.route("/auth/callback")
-def auth_callback():
-    """Handle OAuth callback: create/update User, set session."""
-    from datetime import datetime
-    try:
-        token = oauth.google.authorize_access_token()
-        userinfo = token.get("userinfo") or oauth.google.userinfo()
-    except Exception:
-        flash("Sign-in failed. Please try again.", "error")
-        return redirect(url_for("home"))
-
-    google_id = userinfo.get("sub")
-    email = userinfo.get("email", "")
-    display_name = userinfo.get("name", email)
-    avatar_url = userinfo.get("picture")
-
-    if not google_id:
-        flash("Sign-in failed. Please try again.", "error")
-        return redirect(url_for("home"))
-
-    now = datetime.utcnow()
-    try:
-        with SessionLocal() as db:
-            user = db.query(User).filter(User.google_id == google_id).first()
-            if user is None:
-                # Check for email conflict (different google_id, same email) — update
-                user = db.query(User).filter(User.email == email).first()
-            if user is None:
-                user = User(
-                    id=str(_uuid_mod.uuid4()),
-                    google_id=google_id,
-                    email=email,
-                    display_name=display_name,
-                    avatar_url=avatar_url,
-                    created_at=now,
-                    last_login_at=now,
-                )
-                db.add(user)
-            else:
-                user.google_id = google_id
-                user.email = email
-                user.display_name = display_name
-                user.avatar_url = avatar_url
-                user.last_login_at = now
-            db.commit()
-            db.refresh(user)
-            session.permanent = True
-            session["user_id"] = user.id
-    except Exception:
-        logger.exception("auth_callback: DB error")
-        flash("Sign-in failed. Please try again.", "error")
-        return redirect(url_for("home"))
-
-    next_url = _safe_redirect_url(session.pop("oauth_next", None))
-    return redirect(next_url)
-
-
-@app.route("/auth/magic", methods=["POST"])
-@limiter.limit("5 per minute")
-def auth_magic_send():
-    """Send a magic login link to the provided email."""
-    import secrets
-    import resend
-    from datetime import datetime, timedelta
-
-    email = (request.form.get("email") or "").strip().lower()
-    next_url = _safe_redirect_url(request.form.get("next"))
-
-    if not email or "@" not in email:
-        flash("Please enter a valid email address.", "error")
-        return redirect(url_for("auth_login", next=next_url))
-
-    resend_key = os.environ.get("RESEND_API_KEY")
-    if not resend_key:
-        flash("Email sign-in is not configured.", "error")
-        return redirect(url_for("auth_login", next=next_url))
-
-    now = datetime.utcnow()
-    token_str = secrets.token_urlsafe(32)
-
-    try:
-        with SessionLocal() as db:
-            mt = MagicToken(
-                token=token_str,
-                email=email,
-                expires_at=now + timedelta(minutes=15),
-                used=False,
-                next_url=next_url if next_url != url_for("home") else None,
-                created_at=now,
-            )
-            db.add(mt)
-            db.commit()
-    except Exception:
-        logger.exception("auth_magic_send: DB error")
-        flash("Something went wrong. Please try again.", "error")
-        return redirect(url_for("auth_login", next=next_url))
-
-    magic_url = url_for("auth_magic_verify", token=token_str, _external=True)
-    try:
-        resend.api_key = resend_key
-        resend.Emails.send({
-            "from": "Funba <noreply@funba.app>",
-            "to": [email],
-            "subject": "Your Funba login link",
-            "html": (
-                f'<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:40px 20px;">'
-                f'<h2 style="color:#f97316;margin-bottom:24px;">Funba</h2>'
-                f'<p>Click the button below to sign in. This link expires in 15 minutes.</p>'
-                f'<a href="{magic_url}" style="display:inline-block;margin:24px 0;padding:12px 32px;'
-                f'background:#f97316;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">'
-                f'Sign in to Funba</a>'
-                f'<p style="color:#888;font-size:13px;">If you didn\'t request this, you can safely ignore this email.</p>'
-                f'</div>'
-            ),
-        })
-    except Exception:
-        logger.exception("auth_magic_send: Resend error")
-        flash("Failed to send login email. Please try again.", "error")
-        return redirect(url_for("auth_login", next=next_url))
-
-    return render_template("magic_sent.html", email=email)
-
-
-@app.route("/auth/magic/verify")
-def auth_magic_verify():
-    """Verify magic link token, create/update user, log in."""
-    from datetime import datetime
-
-    token_str = request.args.get("token", "")
-    if not token_str:
-        flash("Invalid login link.", "error")
-        return redirect(url_for("auth_login"))
-
-    now = datetime.utcnow()
-    try:
-        with SessionLocal() as db:
-            mt = db.query(MagicToken).filter(MagicToken.token == token_str).first()
-            if mt is None:
-                flash("Invalid login link.", "error")
-                return redirect(url_for("auth_login"))
-            if mt.used:
-                flash("This login link has already been used.", "error")
-                return redirect(url_for("auth_login"))
-            if now > mt.expires_at:
-                flash("This login link has expired. Please request a new one.", "error")
-                return redirect(url_for("auth_login"))
-
-            mt.used = True
-            email = mt.email
-            next_url = mt.next_url
-
-            user = db.query(User).filter(User.email == email).first()
-            if user is None:
-                user = User(
-                    id=str(_uuid_mod.uuid4()),
-                    google_id=None,
-                    email=email,
-                    display_name=email.split("@")[0],
-                    created_at=now,
-                    last_login_at=now,
-                )
-                db.add(user)
-            else:
-                user.last_login_at = now
-            db.commit()
-            db.refresh(user)
-            session.permanent = True
-            session["user_id"] = user.id
-    except Exception:
-        logger.exception("auth_magic_verify: DB error")
-        flash("Sign-in failed. Please try again.", "error")
-        return redirect(url_for("auth_login"))
-
-    return redirect(_safe_redirect_url(next_url))
-
-
-@app.route("/auth/logout", methods=["POST"])
-def auth_logout():
-    """Clear session and redirect to home."""
-    session.pop("user_id", None)
-    return redirect(url_for("home"))
+_auth_views = register_auth_routes(
+    app,
+    get_session_local=lambda: SessionLocal,
+    get_oauth=lambda: oauth,
+    get_logger=lambda: logger,
+    get_user_model=lambda: User,
+    get_magic_token_model=lambda: MagicToken,
+    create_user_id=lambda: str(_uuid_mod.uuid4()),
+    limiter=limiter,
+)
+auth_login = _auth_views.auth_login
+auth_google = _auth_views.auth_google
+auth_callback = _auth_views.auth_callback
+auth_magic_send = _auth_views.auth_magic_send
+auth_magic_verify = _auth_views.auth_magic_verify
+auth_logout = _auth_views.auth_logout
 
 
 # ── Subscription routes ──────────────────────────────────────────────────────
