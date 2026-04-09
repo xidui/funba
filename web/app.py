@@ -4537,11 +4537,11 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
         game_date = games[0].game_date
         game_ids = [g.game_id for g in games]
 
-        # Bulk load game-scope metrics for all today's games
-        _highlight_keys = [
-            "combined_score", "lead_changes", "top_scorer", "multi_20pt_game",
-            "game_margin", "game_total_three_pointers",
-        ]
+        # Bulk load game-scope metrics for today's games (exclude low-signal ones)
+        _EXCLUDE_KEYS = {
+            "lowest_winning_score", "lowest_half_score", "team_highest_half_score",
+            "single_quarter_team_scoring", "game_halftime_margin",
+        }
         game_metric_rows = (
             session.query(
                 MetricResultModel.game_id,
@@ -4553,27 +4553,86 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                 MetricResultModel.game_id.in_(game_ids),
                 MetricResultModel.entity_type == "game",
                 MetricResultModel.value_num.isnot(None),
-                MetricResultModel.metric_key.in_(_highlight_keys),
+                MetricResultModel.metric_key.notin_(_EXCLUDE_KEYS),
             )
             .all()
         )
 
-        # Resolve metric names in bulk
-        all_keys = {r.metric_key for r in game_metric_rows}
-        _name_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh).filter(
-            MetricDefinitionModel.key.in_(all_keys)
-        ).all() if all_keys else []
-        _name_map = {r.key: (r.name_zh if _is_zh() and r.name_zh else r.name) for r in _name_rows}
-
-        # Group by game_id, ordered by _highlight_keys priority
+        # Compute season percentile for each metric to pick the most distinctive per game
         from collections import defaultdict
-        _key_order = {k: i for i, k in enumerate(_highlight_keys)}
         _raw_by_game: dict[str, list] = defaultdict(list)
+        _metric_keys_seen: set[str] = set()
         for r in game_metric_rows:
             _raw_by_game[r.game_id].append(r)
+            _metric_keys_seen.add(r.metric_key)
+
+        # Bulk: count + rank per metric_key in one grouped query
+        season_val = games[0].season
+        _season_stats = (
+            session.query(
+                MetricResultModel.metric_key,
+                func.count().label("total"),
+                func.max(MetricResultModel.value_num).label("max_val"),
+                func.min(MetricResultModel.value_num).label("min_val"),
+            )
+            .filter(
+                MetricResultModel.metric_key.in_(_metric_keys_seen),
+                MetricResultModel.season == season_val,
+                MetricResultModel.entity_type == "game",
+                MetricResultModel.value_num.isnot(None),
+            )
+            .group_by(MetricResultModel.metric_key)
+            .all()
+        ) if _metric_keys_seen else []
+        _stats_map = {r.metric_key: (r.total, r.min_val, r.max_val) for r in _season_stats}
+
+        # Determine rank_order per metric (desc=higher is more extreme, asc=lower is more extreme)
+        _rank_orders = {}
+        if _metric_keys_seen:
+            _ro_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.definition_json).filter(
+                MetricDefinitionModel.key.in_(_metric_keys_seen)
+            ).all()
+            for r in _ro_rows:
+                _rank_orders[r.key] = "desc"  # default
+                if r.definition_json:
+                    import json as _json
+                    try:
+                        d = _json.loads(r.definition_json)
+                        if d.get("rank_order") == "asc":
+                            _rank_orders[r.key] = "asc"
+                    except Exception:
+                        pass
+            # Also check code_python for rank_order
+            _code_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.code_python).filter(
+                MetricDefinitionModel.key.in_(_metric_keys_seen),
+                MetricDefinitionModel.code_python.isnot(None),
+            ).all()
+            for r in _code_rows:
+                if "rank_order" in (r.code_python or ""):
+                    if "rank_order = 'asc'" in r.code_python or 'rank_order = "asc"' in r.code_python:
+                        _rank_orders[r.key] = "asc"
+
+        def _percentile(metric_key: str, value_num: float) -> float:
+            total, min_val, max_val = _stats_map.get(metric_key, (1, 0, 1))
+            if max_val == min_val:
+                return 0.5
+            pct = (value_num - min_val) / (max_val - min_val)
+            # For asc metrics (lower=better), invert so extreme low values score high
+            if _rank_orders.get(metric_key) == "asc":
+                pct = 1.0 - pct
+            return pct
+
+        # Resolve metric names in bulk
+        _name_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh).filter(
+            MetricDefinitionModel.key.in_(_metric_keys_seen)
+        ).all() if _metric_keys_seen else []
+        _name_map = {r.key: (r.name_zh if _is_zh() and r.name_zh else r.name) for r in _name_rows}
+
+        # Pick top 4 by percentile per game
         metrics_by_game: dict[str, list] = {}
         for gid, rows in _raw_by_game.items():
-            rows.sort(key=lambda r: _key_order.get(r.metric_key, 99))
+            scored = [(r, _percentile(r.metric_key, r.value_num)) for r in rows]
+            scored.sort(key=lambda x: x[1], reverse=True)
             metrics_by_game[gid] = [
                 {
                     "metric_key": r.metric_key,
@@ -4581,7 +4640,7 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                     "value_num": r.value_num,
                     "value_str": r.value_str,
                 }
-                for r in rows[:4]
+                for r, _ in scored[:4]
             ]
 
         result = []
