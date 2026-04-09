@@ -363,40 +363,48 @@
 
   .ts-cell { min-width: 0; }
 
-  .ts-scorer {
+  .ts-leaders {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ts-leaders-right { align-items: flex-end; }
+
+  .ts-leader-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
-  .ts-scorer-right { justify-content: flex-end; }
+  .ts-leaders-right .ts-leader-row {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
 
   .ts-headshot {
-    width: 36px;
-    height: 26px;
+    width: 30px;
+    height: 22px;
     object-fit: cover;
     object-position: top center;
-    border-radius: 4px;
+    border-radius: 3px;
     flex-shrink: 0;
   }
 
-  .ts-scorer-info {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
   .ts-player-name {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 80px;
   }
-  .ts-statline {
-    font-size: 11px;
+
+  .ts-leader-val {
+    font-size: 10px;
     font-weight: 600;
     color: var(--muted-2);
     white-space: nowrap;
+    flex-shrink: 0;
   }
   .ts-pts {
     font-family: 'Outfit', sans-serif;
@@ -450,9 +458,9 @@
     .today-abbr { font-size: 12px; min-width: 30px; }
     .today-score { font-size: 1.1rem; min-width: 30px; }
     .today-stats { padding: 6px 8px; gap: 4px; }
-    .ts-headshot { width: 28px; height: 20px; }
-    .ts-player-name { font-size: 10px; }
-    .ts-statline { font-size: 9px; }
+    .ts-headshot { width: 24px; height: 18px; }
+    .ts-player-name { font-size: 9px; max-width: 60px; }
+    .ts-leader-val { font-size: 9px; }
     .ts-middle { padding: 0 8px; }
     .ts-val-side { font-size: 11px; min-width: 24px; }
     .ts-label { font-size: 8px; }
@@ -628,16 +636,19 @@
       </div>
       {# ── Stats strip ── #}
       <div class="today-stats">
-        {# Top scorers #}
-        <div class="ts-cell ts-scorer">
-          {% if g.road_scorer %}
-          <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ g.road_scorer.player_id }}.png"
-               alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
-          <div class="ts-scorer-info">
-            <span class="ts-player-name">{{ g.road_scorer.name }}</span>
-            <span class="ts-statline"><span class="ts-pts">{{ g.road_scorer.pts }}</span> PTS · {{ g.road_scorer.reb }} REB · {{ g.road_scorer.ast }} AST</span>
+        {# Road leaders #}
+        <div class="ts-cell ts-leaders">
+          {% for ldr in [g.road_scorer, g.road_rebounder, g.road_assister] %}
+          {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
+          {% if ldr %}
+          <div class="ts-leader-row">
+            <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
+                 alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
+            <span class="ts-player-name">{{ ldr.name }}</span>
+            <span class="ts-leader-val"><span class="ts-pts">{{ ldr.value }}</span> {{ stat_label }}</span>
           </div>
           {% endif %}
+          {% endfor %}
         </div>
         {# Middle stats #}
         <div class="ts-cell ts-middle">
@@ -658,16 +669,19 @@
           </div>
           {% endif %}
         </div>
-        {# Home top scorer #}
-        <div class="ts-cell ts-scorer ts-scorer-right">
-          {% if g.home_scorer %}
-          <div class="ts-scorer-info" style="text-align:right;">
-            <span class="ts-player-name">{{ g.home_scorer.name }}</span>
-            <span class="ts-statline"><span class="ts-pts">{{ g.home_scorer.pts }}</span> PTS · {{ g.home_scorer.reb }} REB · {{ g.home_scorer.ast }} AST</span>
+        {# Home leaders #}
+        <div class="ts-cell ts-leaders ts-leaders-right">
+          {% for ldr in [g.home_scorer, g.home_rebounder, g.home_assister] %}
+          {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
+          {% if ldr %}
+          <div class="ts-leader-row">
+            <span class="ts-leader-val"><span class="ts-pts">{{ ldr.value }}</span> {{ stat_label }}</span>
+            <span class="ts-player-name">{{ ldr.name }}</span>
+            <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
+                 alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
           </div>
-          <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ g.home_scorer.player_id }}.png"
-               alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
           {% endif %}
+          {% endfor %}
         </div>
       </div>
     </a>

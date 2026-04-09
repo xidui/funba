@@ -4562,27 +4562,40 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
         for ts in all_ts:
             ts_map[(ts.game_id, ts.team_id)] = ts
 
-        # Bulk load top scorer per team per game
+        # Bulk load player stats per game — find top scorer, rebounder, assister per team
         all_ps = (
             session.query(PlayerGameStats)
             .filter(PlayerGameStats.game_id.in_(game_ids))
-            .order_by(PlayerGameStats.pts.desc())
             .all()
         )
-        # Group: top scorer per (game_id, team_id)
-        top_scorer_map: dict[tuple[str, str], PlayerGameStats] = {}
+        # Group by (game_id, team_id), find best in each category
+        from collections import defaultdict
+        _ps_by_gt: dict[tuple[str, str], list] = defaultdict(list)
         for ps in all_ps:
-            key = (ps.game_id, ps.team_id)
-            if key not in top_scorer_map:
-                top_scorer_map[key] = ps
+            _ps_by_gt[(ps.game_id, ps.team_id)].append(ps)
+
+        def _top_by(rows, field):
+            return max(rows, key=lambda r: int(getattr(r, field, 0) or 0), default=None)
+
+        top_scorer_map: dict[tuple[str, str], PlayerGameStats] = {}
+        top_rebounder_map: dict[tuple[str, str], PlayerGameStats] = {}
+        top_assister_map: dict[tuple[str, str], PlayerGameStats] = {}
+        for key, rows in _ps_by_gt.items():
+            top_scorer_map[key] = _top_by(rows, "pts")
+            top_rebounder_map[key] = _top_by(rows, "reb")
+            top_assister_map[key] = _top_by(rows, "ast")
 
         # Bulk resolve player names
-        scorer_player_ids = {ps.player_id for ps in top_scorer_map.values()}
+        _all_leader_ids = set()
+        for m in (top_scorer_map, top_rebounder_map, top_assister_map):
+            for ps in m.values():
+                if ps:
+                    _all_leader_ids.add(ps.player_id)
         player_names = {}
-        if scorer_player_ids:
+        if _all_leader_ids:
             from db.models import Player
             prows = session.query(Player.player_id, Player.full_name, Player.full_name_zh).filter(
-                Player.player_id.in_(scorer_player_ids)
+                Player.player_id.in_(_all_leader_ids)
             ).all()
             for p in prows:
                 player_names[p.player_id] = p.full_name_zh if _is_zh() and p.full_name_zh else p.full_name
@@ -4619,9 +4632,14 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
             home_ts = ts_map.get((g.game_id, g.home_team_id))
             road_ts = ts_map.get((g.game_id, g.road_team_id))
 
-            # Top scorers
-            home_scorer = top_scorer_map.get((g.game_id, g.home_team_id))
-            road_scorer = top_scorer_map.get((g.game_id, g.road_team_id))
+            def _leader(ps, stat):
+                if not ps:
+                    return None
+                return {
+                    "player_id": ps.player_id,
+                    "name": player_names.get(ps.player_id, ""),
+                    "value": int(getattr(ps, stat, 0) or 0),
+                }
 
             result.append({
                 "game_id": g.game_id,
@@ -4638,20 +4656,12 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                 "road_largest_lead": max(road_lead, 0),
                 "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
                 "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
-                "home_scorer": {
-                    "player_id": home_scorer.player_id,
-                    "name": player_names.get(home_scorer.player_id, ""),
-                    "pts": home_scorer.pts,
-                    "reb": home_scorer.reb,
-                    "ast": home_scorer.ast,
-                } if home_scorer else None,
-                "road_scorer": {
-                    "player_id": road_scorer.player_id,
-                    "name": player_names.get(road_scorer.player_id, ""),
-                    "pts": road_scorer.pts,
-                    "reb": road_scorer.reb,
-                    "ast": road_scorer.ast,
-                } if road_scorer else None,
+                "home_scorer": _leader(top_scorer_map.get((g.game_id, g.home_team_id)), "pts"),
+                "road_scorer": _leader(top_scorer_map.get((g.game_id, g.road_team_id)), "pts"),
+                "home_rebounder": _leader(top_rebounder_map.get((g.game_id, g.home_team_id)), "reb"),
+                "road_rebounder": _leader(top_rebounder_map.get((g.game_id, g.road_team_id)), "reb"),
+                "home_assister": _leader(top_assister_map.get((g.game_id, g.home_team_id)), "ast"),
+                "road_assister": _leader(top_assister_map.get((g.game_id, g.road_team_id)), "ast"),
             })
         return result
 
