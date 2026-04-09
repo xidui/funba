@@ -42,3 +42,13 @@ social_media/xiaohongshu/.xiaohongshu_session_meta.json
 .tmp_awards_models.sqlite
 test-results/
 .DS_Store
+
+# Local browser/export artifacts
+Cookies
+archive.zip
+funba.db
+
+# Agent run artifacts
+agents/content-reviewer/*-review-pass.md
+agents/delivery-publisher/*.log
+agents/delivery-publisher/*.json
