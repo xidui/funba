@@ -76,7 +76,8 @@ For `Game content analysis` issues:
 4. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
    Default target set inside that one post:
    - one Hupu general variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`)
-   - one Hupu team-forum variant (destination from the 30-team Hupu vocabulary) when the story genuinely benefits from a team-fan voice
+   - one Hupu winning-team-forum variant (destination from the 30-team Hupu vocabulary) when the story genuinely benefits from a team-fan voice
+   - one Hupu losing-team-forum variant (destination from the 30-team Hupu vocabulary) — write from the losing team fan perspective; if the data story for the losing side is thin, keep this variant shorter but still include it
    - one Xiaohongshu variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`)
    - one Reddit general variant (`audience_hint=r/nba english`, destination `reddit/nba`)
    - one Reddit team-subreddit variant (destination from the Reddit writing playbook subreddit vocabulary)

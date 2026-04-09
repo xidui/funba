@@ -138,12 +138,13 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
 5. Related metrics section
    - Include a short section near the end:
      - `你可能还想看：` or `相关数据：`
-   - Add 2-4 relevant `funba.app` links
-   - Choose links that are strongly connected to the main story:
+   - Add **6–8 metric links** — this section should be metric-focused
+   - Choose metric links that are strongly connected to the main story:
      - same metric family
      - same player/team style profile
      - a supporting or contrasting metric
-     - game page / metric detail page
+     - career vs season variants of the same metric
+   - Do NOT fill this section with game pages or player pages — those belong as inline links in the body text, not here
    - Keep it concise and natural, not a raw link dump
 
 6. Inline source linking
