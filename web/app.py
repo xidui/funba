@@ -5769,6 +5769,15 @@ def game_page(game_id: str):
                     "pts": stat.pts if stat.pts is not None else "-",
                     "reb": stat.reb if stat.reb is not None else "-",
                     "ast": stat.ast if stat.ast is not None else "-",
+                    "stl": stat.stl if stat.stl is not None else "-",
+                    "blk": stat.blk if stat.blk is not None else "-",
+                    "tov": stat.tov if stat.tov is not None else "-",
+                    "fgm": stat.fgm if stat.fgm is not None else "-",
+                    "fga": stat.fga if stat.fga is not None else "-",
+                    "fg3m": stat.fg3m if stat.fg3m is not None else "-",
+                    "fg3a": stat.fg3a if stat.fg3a is not None else "-",
+                    "ftm": stat.ftm if stat.ftm is not None else "-",
+                    "fta": stat.fta if stat.fta is not None else "-",
                     "plus_minus": stat.plus if stat.plus is not None else "-",
                 }
             )

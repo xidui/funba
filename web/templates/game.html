@@ -1121,6 +1121,12 @@
                 <th>PTS</th>
                 <th>REB</th>
                 <th>AST</th>
+                <th class="mobile-hide">STL</th>
+                <th class="mobile-hide">BLK</th>
+                <th class="mobile-hide">TOV</th>
+                <th class="mobile-hide">FG</th>
+                <th class="mobile-hide">3P</th>
+                <th class="mobile-hide">FT</th>
                 <th>+/−</th>
               </tr>
             </thead>
@@ -1135,6 +1141,12 @@
                 <td><strong>{{ row.pts }}</strong></td>
                 <td>{{ row.reb }}</td>
                 <td>{{ row.ast }}</td>
+                <td class="mobile-hide">{{ row.stl }}</td>
+                <td class="mobile-hide">{{ row.blk }}</td>
+                <td class="mobile-hide">{{ row.tov }}</td>
+                <td class="mobile-hide meta">{{ row.fgm }}-{{ row.fga }}</td>
+                <td class="mobile-hide meta">{{ row.fg3m }}-{{ row.fg3a }}</td>
+                <td class="mobile-hide meta">{{ row.ftm }}-{{ row.fta }}</td>
                 <td>
                   {% if row.plus_minus != '-' and row.plus_minus is not none %}
                     {% if row.plus_minus > 0 %}
