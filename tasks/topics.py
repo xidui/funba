@@ -210,6 +210,7 @@ def get_triggered_metrics(target_date: date) -> list[dict]:
         ).filter(
             MetricRunLog.game_id.in_(game_ids),
             MetricRunLog.produced_result == True,
+            MetricRunLog.qualified != False,
         ).all()
 
         triggered_keys = {(rl.metric_key, rl.entity_type, rl.entity_id) for rl in run_logs}
@@ -329,6 +330,7 @@ def get_game_metrics(game_id: str) -> list[dict]:
         ).filter(
             MetricRunLog.game_id == game_id,
             MetricRunLog.produced_result == True,
+            MetricRunLog.qualified != False,
         ).all()
         if not run_logs:
             return []
