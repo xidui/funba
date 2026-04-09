@@ -89,6 +89,7 @@ from web.auth_routes import _safe_redirect_url, create_oauth, register_auth_rout
 from web.billing_routes import register_billing_routes
 from web.detail_routes import register_detail_routes
 from web.feedback_routes import register_feedback_routes
+from web.metrics_read_routes import register_metrics_read_routes
 from web.public_routes import register_public_routes
 from runtime_flags import load_runtime_flags, set_runtime_flag
 
@@ -4212,225 +4213,34 @@ game_page = _detail_views.game_page
 game_fragment_metrics = _detail_views.game_fragment_metrics
 
 
-@app.route("/cn/metrics", endpoint="metrics_browse_zh")
-@app.route("/metrics")
-def metrics_browse():
-    scope_filter = request.args.get("scope", "")
-    status_filter = request.args.get("status", "")  # draft | published | ""
-    search_query = request.args.get("q", "").strip()
-
-    cur_user = _current_user()
-    with SessionLocal() as session:
-        metrics_list, metrics_has_more = _catalog_metrics_page(
-            session,
-            scope_filter=scope_filter,
-            status_filter=status_filter,
-            current_user_id=cur_user.id if cur_user else None,
-        )
-        llm_default_model = get_llm_model_for_purpose(session, "search")
-        metrics_total = len(metrics_list) if not metrics_has_more else None
-        top3_by_metric = _catalog_top3(session, metrics_list)
-        feature_access = get_feature_access_config(session)
-
-    return render_template(
-        "metrics.html",
-        metrics_list=metrics_list,
-        metrics_total=metrics_total,
-        metrics_has_more=metrics_has_more,
-        metrics_page_size=_METRICS_CATALOG_PAGE_SIZE,
-        scope_filter=scope_filter,
-        status_filter=status_filter,
-        search_query=search_query,
-        top3_by_metric=top3_by_metric,
-        llm_default_model=llm_default_model,
-        llm_available_models=available_llm_models(),
-        **_build_metric_feature_context(feature_access),
-    )
-
-
-@app.get("/api/metrics/catalog")
-def api_metrics_catalog():
-    scope_filter = request.args.get("scope", "")
-    status_filter = request.args.get("status", "")
-    offset = max(0, request.args.get("offset", 0, type=int))
-    limit = request.args.get("limit", _METRICS_CATALOG_PAGE_SIZE, type=int)
-    limit = max(1, min(limit, 48))
-
-    cur_user = _current_user()
-    with SessionLocal() as session:
-        metrics_slice, has_more = _catalog_metrics_page(
-            session,
-            scope_filter=scope_filter,
-            status_filter=status_filter,
-            current_user_id=cur_user.id if cur_user else None,
-            offset=offset,
-            limit=limit,
-        )
-        top3_by_metric = _catalog_top3(session, metrics_slice)
-
-    html = render_template(
-        "_metrics_catalog_cards.html",
-        metrics_list=metrics_slice,
-        top3_by_metric=top3_by_metric,
-    )
-    next_offset = offset + len(metrics_slice)
-    return jsonify(
-        {
-            "ok": True,
-            "html": html,
-            "count": len(metrics_slice),
-            "offset": offset,
-            "next_offset": next_offset,
-            "has_more": has_more,
-            "total": next_offset if not has_more else None,
-        }
-    )
-
-
-@app.get("/api/metrics/catalog-count")
-def api_metrics_catalog_count():
-    scope_filter = request.args.get("scope", "")
-    status_filter = request.args.get("status", "")
-    with SessionLocal() as session:
-        total = _catalog_metrics_total(
-            session,
-            scope_filter=scope_filter,
-            status_filter=status_filter,
-        )
-    return jsonify({"ok": True, "total": total})
-
-
-@app.route("/cn/metrics/mine", endpoint="my_metrics_zh")
-@app.route("/metrics/mine")
-def my_metrics():
-    denied = _require_login_page()
-    if denied:
-        return denied
-
-    cur_user = _current_user()
-    if cur_user is None:
-        return redirect(url_for("auth_login", next=request.url))
-
-    with SessionLocal() as session:
-        feature_access = get_feature_access_config(session)
-        drafts = (
-            session.query(MetricDefinitionModel)
-            .filter(
-                MetricDefinitionModel.created_by_user_id == cur_user.id,
-                MetricDefinitionModel.base_metric_key.is_(None),
-                MetricDefinitionModel.status == "draft",
-            )
-            .order_by(MetricDefinitionModel.updated_at.desc())
-            .all()
-        )
-        published = (
-            session.query(MetricDefinitionModel)
-            .filter(
-                MetricDefinitionModel.created_by_user_id == cur_user.id,
-                MetricDefinitionModel.base_metric_key.is_(None),
-                MetricDefinitionModel.status.in_(["published", "disabled"]),
-            )
-            .order_by(MetricDefinitionModel.created_at.desc())
-            .all()
-        )
-
-    return render_template(
-        "my_metrics.html",
-        drafts=drafts,
-        published=published,
-        total_metrics=len(drafts) + len(published),
-        scope_labels={
-            "player": "Player",
-            "player_franchise": "Player Franchise",
-            "team": "Team",
-            "game": "Game",
-            "season": "Season",
-        },
-        **_build_metric_feature_context(feature_access),
-    )
-
-
-@app.route("/cn/metrics/new", endpoint="metric_new_zh")
-@app.route("/metrics/new")
-def metric_new():
-    denied = _require_metric_creator_page()
-    if denied:
-        return denied
-    initial_expression = request.args.get("expression", "").strip()
-    with SessionLocal() as session:
-        all_seasons = sorted(
-            [r[0] for r in session.query(Game.season).distinct().all()],
-            reverse=True,
-        )
-        current_season = _pick_current_season(all_seasons)
-        llm_default_model = get_llm_model_for_purpose(session, "generate")
-        feature_access = get_feature_access_config(session)
-    return render_template(
-        "metric_new.html",
-        current_season=current_season,
-        all_seasons=all_seasons,
-        initial_expression=initial_expression,
-        edit_metric=None,
-        llm_default_model=llm_default_model,
-        llm_available_models=available_llm_models(),
-        **_build_metric_feature_context(feature_access),
-    )
-
-
-@app.route("/cn/metrics/<metric_key>/edit", endpoint="metric_edit_zh")
-@app.route("/metrics/<metric_key>/edit")
-def metric_edit(metric_key: str):
-    denied = _require_metric_creator_page()
-    if denied:
-        return denied
-    import json as _json
-
-    with SessionLocal() as session:
-        from metrics.framework.runtime import get_metric as _get_metric
-
-        m = session.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
-        if m is None:
-            abort(404)
-        if getattr(m, "managed_family", False) and getattr(m, "variant", FAMILY_VARIANT_SEASON) == FAMILY_VARIANT_CAREER:
-            return redirect(url_for("metric_edit", metric_key=getattr(m, "base_metric_key", None) or getattr(m, "family_key", None) or family_base_key(m.key)))
-
-        all_seasons = sorted(
-            [r[0] for r in session.query(Game.season).distinct().all()],
-            reverse=True,
-        )
-        current_season = _pick_current_season(all_seasons)
-        runtime_metric = _get_metric(metric_key, session=session)
-
-        edit_data = {
-            "key": m.key,
-            "name": m.name,
-            "name_zh": m.name_zh or "",
-            "description": m.description or "",
-            "description_zh": m.description_zh or "",
-            "scope": m.scope,
-            "category": m.category or "",
-            "code": m.code_python or "",
-            "expression": m.expression or "",
-            "min_sample": m.min_sample,
-            "rank_order": getattr(runtime_metric, "rank_order", "desc"),
-            "season_types": list(getattr(runtime_metric, "season_types", ("regular", "playoffs", "playin")) or ()),
-            "max_results_per_season": getattr(runtime_metric, "max_results_per_season", None) or m.max_results_per_season,
-            "group_key": m.group_key,
-            "status": m.status,
-        }
-        llm_default_model = get_llm_model_for_purpose(session, "generate")
-        feature_access = get_feature_access_config(session)
-
-    return render_template(
-        "metric_new.html",
-        current_season=current_season,
-        all_seasons=all_seasons,
-        initial_expression="",
-        edit_metric=edit_data,
-        llm_default_model=llm_default_model,
-        llm_available_models=available_llm_models(),
-        **_build_metric_feature_context(feature_access),
-    )
+_metrics_read_views = register_metrics_read_routes(
+    app,
+    get_session_local=lambda: SessionLocal,
+    get_render_template=lambda: render_template,
+    get_current_user=lambda: _current_user(),
+    get_catalog_metrics_page=lambda: _catalog_metrics_page,
+    get_catalog_top3=lambda: _catalog_top3,
+    get_catalog_metrics_total=lambda: _catalog_metrics_total,
+    get_feature_access_config=lambda: get_feature_access_config,
+    get_build_metric_feature_context=lambda: _build_metric_feature_context,
+    get_llm_model_for_purpose=lambda: get_llm_model_for_purpose,
+    get_available_llm_models=lambda: available_llm_models,
+    get_metric_definition_model=lambda: MetricDefinitionModel,
+    get_game_model=lambda: Game,
+    get_require_login_page=lambda: _require_login_page,
+    get_require_metric_creator_page=lambda: _require_metric_creator_page,
+    get_pick_current_season=_pick_current_season,
+    get_family_variant_season=lambda: FAMILY_VARIANT_SEASON,
+    get_family_variant_career=lambda: FAMILY_VARIANT_CAREER,
+    get_family_base_key=family_base_key,
+    get_metrics_catalog_page_size=lambda: _METRICS_CATALOG_PAGE_SIZE,
+)
+metrics_browse = _metrics_read_views.metrics_browse
+api_metrics_catalog = _metrics_read_views.api_metrics_catalog
+api_metrics_catalog_count = _metrics_read_views.api_metrics_catalog_count
+my_metrics = _metrics_read_views.my_metrics
+metric_new = _metrics_read_views.metric_new
+metric_edit = _metrics_read_views.metric_edit
 
 
 @app.post("/api/metrics/search")
