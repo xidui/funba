@@ -69,6 +69,7 @@ def _make_app_module():
         path=column("path"),
         referrer=column("referrer"),
         visitor_id=column("visitor_id"),
+        is_crawler=column("is_crawler"),
         created_at=column("created_at"),
     )
     return web_app

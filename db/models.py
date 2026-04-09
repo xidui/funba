@@ -500,12 +500,16 @@ class PageView(Base):
     path = Column(String(500), nullable=False)
     referrer = Column(String(1000), nullable=True)
     user_agent = Column(String(500), nullable=True)
+    is_crawler = Column(Boolean, nullable=False, default=False)
+    crawler_name = Column(String(64), nullable=True)
     ip_address = Column(String(45), nullable=True)   # supports IPv6
     created_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
         Index('ix_PageView_created_at', 'created_at'),
         Index('ix_PageView_visitor_id_created_at', 'visitor_id', 'created_at'),
+        Index('ix_PageView_is_crawler_created_at', 'is_crawler', 'created_at'),
+        Index('ix_PageView_crawler_name_created_at', 'crawler_name', 'created_at'),
     )
 
 

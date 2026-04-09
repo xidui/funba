@@ -82,6 +82,7 @@ def register_admin_misc_routes(app, deps):
         Game = deps.game_model()
         User = deps.user_model()
         PageView = deps.page_view_model()
+        human_page_view_filter = deps.human_page_view_filter()
         PlayerGameStats = deps.player_game_stats_model()
         ShotRecord = deps.shot_record_model()
         MetricRunLog = deps.metric_run_log_model()
@@ -93,12 +94,12 @@ def register_admin_misc_routes(app, deps):
                 cutoff_30d = now_dt - timedelta(days=30)
                 visitor_stats = {
                     "user_count": session.query(func.count(User.id)).scalar() or 0,
-                    "views_24h": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-                    "views_7d": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-                    "views_30d": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
-                    "unique_24h": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h).scalar() or 0,
-                    "unique_7d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d).scalar() or 0,
-                    "unique_30d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d).scalar() or 0,
+                    "views_24h": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h, human_page_view_filter(PageView)).scalar() or 0,
+                    "views_7d": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_7d, human_page_view_filter(PageView)).scalar() or 0,
+                    "views_30d": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_30d, human_page_view_filter(PageView)).scalar() or 0,
+                    "unique_24h": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h, human_page_view_filter(PageView)).scalar() or 0,
+                    "unique_7d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d, human_page_view_filter(PageView)).scalar() or 0,
+                    "unique_30d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d, human_page_view_filter(PageView)).scalar() or 0,
                 }
                 return deps.render_template()("_admin_visitor_stats.html", visitor_stats=visitor_stats)
 
@@ -458,6 +459,7 @@ def register_admin_misc_routes(app, deps):
         if denied:
             return denied
         PageView = deps.page_view_model()
+        human_page_view_filter = deps.human_page_view_filter()
         SocialPostDelivery = deps.social_post_delivery_model()
         SocialPostVariant = deps.social_post_variant_model()
         SessionLocal = deps.session_local()
@@ -480,7 +482,7 @@ def register_admin_misc_routes(app, deps):
                     func.count(PageView.id).label("views"),
                     func.count(func.distinct(PageView.visitor_id)).label("unique"),
                 )
-                .filter(PageView.created_at >= cutoff)
+                .filter(PageView.created_at >= cutoff, human_page_view_filter(PageView))
                 .group_by("y", "m", "d", "h")
                 .order_by("y", "m", "d", "h")
                 .all()

@@ -188,6 +188,10 @@ def _extract_referrer_source(referrer: str | None) -> str:
     return host or "Direct"
 
 
+def _human_page_view_filter(page_view_model):
+    return or_(page_view_model.is_crawler.is_(False), page_view_model.is_crawler.is_(None))
+
+
 def _load_admin_top_pages_panel(session, raw_window: str | None):
     selected_window = _admin_top_pages_window(raw_window)
     cutoff = datetime.utcnow() - _ADMIN_TOP_PAGES_WINDOWS[selected_window]
@@ -198,7 +202,7 @@ def _load_admin_top_pages_panel(session, raw_window: str | None):
             func.count(PageView.id).label("views"),
             func.count(func.distinct(PageView.visitor_id)).label("unique_visitors"),
         )
-        .filter(PageView.created_at >= cutoff)
+        .filter(PageView.created_at >= cutoff, _human_page_view_filter(PageView))
         .group_by(PageView.path)
         .order_by(func.count(PageView.id).desc(), PageView.path.asc())
         .limit(20)
@@ -220,7 +224,7 @@ def _load_admin_top_pages_panel(session, raw_window: str | None):
             PageView.referrer.label("referrer"),
             func.count(PageView.id).label("views"),
         )
-        .filter(PageView.created_at >= cutoff)
+        .filter(PageView.created_at >= cutoff, _human_page_view_filter(PageView))
         .group_by(PageView.referrer)
         .all()
     )
@@ -3249,20 +3253,39 @@ def _record_ai_usage_event(
         logger.exception("AI usage logging failed for %s/%s", feature, operation)
 
 
-# Search engine crawlers to allow through (checked before bot block list)
-_SEARCH_ENGINE_SIGNATURES = (
-    "googlebot", "google-inspectiontool", "apis-google",
-    "bingbot", "bingpreview",
-    "baiduspider", "sogou", "360spider",
-    "yandexbot",
-    "duckduckbot",
-    "slurp",  # Yahoo
-    "applebot",
-    "mediapartners-google",  # AdSense
-    "facebookexternalhit", "meta-webindexer",  # social previews
-    "twitterbot",
-    "linkedinbot",
+# Known crawlers. Only Google/Bing/Baidu are allowlisted; other crawlers are
+# still recorded as crawler traffic but remain blocked by the bot filter.
+_KNOWN_CRAWLER_SIGNATURES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("googlebot", ("googlebot",)),
+    ("google-inspectiontool", ("google-inspectiontool",)),
+    ("apis-google", ("apis-google",)),
+    ("bingbot", ("bingbot",)),
+    ("bingpreview", ("bingpreview",)),
+    ("baiduspider", ("baiduspider",)),
+    ("facebookexternalhit", ("facebookexternalhit",)),
+    ("meta-webindexer", ("meta-webindexer",)),
+    ("twitterbot", ("twitterbot",)),
+    ("linkedinbot", ("linkedinbot",)),
+    ("duckduckbot", ("duckduckbot",)),
+    ("yandexbot", ("yandexbot",)),
+    ("applebot", ("applebot",)),
+    ("sogou", ("sogou",)),
+    ("360spider", ("360spider",)),
+    ("slurp", ("slurp",)),
+    ("mediapartners-google", ("mediapartners-google",)),
+    ("bytespider", ("bytespider",)),
+    ("gptbot", ("gptbot",)),
+    ("claudebot", ("claudebot",)),
 )
+
+_ALLOWLISTED_CRAWLER_NAMES = frozenset({
+    "googlebot",
+    "google-inspectiontool",
+    "apis-google",
+    "bingbot",
+    "bingpreview",
+    "baiduspider",
+})
 
 _BOT_SIGNATURES = (
     "bot", "crawl", "spider", "slurp", "mediapartners",
@@ -3277,13 +3300,61 @@ _BOT_SIGNATURES = (
 _MIN_REAL_UA_LENGTH = 40
 
 
+def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
+    ua = (user_agent or "").lower().strip()
+    if not ua:
+        return None
+    for crawler_name, signatures in _KNOWN_CRAWLER_SIGNATURES:
+        if any(sig in ua for sig in signatures):
+            return crawler_name
+    return None
+
+
+def _is_allowlisted_crawler_name(crawler_name: str | None) -> bool:
+    return bool(crawler_name and crawler_name in _ALLOWLISTED_CRAWLER_NAMES)
+
+
+def _should_track_page_view_request() -> bool:
+    return request.method == "GET" and not request.path.startswith("/api/") and not request.path.startswith("/static/")
+
+
+def _page_view_visitor_id(*, is_crawler: bool, crawler_name: str | None) -> str:
+    if is_crawler:
+        fingerprint = f"{crawler_name or 'bot'}|{_real_ip() or '-'}|{(request.user_agent.string or '').strip().lower()}"
+        return str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_URL, fingerprint))
+    return _request_visitor_id(ensure_cookie=True) or str(_uuid_mod.uuid4())
+
+
+def _record_page_view(*, is_crawler: bool, crawler_name: str | None) -> None:
+    if getattr(g, "_page_view_recorded", False):
+        return
+    g._page_view_recorded = True
+
+    pv = PageView(
+        visitor_id=_page_view_visitor_id(is_crawler=is_crawler, crawler_name=crawler_name),
+        path=request.path,
+        referrer=(request.referrer or "")[:1000],
+        user_agent=(request.user_agent.string or "")[:500],
+        is_crawler=is_crawler,
+        crawler_name=(crawler_name or "")[:64] or None,
+        ip_address=_real_ip(),
+        created_at=datetime.utcnow(),
+    )
+    try:
+        with SessionLocal() as db_sess:
+            db_sess.add(pv)
+            db_sess.commit()
+    except Exception:
+        logger.exception("page view tracking failed")
+
+
 def _is_bot() -> bool:
     ua = (request.user_agent.string or "").lower().strip()
+    crawler_name = _crawler_name_from_user_agent(ua)
+    if crawler_name is not None:
+        return not _is_allowlisted_crawler_name(crawler_name)
     if not ua or len(ua) < _MIN_REAL_UA_LENGTH:
         return True
-    # Allow search engines and social preview crawlers
-    if any(sig in ua for sig in _SEARCH_ENGINE_SIGNATURES):
-        return False
     return any(sig in ua for sig in _BOT_SIGNATURES)
 
 
@@ -3298,25 +3369,29 @@ def _block_bots():
     if request.remote_addr in ("127.0.0.1", "::1"):
         return
     # Exempt AI coding tools (Claude Code, Codex) by User-Agent
-    ua = (request.user_agent.string or "").lower()
+    ua = (request.user_agent.string or "").lower().strip()
     if any(sig in ua for sig in ("claude-code", "codex", "anthropic", "openai")):
         return
+    crawler_name = _crawler_name_from_user_agent(ua)
     if _is_bot():
+        if _should_track_page_view_request():
+            _record_page_view(is_crawler=True, crawler_name=crawler_name or "other-bot")
         return "Forbidden", 403
 
 
 @app.before_request
 def _track_page_view():
     """Log each page load and ensure the visitor cookie is set."""
-    # Only track GET requests for HTML pages (skip API, static, etc.)
-    if request.method != "GET":
-        return
-    if request.path.startswith("/api/") or request.path.startswith("/static/"):
-        return
-    if not app.config.get("TESTING") and _is_bot():
+    if not _should_track_page_view_request():
         return
     # Skip tracking for localhost requests
     if _real_ip() in ("127.0.0.1", "::1"):
+        return
+    crawler_name = _crawler_name_from_user_agent(request.user_agent.string)
+    if crawler_name is not None:
+        _record_page_view(is_crawler=True, crawler_name=crawler_name)
+        return
+    if not app.config.get("TESTING") and _is_bot():
         return
     # Skip tracking for admin / owner sessions
     _uid = session.get("user_id")
@@ -3328,40 +3403,7 @@ def _track_page_view():
                     return
         except Exception:
             pass
-
-    visitor_id = request.cookies.get(_VISITOR_COOKIE)
-    new_visitor = visitor_id is None
-    if new_visitor:
-        visitor_id = str(_uuid_mod.uuid4())
-
-    from datetime import datetime
-    pv = PageView(
-        visitor_id=visitor_id,
-        path=request.path,
-        referrer=(request.referrer or "")[:1000],
-        user_agent=(request.user_agent.string or "")[:500],
-        ip_address=_real_ip(),
-        created_at=datetime.utcnow(),
-    )
-    try:
-        with SessionLocal() as db_sess:
-            db_sess.add(pv)
-            db_sess.commit()
-    except Exception:
-        logger.exception("page view tracking failed")
-
-    if new_visitor:
-        # Attach cookie to the response after this request completes
-        @after_this_request
-        def _set_cookie(response):
-            response.set_cookie(
-                _VISITOR_COOKIE,
-                visitor_id,
-                max_age=_VISITOR_COOKIE_MAX_AGE,
-                httponly=True,
-                samesite="Lax",
-            )
-            return response
+    _record_page_view(is_crawler=False, crawler_name=None)
 
 
 def _current_user() -> User | None:
@@ -5007,6 +5049,7 @@ _admin_misc_views = register_admin_misc_routes(
         load_admin_compute_runs_panel=lambda: _load_admin_compute_runs_panel,
         load_admin_recent_runs_panel=lambda: _load_admin_recent_runs_panel,
         load_admin_metric_perf_panel=lambda: _load_admin_metric_perf_panel,
+        human_page_view_filter=lambda: _human_page_view_filter,
         admin_cache=lambda: _admin_cache,
         admin_cache_ttl=lambda: _ADMIN_CACHE_TTL,
         time_module=lambda: time,

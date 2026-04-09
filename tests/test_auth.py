@@ -77,6 +77,18 @@ def _make_app():
     fake_line.normalize_game_line_score_payload = MagicMock()
     sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
+    fake_game_analysis = types.ModuleType("content_pipeline.game_analysis_issues")
+    for name in (
+        "ensure_game_content_analysis_issue_for_game",
+        "ensure_game_content_analysis_issues",
+        "game_analysis_readiness_detail",
+        "game_analysis_issue_history",
+        "link_post_to_game_analysis_issue",
+        "resolve_game_analysis_issue_record",
+    ):
+        setattr(fake_game_analysis, name, MagicMock())
+    sys.modules["content_pipeline.game_analysis_issues"] = fake_game_analysis
+
     # Remove cached web.app so imports are re-evaluated with stubs
     for key in list(sys.modules):
         if key.startswith("web.app") or key == "web.app":
@@ -214,6 +226,88 @@ class TestIsAdmin(unittest.TestCase):
             with patch("web.app.render_template", return_value="<html></html>"):
                 resp = self.client.get("/", environ_overrides={"REMOTE_ADDR": "127.0.0.1"})
         self.assertNotEqual(resp.status_code, 500)
+
+
+class TestCrawlerTracking(unittest.TestCase):
+    def setUp(self):
+        self.app, _, _ = _make_app()
+        self.app.config["TESTING"] = False
+        import web.app as web_app
+
+        self.web_app = web_app
+
+    def _session_ctx(self):
+        fake_session = MagicMock()
+        fake_session.__enter__ = MagicMock(return_value=fake_session)
+        fake_session.__exit__ = MagicMock(return_value=False)
+        return fake_session
+
+    def test_meta_webindexer_is_blocked_but_recorded(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/players/201939",
+            headers={"User-Agent": "meta-webindexer/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)"},
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "meta-webindexer")
+
+    def test_googlebot_is_allowed_and_recorded_as_crawler(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/sitemap.xml",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                self.assertIsNone(self.web_app._block_bots())
+                self.web_app._track_page_view()
+
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "googlebot")
+
+    def test_human_page_views_remain_non_crawler(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+                )
+            },
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                self.web_app._track_page_view()
+
+        self.assertEqual(len(captured), 1)
+        self.assertFalse(captured[0]["is_crawler"])
+        self.assertIsNone(captured[0]["crawler_name"])
 
 
 class TestGoogleOAuth(unittest.TestCase):
