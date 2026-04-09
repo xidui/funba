@@ -7186,6 +7186,7 @@ def metric_detail(metric_key: str):
     search_q = request.args.get("q", "").strip()
     active_only = request.args.get("active") == "1"
     expand = request.args.get("expand") == "1"
+    sort_by = request.args.get("sort", "")  # "season" to sort by season instead of rank
     page_size = 50
 
     with SessionLocal() as session:
@@ -7375,10 +7376,13 @@ def metric_detail(metric_key: str):
             .subquery()
         )
 
-        _detail_sort_col = ranked_q.c.value_num.asc() if _is_asc else ranked_q.c.value_num.desc()
+        if sort_by == "season":
+            _detail_sort_cols = [ranked_q.c.season.desc(), ranked_q.c.value_num.asc() if _is_asc else ranked_q.c.value_num.desc()]
+        else:
+            _detail_sort_cols = [ranked_q.c.value_num.asc() if _is_asc else ranked_q.c.value_num.desc(), ranked_q.c.entity_id.asc()]
         base_rows_q = (
             session.query(ranked_q)
-            .order_by(_detail_sort_col, ranked_q.c.entity_id.asc())
+            .order_by(*_detail_sort_cols)
         )
 
         if active_only and metric_def.scope in ("player", "player_franchise"):
@@ -7600,6 +7604,7 @@ def metric_detail(metric_key: str):
         metric_deep_dive=metric_deep_dive,
         has_sub_keys=has_sub_keys,
         expand=expand,
+        sort_by=sort_by,
         metric_perf_samples=metric_perf_samples,
         **_build_metric_feature_context(feature_access),
     )

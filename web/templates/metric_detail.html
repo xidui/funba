@@ -528,6 +528,14 @@
     border-left: 2px solid var(--accent);
   }
 
+  .th-sort-link {
+    text-decoration: none; color: inherit; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .th-sort-link:hover { color: var(--accent); }
+  .th-sort-link .sort-arrow { font-size: 11px; color: var(--muted); }
+  .th-sort-link.active .sort-arrow { color: var(--accent); }
+
   .rank-num {
     font-family: 'Outfit', sans-serif;
     font-size: 15px;
@@ -940,6 +948,7 @@
 {% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
 <form method="get" action="{{ search_base_url }}" style="margin-bottom:16px;">
   <input type="hidden" name="season" value="{{ _season_param }}">
+  {% if sort_by %}<input type="hidden" name="sort" value="{{ sort_by }}">{% endif %}
   <div style="display:flex;align-items:center;gap:8px;max-width:420px;">
     <input
       type="search"
@@ -988,9 +997,17 @@
       <tr>
         <th>#</th>
         <th>
-          {{ metric_def.scope | capitalize }}
+          {% if is_season_scope %}
+            {% set _sort_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sort=none if sort_by == 'season' else 'season') %}
+            <a href="{{ _sort_url }}" class="th-sort-link{% if sort_by == 'season' %} active{% endif %}" title="{{ t('Sort by season', '按赛季排序') }}">
+              {{ metric_def.scope | capitalize }}
+              <span class="sort-arrow">{{ '▼' if sort_by == 'season' else '⇅' }}</span>
+            </a>
+          {% else %}
+            {{ metric_def.scope | capitalize }}
+          {% endif %}
           {% if is_player_scope %}
-          {% set _toggle_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active=none if active_only else '1', expand='1' if expand else none) %}
+          {% set _toggle_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active=none if active_only else '1', expand='1' if expand else none, sort=sort_by if sort_by else none) %}
           <a class="active-toggle-link{% if active_only %} on{% endif %}"
              href="{{ _toggle_url }}"
              title="{{ 'Show all players' if active_only else 'Show active players only' }}">
@@ -1002,7 +1019,7 @@
           </a>
           {% endif %}
           {% if has_sub_keys %}
-          {% set _expand_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1' if active_only else none, expand=none if expand else '1') %}
+          {% set _expand_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1' if active_only else none, expand=none if expand else '1', sort=sort_by if sort_by else none) %}
           <a class="active-toggle-link{% if expand %} on{% endif %}"
              href="{{ _expand_url }}"
              title="{{ t('Show best entry only per player', '每人只显示最佳条目') if expand else t('Show all entries per player', '显示每人所有条目') }}"
@@ -1125,7 +1142,7 @@
 </div>
 
 {% if total_pages > 1 and not search_q %}
-{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p, active='1' if active_only else none, expand='1' if expand else none) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=('all_' ~ all_season_type) if show_all_seasons else selected_season, page=p, active='1' if active_only else none, expand='1' if expand else none, sort=sort_by if sort_by else none) }}{% endmacro %}
 <nav class="pagination" aria-label="Page navigation">
   {# Prev #}
   <a class="page-btn{% if page == 1 %} disabled{% endif %}" href="{{ page_url(page - 1) }}" aria-label="Previous">&#8592;</a>
