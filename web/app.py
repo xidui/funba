@@ -6493,11 +6493,7 @@ def _preview_code_metric(
 
     # trigger="season" — one call handles everything regardless of scope
     if getattr(metric, "trigger", "game") == "season":
-        try:
-            results = metric.compute_season(ro_session, season)
-        except Exception:
-            logger.exception("preview compute_season failed for season=%s", season)
-            results = []
+        results = metric.compute_season(ro_session, season)
         rows = [_row(r) for r in (results or []) if r and r.value_num is not None]
         rows.sort(key=lambda r: r["value_num"], reverse=_reverse)
         return rows[:limit]
@@ -7543,6 +7539,19 @@ def metric_detail(metric_key: str):
         metric_deep_dive = _metric_deep_dive_state(session, metric_key)
         feature_access = get_feature_access_config(session)
 
+        # Admin-only: last 5 execution latencies for this metric
+        metric_perf_samples = []
+        if is_admin():
+            _perf_key = metric_key.removesuffix("_career")
+            perf_rows = (
+                session.query(MetricPerfLog.duration_ms, MetricPerfLog.recorded_at)
+                .filter(MetricPerfLog.metric_key == _perf_key)
+                .order_by(MetricPerfLog.recorded_at.desc())
+                .limit(5)
+                .all()
+            )
+            metric_perf_samples = [{"ms": r.duration_ms, "at": r.recorded_at} for r in perf_rows]
+
     if is_career_metric:
         display_season_label = "Career"
     elif show_all_seasons:
@@ -7591,6 +7600,7 @@ def metric_detail(metric_key: str):
         metric_deep_dive=metric_deep_dive,
         has_sub_keys=has_sub_keys,
         expand=expand,
+        metric_perf_samples=metric_perf_samples,
         **_build_metric_feature_context(feature_access),
     )
 

@@ -742,6 +742,29 @@
     {% if backfill.latest_run_at %}
     <div style="font-size:11px;color:var(--muted);margin-top:4px;">Last updated: {{ backfill.latest_run_at }}</div>
     {% endif %}
+    {% if is_admin and metric_perf_samples %}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Latency</span>
+      <div style="display:inline-flex;align-items:flex-end;gap:2px;height:22px;">
+        {% set max_ms = metric_perf_samples|map(attribute='ms')|list|max %}
+        {% set avg_ms = (metric_perf_samples|map(attribute='ms')|list|sum / metric_perf_samples|length)|int %}
+        {% for s in metric_perf_samples|reverse %}
+        {% set h = ((s.ms / max_ms) * 16)|int + 4 if max_ms > 0 else 10 %}
+        <div style="width:6px;height:{{ h }}px;border-radius:2px 2px 0 0;background:{{ 'var(--win)' if s.ms <= avg_ms * 0.75 else ('var(--loss)' if s.ms >= avg_ms * 1.4 else '#facc15') }};" title="{{ s.ms }}ms — {{ s.at.strftime('%m/%d %H:%M') }}"></div>
+        {% endfor %}
+      </div>
+      {% set newest = metric_perf_samples[0] %}
+      <span style="font-size:11px;font-family:Outfit,sans-serif;font-weight:700;color:var(--muted-2);">{{ newest.ms }}ms</span>
+      {% if metric_perf_samples|length >= 2 %}
+      {% set oldest = metric_perf_samples[-1] %}
+      {% if newest.ms > oldest.ms * 1.15 %}
+      <span style="font-size:10px;font-weight:700;color:var(--loss);">▲</span>
+      {% elif newest.ms < oldest.ms * 0.85 %}
+      <span style="font-size:10px;font-weight:700;color:var(--win);">▼</span>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
     {% if related_metrics %}
     <div class="metric-switch">
       {% for related_metric in related_metrics %}
