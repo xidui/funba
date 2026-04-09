@@ -274,6 +274,54 @@ def test_compute_season_metric_queues_recent_content_check():
     assert result == {"metric_key": "metric_a", "season": "22025", "results_written": 7}
 
 
+def test_compute_season_metric_marks_run_failed_when_runner_raises():
+    session = _ctx(MagicMock())
+    session_factory = MagicMock(return_value=session)
+    outer_ctx = _ctx(session_factory)
+    failure_session = _ctx(MagicMock())
+
+    metrics_tasks.compute_season_metric_task.push_request(id="worker-1", retries=2)
+    try:
+        with patch.object(
+            metrics_tasks,
+            "_reduce_locked_session_factory",
+            return_value=outer_ctx,
+        ), patch.object(
+            metrics_tasks,
+            "run_season_metric",
+            side_effect=LookupError("Metric 'east_vs_west_total_record' not found."),
+        ), patch.object(
+            metrics_tasks,
+            "_session_factory",
+            return_value=MagicMock(side_effect=[failure_session]),
+        ), patch.object(
+            metrics_tasks,
+            "_mark_run_failed",
+        ) as mark_failed, patch.object(
+            metrics_tasks,
+            "_increment_compute_run_progress",
+        ) as progress_mock, patch.object(
+            metrics_tasks.compute_season_metric_task,
+            "retry",
+            side_effect=AssertionError("retry not expected"),
+        ):
+            try:
+                metrics_tasks.compute_season_metric_task.run(
+                    "east_vs_west_total_record",
+                    "22025",
+                    run_id="run-1",
+                )
+            except LookupError as exc:
+                assert "east_vs_west_total_record" in str(exc)
+    finally:
+        metrics_tasks.compute_season_metric_task.pop_request()
+
+    mark_failed.assert_called_once()
+    assert mark_failed.call_args.args[1] == "run-1"
+    assert "22025" in mark_failed.call_args.args[2]
+    progress_mock.assert_not_called()
+
+
 def test_refresh_current_season_metrics_respects_metric_season_types():
     session = _ctx(MagicMock())
     season_query = MagicMock()

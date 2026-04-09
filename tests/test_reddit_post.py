@@ -103,6 +103,18 @@ class TestRedditPostHelpers(unittest.TestCase):
             "https://www.reddit.com/r/nba/comments/abc123/game_thread_title",
         )
 
+    def test_extract_post_url_from_page_state_ignores_resource_links(self):
+        page = _FakePage(
+            url="https://www.reddit.com/submit?sr=rockets",
+            eval_result={
+                "historyState": "",
+                "title": "",
+                "anchors": ["https://www.reddit.com/r/PetPost/comments/1sewyo0/"],
+                "resources": ["https://www.reddit.com/r/PetPost/comments/1sewyo0/"],
+            },
+        )
+        self.assertIsNone(_extract_post_url_from_page_state(page))
+
 
 if __name__ == "__main__":
     unittest.main()

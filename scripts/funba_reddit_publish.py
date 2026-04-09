@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta, timezone
 import json
 import re
 import subprocess
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 
 REAL_BROWSER_UA = (
@@ -20,6 +21,7 @@ REAL_BROWSER_UA = (
     "Safari/537.36 Edg/145.0.0.0"
 )
 _MAX_POST_AGE_HOURS = 24.0
+_SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 
 def _default_funba_repo_root() -> Path:
@@ -176,13 +178,23 @@ def _source_date_age_hours(source_date: str | None, *, now_utc: datetime | None 
     raw = str(source_date or "").strip()
     if not raw:
         return None
-    try:
-        source_dt = datetime.fromisoformat(raw)
-    except ValueError:
+    if "T" not in raw and " " not in raw:
         try:
-            source_dt = datetime.fromisoformat(f"{raw}T00:00:00")
+            source_day = datetime.fromisoformat(raw).date()
         except ValueError:
             return None
+        source_dt_local = datetime.combine(source_day + timedelta(days=1), dt_time.min, tzinfo=_SOURCE_DATE_LOCAL_TZ)
+        source_dt = source_dt_local.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        try:
+            source_dt = datetime.fromisoformat(raw)
+        except ValueError:
+            try:
+                source_dt = datetime.fromisoformat(f"{raw}T00:00:00")
+            except ValueError:
+                return None
+        if source_dt.tzinfo is not None:
+            source_dt = source_dt.astimezone(timezone.utc).replace(tzinfo=None)
     now = now_utc or datetime.utcnow()
     return (now - source_dt).total_seconds() / 3600.0
 

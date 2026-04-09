@@ -257,6 +257,19 @@ def _set_control_value(page: Page, selectors: list[str], value: str) -> str | No
         return None
 
 
+def _fill_locator_value(page: Page, selectors: list[str], value: str) -> str | None:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            locator.wait_for(state="visible", timeout=2000)
+            locator.click(timeout=2000)
+            locator.fill(value, timeout=3000)
+            return selector
+        except Exception:
+            continue
+    return None
+
+
 def _first_selector_present(page: Page, selectors: list[str]) -> str | None:
     for selector in selectors:
         try:
@@ -267,17 +280,119 @@ def _first_selector_present(page: Page, selectors: list[str]) -> str | None:
     return None
 
 
+def _selected_subreddit(page: Page) -> str | None:
+    evaluator = getattr(page, "evaluate", None)
+    if not callable(evaluator):
+        return None
+    try:
+        state = evaluator(
+            """() => ({
+                subredditName: document.querySelector('input[name="subredditName"]')?.value || "",
+                prefixedName: document.querySelector('input[name="prefixedName"]')?.value || "",
+            })"""
+        ) or {}
+    except Exception:
+        return None
+    if not isinstance(state, dict):
+        return None
+    for raw in (state.get("prefixedName"), state.get("subredditName")):
+        candidate = str(raw or "").strip()
+        if not candidate:
+            continue
+        try:
+            return _normalize_subreddit(candidate)
+        except ValueError:
+            continue
+    return None
+
+
+def _select_subreddit(page: Page, subreddit: str) -> dict[str, str]:
+    target = _normalize_subreddit(subreddit)
+    current = _selected_subreddit(page)
+    if current == target:
+        return {"subreddit_selector": "prefilled", "selected_subreddit": current}
+
+    trigger = None
+    try:
+        candidate = page.get_by_role("button", name=re.compile(r"select community", re.IGNORECASE)).first
+        if candidate.is_visible():
+            candidate.click(timeout=5000)
+            trigger = "role=button[name=/select community/i]"
+    except Exception:
+        trigger = None
+
+    search_selector = None
+    search_locators = [
+        ("input[placeholder*=\"Search communities\" i]", lambda: page.locator('input[placeholder*="Search communities" i]').first),
+        ("input[placeholder*=\"community\" i]", lambda: page.locator('input[placeholder*="community" i]').first),
+        ("role=textbox[name=/search communities/i]", lambda: page.get_by_role("textbox", name=re.compile(r"search communities", re.IGNORECASE)).first),
+    ]
+    search_input = None
+    for selector, factory in search_locators:
+        try:
+            locator = factory()
+            locator.wait_for(state="visible", timeout=5000)
+            search_input = locator
+            search_selector = selector
+            break
+        except Exception:
+            continue
+    if search_input is None:
+        raise RuntimeError("Reddit community search input not found")
+
+    search_input.click(timeout=5000)
+    try:
+        search_input.fill(target, timeout=5000)
+    except Exception:
+        page.keyboard.press("Meta+A")
+        page.keyboard.press("Control+A")
+        page.keyboard.type(target, delay=20)
+    time.sleep(_LONG_SLEEP)
+
+    candidate_patterns = [
+        re.compile(rf"^\s*r/{re.escape(target)}\s*$", re.IGNORECASE),
+        re.compile(rf"(?:^|\s)r/{re.escape(target)}(?:\s|$)", re.IGNORECASE),
+        re.compile(rf"^\s*{re.escape(target)}\s*$", re.IGNORECASE),
+    ]
+    clicked = False
+    candidate_factories = [
+        lambda pattern: page.get_by_role("button", name=pattern).first,
+        lambda pattern: page.get_by_role("link", name=pattern).first,
+        lambda pattern: page.get_by_text(pattern).first,
+    ]
+    for pattern in candidate_patterns:
+        for factory in candidate_factories:
+            try:
+                locator = factory(pattern)
+                if locator.is_visible():
+                    locator.click(timeout=3000)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if clicked:
+            break
+    if not clicked:
+        try:
+            search_input.press("ArrowDown", timeout=2000)
+            search_input.press("Enter", timeout=2000)
+        except Exception:
+            pass
+
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        current = _selected_subreddit(page)
+        if current == target:
+            return {
+                "subreddit_selector": search_selector or trigger or "",
+                "selected_subreddit": current,
+            }
+        time.sleep(_SHORT_SLEEP)
+    raise RuntimeError(f"Reddit community selection failed for r/{target}")
+
+
 def _fill_submission_form(page: Page, *, subreddit: str, title: str, content: str) -> dict[str, str]:
-    subreddit_selector = _set_control_value(
-        page,
-        [
-            'input[name="sr"]',
-            'faceplate-search-input[name="community-name"] input',
-            'input[aria-label*="community" i]',
-            'input[placeholder*="community" i]',
-        ],
-        subreddit,
-    )
+    subreddit_info = _select_subreddit(page, subreddit)
     title_selector = _set_control_value(
         page,
         [
@@ -289,22 +404,29 @@ def _fill_submission_form(page: Page, *, subreddit: str, title: str, content: st
         ],
         title,
     )
-    body_selector = _set_control_value(
-        page,
-        [
-            'textarea[name="text"]',
-            'textarea[data-testid="post-content-input"]',
-            '[contenteditable="true"][role="textbox"]',
-            'div[contenteditable="true"]',
-        ],
-        content,
-    )
+    body_selectors = [
+        '[slot="rte"][aria-label*="Post body" i]',
+        '[slot="rte"][aria-label*="Optional Body" i]',
+        '[aria-label*="Post body" i] [contenteditable="true"][role="textbox"]',
+        '[aria-label*="Optional Body" i] [contenteditable="true"][role="textbox"]',
+        '[slot="rte"][aria-label*="body" i] [contenteditable="true"][role="textbox"]',
+        '[slot="editor"][contenteditable="true"][role="textbox"]',
+        '[slot="rte"][contenteditable="true"]',
+        '[contenteditable="true"][aria-label*="body" i]',
+        'div[aria-label*="body" i][contenteditable="true"]',
+        'textarea[name="text"]',
+        'textarea[data-testid="post-content-input"]',
+        '[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"]',
+    ]
+    body_selector = _fill_locator_value(page, body_selectors, content) or _set_control_value(page, body_selectors, content)
     if not title_selector:
         raise RuntimeError("Reddit title input not found")
     if not body_selector:
         raise RuntimeError("Reddit content editor not found")
     return {
-        "subreddit_selector": subreddit_selector or "",
+        "subreddit_selector": subreddit_info.get("subreddit_selector", ""),
+        "selected_subreddit": subreddit_info.get("selected_subreddit", ""),
         "title_selector": title_selector,
         "body_selector": body_selector,
     }
@@ -332,11 +454,6 @@ def _extract_post_url_from_page_state(page: Page) -> str | None:
     if extracted:
         return extracted
 
-    for blob in (_safe_page_html(page), _safe_page_body_text(page)):
-        extracted = _extract_post_url_from_text(blob)
-        if extracted:
-            return extracted
-
     evaluator = getattr(page, "evaluate", None)
     if not callable(evaluator):
         return None
@@ -345,8 +462,6 @@ def _extract_post_url_from_page_state(page: Page) -> str | None:
             """() => ({
                 historyState: (() => { try { return JSON.stringify(history.state || null); } catch { return ""; } })(),
                 title: document.title || "",
-                anchors: Array.from(document.querySelectorAll("a[href]")).map(node => node.href || "").slice(0, 200),
-                resources: performance.getEntriesByType("resource").map(entry => entry.name || "").slice(-200),
             })"""
         ) or {}
     except Exception:
@@ -357,14 +472,6 @@ def _extract_post_url_from_page_state(page: Page) -> str | None:
         extracted = _extract_post_url_from_text(str(candidate or ""))
         if extracted:
             return extracted
-    for key in ("anchors", "resources"):
-        values = state.get(key) or []
-        if not isinstance(values, list):
-            continue
-        for candidate in values:
-            extracted = _normalize_post_url(str(candidate or ""))
-            if extracted:
-                return extracted
     return None
 
 
@@ -408,10 +515,25 @@ def _click_submit(page: Page) -> str:
     if not clicked:
         raise RuntimeError("Reddit submit button not found")
 
-    time.sleep(_LONG_SLEEP)
+    confirm_deadline = time.time() + 5.0
+    while time.time() < confirm_deadline:
+        try:
+            confirm_button = page.get_by_role("button", name=re.compile(r"submit without editing", re.IGNORECASE)).first
+            if confirm_button.is_visible():
+                confirm_button.click(timeout=2000, force=True)
+                time.sleep(_LONG_SLEEP)
+                break
+        except Exception:
+            pass
+        time.sleep(_SHORT_SLEEP)
+    body_text = _safe_page_body_text(page)
+    if re.search(r"please select a community before posting", body_text, flags=re.IGNORECASE):
+        raise RuntimeError("Reddit community was not selected before submit")
     final_url = _wait_for_final_post_url(page)
     if final_url:
         return final_url
+    if re.search(r"sorry,\s*this post has been removed by the moderators of r/", body_text, flags=re.IGNORECASE):
+        raise RuntimeError("Reddit post was removed by moderators before final URL was detected")
     raise RuntimeError("Submit completed but Reddit post URL was not detected")
 
 

@@ -2,10 +2,11 @@ import importlib
 import sys
 import types
 import unittest
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.db_model_stubs import install_fake_db_module
 
@@ -116,6 +117,7 @@ def _import_web_app():
         REPO_ROOT,
         user_cls=fake_user_cls,
         engine=fake_engine,
+        extra_model_names=("GameContentAnalysisIssue",),
     )
 
     fake_backfill = types.ModuleType("db.backfill_nba_player_shot_detail")
@@ -154,6 +156,35 @@ class TestMetricPerfRunnerHelpers(unittest.TestCase):
         self.assertEqual(runner._classify_sql_statement("UPDATE MetricResult SET value_num = 1"), "write")
         self.assertEqual(runner._classify_sql_statement("DELETE FROM MetricPerfLog"), "write")
         self.assertIsNone(runner._classify_sql_statement("BEGIN"))
+
+
+class TestSeasonMetricRunnerFailures(unittest.TestCase):
+    def test_run_season_metric_raises_for_missing_metric(self):
+        runner = _import_runner_module()
+
+        with self.assertRaisesRegex(LookupError, "missing_metric"):
+            runner.run_season_metric(MagicMock(), "missing_metric", "22025", commit=False)
+
+    def test_run_season_metric_reraises_compute_season_errors(self):
+        runner = _import_runner_module()
+        metric = SimpleNamespace(
+            trigger="season",
+            compute_season=MagicMock(side_effect=ValueError("boom")),
+        )
+
+        @contextmanager
+        def _fake_count_db_ops(_session):
+            yield lambda: (0, 0)
+
+        with patch.object(runner, "get_metric", return_value=metric), patch.object(
+            runner,
+            "_count_db_ops",
+            side_effect=_fake_count_db_ops,
+        ), patch.object(runner, "_record_metric_perf") as perf_mock:
+            with self.assertRaisesRegex(ValueError, "boom"):
+                runner.run_season_metric(MagicMock(), "metric_a", "22025", commit=False)
+
+        perf_mock.assert_not_called()
 
 
 class TestMetricPerfAdminPanel(unittest.TestCase):
@@ -220,6 +251,27 @@ class TestMetricPerfAdminPanel(unittest.TestCase):
         self.assertEqual(row["db_reads"], 7)
         self.assertEqual(row["db_writes"], 2)
         self.assertEqual(row["samples_ms"], [150, 130, 120])
+
+
+class TestMetricPreviewHelpers(unittest.TestCase):
+    def test_preview_code_metric_reraises_season_compute_errors(self):
+        web_app = _import_web_app()
+        metric = SimpleNamespace(
+            trigger="season",
+            compute_season=MagicMock(side_effect=ValueError("boom")),
+        )
+
+        with patch.object(
+            web_app,
+            "_code_metric_metadata_from_code",
+            return_value={
+                "code_python": "class BrokenMetric: pass",
+                "rank_order": "desc",
+                "season_types": ("regular",),
+            },
+        ), patch("metrics.framework.runtime.load_code_metric", return_value=metric):
+            with self.assertRaisesRegex(ValueError, "boom"):
+                web_app._preview_code_metric(MagicMock(), "ignored", "season", "22025")
 
 
 if __name__ == "__main__":

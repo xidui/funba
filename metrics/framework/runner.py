@@ -466,12 +466,12 @@ def run_season_metric(
     """
     metric_def = get_metric(metric_key, session=session)
     if metric_def is None:
-        logger.warning("run_season_metric: metric %r not found; skipping.", metric_key)
-        return 0
+        logger.warning("run_season_metric: metric %r not found.", metric_key)
+        raise LookupError(f"Metric {metric_key!r} not found.")
 
     if getattr(metric_def, "trigger", "game") != "season":
-        logger.warning("run_season_metric: metric %r is not trigger=season; skipping.", metric_key)
-        return 0
+        logger.warning("run_season_metric: metric %r is not trigger=season.", metric_key)
+        raise ValueError(f"Metric {metric_key!r} is not trigger=season.")
 
     if not season_matches_metric_types(season, getattr(metric_def, "season_types", None)):
         logger.info("run_season_metric: metric %s does not support season %s; skipping.", metric_key, season)
@@ -484,7 +484,7 @@ def run_season_metric(
         except Exception as exc:
             logger.error("run_season_metric %s failed for season %s: %s",
                          metric_key, season, exc, exc_info=True)
-            return 0
+            raise
 
         # Career metrics with a season-result reducer derive qualifications at
         # read-time from the base metric's season MetricRunLog rows.  Skip the
