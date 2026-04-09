@@ -1173,9 +1173,7 @@
             <tbody>
               {% set ns = namespace(prev_starter=None) %}
               {% for row in players %}
-              {% if ns.prev_starter is not none and ns.prev_starter != row.is_starter and not row.is_dnp %}
-              <tr class="bench-separator"><td colspan="13"></td></tr>
-              {% elif ns.prev_starter is not none and not ns.prev_starter and row.is_dnp %}
+              {% if ns.prev_starter is not none and ns.prev_starter and not row.is_starter %}
               <tr class="bench-separator"><td colspan="13"></td></tr>
               {% endif %}
               {% set ns.prev_starter = row.is_starter if not row.is_dnp else false %}
