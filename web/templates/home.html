@@ -1,4 +1,25 @@
 {% extends "base.html" %}
+{% block title %}{{ site_name }} — {{ t('NBA Stats & Analytics', 'NBA数据与分析') }}{% endblock %}
+{% block meta_description %}{{ t('Live NBA scores, team standings, player stats, shot charts, and advanced analytics.', '实时NBA比分、球队排名、球员数据、投篮图和高级分析。') }}{% endblock %}
+{% block og_title %}{{ site_name }} — {{ t('NBA Stats & Analytics', 'NBA数据与分析') }}{% endblock %}
+{% block og_description %}{{ t('Live NBA scores, team standings, player stats, shot charts, and advanced analytics.', '实时NBA比分、球队排名、球员数据、投篮图和高级分析。') }}{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "FUNBA",
+  "alternateName": "智趣NBA",
+  "url": "https://funba.app",
+  "description": "NBA stats, metrics, and analytics",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": "https://funba.app/api/players/hints?q={search_term_string}",
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   .home-hero {

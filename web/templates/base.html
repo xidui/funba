@@ -7,17 +7,27 @@
     <meta name="description" content="{% block meta_description %}NBA stats, metrics, and analytics — player profiles, team standings, game breakdowns, and shot charts.{% endblock %}" />
     <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml" />
 
+    <!-- Canonical & hreflang -->
+    {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}" />{% endif %}
+    {% for alt in hreflang_links %}<link rel="alternate" hreflang="{{ alt.lang }}" href="{{ alt.url }}" />
+    {% endfor %}
+
     <!-- Open Graph -->
     <meta property="og:site_name" content="{{ site_name }}" />
     <meta property="og:type" content="{% block og_type %}website{% endblock %}" />
     <meta property="og:title" content="{% block og_title %}{{ title or (site_name ~ ' — NBA Analytics') }}{% endblock %}" />
     <meta property="og:description" content="{% block og_description %}NBA stats, metrics, and analytics — player profiles, team standings, game breakdowns, and shot charts.{% endblock %}" />
-    <meta property="og:url" content="{{ request.url }}" />
+    <meta property="og:url" content="{{ canonical_url or request.url }}" />
+    <meta property="og:image" content="{% block og_image %}{{ url_for('static', filename='og-default.png', _external=True) }}{% endblock %}" />
+    <meta property="og:locale" content="{{ 'zh_CN' if lang == 'zh' else 'en_US' }}" />
 
     <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="{% block tw_title %}{{ title or (site_name ~ ' — NBA Analytics') }}{% endblock %}" />
     <meta name="twitter:description" content="{% block tw_description %}NBA stats, metrics, and analytics.{% endblock %}" />
+    <meta name="twitter:image" content="{% block tw_image %}{{ url_for('static', filename='og-default.png', _external=True) }}{% endblock %}" />
+
+    {% block json_ld %}{% endblock %}
 
     <script>
       (function () {

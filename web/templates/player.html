@@ -7,6 +7,24 @@
 {% block og_type %}profile{% endblock %}
 {% block tw_title %}{{ player_name }} — {{ site_name }}{% endblock %}
 {% block tw_description %}{{ player_name }} {{ t('career stats, shot charts, and game log.', '球员生涯数据、投篮图和比赛日志。') }}{% endblock %}
+{% block og_image %}https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png{% endblock %}
+{% block tw_image %}https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "name": "{{ player_name }}",
+  "url": "https://funba.app/players/{{ player.player_id }}",
+  "image": "https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png",
+  "jobTitle": "Professional Basketball Player",
+  "memberOf": {
+    "@type": "SportsOrganization",
+    "name": "NBA"
+  }
+}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   /* ── Player header ─────────────────────────────────────────────── */

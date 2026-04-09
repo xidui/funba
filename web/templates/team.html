@@ -6,6 +6,24 @@
 {% block og_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
 {% block tw_title %}{{ team_name }} — {{ site_name }}{% endblock %}
 {% block tw_description %}{{ team_name }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
+{% block og_image %}https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg{% endblock %}
+{% block tw_image %}https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SportsTeam",
+  "name": "{{ team_name }}",
+  "url": "https://funba.app/teams/{{ team.team_id }}",
+  "logo": "https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg",
+  "sport": "Basketball",
+  "memberOf": {
+    "@type": "SportsOrganization",
+    "name": "NBA"
+  }
+}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   .team-header-meta {

@@ -1,4 +1,8 @@
 {% extends "base.html" %}
+{% block title %}{{ t('NBA Games', 'NBA比赛') }} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ t('Browse NBA game results — box scores, play-by-play, and shot charts for every game.', '浏览NBA比赛结果——每场比赛的技术统计、回合记录和投篮图。') }}{% endblock %}
+{% block og_title %}{{ t('NBA Games', 'NBA比赛') }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ t('Browse NBA game results with box scores, play-by-play, and shot charts.', '浏览NBA比赛结果，包含技术统计、回合记录和投篮图。') }}{% endblock %}
 {% block content %}
 <style>
   .games-header {

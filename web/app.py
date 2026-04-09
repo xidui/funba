@@ -911,6 +911,43 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
     )
 
 
+def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
+    """Batch-load localized metric names for a set of keys (1 query)."""
+    from metrics.framework.runtime import get_metric as _get_metric
+
+    if not metric_keys:
+        return {}
+
+    # Collect all possible DB keys (both original and base keys)
+    all_lookup_keys = set()
+    for mk in metric_keys:
+        all_lookup_keys.add(mk)
+        all_lookup_keys.add(mk.removesuffix("_career"))
+
+    db_rows = (
+        session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh)
+        .filter(MetricDefinitionModel.key.in_(all_lookup_keys))
+        .all()
+    )
+    db_by_key = {r.key: r for r in db_rows}
+
+    result = {}
+    for mk in metric_keys:
+        base_key = mk.removesuffix("_career")
+        db_metric = db_by_key.get(mk) or db_by_key.get(base_key)
+        runtime_metric = _get_metric(mk, session=session)
+        if runtime_metric is None and mk.endswith("_career"):
+            runtime_metric = _get_metric(base_key, session=session)
+
+        name = getattr(db_metric, "name", None) or getattr(runtime_metric, "name", None) or base_key.replace("_", " ").title()
+        name_zh = getattr(db_metric, "name_zh", None) or getattr(runtime_metric, "name_zh", None)
+        localized = _localized_metric_name(name, name_zh)
+        if mk.endswith("_career") and localized == _localized_metric_name(base_key.replace("_", " ").title(), name_zh):
+            localized = f"{localized}{_t(' (Career)', '（生涯）')}"
+        result[mk] = localized
+    return result
+
+
 def _metric_name_for_key(session, metric_key: str) -> str:
     from metrics.framework.runtime import get_metric as _get_metric
 
@@ -2116,30 +2153,27 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     _disabled_keys = _disabled_metric_keys(session) if not is_admin() else set()
     scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
 
-    # Inner subquery: compute rank and total over the full population for
-    # each (metric_key, season) group, filtered to this entity_type.
     season_filter = (
         (MetricResultModel.season == season) | (MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
         if season
         else None
     )
-    inner_filters = [
+
+    # Step 1: Fetch this entity's own rows first (fast, indexed lookup).
+    entity_filters = [
         MetricResultModel.entity_type == entity_type,
         MetricResultModel.value_num.isnot(None),
     ]
+    if entity_type == "game":
+        entity_filters.append(_game_entity_filter(MetricResultModel.entity_id, entity_id))
+    else:
+        entity_filters.append(MetricResultModel.entity_id == entity_id)
     if _disabled_keys:
-        inner_filters.append(MetricResultModel.metric_key.notin_(_disabled_keys))
+        entity_filters.append(MetricResultModel.metric_key.notin_(_disabled_keys))
     if season_filter is not None:
-        inner_filters.append(season_filter)
+        entity_filters.append(season_filter)
 
-    rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-    # Flip sign for "asc" metrics so DESC ordering ranks lowest value first
-    _rank_value = case(
-        (MetricResultModel.metric_key.in_(_asc_keys), -MetricResultModel.value_num),
-        else_=MetricResultModel.value_num,
-    )
-
-    inner_q = (
+    entity_rows = (
         session.query(
             MetricResultModel.id,
             MetricResultModel.metric_key,
@@ -2150,29 +2184,73 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             MetricResultModel.value_str,
             MetricResultModel.context_json,
             MetricResultModel.computed_at,
-            func.rank().over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                order_by=_rank_value.desc(),
-            ).label("rank"),
-            func.count(MetricResultModel.id).over(
-                partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-            ).label("total"),
         )
-        .filter(*inner_filters)
-        .subquery()
+        .filter(*entity_filters)
+        .all()
     )
 
-    rows_q = session.query(inner_q)
-    if entity_type == "game":
-        rows_q = rows_q.filter(_game_entity_filter(inner_q.c.entity_id, entity_id))
+    if not entity_rows:
+        return {"season": [], "alltime": []}
+
+    # Step 2: Compute rank and total via a self-join instead of a window function.
+    # For desc-ranked metrics: rank = COUNT(peers with higher value) + 1
+    # For asc-ranked metrics: rank = COUNT(peers with lower value) + 1
+    entity_ids_set = {r.id for r in entity_rows}
+    MR = MetricResultModel
+    e_alias = MR.__table__.alias("e")
+    p_alias = MR.__table__.alias("p")
+
+    # Build the comparison expression, flipping for asc metrics
+    if _asc_keys:
+        better_expr = case(
+            (e_alias.c.metric_key.in_(_asc_keys), p_alias.c.value_num < e_alias.c.value_num),
+            else_=(p_alias.c.value_num > e_alias.c.value_num),
+        )
     else:
-        rows_q = rows_q.filter(inner_q.c.entity_id == entity_id)
-    rows = rows_q.order_by(inner_q.c.rank.asc()).all()
+        better_expr = p_alias.c.value_num > e_alias.c.value_num
+
+    join_cond = and_(
+        p_alias.c.entity_type == e_alias.c.entity_type,
+        p_alias.c.metric_key == e_alias.c.metric_key,
+        p_alias.c.season == e_alias.c.season,
+        func.coalesce(p_alias.c.rank_group, "__none__") == func.coalesce(e_alias.c.rank_group, "__none__"),
+        p_alias.c.value_num.isnot(None),
+    )
+
+    rank_q = (
+        session.query(
+            e_alias.c.id,
+            func.count(p_alias.c.id).label("total"),
+            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        )
+        .select_from(e_alias)
+        .join(p_alias, join_cond)
+        .filter(e_alias.c.id.in_(entity_ids_set))
+        .group_by(e_alias.c.id)
+    )
+    rank_map = {r.id: (r.rank, r.total) for r in rank_q.all()}
+
+    # Build combined rows with rank/total attached
+    rows = []
+    for r in entity_rows:
+        rank, total = rank_map.get(r.id, (1, 1))
+        rows.append(SimpleNamespace(
+            id=r.id, metric_key=r.metric_key, entity_id=r.entity_id,
+            season=r.season, rank_group=r.rank_group,
+            value_num=r.value_num, value_str=r.value_str,
+            context_json=r.context_json, computed_at=r.computed_at,
+            rank=rank, total=total,
+        ))
+    rows.sort(key=lambda r: r.rank)
 
     team_map = _team_map(session)
 
     all_base_keys = {r.metric_key.removesuffix("_career") for r in rows}
     db_templates = _load_context_label_templates(session, all_base_keys)
+
+    # Batch-load all metric names to avoid N+1 queries
+    all_metric_keys = {r.metric_key for r in rows}
+    metric_name_cache = _batch_metric_names(session, all_metric_keys)
 
     season_metrics = []
     alltime_metrics = []
@@ -2185,7 +2263,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         is_notable = total > 0 and rank / total <= 0.25
         entry = {
             "metric_key": r.metric_key,
-            "metric_name": _metric_name_for_key(session, r.metric_key),
+            "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
             "entity_id": r.entity_id,
             "value_num": r.value_num,
             "value_str": r.value_str,

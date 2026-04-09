@@ -5,6 +5,28 @@
 {% block og_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score, play-by-play, and shot charts.{% endblock %}
 {% block tw_title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — {{ site_name }}{% endblock %}
 {% block tw_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score and shot charts.{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SportsEvent",
+  "name": "{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }}",
+  "startDate": "{{ game.game_date.isoformat() }}",
+  "url": "https://funba.app/games/{{ game.game_id }}",
+  "homeTeam": {
+    "@type": "SportsTeam",
+    "name": "{{ team_name(game.home_team_id) }}",
+    "identifier": "{{ game.home_team_id }}"
+  },
+  "awayTeam": {
+    "@type": "SportsTeam",
+    "name": "{{ team_name(game.road_team_id) }}",
+    "identifier": "{{ game.road_team_id }}"
+  },
+  "sport": "Basketball"
+}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   /* ── Scoreboard ───────────────────────────────────────────────── */
