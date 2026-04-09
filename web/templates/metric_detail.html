@@ -1017,7 +1017,7 @@
         </th>
         {% if show_rank_group %}<th>{{ t('Group', '分组') }}</th>{% endif %}
         {% if has_sub_keys and expand %}<th>{{ t('Entry', '条目') }}</th>{% endif %}
-        {% if show_all_seasons %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
+        {% if show_all_seasons and not is_season_scope %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
         <th class="right">{{ t('Value', '数值') }}</th>
         {% if metric_def.scope != 'game' %}<th class="right">{{ t('Games', '比赛') }}</th>{% endif %}
         <th>{{ t('Standing', '排名') }}</th>
@@ -1079,7 +1079,7 @@
         {% if has_sub_keys and expand %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.sub_key }}</td>
         {% endif %}
-        {% if show_all_seasons %}
+        {% if show_all_seasons and not is_season_scope %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}
         <td class="right">
