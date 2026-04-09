@@ -593,6 +593,21 @@
   .box-score-team tr:last-child td { border-bottom: none; }
   .box-score-team tr:hover td { background: var(--surface-2); }
 
+  .box-score-team .bench-separator td {
+    padding: 0;
+    border-bottom: 2px solid var(--border-2);
+    height: 0;
+    line-height: 0;
+  }
+  .box-score-team .bench-row td { color: var(--muted-2); }
+  .box-score-team .bench-row td a { color: var(--muted-2); }
+  .box-score-team .bench-row:hover td a { color: var(--text); }
+  .box-score-team .dnp-row td {
+    color: var(--muted);
+    opacity: 0.5;
+  }
+  .box-score-team .dnp-row td a { color: var(--muted); }
+
   /* ── Shot chart grid ──────────────────────────────────────────── */
   .shot-charts-grid {
     display: grid;
@@ -1156,8 +1171,15 @@
               </tr>
             </thead>
             <tbody>
+              {% set ns = namespace(prev_starter=None) %}
               {% for row in players %}
-              <tr>
+              {% if ns.prev_starter is not none and ns.prev_starter != row.is_starter and not row.is_dnp %}
+              <tr class="bench-separator"><td colspan="13"></td></tr>
+              {% elif ns.prev_starter is not none and not ns.prev_starter and row.is_dnp %}
+              <tr class="bench-separator"><td colspan="13"></td></tr>
+              {% endif %}
+              {% set ns.prev_starter = row.is_starter if not row.is_dnp else false %}
+              <tr class="{% if row.is_dnp %}dnp-row{% elif not row.is_starter %}bench-row{% endif %}">
                 <td>
                   <a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a>
                 </td>

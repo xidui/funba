@@ -5754,33 +5754,52 @@ def game_page(game_id: str):
             session.query(PlayerGameStats, Player)
             .outerjoin(Player, Player.player_id == PlayerGameStats.player_id)
             .filter(PlayerGameStats.game_id == game_id)
-            .order_by(PlayerGameStats.team_id.asc(), PlayerGameStats.starter.desc(), PlayerGameStats.player_id.asc())
+            .order_by(PlayerGameStats.team_id.asc(), PlayerGameStats.player_id.asc())
             .all()
         )
+
+        def _is_dnp(stat):
+            return (stat.min is None and stat.sec is None) or (stat.comment or "").strip() != ""
+
+        def _sort_key(stat):
+            # 0=starter, 1=bench (played), 2=DNP
+            if stat.starter:
+                return (0, -(stat.pts or 0))
+            if not _is_dnp(stat):
+                return (1, -(stat.pts or 0))
+            return (2, 0)
+
         players_by_team: dict[str, list[dict[str, str | int]]] = defaultdict(list)
+        _team_rows: dict[str, list] = defaultdict(list)
         for stat, player in player_rows:
-            player_name = _display_player_name(player) if player is not None else stat.player_id
-            players_by_team[stat.team_id].append(
-                {
-                    "player_id": stat.player_id,
-                    "player_name": player_name,
-                    "status": _player_status(stat),
-                    "minutes": _fmt_minutes(stat.min, stat.sec),
-                    "pts": stat.pts if stat.pts is not None else "-",
-                    "reb": stat.reb if stat.reb is not None else "-",
-                    "ast": stat.ast if stat.ast is not None else "-",
-                    "stl": stat.stl if stat.stl is not None else "-",
-                    "blk": stat.blk if stat.blk is not None else "-",
-                    "tov": stat.tov if stat.tov is not None else "-",
-                    "fgm": stat.fgm if stat.fgm is not None else "-",
-                    "fga": stat.fga if stat.fga is not None else "-",
-                    "fg3m": stat.fg3m if stat.fg3m is not None else "-",
-                    "fg3a": stat.fg3a if stat.fg3a is not None else "-",
-                    "ftm": stat.ftm if stat.ftm is not None else "-",
-                    "fta": stat.fta if stat.fta is not None else "-",
-                    "plus_minus": stat.plus if stat.plus is not None else "-",
-                }
-            )
+            _team_rows[stat.team_id].append((stat, player))
+        for team_id, rows in _team_rows.items():
+            rows.sort(key=lambda x: _sort_key(x[0]))
+            for stat, player in rows:
+                player_name = _display_player_name(player) if player is not None else stat.player_id
+                players_by_team[team_id].append(
+                    {
+                        "player_id": stat.player_id,
+                        "player_name": player_name,
+                        "status": _player_status(stat),
+                        "minutes": _fmt_minutes(stat.min, stat.sec),
+                        "is_starter": bool(stat.starter),
+                        "is_dnp": _is_dnp(stat),
+                        "pts": stat.pts if stat.pts is not None else "-",
+                        "reb": stat.reb if stat.reb is not None else "-",
+                        "ast": stat.ast if stat.ast is not None else "-",
+                        "stl": stat.stl if stat.stl is not None else "-",
+                        "blk": stat.blk if stat.blk is not None else "-",
+                        "tov": stat.tov if stat.tov is not None else "-",
+                        "fgm": stat.fgm if stat.fgm is not None else "-",
+                        "fga": stat.fga if stat.fga is not None else "-",
+                        "fg3m": stat.fg3m if stat.fg3m is not None else "-",
+                        "fg3a": stat.fg3a if stat.fg3a is not None else "-",
+                        "ftm": stat.ftm if stat.ftm is not None else "-",
+                        "fta": stat.fta if stat.fta is not None else "-",
+                        "plus_minus": stat.plus if stat.plus is not None else "-",
+                    }
+                )
 
         ordered_team_ids = [tid for tid in [game.road_team_id, game.home_team_id] if tid]
         for team_id in players_by_team:
