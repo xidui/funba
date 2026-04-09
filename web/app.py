@@ -4512,8 +4512,13 @@ def home():
 
 
 def _build_today_games(team_lookup: dict) -> list[dict]:
-    """Build today's games with top triggered metrics for the home page."""
+    """Build today's games with fixed stats for the home page.
+
+    Each game shows: lead changes, each team's largest lead,
+    each team's top scorer (with player_id for headshot), and FG%.
+    """
     from datetime import date, timedelta
+    from collections import defaultdict
 
     with SessionLocal() as session:
         today = date.today()
@@ -4523,7 +4528,6 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
             .order_by(Game.game_id.asc())
             .all()
         )
-        # If no games today, try yesterday
         if not games:
             games = (
                 session.query(Game)
@@ -4537,117 +4541,88 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
         game_date = games[0].game_date
         game_ids = [g.game_id for g in games]
 
-        # Bulk load game-scope metrics for today's games (exclude low-signal ones)
-        _EXCLUDE_KEYS = {
-            "lowest_winning_score", "lowest_half_score", "team_highest_half_score",
-            "single_quarter_team_scoring", "game_halftime_margin",
-        }
-        game_metric_rows = (
-            session.query(
-                MetricResultModel.game_id,
-                MetricResultModel.metric_key,
-                MetricResultModel.value_num,
-                MetricResultModel.value_str,
-            )
+        # Bulk load lead_changes metric
+        lc_rows = (
+            session.query(MetricResultModel.game_id, MetricResultModel.value_num)
             .filter(
                 MetricResultModel.game_id.in_(game_ids),
-                MetricResultModel.entity_type == "game",
-                MetricResultModel.value_num.isnot(None),
-                MetricResultModel.metric_key.notin_(_EXCLUDE_KEYS),
+                MetricResultModel.metric_key == "lead_changes",
             )
             .all()
         )
+        lead_changes_map = {r.game_id: int(r.value_num) for r in lc_rows}
 
-        # Compute season percentile for each metric to pick the most distinctive per game
-        from collections import defaultdict
-        _raw_by_game: dict[str, list] = defaultdict(list)
-        _metric_keys_seen: set[str] = set()
-        for r in game_metric_rows:
-            _raw_by_game[r.game_id].append(r)
-            _metric_keys_seen.add(r.metric_key)
-
-        # Bulk: count + rank per metric_key in one grouped query
-        season_val = games[0].season
-        _season_stats = (
-            session.query(
-                MetricResultModel.metric_key,
-                func.count().label("total"),
-                func.max(MetricResultModel.value_num).label("max_val"),
-                func.min(MetricResultModel.value_num).label("min_val"),
-            )
-            .filter(
-                MetricResultModel.metric_key.in_(_metric_keys_seen),
-                MetricResultModel.season == season_val,
-                MetricResultModel.entity_type == "game",
-                MetricResultModel.value_num.isnot(None),
-            )
-            .group_by(MetricResultModel.metric_key)
+        # Bulk load TeamGameStats for FG%
+        all_ts = (
+            session.query(TeamGameStats)
+            .filter(TeamGameStats.game_id.in_(game_ids))
             .all()
-        ) if _metric_keys_seen else []
-        _stats_map = {r.metric_key: (r.total, r.min_val, r.max_val) for r in _season_stats}
+        )
+        ts_map: dict[tuple[str, str], TeamGameStats] = {}
+        for ts in all_ts:
+            ts_map[(ts.game_id, ts.team_id)] = ts
 
-        # Determine rank_order per metric (desc=higher is more extreme, asc=lower is more extreme)
-        _rank_orders = {}
-        if _metric_keys_seen:
-            _ro_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.definition_json).filter(
-                MetricDefinitionModel.key.in_(_metric_keys_seen)
+        # Bulk load top scorer per team per game
+        all_ps = (
+            session.query(PlayerGameStats)
+            .filter(PlayerGameStats.game_id.in_(game_ids))
+            .order_by(PlayerGameStats.pts.desc())
+            .all()
+        )
+        # Group: top scorer per (game_id, team_id)
+        top_scorer_map: dict[tuple[str, str], PlayerGameStats] = {}
+        for ps in all_ps:
+            key = (ps.game_id, ps.team_id)
+            if key not in top_scorer_map:
+                top_scorer_map[key] = ps
+
+        # Bulk resolve player names
+        scorer_player_ids = {ps.player_id for ps in top_scorer_map.values()}
+        player_names = {}
+        if scorer_player_ids:
+            from db.models import Player
+            prows = session.query(Player.player_id, Player.full_name, Player.full_name_zh).filter(
+                Player.player_id.in_(scorer_player_ids)
             ).all()
-            for r in _ro_rows:
-                _rank_orders[r.key] = "desc"  # default
-                if r.definition_json:
-                    import json as _json
-                    try:
-                        d = _json.loads(r.definition_json)
-                        if d.get("rank_order") == "asc":
-                            _rank_orders[r.key] = "asc"
-                    except Exception:
-                        pass
-            # Also check code_python for rank_order
-            _code_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.code_python).filter(
-                MetricDefinitionModel.key.in_(_metric_keys_seen),
-                MetricDefinitionModel.code_python.isnot(None),
-            ).all()
-            for r in _code_rows:
-                if "rank_order" in (r.code_python or ""):
-                    if "rank_order = 'asc'" in r.code_python or 'rank_order = "asc"' in r.code_python:
-                        _rank_orders[r.key] = "asc"
+            for p in prows:
+                player_names[p.player_id] = p.full_name_zh if _is_zh() and p.full_name_zh else p.full_name
 
-        def _percentile(metric_key: str, value_num: float) -> float:
-            total, min_val, max_val = _stats_map.get(metric_key, (1, 0, 1))
-            if max_val == min_val:
-                return 0.5
-            pct = (value_num - min_val) / (max_val - min_val)
-            # For asc metrics (lower=better), invert so extreme low values score high
-            if _rank_orders.get(metric_key) == "asc":
-                pct = 1.0 - pct
-            return pct
-
-        # Resolve metric names in bulk
-        _name_rows = session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh).filter(
-            MetricDefinitionModel.key.in_(_metric_keys_seen)
-        ).all() if _metric_keys_seen else []
-        _name_map = {r.key: (r.name_zh if _is_zh() and r.name_zh else r.name) for r in _name_rows}
-
-        # Pick top 4 by percentile per game
-        metrics_by_game: dict[str, list] = {}
-        for gid, rows in _raw_by_game.items():
-            scored = [(r, _percentile(r.metric_key, r.value_num)) for r in rows]
-            scored.sort(key=lambda x: x[1], reverse=True)
-            metrics_by_game[gid] = [
-                {
-                    "metric_key": r.metric_key,
-                    "metric_name": _name_map.get(r.metric_key, r.metric_key),
-                    "value_num": r.value_num,
-                    "value_str": r.value_str,
-                }
-                for r, _ in scored[:4]
-            ]
+        # Bulk load largest lead per team from PBP score_margin
+        all_pbp_margins = (
+            session.query(GamePlayByPlay.game_id, GamePlayByPlay.score_margin)
+            .filter(
+                GamePlayByPlay.game_id.in_(game_ids),
+                GamePlayByPlay.score_margin.isnot(None),
+                GamePlayByPlay.score_margin != "TIE",
+            )
+            .all()
+        )
+        margins_by_game: dict[str, list[int]] = defaultdict(list)
+        for r in all_pbp_margins:
+            try:
+                margins_by_game[r.game_id].append(int(r.score_margin))
+            except (ValueError, TypeError):
+                pass
 
         result = []
         for g in games:
             home_team = team_lookup.get(g.home_team_id)
             road_team = team_lookup.get(g.road_team_id)
             home_won = g.wining_team_id == g.home_team_id if g.wining_team_id else None
+
+            # Largest lead: positive margin = home leads, negative = road leads
+            gm = margins_by_game.get(g.game_id, [])
+            home_lead = max(gm, default=0) if gm else 0
+            road_lead = max((-m for m in gm), default=0) if gm else 0
+
+            # FG%
+            home_ts = ts_map.get((g.game_id, g.home_team_id))
+            road_ts = ts_map.get((g.game_id, g.road_team_id))
+
+            # Top scorers
+            home_scorer = top_scorer_map.get((g.game_id, g.home_team_id))
+            road_scorer = top_scorer_map.get((g.game_id, g.road_team_id))
+
             result.append({
                 "game_id": g.game_id,
                 "game_date": game_date,
@@ -4658,7 +4633,21 @@ def _build_today_games(team_lookup: dict) -> list[dict]:
                 "home_score": g.home_team_score,
                 "road_score": g.road_team_score,
                 "home_won": home_won,
-                "metrics": metrics_by_game.get(g.game_id, []),
+                "lead_changes": lead_changes_map.get(g.game_id),
+                "home_largest_lead": max(home_lead, 0),
+                "road_largest_lead": max(road_lead, 0),
+                "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
+                "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
+                "home_scorer": {
+                    "player_id": home_scorer.player_id,
+                    "name": player_names.get(home_scorer.player_id, ""),
+                    "pts": home_scorer.pts,
+                } if home_scorer else None,
+                "road_scorer": {
+                    "player_id": road_scorer.player_id,
+                    "name": player_names.get(road_scorer.player_id, ""),
+                    "pts": road_scorer.pts,
+                } if road_scorer else None,
             })
         return result
 

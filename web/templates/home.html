@@ -294,11 +294,16 @@
   }
 
   .today-game {
+    display: block;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 10px;
     overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s;
   }
+  .today-game:hover { border-color: var(--border-2); text-decoration: none; }
 
   .today-matchup {
     display: flex;
@@ -306,19 +311,12 @@
     justify-content: center;
     gap: 12px;
     padding: 12px 16px;
-    text-decoration: none;
-    color: inherit;
-    transition: background 0.1s;
   }
-  .today-matchup:hover { background: var(--surface-3); text-decoration: none; }
 
   .today-team {
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  .today-team.home {
-    flex-direction: row;
   }
 
   .today-logo {
@@ -353,47 +351,90 @@
     font-weight: 600;
   }
 
-  .today-metrics {
-    display: flex;
-    gap: 0;
+  /* Stats strip below scoreboard */
+  .today-stats {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     border-top: 1px solid var(--border);
-    overflow-x: auto;
-    scrollbar-width: none;
+    padding: 8px 12px;
+    gap: 8px;
+    align-items: center;
   }
-  .today-metrics::-webkit-scrollbar { display: none; }
 
-  .today-metric {
-    flex: 1 1 0;
-    min-width: 0;
+  .ts-cell { min-width: 0; }
+
+  .ts-scorer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ts-scorer-right { justify-content: flex-end; }
+
+  .ts-headshot {
+    width: 36px;
+    height: 26px;
+    object-fit: cover;
+    object-position: top center;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .ts-scorer-info {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 8px 6px;
-    text-decoration: none;
-    color: inherit;
-    border-right: 1px solid var(--border);
-    transition: background 0.1s;
+    min-width: 0;
   }
-  .today-metric:last-child { border-right: none; }
-  .today-metric:hover { background: var(--surface-3); text-decoration: none; }
+  .ts-player-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ts-pts {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--accent);
+  }
 
-  .tm-name {
+  .ts-middle {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0 12px;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  .ts-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .ts-row-center { gap: 6px; }
+
+  .ts-val-side {
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    min-width: 30px;
+    text-align: center;
+  }
+  .ts-label {
     font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--muted);
-    text-align: center;
-    line-height: 1.2;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 100%;
   }
-  .tm-val {
+  .ts-val-accent {
     font-family: 'Outfit', sans-serif;
-    font-size: 15px;
+    font-size: 12px;
     font-weight: 800;
     color: var(--accent);
   }
@@ -403,9 +444,13 @@
     .today-logo { width: 22px; height: 22px; }
     .today-abbr { font-size: 12px; min-width: 30px; }
     .today-score { font-size: 1.1rem; min-width: 30px; }
-    .today-metric { padding: 6px 4px; }
-    .tm-name { font-size: 8px; }
-    .tm-val { font-size: 13px; }
+    .today-stats { padding: 6px 8px; gap: 4px; }
+    .ts-headshot { width: 28px; height: 20px; }
+    .ts-player-name { font-size: 10px; }
+    .ts-pts { font-size: 11px; }
+    .ts-middle { padding: 0 8px; }
+    .ts-val-side { font-size: 11px; min-width: 24px; }
+    .ts-label { font-size: 8px; }
   }
 </style>
 
@@ -559,8 +604,9 @@
   </div>
   <div class="today-games-list">
     {% for g in today_games %}
-    <div class="today-game">
-      <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-matchup">
+    <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-game">
+      {# ── Scoreboard row ── #}
+      <div class="today-matchup">
         <div class="today-team{% if g.home_won == false %} winner{% endif %}">
           <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg"
                alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
@@ -574,18 +620,52 @@
           <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg"
                alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
         </div>
-      </a>
-      {% if g.metrics %}
-      <div class="today-metrics">
-        {% for m in g.metrics %}
-        <a href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" class="today-metric">
-          <span class="tm-name">{{ m.metric_name }}</span>
-          <span class="tm-val">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</span>
-        </a>
-        {% endfor %}
       </div>
-      {% endif %}
-    </div>
+      {# ── Stats strip ── #}
+      <div class="today-stats">
+        {# Top scorers #}
+        <div class="ts-cell ts-scorer">
+          {% if g.road_scorer %}
+          <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ g.road_scorer.player_id }}.png"
+               alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
+          <div class="ts-scorer-info">
+            <span class="ts-player-name">{{ g.road_scorer.name }}</span>
+            <span class="ts-pts">{{ g.road_scorer.pts }} {{ t('PTS', '分') }}</span>
+          </div>
+          {% endif %}
+        </div>
+        {# Middle stats #}
+        <div class="ts-cell ts-middle">
+          <div class="ts-row">
+            <span class="ts-val-side">{{ g.road_fg_pct }}%</span>
+            <span class="ts-label">{{ t('FG%', '命中率') }}</span>
+            <span class="ts-val-side">{{ g.home_fg_pct }}%</span>
+          </div>
+          <div class="ts-row">
+            <span class="ts-val-side">{{ g.road_largest_lead }}</span>
+            <span class="ts-label">{{ t('Lead', '最大领先') }}</span>
+            <span class="ts-val-side">{{ g.home_largest_lead }}</span>
+          </div>
+          {% if g.lead_changes is not none %}
+          <div class="ts-row ts-row-center">
+            <span class="ts-label">{{ t('Lead Changes', '领先变换') }}</span>
+            <span class="ts-val-accent">{{ g.lead_changes }}</span>
+          </div>
+          {% endif %}
+        </div>
+        {# Home top scorer #}
+        <div class="ts-cell ts-scorer ts-scorer-right">
+          {% if g.home_scorer %}
+          <div class="ts-scorer-info" style="text-align:right;">
+            <span class="ts-player-name">{{ g.home_scorer.name }}</span>
+            <span class="ts-pts">{{ g.home_scorer.pts }} {{ t('PTS', '分') }}</span>
+          </div>
+          <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ g.home_scorer.player_id }}.png"
+               alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
+          {% endif %}
+        </div>
+      </div>
+    </a>
     {% endfor %}
   </div>
 </div>
