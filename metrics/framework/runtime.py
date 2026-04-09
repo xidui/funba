@@ -363,14 +363,11 @@ def _aggregate_contexts(
 
 
 def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
-    inner = getattr(metric, "_inner", None)
-    has_custom_method = inner is not None and type(inner).compute_career_value is not MetricDefinition.compute_career_value
     return (
         getattr(metric, "career_aggregate_mode", None) == "season_results"
         or bool(getattr(metric, "career_sum_keys", ()))
         or bool(getattr(metric, "career_max_keys", ()))
         or bool(getattr(metric, "career_min_keys", ()))
-        or has_custom_method
     )
 
 
