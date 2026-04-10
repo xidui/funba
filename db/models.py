@@ -16,6 +16,21 @@ engine = create_engine(get_database_url(), pool_size=_pool_size, max_overflow=_m
 Base = declarative_base()
 
 
+class NbaCity(Base):
+    __tablename__ = 'NbaCity'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    state = Column(String(50), nullable=True)       # NULL for Canadian cities
+    country = Column(String(50), nullable=False, default='US')
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('name', 'state', name='uq_NbaCity_name_state'),
+    )
+
+
 class Team(Base):
     __tablename__ = 'Team'
 
@@ -27,6 +42,7 @@ class Team(Base):
     nick_name = Column(String(100))
     city = Column(String(50))
     state = Column(String(50))
+    city_id = Column(Integer, ForeignKey('NbaCity.id'), nullable=True, index=True)
     year_founded = Column(Integer)
     active = Column(Boolean)
     is_legacy = Column(Boolean)
