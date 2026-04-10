@@ -263,6 +263,30 @@ class TestCrawlerTracking(unittest.TestCase):
         self.assertTrue(captured[0]["is_crawler"])
         self.assertEqual(captured[0]["crawler_name"], "meta-webindexer")
 
+    def test_meta_webindexer_is_blocked_through_cloudflare_tunnel(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/players/201939",
+            headers={
+                "User-Agent": "meta-webindexer/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
+                "CF-Connecting-IP": "8.8.8.8",
+            },
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "meta-webindexer")
+
     def test_googlebot_is_allowed_and_recorded_as_crawler(self):
         captured = []
 

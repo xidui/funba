@@ -3385,8 +3385,8 @@ def _block_bots():
         return
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
-    # Exempt all localhost requests (curl, Paperclip agents, admin tools)
-    if request.remote_addr in ("127.0.0.1", "::1"):
+    # Exempt only direct localhost requests, not Cloudflare-tunneled traffic.
+    if request.remote_addr in ("127.0.0.1", "::1") and _real_ip() in ("127.0.0.1", "::1"):
         return
     # Exempt AI coding tools (Claude Code, Codex) by User-Agent
     ua = (request.user_agent.string or "").lower().strip()
