@@ -3121,6 +3121,26 @@ def _feature_access_config() -> dict[str, str]:
         return get_feature_access_config(session)
 
 
+def _serialize_feature_access(session) -> list[dict]:
+    config = get_feature_access_config(session)
+    serialized = []
+    for descriptor in feature_access_descriptors():
+        serialized.append(
+            {
+                "key": descriptor["key"],
+                "label": descriptor["label"],
+                "description": descriptor["description"],
+                "default_level": descriptor["default_level"],
+                "current_level": config[descriptor["key"]],
+                "allowed_levels": [
+                    {"value": level, "label": access_level_label(level)}
+                    for level in descriptor["allowed_levels"]
+                ],
+            }
+        )
+    return serialized
+
+
 def _feature_access_denied_json(required_level: str):
     current_level = current_access_level()
     if current_level == "anonymous":
@@ -4641,6 +4661,7 @@ _metric_detail_views = register_metric_detail_routes(
         metric_perf_log_model=lambda: MetricPerfLog,
         player_model=lambda: Player,
         team_model=lambda: Team,
+        game_model=lambda: Game,
         current_user=lambda: _current_user,
         is_admin=lambda: is_admin,
         metric_def_view=lambda: _metric_def_view,
@@ -5069,6 +5090,8 @@ _admin_misc_views = register_admin_misc_routes(
         serialize_feature_access=lambda: _serialize_feature_access,
         get_default_llm_model_for_ui=lambda: get_default_llm_model_for_ui,
         get_llm_model_for_purpose=lambda: get_llm_model_for_purpose,
+        set_default_llm_model=lambda: set_default_llm_model,
+        set_llm_model_for_purpose=lambda: set_llm_model_for_purpose,
         available_llm_models=lambda: available_llm_models,
         get_paperclip_issue_base_url=lambda: get_paperclip_issue_base_url,
         set_paperclip_issue_base_url=lambda: set_paperclip_issue_base_url,
