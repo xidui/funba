@@ -199,21 +199,88 @@ class TeamResolver:
         team_name=None,
         team_abbr=None,
         team_city=None,
+        team_state=None,
         team_nickname=None,
         founded_year=None,
+        arena=None,
+        arena_capacity=None,
+        owner=None,
+        general_manager=None,
+        head_coach=None,
+        g_league_affiliation=None,
+        facebook_url=None,
+        instagram_url=None,
+        twitter_url=None,
     ) -> Team:
         normalized_id = _normalize_game_id(team_id) or _clean_str(team_id)
         canonical_name = _canonical_team_name(team_name)
         abbr = _clean_str(team_abbr)
 
         if normalized_id and normalized_id in self.by_id:
-            return self.by_id[normalized_id]
+            team = self.by_id[normalized_id]
+            self._update_team(
+                team,
+                team_name=canonical_name or team_name,
+                team_abbr=abbr,
+                team_city=team_city,
+                team_state=team_state,
+                team_nickname=team_nickname,
+                founded_year=founded_year,
+                arena=arena,
+                arena_capacity=arena_capacity,
+                owner=owner,
+                general_manager=general_manager,
+                head_coach=head_coach,
+                g_league_affiliation=g_league_affiliation,
+                facebook_url=facebook_url,
+                instagram_url=instagram_url,
+                twitter_url=twitter_url,
+            )
+            return team
 
         if canonical_name and canonical_name.casefold() in self.by_name:
-            return self.by_name[canonical_name.casefold()]
+            team = self.by_name[canonical_name.casefold()]
+            self._update_team(
+                team,
+                team_name=canonical_name,
+                team_abbr=abbr,
+                team_city=team_city,
+                team_state=team_state,
+                team_nickname=team_nickname,
+                founded_year=founded_year,
+                arena=arena,
+                arena_capacity=arena_capacity,
+                owner=owner,
+                general_manager=general_manager,
+                head_coach=head_coach,
+                g_league_affiliation=g_league_affiliation,
+                facebook_url=facebook_url,
+                instagram_url=instagram_url,
+                twitter_url=twitter_url,
+            )
+            return team
 
         if abbr and abbr.casefold() in self.by_abbr:
-            return self.by_abbr[abbr.casefold()]
+            team = self.by_abbr[abbr.casefold()]
+            self._update_team(
+                team,
+                team_name=canonical_name or team_name,
+                team_abbr=abbr,
+                team_city=team_city,
+                team_state=team_state,
+                team_nickname=team_nickname,
+                founded_year=founded_year,
+                arena=arena,
+                arena_capacity=arena_capacity,
+                owner=owner,
+                general_manager=general_manager,
+                head_coach=head_coach,
+                g_league_affiliation=g_league_affiliation,
+                facebook_url=facebook_url,
+                instagram_url=instagram_url,
+                twitter_url=twitter_url,
+            )
+            return team
 
         team = Team(
             id=self.next_numeric_id,
@@ -231,10 +298,85 @@ class TeamResolver:
         self.next_numeric_id += 1
         if not team.canonical_team_id and team.team_id:
             team.canonical_team_id = team.team_id
+        self._update_team(
+            team,
+            team_name=canonical_name or team_name,
+            team_abbr=abbr,
+            team_city=team_city,
+            team_state=team_state,
+            team_nickname=team_nickname,
+            founded_year=founded_year,
+            arena=arena,
+            arena_capacity=arena_capacity,
+            owner=owner,
+            general_manager=general_manager,
+            head_coach=head_coach,
+            g_league_affiliation=g_league_affiliation,
+            facebook_url=facebook_url,
+            instagram_url=instagram_url,
+            twitter_url=twitter_url,
+        )
         self.session.add(team)
         self.counts.teams_created += 1
         self._index(team)
         return team
+
+    def _update_team(
+        self,
+        team: Team,
+        *,
+        team_name=None,
+        team_abbr=None,
+        team_city=None,
+        team_state=None,
+        team_nickname=None,
+        founded_year=None,
+        arena=None,
+        arena_capacity=None,
+        owner=None,
+        general_manager=None,
+        head_coach=None,
+        g_league_affiliation=None,
+        facebook_url=None,
+        instagram_url=None,
+        twitter_url=None,
+    ) -> None:
+        full_name = _canonical_team_name(team_name)
+        preserve_identity = False
+        if full_name and team.full_name and full_name.casefold() == team.full_name.casefold():
+            full_name = team.full_name
+            incoming_abbr = _clean_str(team_abbr)
+            incoming_city = _clean_str(team_city)
+            if (incoming_abbr and team.abbr and incoming_abbr.casefold() != team.abbr.casefold()) or (
+                incoming_city and team.city and incoming_city.casefold() != team.city.casefold()
+            ):
+                preserve_identity = True
+        elif full_name and team.full_name:
+            preserve_identity = True
+        updates = {
+            "full_name": team.full_name if preserve_identity else full_name,
+            "abbr": team.abbr if preserve_identity else _clean_str(team_abbr),
+            "city": team.city if preserve_identity else _clean_str(team_city),
+            "state": team.state if preserve_identity else _clean_str(team_state),
+            "nick_name": team.nick_name if preserve_identity else _clean_str(team_nickname),
+            "year_founded": _to_int_or_none(founded_year),
+            "arena": _clean_str(arena),
+            "arena_capacity": _to_int_or_none(arena_capacity),
+            "owner": _clean_str(owner),
+            "general_manager": _clean_str(general_manager),
+            "head_coach": _clean_str(head_coach),
+            "g_league_affiliation": _clean_str(g_league_affiliation),
+            "facebook_url": _clean_str(facebook_url),
+            "instagram_url": _clean_str(instagram_url),
+            "twitter_url": _clean_str(twitter_url),
+        }
+        if updates["nick_name"] is None and updates["full_name"]:
+            updates["nick_name"] = updates["full_name"].split()[-1]
+        for field, value in updates.items():
+            if value is None:
+                continue
+            if getattr(team, field) != value:
+                setattr(team, field, value)
 
 
 def _extract_team_stat_payload(row: dict, suffix: str) -> dict[str, int | float | None]:

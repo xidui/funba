@@ -51,6 +51,11 @@ _TEAM_NAME_ALIASES = {
     "new orleans/oklahoma city hornets": "new orleans pelicans",
     "charlotte bobcats": "charlotte hornets",
     "new orleans jazz": "utah jazz",
+    "chicago packers": "washington wizards",
+    "chicago zephyrs": "washington wizards",
+    "washington bullets": "washington wizards",
+    "capital bullets": "washington wizards",
+    "baltimore bullets": "washington wizards",
     "vancouver grizzlies": "memphis grizzlies",
     "philadelphia warriors": "golden state warriors",
     "san francisco warriors": "golden state warriors",
@@ -95,7 +100,19 @@ class ImportCounts:
 
 
 def _normalize_column_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(name).strip())
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", normalized).strip("_").lower()
+    replacements = {
+        "hometeam_": "home_team_",
+        "awayteam_": "away_team_",
+        "visitorteam_": "visitor_team_",
+        "roadteam_": "road_team_",
+        "opponentteam_": "opponent_team_",
+        "playerteam_": "player_team_",
+    }
+    for source, target in replacements.items():
+        normalized = normalized.replace(source, target)
+    return normalized
 
 
 def _normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -193,12 +210,26 @@ def _parse_date(value) -> date | None:
         return None
 
 
+def _compose_team_full_name(city: str | None, name: str | None) -> str | None:
+    clean_city = _clean_str(city)
+    clean_name = _clean_str(name)
+    if clean_city and clean_name:
+        return f"{clean_city} {clean_name}"
+    return clean_name or clean_city
+
+
 def _coerce_bool(value, *, default: bool | None = None) -> bool | None:
     if _is_missing(value):
         return default
     if isinstance(value, bool):
         return value
     text = str(value).strip().lower()
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        number = None
+    if number is not None:
+        return bool(int(number))
     if text in {"1", "true", "yes", "y", "home", "starter"}:
         return True
     if text in {"0", "false", "no", "n", "away", "bench"}:
@@ -229,6 +260,9 @@ def _season_start_year_from_row(row: dict) -> int | None:
         match = re.search(r"(19|20)\d{2}", season_text)
         if match:
             return int(match.group(0))
+    game_date = _parse_date(_row_value(row, "game_date", "gamedate", "game_date_time_est", "gamedatetimeest", "date"))
+    if game_date is not None:
+        return game_date.year if game_date.month >= 9 else game_date.year - 1
     return None
 
 
@@ -260,12 +294,49 @@ def _build_stable_game_id(row: dict, *, home_team_id: str, road_team_id: str) ->
     if explicit:
         return explicit
 
-    game_date = _parse_date(_row_value(row, "game_date", "gamedate", "date"))
+    game_date = _parse_date(_row_value(row, "game_date", "gamedate", "game_date_time_est", "gamedatetimeest", "date"))
     date_token = game_date.isoformat() if game_date is not None else "unknown-date"
-    home_score = _clean_str(_row_value(row, "home_team_score", "home_score", "home_points"))
-    road_score = _clean_str(_row_value(row, "away_team_score", "road_team_score", "away_score", "visitor_score", "road_score"))
+    home_score = _clean_str(_row_value(row, "home_team_score", "home_score", "home_points", "homescore"))
+    road_score = _clean_str(_row_value(row, "away_team_score", "road_team_score", "away_score", "visitor_score", "road_score", "awayscore"))
     score_token = f"{road_score or 'x'}-{home_score or 'x'}"
     return f"kaggle:{date_token}:{road_team_id}:{home_team_id}:{score_token}"
+
+
+def _match_existing_game_id(
+    session: Session,
+    *,
+    source_game_id: str,
+    game_row: dict,
+    home_team_id: str,
+    road_team_id: str,
+    home_score: int | None,
+    road_score: int | None,
+) -> str:
+    with session.no_autoflush:
+        existing = session.query(Game.game_id).filter(Game.game_id == source_game_id).one_or_none()
+    if existing is not None:
+        return source_game_id
+
+    game_date = _parse_date(_row_value(game_row, "game_date", "gamedate", "game_date_time_est", "gamedatetimeest", "date"))
+    if game_date is None:
+        return source_game_id
+
+    with session.no_autoflush:
+        candidates = session.query(Game.game_id, Game.home_team_score, Game.road_team_score).filter(
+            Game.game_date == game_date,
+            Game.home_team_id == home_team_id,
+            Game.road_team_id == road_team_id,
+        ).all()
+    if not candidates:
+        return source_game_id
+    if len(candidates) == 1:
+        return str(candidates[0].game_id)
+
+    if home_score is not None and road_score is not None:
+        for candidate in candidates:
+            if candidate.home_team_score == home_score and candidate.road_team_score == road_score:
+                return str(candidate.game_id)
+    return source_game_id
 
 
 def _value_map(frame: pd.DataFrame | None, *, key_names: tuple[str, ...], value_names: tuple[str, ...]) -> dict[str, dict]:
@@ -322,11 +393,14 @@ class TeamResolver:
         self.by_id: dict[str, Team] = {}
         self.by_abbr: dict[str, Team] = {}
         self.by_name: dict[str, Team] = {}
+        self.next_numeric_id = 1
         self._load_existing()
 
     def _load_existing(self) -> None:
         for team in self.session.query(Team).all():
             self._index(team)
+            if team.id is not None and team.id >= self.next_numeric_id:
+                self.next_numeric_id = team.id + 1
 
     def _index(self, team: Team) -> None:
         if team.team_id:
@@ -367,6 +441,10 @@ class TeamResolver:
                     "display_name",
                 )
             )
+            or _compose_team_full_name(
+                _row_value(row, "team_city", "city"),
+                _row_value(row, "team_name", "nickname", "team_nickname"),
+            )
             or fallback_name
         )
         if full_name and full_name.casefold() in self.by_name:
@@ -378,7 +456,8 @@ class TeamResolver:
             raise ValueError(f"Unable to resolve team row: {row}")
 
         team_id = explicit_id or f"kaggle-team:{_slugify(full_name or abbr)}"
-        team = Team(team_id=team_id)
+        team = Team(id=self.next_numeric_id, team_id=team_id)
+        self.next_numeric_id += 1
         self.session.add(team)
         self.counts.teams_created += 1
         self._update_team(team, row, fallback_name=full_name, fallback_abbr=abbr)
@@ -391,19 +470,34 @@ class TeamResolver:
             _clean_str(
                 _row_value(row, "full_name", "team_name", "team_full_name", "franchise_name", "display_name")
             )
+            or _compose_team_full_name(
+                _row_value(row, "team_city", "city"),
+                _row_value(row, "team_name", "nickname", "team_nickname"),
+            )
             or fallback_name
         )
-        abbr = _clean_str(_row_value(row, "abbr", "team_abbr", "team_tricode", "team_abbreviation", "team_code")) or fallback_abbr
+        preserve_identity = False
+        if full_name and team.full_name and full_name.casefold() == team.full_name.casefold():
+            full_name = team.full_name
+            incoming_abbr = _clean_str(_row_value(row, "abbr", "team_abbr", "team_tricode", "team_abbreviation", "team_code")) or fallback_abbr
+            incoming_city = _clean_str(_row_value(row, "city", "team_city"))
+            if (incoming_abbr and team.abbr and incoming_abbr.casefold() != team.abbr.casefold()) or (
+                incoming_city and team.city and incoming_city.casefold() != team.city.casefold()
+            ):
+                preserve_identity = True
+        elif full_name and team.full_name:
+            preserve_identity = True
+        abbr = _clean_str(_row_value(row, "abbr", "team_abbr", "team_tricode", "team_abbreviation", "team_code", "team_abbrev")) or fallback_abbr
         nick_name = _clean_str(_row_value(row, "nick_name", "nickname", "team_nickname"))
         city = _clean_str(_row_value(row, "city", "team_city"))
-        start_year = _to_int_or_none(_row_value(row, "start_year", "year_founded", "first_season"))
-        end_year = _to_int_or_none(_row_value(row, "end_year", "last_season"))
+        start_year = _to_int_or_none(_row_value(row, "start_year", "year_founded", "first_season", "season_founded"))
+        end_year = _to_int_or_none(_row_value(row, "end_year", "last_season", "season_active_till"))
 
         updates = {
-            "full_name": full_name,
-            "abbr": abbr,
-            "nick_name": nick_name or (full_name.split()[-1] if full_name else None),
-            "city": city,
+            "full_name": team.full_name if preserve_identity else full_name,
+            "abbr": team.abbr if preserve_identity else abbr,
+            "nick_name": team.nick_name if preserve_identity else (nick_name or (full_name.split()[-1] if full_name else None)),
+            "city": team.city if preserve_identity else city,
             "year_founded": start_year,
             "is_legacy": False if end_year is None else True,
             "start_season": str(start_year) if start_year is not None else None,
@@ -464,7 +558,10 @@ class PlayerResolver:
                 "player_full_name",
                 "player",
             )
-        ) or _clean_str(_row_value(players_row or {}, "full_name", "player_name", "name"))
+        ) or _clean_str(_row_value(players_row or {}, "full_name", "player_name", "name")) or _compose_team_full_name(
+            _row_value(row, "first_name"),
+            _row_value(row, "last_name"),
+        )
         if full_name and len(self.by_name.get(full_name.casefold(), [])) == 1:
             player = self.by_name[full_name.casefold()][0]
             self._update_player(player, row, players_row=players_row)
@@ -482,7 +579,10 @@ class PlayerResolver:
     def _update_player(self, player: Player, row: dict, *, players_row: dict | None) -> None:
         source = dict(players_row or {})
         source.update(row)
-        full_name = _clean_str(_row_value(source, "full_name", "player_name", "name", "player_full_name"))
+        full_name = _clean_str(_row_value(source, "full_name", "player_name", "name", "player_full_name")) or _compose_team_full_name(
+            _row_value(source, "first_name", "firstname"),
+            _row_value(source, "last_name", "lastname", "family_name"),
+        )
         first_name = _clean_str(_row_value(source, "first_name", "firstname"))
         last_name = _clean_str(_row_value(source, "last_name", "lastname", "family_name"))
         if full_name and (first_name is None or last_name is None):
@@ -495,9 +595,15 @@ class PlayerResolver:
             "first_name": first_name,
             "last_name": last_name,
             "nick_name": _clean_str(_row_value(source, "nickname", "nick_name")),
-            "position": _clean_str(_row_value(source, "position", "pos")),
-            "height": _clean_str(_row_value(source, "height")),
-            "weight": _to_int_or_none(_row_value(source, "weight")),
+            "position": _clean_str(_row_value(source, "position", "pos")) or _position_from_flags(source),
+            "height": _clean_str(_row_value(source, "height")) or _height_inches_to_feet_inches(_row_value(source, "height_inches")),
+            "weight": _to_int_or_none(_row_value(source, "weight", "body_weight_lbs")),
+            "birth_date": _parse_date(_row_value(source, "birth_date", "birthdate")),
+            "country": _clean_str(_row_value(source, "country")),
+            "school": _clean_str(_row_value(source, "school")),
+            "draft_year": _to_int_or_none(_row_value(source, "draft_year")),
+            "draft_round": _to_int_or_none(_row_value(source, "draft_round")),
+            "draft_number": _to_int_or_none(_row_value(source, "draft_number")),
             "from_year": _to_int_or_none(_row_value(source, "from_year", "rookie_year", "start_year")),
             "to_year": _to_int_or_none(_row_value(source, "to_year", "last_year", "end_year")),
             "is_active": _coerce_bool(_row_value(source, "is_active", "active"), default=True),
@@ -521,6 +627,27 @@ def _split_name(full_name: str | None) -> tuple[str | None, str | None]:
     if len(parts) == 1:
         return parts[0], ""
     return parts[0], " ".join(parts[1:])
+
+
+def _height_inches_to_feet_inches(value) -> str | None:
+    inches = _to_int_or_none(value)
+    if inches is None or inches <= 0:
+        return None
+    feet, remainder = divmod(inches, 12)
+    return f"{feet}-{remainder}"
+
+
+def _position_from_flags(row: dict) -> str | None:
+    positions = []
+    if _coerce_bool(row.get("guard")):
+        positions.append("G")
+    if _coerce_bool(row.get("forward")):
+        positions.append("F")
+    if _coerce_bool(row.get("center")):
+        positions.append("C")
+    if not positions:
+        return None
+    return "-".join(positions)
 
 
 def _stats_value(row: dict, *names: str):
@@ -590,6 +717,7 @@ def _period_points(row: dict, prefix: str) -> tuple[int | None, int | None, int 
                 _stats_value(
                     row,
                     f"{prefix}q{period}_pts",
+                    f"{prefix}q{period}_points",
                     f"{prefix}q{period}",
                     f"{prefix}period_{period}",
                     f"{prefix}pts_qtr{period}",
@@ -611,6 +739,52 @@ def _period_points(row: dict, prefix: str) -> tuple[int | None, int | None, int 
         if score is not None:
             overtime_values.append(score)
     return values[0], values[1], values[2], values[3], overtime_values
+
+
+def _resolve_player_game_team(
+    team_resolver: TeamResolver,
+    source_row: dict,
+    *,
+    home_team: Team,
+    road_team: Team,
+) -> Team:
+    explicit_team_id = _clean_str(_row_value(source_row, "team_id", "teamid", "nba_team_id"))
+    if explicit_team_id:
+        return team_resolver.resolve(
+            {
+                "team_id": explicit_team_id,
+                "team_name": _row_value(source_row, "team_name", "team_full_name"),
+                "team_abbr": _row_value(source_row, "team_abbr", "team_tricode", "team_abbreviation"),
+            },
+            allow_create=True,
+        )
+
+    home_flag = _coerce_bool(_row_value(source_row, "home"), default=None)
+    if home_flag is True:
+        return home_team
+    if home_flag is False:
+        return road_team
+
+    player_team_name = _compose_team_full_name(
+        _row_value(source_row, "player_team_city", "team_city"),
+        _row_value(source_row, "player_team_name", "team_name", "team_full_name"),
+    )
+    if player_team_name:
+        canonical = _canonical_team_name(player_team_name)
+        if canonical and home_team.full_name and canonical.casefold() == home_team.full_name.casefold():
+            return home_team
+        if canonical and road_team.full_name and canonical.casefold() == road_team.full_name.casefold():
+            return road_team
+
+    return team_resolver.resolve(
+        {
+            "team_id": explicit_team_id,
+            "team_name": player_team_name,
+            "team_abbr": _row_value(source_row, "team_abbr", "team_tricode", "team_abbreviation"),
+        },
+        fallback_name=player_team_name,
+        allow_create=True,
+    )
 
 
 def _upsert_game_line_score(
@@ -683,11 +857,23 @@ def backfill_kaggle_historical(
 
         players_by_id = _value_map(players_frame, key_names=("player_id", "person_id", "personid", "nba_player_id", "id"), value_names=("full_name",))
         players_by_name = _value_map(players_frame, key_names=("full_name", "player_name", "name"), value_names=("player_id",))
+        if players_frame is not None:
+            for row in players_frame.to_dict(orient="records"):
+                full_name = _clean_str(_row_value(row, "full_name", "player_name", "name")) or _compose_team_full_name(
+                    _row_value(row, "first_name", "firstname"),
+                    _row_value(row, "last_name", "lastname"),
+                )
+                if full_name:
+                    players_by_name.setdefault(full_name, {"player_id": _row_value(row, "player_id", "person_id", "personid", "nba_player_id", "id"), **row})
 
         team_resolver = TeamResolver(session, counts)
         if team_histories_frame is not None:
             for row in team_histories_frame.to_dict(orient="records"):
-                team_resolver.resolve(row, allow_create=True)
+                fallback_name = _compose_team_full_name(
+                    _row_value(row, "team_city", "city"),
+                    _row_value(row, "team_name", "nickname", "team_nickname"),
+                )
+                team_resolver.resolve(row, fallback_name=fallback_name, allow_create=True)
         player_resolver = PlayerResolver(session, counts)
 
         team_rows_by_game: dict[str, list[dict]] = defaultdict(list)
@@ -710,44 +896,64 @@ def backfill_kaggle_historical(
             if season_end is not None and (start_year is None or start_year > season_end):
                 continue
 
+            home_name = _compose_team_full_name(
+                _row_value(game_row, "home_team_city", "hometeamcity"),
+                _row_value(game_row, "home_team_name", "home_team", "hometeamname"),
+            )
+            road_name = _compose_team_full_name(
+                _row_value(game_row, "away_team_city", "road_team_city", "awayteamcity"),
+                _row_value(game_row, "away_team_name", "road_team_name", "away_team", "visitor_team", "awayteamname"),
+            )
+
             home_team = team_resolver.resolve(
                 {
                     "team_id": _row_value(game_row, "home_team_id", "hometeamid"),
-                    "team_name": _row_value(game_row, "home_team_name", "home_team"),
+                    "team_name": home_name,
                     "team_abbr": _row_value(game_row, "home_team_abbr", "home_team_tricode", "home_team_abbreviation"),
                 },
-                fallback_name=_clean_str(_row_value(game_row, "home_team_name", "home_team")),
+                fallback_name=home_name,
                 fallback_abbr=_clean_str(_row_value(game_row, "home_team_abbr", "home_team_tricode", "home_team_abbreviation")),
             )
             road_team = team_resolver.resolve(
                 {
                     "team_id": _row_value(game_row, "away_team_id", "road_team_id", "visitorteamid"),
-                    "team_name": _row_value(game_row, "away_team_name", "road_team_name", "away_team", "visitor_team"),
+                    "team_name": road_name,
                     "team_abbr": _row_value(game_row, "away_team_abbr", "road_team_abbr", "away_team_tricode", "away_team_abbreviation"),
                 },
-                fallback_name=_clean_str(_row_value(game_row, "away_team_name", "road_team_name", "away_team", "visitor_team")),
+                fallback_name=road_name,
                 fallback_abbr=_clean_str(_row_value(game_row, "away_team_abbr", "road_team_abbr", "away_team_tricode", "away_team_abbreviation")),
             )
 
-            game_id = _build_stable_game_id(game_row, home_team_id=str(home_team.team_id), road_team_id=str(road_team.team_id))
-            team_rows = team_rows_by_game.get(game_id, [])
+            source_game_id = _build_stable_game_id(game_row, home_team_id=str(home_team.team_id), road_team_id=str(road_team.team_id))
+            team_rows = team_rows_by_game.get(source_game_id, [])
             if len(team_rows) < 2:
                 counts.skipped_games_missing_team_stats += 1
-                logger.warning("skip kaggle game %s: expected 2 team rows, found %s", game_id, len(team_rows))
+                logger.warning("skip kaggle game %s: expected 2 team rows, found %s", source_game_id, len(team_rows))
                 continue
 
-            game_record = session.query(Game).filter(Game.game_id == game_id).one_or_none()
+            home_score = _to_int_or_none(_row_value(game_row, "home_team_score", "home_score", "home_points", "homescore"))
+            road_score = _to_int_or_none(_row_value(game_row, "away_team_score", "road_team_score", "away_score", "visitor_score", "road_score", "awayscore"))
+
+            game_id = _match_existing_game_id(
+                session,
+                source_game_id=source_game_id,
+                game_row=game_row,
+                home_team_id=str(home_team.team_id),
+                road_team_id=str(road_team.team_id),
+                home_score=home_score,
+                road_score=road_score,
+            )
+
+            with session.no_autoflush:
+                game_record = session.query(Game).filter(Game.game_id == game_id).one_or_none()
             is_new_game = game_record is None
             if game_record is None:
                 game_record = Game(game_id=game_id)
                 session.add(game_record)
 
-            home_score = _to_int_or_none(_row_value(game_row, "home_team_score", "home_score", "home_points"))
-            road_score = _to_int_or_none(_row_value(game_row, "away_team_score", "road_team_score", "away_score", "visitor_score", "road_score"))
-
             game_record.data_source = KAGGLE_BOX_SCORE_SOURCE
             game_record.season = _season_token(game_row)
-            game_record.game_date = _parse_date(_row_value(game_row, "game_date", "gamedate", "date"))
+            game_record.game_date = _parse_date(_row_value(game_row, "game_date", "gamedate", "game_date_time_est", "gamedatetimeest", "date"))
             game_record.home_team_id = str(home_team.team_id)
             game_record.road_team_id = str(road_team.team_id)
             game_record.home_team_score = home_score
@@ -774,7 +980,8 @@ def backfill_kaggle_historical(
                 source_row = team_rows_by_team_id.get(team_id)
                 if source_row is None:
                     continue
-                team_stat = session.query(TeamGameStats).filter_by(game_id=game_id, team_id=team_id).first()
+                with session.no_autoflush:
+                    team_stat = session.query(TeamGameStats).filter_by(game_id=game_id, team_id=team_id).first()
                 is_new_stat = team_stat is None
                 if team_stat is None:
                     team_stat = TeamGameStats(game_id=game_id, team_id=team_id)
@@ -799,27 +1006,28 @@ def backfill_kaggle_historical(
                     row=source_row,
                 )
 
-            for source_row in player_rows_by_game.get(game_id, []):
+            for source_row in player_rows_by_game.get(source_game_id, []):
                 player_id = _clean_str(_row_value(source_row, "player_id", "person_id", "personid", "nba_player_id", "id"))
                 players_row = players_by_id.get(player_id or "") if player_id else None
                 if players_row is None:
                     full_name = _clean_str(_row_value(source_row, "player_name", "full_name", "name"))
                     players_row = players_by_name.get(full_name or "")
                 player = player_resolver.resolve(source_row, players_row=players_row)
-                team = team_resolver.resolve(
-                    {
-                        "team_id": _row_value(source_row, "team_id", "teamid", "nba_team_id"),
-                        "team_name": _row_value(source_row, "team_name", "team_full_name"),
-                        "team_abbr": _row_value(source_row, "team_abbr", "team_tricode", "team_abbreviation"),
-                    },
-                    allow_create=True,
+                team = _resolve_player_game_team(
+                    team_resolver,
+                    source_row,
+                    home_team=home_team,
+                    road_team=road_team,
                 )
+                if str(team.team_id).startswith("kaggle-team:"):
+                    session.flush()
 
-                player_stat = session.query(PlayerGameStats).filter_by(
-                    game_id=game_id,
-                    team_id=str(team.team_id),
-                    player_id=str(player.player_id),
-                ).first()
+                with session.no_autoflush:
+                    player_stat = session.query(PlayerGameStats).filter_by(
+                        game_id=game_id,
+                        team_id=str(team.team_id),
+                        player_id=str(player.player_id),
+                    ).first()
                 is_new_stat = player_stat is None
                 if player_stat is None:
                     player_stat = PlayerGameStats(

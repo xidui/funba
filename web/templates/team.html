@@ -94,6 +94,50 @@
     filter: brightness(1.05);
   }
 
+  /* ── Team info grid ─────────────────────────────────────── */
+  .team-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px 24px;
+  }
+  .team-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .team-info-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+  }
+  .team-info-value {
+    font-size: 0.95rem;
+    color: var(--heading);
+    font-weight: 500;
+  }
+  .team-social-links {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .team-social-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-2);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .team-social-links a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
   /* Score link — fills full cell for tap target; hover/focus handled here */
   td.score-cell { padding: 0; }
   a.score-link {
@@ -145,6 +189,51 @@
     </span>
   </div>
 </div>
+
+{% if team.head_coach or team.arena or team.owner or team.general_manager %}
+<div class="card">
+  <h2>{{ t('Team Info', '球队信息') }}</h2>
+  <div class="team-info-grid">
+    {% if team.head_coach %}
+    <div class="team-info-item">
+      <span class="team-info-label">{{ t('Head Coach', '主教练') }}</span>
+      <span class="team-info-value">{{ team.head_coach }}</span>
+    </div>
+    {% endif %}
+    {% if team.general_manager %}
+    <div class="team-info-item">
+      <span class="team-info-label">{{ t('General Manager', '总经理') }}</span>
+      <span class="team-info-value">{{ team.general_manager }}</span>
+    </div>
+    {% endif %}
+    {% if team.owner %}
+    <div class="team-info-item">
+      <span class="team-info-label">{{ t('Owner', '老板') }}</span>
+      <span class="team-info-value">{{ team.owner }}</span>
+    </div>
+    {% endif %}
+    {% if team.arena %}
+    <div class="team-info-item">
+      <span class="team-info-label">{{ t('Arena', '球馆') }}</span>
+      <span class="team-info-value">{{ team.arena }}{% if team.arena_capacity %} <span class="meta" style="font-size:12px;">({{ "{:,}".format(team.arena_capacity) }})</span>{% endif %}</span>
+    </div>
+    {% endif %}
+    {% if team.g_league_affiliation %}
+    <div class="team-info-item">
+      <span class="team-info-label">{{ t('G-League Affiliate', '发展联盟') }}</span>
+      <span class="team-info-value">{{ team.g_league_affiliation }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% if team.twitter_url or team.instagram_url or team.facebook_url %}
+  <div class="team-social-links">
+    {% if team.twitter_url %}<a href="{{ team.twitter_url }}" target="_blank" rel="noopener">Twitter</a>{% endif %}
+    {% if team.instagram_url %}<a href="{{ team.instagram_url }}" target="_blank" rel="noopener">Instagram</a>{% endif %}
+    {% if team.facebook_url %}<a href="{{ team.facebook_url }}" target="_blank" rel="noopener">Facebook</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if team_championships %}
 <div class="card">

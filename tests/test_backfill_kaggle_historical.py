@@ -254,6 +254,73 @@ class TestBackfillKaggleHistorical(unittest.TestCase):
             self.assertEqual(player_stat_count, 2)
             self.assertEqual(line_score_count, 2)
 
+    def test_matches_existing_game_by_date_teams_and_score_when_source_id_differs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_dataset(root)
+
+            games = pd.read_csv(root / "Games.csv")
+            games.loc[:, "game_id"] = "ALT-0001"
+            games.to_csv(root / "Games.csv", index=False)
+
+            team_stats = pd.read_csv(root / "TeamStatistics.csv")
+            team_stats.loc[:, "game_id"] = "ALT-0001"
+            team_stats.to_csv(root / "TeamStatistics.csv", index=False)
+
+            player_stats = pd.read_csv(root / "PlayerStatistics.csv")
+            player_stats.loc[:, "game_id"] = "ALT-0001"
+            player_stats.to_csv(root / "PlayerStatistics.csv", index=False)
+
+            with self.SessionLocal() as session:
+                session.add(
+                    self.models.Team(
+                        team_id="1610612738",
+                        canonical_team_id="1610612738",
+                        full_name="Boston Celtics",
+                        abbr="BOS",
+                        is_legacy=False,
+                    )
+                )
+                session.add(
+                    self.models.Team(
+                        team_id="1610612747",
+                        canonical_team_id="1610612747",
+                        full_name="Los Angeles Lakers",
+                        abbr="LAL",
+                        is_legacy=False,
+                    )
+                )
+                session.add(
+                    self.models.Game(
+                        game_id="HIST-EXISTING",
+                        data_source="kaggle_box_scores",
+                        season="21984",
+                        game_date=pd.Timestamp("1984-10-05").date(),
+                        home_team_id="1610612738",
+                        road_team_id="1610612747",
+                        home_team_score=102,
+                        road_team_score=97,
+                    )
+                )
+                session.commit()
+
+            with self.SessionLocal() as session:
+                counts = self.module.backfill_kaggle_historical(session, root)
+                session.commit()
+
+            self.assertEqual(counts.games_created, 0)
+            self.assertEqual(counts.games_updated, 1)
+
+            with self.SessionLocal() as session:
+                game_count = session.query(self.models.Game).count()
+                existing = session.get(self.models.Game, "HIST-EXISTING")
+                player_stat = session.query(self.models.PlayerGameStats).filter_by(game_id="HIST-EXISTING", player_id="historic-1").one()
+
+            self.assertEqual(game_count, 1)
+            self.assertIsNotNone(existing)
+            self.assertEqual(existing.home_team_score, 102)
+            self.assertEqual(player_stat.team_id, "1610612738")
+
 
 if __name__ == "__main__":
     unittest.main()
