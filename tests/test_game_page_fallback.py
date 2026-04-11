@@ -132,3 +132,43 @@ class TestGamePageFallback(unittest.TestCase):
         self.assertEqual(response["game"].game_id, "0022501185")
         self.assertEqual(response["game"].season, "22025")
         self.assertIsNone(response["live_refresh_interval_ms"])
+
+    def test_game_page_renders_degraded_live_view_when_live_detail_api_is_unavailable(self):
+        session = _session_ctx(MagicMock())
+        game_query = MagicMock()
+        game_query.filter.return_value.first.return_value = None
+        session.query.return_value = game_query
+
+        team_map = {
+            "1610612745": SimpleNamespace(team_id="1610612745", abbr="HOU", full_name="Houston Rockets"),
+            "1610612750": SimpleNamespace(team_id="1610612750", abbr="MIN", full_name="Minnesota Timberwolves"),
+        }
+        live_summary = {
+            "game_id": "0022501178",
+            "season": "22025",
+            "game_date": "2026-04-10",
+            "status": "live",
+            "summary": "Q2 4:26",
+            "home_score": 61,
+            "road_score": 61,
+            "home_team_id": "1610612745",
+            "road_team_id": "1610612750",
+        }
+
+        with self.web_app.app.test_request_context("/games/0022501178"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_team_map", return_value=team_map), \
+                 patch.object(self.web_app, "game_analysis_issue_history", return_value=[]), \
+                 patch("web.detail_routes.fetch_live_game_detail", return_value=None), \
+                 patch("web.detail_routes.fetch_live_scoreboard_map", return_value={"0022501178": live_summary}), \
+                 patch.object(self.web_app, "render_template", side_effect=lambda template, **kwargs: {"template": template, **kwargs}):
+                response = self.web_app.game_page("0022501178")
+
+        self.assertEqual(response["template"], "game.html")
+        self.assertEqual(response["game_status"], "live")
+        self.assertEqual(response["game"].game_id, "0022501178")
+        self.assertEqual(response["live_summary"]["summary"], "Q2 4:26")
+        self.assertEqual(response["live_refresh_interval_ms"], 15000)
+        self.assertEqual(response["team_stats"], [])
+        self.assertEqual(response["players_by_team"], {})
+        self.assertEqual(response["pbp_rows"], [])
