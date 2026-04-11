@@ -359,7 +359,7 @@ class TestCrawlerTracking(unittest.TestCase):
         self.assertEqual(response, ("Forbidden", 403))
         self.assertEqual(len(captured), 1)
         self.assertTrue(captured[0]["is_crawler"])
-        self.assertEqual(captured[0]["crawler_name"], "repeat-crawler")
+        self.assertEqual(captured[0]["crawler_name"], "auth-spray-bot")
 
     def test_human_page_views_remain_non_crawler(self):
         captured = []

@@ -3383,19 +3383,7 @@ def _recent_repeat_crawler_ip_cached(ip_address: str, cache_bucket: int) -> bool
                 )
                 .first()
             )
-            if auth_spray_seen is not None:
-                return True
-            count = (
-                db_sess.query(func.count(PageView.id))
-                .filter(
-                    PageView.ip_address == value,
-                    PageView.is_crawler.is_(True),
-                    PageView.created_at >= cutoff,
-                )
-                .scalar()
-                or 0
-            )
-            return int(count) >= 3
+            return auth_spray_seen is not None
     except Exception:
         logger.exception("repeat crawler ip lookup failed")
         return False
@@ -3432,7 +3420,7 @@ def _request_crawler_decision() -> dict[str, object]:
         elif not app.config.get("TESTING") and _recent_repeat_crawler_ip(_real_ip()):
             decision = {
                 "is_crawler": True,
-                "crawler_name": "repeat-crawler",
+                "crawler_name": "auth-spray-bot",
                 "should_block": True,
             }
         elif not app.config.get("TESTING") and _is_bot():
