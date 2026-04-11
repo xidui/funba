@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
+from itertools import groupby as _groupby
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -407,12 +408,37 @@ def register_public_routes(
             today_games=today_games_data,
         )
 
+    def _group_by_date(entries):
+        """Group a pre-sorted list of game entries by game_date."""
+        return [(dt, list(g)) for dt, g in _groupby(entries, key=lambda e: e.game_date)]
+
+    _WD_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    _WD_ZH = ["\u5468\u4e00", "\u5468\u4e8c", "\u5468\u4e09", "\u5468\u56db", "\u5468\u4e94", "\u5468\u516d", "\u5468\u65e5"]
+    _MON_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
     def games_list():
         SessionLocal = get_session_local()
         Game = get_game_model()
         Team = get_team_model()
 
         page_size = 30
+        today = date.today()
+        is_zh = get_is_zh()
+
+        def fmt_date_header(d):
+            if d is None:
+                return "-"
+            wd = _WD_ZH[d.weekday()] if is_zh else _WD_EN[d.weekday()]
+            if is_zh:
+                label = f"{d.month}\u6708{d.day}\u65e5 {wd}"
+            else:
+                label = f"{_MON_EN[d.month - 1]} {d.day}, {d.year} ({wd})"
+            if d == today:
+                label += " \u00b7 " + ("\u4eca\u5929" if is_zh else "Today")
+            elif d == today - timedelta(days=1):
+                label += " \u00b7 " + ("\u6628\u5929" if is_zh else "Yesterday")
+            return label
+
         with SessionLocal() as session:
             live_map = fetch_live_scoreboard_map()
             all_season_ids = sorted(
@@ -463,12 +489,35 @@ def register_public_routes(
             completed_all.sort(key=lambda item: (item.game_date, item.game_id), reverse=True)
             upcoming_games.sort(key=lambda item: (item.game_date, item.game_id))
 
-            total = len(completed_all)
-            total_pages = max(1, (total + page_size - 1) // page_size)
+            # Determine active view
+            view = request.args.get("view", "").strip().lower()
+            has_live = bool(live_games)
+            if view not in ("results", "schedule", "live"):
+                view = "live" if has_live else "results"
+            if view == "live" and not has_live:
+                view = "results"
+
+            # Paginate based on active view
+            if view == "results":
+                paginate_source = completed_all
+            elif view == "schedule":
+                paginate_source = upcoming_games
+            else:
+                paginate_source = []
+
+            total = len(paginate_source)
+            total_pages = max(1, (total + page_size - 1) // page_size) if paginate_source else 1
             page = min(page, total_pages)
             start = (page - 1) * page_size
             end = start + page_size
-            completed_games = completed_all[start:end]
+            paginated = paginate_source[start:end] if paginate_source else []
+
+            date_groups = _group_by_date(paginated)
+
+            # Live view extras: live games grouped + today's completed
+            live_date_groups = _group_by_date(live_games) if view == "live" else []
+            today_completed = [e for e in completed_all if e.game_date == today] if view == "live" else []
+            today_completed_groups = _group_by_date(today_completed) if today_completed else []
 
             team_lookup = get_team_map(session)
             selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
@@ -477,10 +526,14 @@ def register_public_routes(
 
         return get_render_template()(
             "games_list.html",
-            games=[entry.game for entry in completed_games],
-            live_games=live_games,
-            completed_games=completed_games,
-            upcoming_games=upcoming_games,
+            view=view,
+            has_live=has_live,
+            date_groups=date_groups,
+            live_date_groups=live_date_groups,
+            today_completed_groups=today_completed_groups,
+            live_count=len(live_games),
+            results_count=len(completed_all),
+            schedule_count=len(upcoming_games),
             team_lookup=team_lookup,
             all_teams=all_teams,
             all_season_ids=all_season_ids,
@@ -488,7 +541,9 @@ def register_public_routes(
             selected_team=selected_team,
             selected_team_obj=selected_team_obj,
             fmt_date=get_fmt_date(),
+            fmt_date_header=fmt_date_header,
             fmt_season=get_season_label(),
+            today=today,
             page=page,
             total_pages=total_pages,
             total=total,
