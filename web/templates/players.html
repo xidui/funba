@@ -136,31 +136,6 @@
   }
   .season-select:hover, .season-select:focus { border-color: var(--accent); }
 
-  .view-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border-2);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
-  .view-btn {
-    padding: 7px 14px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    border: none;
-    background: transparent;
-    color: var(--muted-2);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .view-btn + .view-btn { border-left: 1px solid var(--border-2); }
-  .view-btn:hover { color: var(--text); background: var(--surface-2); }
-  .view-btn.active {
-    color: var(--accent);
-    background: var(--accent-dim);
-  }
 
   /* ── By-team view ── */
   .team-section {
@@ -298,40 +273,58 @@
     display: block;
   }
 
-  /* ── All-players view ── */
-  .all-players-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 8px;
+
+  /* ── Team picker grid ── */
+  .team-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 20px;
   }
 
-  .all-player-card {
+  .team-pick {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    justify-content: center;
+    width: 48px;
+    height: 48px;
     border-radius: 10px;
-    text-decoration: none;
-    color: inherit;
-    transition: border-color 0.15s, background 0.15s;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    padding: 0;
+    flex-shrink: 0;
   }
-  .all-player-card:hover {
+  .team-pick:hover {
     border-color: var(--accent);
     background: var(--surface-2);
-    text-decoration: none;
+    transform: scale(1.06);
+  }
+  .team-pick.active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    box-shadow: 0 0 0 2px var(--ring);
   }
 
-  .all-player-team {
+  .team-pick img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    pointer-events: none;
+  }
+
+  .team-pick-all {
     font-family: 'Outfit', sans-serif;
     font-size: 11px;
     font-weight: 700;
-    color: var(--accent);
-    min-width: 32px;
-    text-align: center;
-    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-2);
+    min-width: 48px;
+    padding: 0 12px;
   }
+  .team-pick-all.active { color: var(--accent); }
 
   .no-results {
     text-align: center;
@@ -343,8 +336,9 @@
   @media (max-width: 640px) {
     .players-search-input { font-size: 14px; padding: 12px 14px 12px 38px; }
     .team-roster { grid-template-columns: 1fr; }
-    .all-players-grid { grid-template-columns: 1fr; }
     .search-results-grid { grid-template-columns: 1fr; }
+    .team-pick { width: 44px; height: 44px; }
+    .team-pick img { width: 26px; height: 26px; }
   }
 </style>
 
@@ -385,15 +379,22 @@
       </select>
       <div class="players-count">{{ player_count }} {{ t('players', '名球员') }}</div>
     </div>
-    <div class="view-toggle">
-      <button class="view-btn active" data-view="team">{{ t('By Team', '按球队') }}</button>
-      <button class="view-btn" data-view="all">{{ t('All', '全部') }}</button>
-    </div>
   </div>
 
-  <div id="view-team">
+  {# ── Team picker ── #}
+  <div class="team-picker" id="team-picker">
+    <button class="team-pick team-pick-all active" data-team="all" title="{{ t('All Teams', '全部球队') }}">ALL</button>
     {% for team in teams_with_players %}
-    <div class="team-section" data-team-abbr="{{ team.abbr }}">
+    <button class="team-pick" data-team="{{ team.abbr }}" title="{{ team.full_name }}">
+      <img src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg" alt="{{ team.abbr }}" loading="lazy" onerror="this.parentElement.textContent='{{ team.abbr }}'">
+    </button>
+    {% endfor %}
+  </div>
+
+  {# ── Team sections (all hidden by default, shown when a team is picked) ── #}
+  <div id="team-rosters">
+    {% for team in teams_with_players %}
+    <div class="team-section" data-team-abbr="{{ team.abbr }}" style="display:none;">
       <div class="team-section-header">
         <img
           src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
@@ -406,11 +407,11 @@
           <span class="team-section-name">{{ team.full_name }}</span>
           <span class="team-section-abbr">{{ team.abbr }}</span>
         </a>
-        <span class="team-section-count" data-team-count>{{ team.players|length }}</span>
+        <span class="team-section-count">{{ team.players|length }}</span>
       </div>
       <div class="team-roster">
         {% for p in team.players %}
-        <a class="player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}">
+        <a class="player-card" href="{{ url_for('player_page', player_id=p.player_id) }}">
           <img
             src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
             alt=""
@@ -433,55 +434,44 @@
     </div>
     {% endfor %}
   </div>
-
-  <div id="view-all" style="display:none;">
-    <div class="all-players-grid">
-      {% for p in all_players %}
-      <a class="all-player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}" data-team="{{ p.team_abbr|lower }}">
-        <img
-          src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
-          alt=""
-          class="player-headshot"
-          loading="lazy"
-          onerror="this.style.visibility='hidden'"
-        />
-        <div class="player-info">
-          <div class="player-name">{{ p.full_name }}</div>
-          {% if p.position %}<div class="player-meta">{{ p.position }} · <span style="color:var(--accent);font-weight:700;">{{ p.team_abbr }}</span></div>{% endif %}
-        </div>
-        <div class="player-stats">
-          <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
-          <div class="player-stat"><span class="player-stat-val">{{ p.rpg }}</span><span class="player-stat-label">RPG</span></div>
-          <div class="player-stat"><span class="player-stat-val">{{ p.apg }}</span><span class="player-stat-label">APG</span></div>
-        </div>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div id="no-results" class="no-results" style="display:none;">
-    {{ t('No players found.', '未找到球员。') }}
-  </div>
 </div>
 
 <script>
 (function () {
-  /* ── View toggle (team / all) ── */
-  const viewTeam = document.getElementById('view-team');
-  const viewAll = document.getElementById('view-all');
-  const noResults = document.getElementById('no-results');
-  const viewBtns = document.querySelectorAll('.view-btn');
-  let currentView = 'team';
+  /* ── Team picker ── */
+  const picker = document.getElementById('team-picker');
+  const sections = document.querySelectorAll('#team-rosters .team-section');
+  const picks = picker.querySelectorAll('.team-pick');
+  let activeTeam = null;
 
-  viewBtns.forEach(btn => {
+  function selectTeam(abbr) {
+    activeTeam = abbr;
+    picks.forEach(p => {
+      if (p.dataset.team === 'all') {
+        p.classList.toggle('active', abbr === null);
+      } else {
+        p.classList.toggle('active', p.dataset.team === abbr);
+      }
+    });
+    sections.forEach(s => {
+      if (abbr === null) {
+        s.style.display = 'none';
+      } else if (abbr === 'all') {
+        s.style.display = '';
+      } else {
+        s.style.display = s.dataset.teamAbbr === abbr ? '' : 'none';
+      }
+    });
+  }
+
+  picks.forEach(btn => {
     btn.addEventListener('click', () => {
-      const view = btn.dataset.view;
-      if (view === currentView) return;
-      currentView = view;
-      viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
-      viewTeam.style.display = view === 'team' ? '' : 'none';
-      viewAll.style.display = view === 'all' ? '' : 'none';
-      noResults.style.display = 'none';
+      const team = btn.dataset.team;
+      if (team === 'all') {
+        selectTeam(activeTeam === 'all' ? null : 'all');
+      } else {
+        selectTeam(team === activeTeam ? null : team);
+      }
     });
   });
 

@@ -1232,29 +1232,14 @@ def register_public_routes(
                         "players": team_players,
                     })
 
-            # Also collect all players flat for the "all" view
-            all_players = []
-            for p in players:
-                tid = player_team_map.get(p.player_id)
-                team = team_lookup.get(tid)
-                st = player_stats.get(p.player_id, empty_stats)
-                all_players.append({
-                    "player_id": p.player_id,
-                    "full_name": p.full_name_zh if is_zh and p.full_name_zh else p.full_name,
-                    "position": p.position or "",
-                    "jersey": p.jersey or "",
-                    "team_abbr": team.abbr if team else "",
-                    "team_id": tid or "",
-                    **st,
-                })
+            player_count = sum(len(t["players"]) for t in teams_with_players)
 
         t = get_t()
         render_template = get_render_template()
         return render_template(
             "players.html",
             teams_with_players=teams_with_players,
-            all_players=all_players,
-            player_count=len(all_players),
+            player_count=player_count,
             selected_season=selected_season,
             season_ids=season_ids,
         )
