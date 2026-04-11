@@ -4395,6 +4395,7 @@ def inject_template_helpers():
         "hreflang_links": _hreflang_links(),
         "player_url": _player_url,
         "game_url": _game_url,
+        "game_slug_map": _ensure_game_slug_cache(),
     }
 
 
