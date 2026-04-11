@@ -149,3 +149,64 @@ class TestGamesList(unittest.TestCase):
 
         _, kwargs = render_template.call_args
         self.assertIs(kwargs["selected_team_obj"], legacy_team)
+
+    def test_games_list_includes_live_and_upcoming_games_missing_from_db(self):
+        rockets = SimpleNamespace(team_id="1610612745", abbr="HOU", full_name="Houston Rockets")
+        wolves = SimpleNamespace(team_id="1610612750", abbr="MIN", full_name="Minnesota Timberwolves")
+        suns = SimpleNamespace(team_id="1610612756", abbr="PHX", full_name="Phoenix Suns")
+        kings = SimpleNamespace(team_id="1610612758", abbr="SAC", full_name="Sacramento Kings")
+
+        season_query = MagicMock()
+        season_query.filter.return_value.all.return_value = [SimpleNamespace(season="22025")]
+
+        teams_query = MagicMock()
+        teams_query.filter.return_value.order_by.return_value.all.return_value = [rockets, wolves, suns, kings]
+
+        games_query = MagicMock()
+        games_query.filter.return_value = games_query
+        games_query.order_by.return_value = games_query
+        games_query.all.return_value = []
+
+        team_map_query = MagicMock()
+        team_map_query.all.return_value = [rockets, wolves, suns, kings]
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [season_query, teams_query, games_query, team_map_query]
+
+        live_payload = {
+            "0022501178": {
+                "game_id": "0022501178",
+                "season": "22025",
+                "game_date": "2026-04-10",
+                "status": "live",
+                "summary": "Q2 4:26",
+                "road_score": 61,
+                "home_score": 61,
+                "road_team_id": "1610612750",
+                "home_team_id": "1610612745",
+            },
+            "0022501185": {
+                "game_id": "0022501185",
+                "season": "22025",
+                "game_date": "2026-04-10",
+                "status": "upcoming",
+                "summary": "10:00 PM ET",
+                "road_score": 0,
+                "home_score": 0,
+                "road_team_id": "1610612756",
+                "home_team_id": "1610612758",
+            },
+        }
+
+        with self.web_app.app.test_request_context("/games?season=22025"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch("web.public_routes.fetch_live_scoreboard_map", return_value=live_payload), \
+                 patch.object(self.web_app, "render_template", return_value="rendered") as render_template:
+                response = self.web_app.games_list()
+
+        self.assertEqual(response, "rendered")
+        _, kwargs = render_template.call_args
+        self.assertEqual(kwargs["total"], 0)
+        self.assertEqual(len(kwargs["completed_games"]), 0)
+        self.assertEqual([entry.game_id for entry in kwargs["live_games"]], ["0022501178"])
+        self.assertEqual([entry.game_id for entry in kwargs["upcoming_games"]], ["0022501185"])

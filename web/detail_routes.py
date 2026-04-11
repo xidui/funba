@@ -8,7 +8,7 @@ from flask import abort, request
 from sqlalchemy import case, func
 
 from db.game_status import GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
-from web.live_game_data import fetch_live_game_detail, fetch_live_scoreboard_map
+from web.live_game_data import build_live_game_stub, fetch_live_game_detail, fetch_live_scoreboard_map
 
 
 def register_detail_routes(
@@ -409,9 +409,8 @@ def register_detail_routes(
         with SessionLocal() as session:
             from db.backfill_nba_game_line_score import has_game_line_score
 
-            game = session.query(Game).filter(Game.game_id == game_id).first()
-            if game is None:
-                abort(404, description=f"Game {game_id} not found")
+            persisted_game = session.query(Game).filter(Game.game_id == game_id).first()
+            game = persisted_game
 
             def _game_analysis_issues():
                 return [
@@ -442,7 +441,18 @@ def register_detail_routes(
                     for item in get_game_analysis_issue_history()(game_id)
                 ]
 
-            if not has_game_line_score(session, game_id):
+            if game is None:
+                live_payload = fetch_live_game_detail(game_id)
+                live_summary = (live_payload or {}).get("summary") or fetch_live_scoreboard_map().get(game_id)
+                if live_summary is None or live_summary.get("status") not in {GAME_STATUS_LIVE, GAME_STATUS_UPCOMING}:
+                    abort(404, description=f"Game {game_id} not found")
+                game = build_live_game_stub(live_summary)
+                if game is None:
+                    abort(404, description=f"Game {game_id} not found")
+            else:
+                live_payload = None
+
+            if persisted_game is not None and not has_game_line_score(session, game_id):
                 try:
                     from db.backfill_nba_game_line_score import back_fill_game_line_score
                     back_fill_game_line_score(session, game_id, commit=True)
@@ -451,10 +461,11 @@ def register_detail_routes(
 
             teams = get_team_map()(session)
             game_status = get_game_status(game)
-            live_summary = fetch_live_scoreboard_map().get(game_id)
+            live_summary = (live_payload or {}).get("summary") or fetch_live_scoreboard_map().get(game_id)
 
             if game_status == GAME_STATUS_LIVE:
-                live_payload = fetch_live_game_detail(game_id)
+                if live_payload is None:
+                    live_payload = fetch_live_game_detail(game_id)
                 if live_payload is not None:
                     live_summary = live_payload["summary"]
                     return get_render_template()(
