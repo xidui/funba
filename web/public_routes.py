@@ -1161,6 +1161,42 @@ def register_public_routes(
                 .all()
             )
 
+            # Bulk season averages: GP, PPG, RPG, APG
+            played_condition = or_(
+                PlayerGameStats.min > 0,
+                PlayerGameStats.sec > 0,
+                PlayerGameStats.pts > 0,
+            )
+            stats_rows = (
+                session.query(
+                    PlayerGameStats.player_id,
+                    func.sum(case((played_condition, 1), else_=0)).label("gp"),
+                    func.sum(func.coalesce(PlayerGameStats.pts, 0)).label("pts"),
+                    func.sum(func.coalesce(PlayerGameStats.reb, 0)).label("reb"),
+                    func.sum(func.coalesce(PlayerGameStats.ast, 0)).label("ast"),
+                )
+                .join(Game, Game.game_id == PlayerGameStats.game_id)
+                .filter(
+                    Game.season == current_season,
+                    PlayerGameStats.player_id.in_(player_ids_in_season),
+                )
+                .group_by(PlayerGameStats.player_id)
+                .all()
+            )
+            player_stats = {}
+            for row in stats_rows:
+                gp = int(row.gp or 0)
+                if gp > 0:
+                    player_stats[row.player_id] = {
+                        "gp": gp,
+                        "ppg": f"{int(row.pts or 0) / gp:.1f}",
+                        "rpg": f"{int(row.reb or 0) / gp:.1f}",
+                        "apg": f"{int(row.ast or 0) / gp:.1f}",
+                    }
+                else:
+                    player_stats[row.player_id] = {"gp": 0, "ppg": "-", "rpg": "-", "apg": "-"}
+            empty_stats = {"gp": 0, "ppg": "-", "rpg": "-", "apg": "-"}
+
             # Build team→players map
             teams_with_players = []
             is_zh = get_is_zh()
@@ -1168,11 +1204,13 @@ def register_public_routes(
                 team_players = []
                 for p in players:
                     if player_team_map.get(p.player_id) == team.team_id:
+                        st = player_stats.get(p.player_id, empty_stats)
                         team_players.append({
                             "player_id": p.player_id,
                             "full_name": p.full_name_zh if is_zh and p.full_name_zh else p.full_name,
                             "position": p.position or "",
                             "jersey": p.jersey or "",
+                            **st,
                         })
                 if team_players:
                     team_players.sort(key=lambda x: x["full_name"])
@@ -1188,6 +1226,7 @@ def register_public_routes(
             for p in players:
                 tid = player_team_map.get(p.player_id)
                 team = team_lookup.get(tid)
+                st = player_stats.get(p.player_id, empty_stats)
                 all_players.append({
                     "player_id": p.player_id,
                     "full_name": p.full_name_zh if is_zh and p.full_name_zh else p.full_name,
@@ -1195,6 +1234,7 @@ def register_public_routes(
                     "jersey": p.jersey or "",
                     "team_abbr": team.abbr if team else "",
                     "team_id": tid or "",
+                    **st,
                 })
 
         t = get_t()

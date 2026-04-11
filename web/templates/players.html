@@ -125,7 +125,7 @@
 
   .team-roster {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 8px;
   }
 
@@ -187,10 +187,39 @@
     flex-shrink: 0;
   }
 
+  .player-stats {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .player-stat {
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  .player-stat-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    display: block;
+  }
+
+  .player-stat-label {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    display: block;
+  }
+
   /* ── All-players view ── */
   .all-players-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 8px;
   }
 
@@ -293,9 +322,13 @@
         />
         <div class="player-info">
           <div class="player-name">{{ p.full_name }}</div>
-          {% if p.position %}<div class="player-meta">{{ p.position }}</div>{% endif %}
+          {% if p.position %}<div class="player-meta">{{ p.position }}{% if p.jersey %} · #{{ p.jersey }}{% endif %}</div>{% endif %}
         </div>
-        {% if p.jersey %}<span class="player-jersey">#{{ p.jersey }}</span>{% endif %}
+        <div class="player-stats">
+          <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
+          <div class="player-stat"><span class="player-stat-val">{{ p.rpg }}</span><span class="player-stat-label">RPG</span></div>
+          <div class="player-stat"><span class="player-stat-val">{{ p.apg }}</span><span class="player-stat-label">APG</span></div>
+        </div>
       </a>
       {% endfor %}
     </div>
@@ -316,9 +349,13 @@
       />
       <div class="player-info">
         <div class="player-name">{{ p.full_name }}</div>
-        {% if p.position %}<div class="player-meta">{{ p.position }}</div>{% endif %}
+        {% if p.position %}<div class="player-meta">{{ p.position }} · <span style="color:var(--accent);font-weight:700;">{{ p.team_abbr }}</span></div>{% endif %}
       </div>
-      <span class="all-player-team">{{ p.team_abbr }}</span>
+      <div class="player-stats">
+        <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
+        <div class="player-stat"><span class="player-stat-val">{{ p.rpg }}</span><span class="player-stat-label">RPG</span></div>
+        <div class="player-stat"><span class="player-stat-val">{{ p.apg }}</span><span class="player-stat-label">APG</span></div>
+      </div>
     </a>
     {% endfor %}
   </div>
