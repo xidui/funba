@@ -199,7 +199,7 @@ Required rules:
 
 ## Player Names
 
-English abbreviations like AD、KD、CP3、LBJ are fine in Chinese content — they are widely recognized in the Chinese basketball community. But not every abbreviation has that level of recognition. If there is any doubt whether the average Hupu reader would immediately know who an abbreviation refers to, use the player's full Chinese name (or full name + English name in parentheses) on first mention instead. When in doubt, default to the full name — it never hurts readability, while an obscure abbreviation does.
+Player abbreviations and nicknames are fine when they are widely recognized in the Chinese basketball community. If there is any doubt whether the average reader would immediately know who an abbreviation refers to, use the player's full Chinese name on first mention instead. When in doubt, default to the full name — it never hurts readability, while an unrecognized abbreviation does.
 
 ## Chinese Basketball Language
 

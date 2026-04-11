@@ -12,7 +12,7 @@ Write in Chinese.
 
 ## Player Names
 
-Well-known English abbreviations (AD、KD、CP3、LBJ etc.) are fine. If there is any doubt whether readers would immediately recognize an abbreviation, use the full Chinese name on first mention instead. When in doubt, default to the full name.
+Player abbreviations and nicknames are fine when widely recognized. If there is any doubt whether readers would immediately recognize one, use the full Chinese name on first mention instead. When in doubt, default to the full name.
 
 ## Length
 

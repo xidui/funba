@@ -38,7 +38,7 @@ Treat `funba.app` as the underlying data engine behind the post, not just a site
 
 ## Player Names
 
-Well-known English abbreviations (AD、KD、CP3、LBJ etc.) are fine. But if there is any doubt whether the average reader would immediately recognize an abbreviation, use the player's full Chinese name on first mention instead. When in doubt, default to the full name.
+Player abbreviations and nicknames are fine when widely recognized. If there is any doubt whether the average reader would immediately recognize one, use the full Chinese name on first mention instead. When in doubt, default to the full name.
 
 ## Tone
 
