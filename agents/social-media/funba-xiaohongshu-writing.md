@@ -38,7 +38,7 @@ Treat `funba.app` as the underlying data engine behind the post, not just a site
 
 ## Player Names
 
-Always use full player names on first mention — never use English nicknames, abbreviations, or initials that casual readers may not recognize (e.g. KAT, AD, CP3, LBJ, SGA). After the first full-name mention you may use the commonly recognized Chinese short name (e.g. 唐斯, 浓眉, 詹姆斯) for the rest of the post.
+Well-known English abbreviations (AD、KD、CP3、LBJ etc.) are fine. But if there is any doubt whether the average reader would immediately recognize an abbreviation, use the player's full Chinese name on first mention instead. When in doubt, default to the full name.
 
 ## Tone
 

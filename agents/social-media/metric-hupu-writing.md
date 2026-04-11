@@ -12,7 +12,7 @@ Write in Chinese.
 
 ## Player Names
 
-Always use full player names on first mention — never use English nicknames or abbreviations (KAT, AD, CP3, LBJ, SGA, etc.). After the first full-name mention, use the commonly recognized Chinese short name (唐斯, 浓眉, 詹姆斯, etc.).
+Well-known English abbreviations (AD、KD、CP3、LBJ etc.) are fine. If there is any doubt whether readers would immediately recognize an abbreviation, use the full Chinese name on first mention instead. When in doubt, default to the full name.
 
 ## Length
 
