@@ -308,6 +308,59 @@ class TestCrawlerTracking(unittest.TestCase):
         self.assertTrue(captured[0]["is_crawler"])
         self.assertEqual(captured[0]["crawler_name"], "googlebot")
 
+    def test_probe_path_is_blocked_and_recorded(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/.git/config",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+                )
+            },
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "probe-bot")
+
+    def test_recent_repeat_crawler_ip_is_blocked_and_recorded(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/players/201939",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+                )
+            },
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()), \
+                 patch("web.app._recent_repeat_crawler_ip", return_value=True):
+                response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "repeat-crawler")
+
     def test_human_page_views_remain_non_crawler(self):
         captured = []
 

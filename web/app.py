@@ -3318,6 +3318,28 @@ _BOT_SIGNATURES = (
 
 # Bare or too-short UAs are almost never real browsers
 _MIN_REAL_UA_LENGTH = 40
+_SUSPICIOUS_PROBE_PATH_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"^/\.git/",
+        r"^/\.env",
+        r"^/wp-",
+        r"^/wordpress",
+        r"^/xmlrpc\.php$",
+        r"^/phpmyadmin",
+        r"^/boaform",
+        r"^/cgi-bin",
+        r"^/actuator",
+        r"^/vendor/",
+        r"^/server-status",
+        r"^/login\.php$",
+        r"\.php$",
+        r"\.asp$",
+        r"\.aspx$",
+    )
+)
+_REPEAT_CRAWLER_IP_LOOKBACK = timedelta(days=30)
+_REPEAT_CRAWLER_IP_CACHE_SECONDS = 300
 
 
 def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
@@ -3332,6 +3354,101 @@ def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
 
 def _is_allowlisted_crawler_name(crawler_name: str | None) -> bool:
     return bool(crawler_name and crawler_name in _ALLOWLISTED_CRAWLER_NAMES)
+
+
+def _probe_crawler_name_for_path(path: str | None) -> str | None:
+    value = (path or "").strip()
+    if not value:
+        return None
+    if any(pattern.search(value) for pattern in _SUSPICIOUS_PROBE_PATH_PATTERNS):
+        return "probe-bot"
+    return None
+
+
+@lru_cache(maxsize=8192)
+def _recent_repeat_crawler_ip_cached(ip_address: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    value = (ip_address or "").strip()
+    if not value or value in ("127.0.0.1", "::1"):
+        return False
+    cutoff = datetime.utcnow() - _REPEAT_CRAWLER_IP_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            auth_spray_seen = (
+                db_sess.query(PageView.id)
+                .filter(
+                    PageView.ip_address == value,
+                    PageView.crawler_name == "auth-spray-bot",
+                    PageView.created_at >= cutoff,
+                )
+                .first()
+            )
+            if auth_spray_seen is not None:
+                return True
+            count = (
+                db_sess.query(func.count(PageView.id))
+                .filter(
+                    PageView.ip_address == value,
+                    PageView.is_crawler.is_(True),
+                    PageView.created_at >= cutoff,
+                )
+                .scalar()
+                or 0
+            )
+            return int(count) >= 3
+    except Exception:
+        logger.exception("repeat crawler ip lookup failed")
+        return False
+
+
+def _recent_repeat_crawler_ip(ip_address: str | None) -> bool:
+    value = (ip_address or "").strip()
+    cache_bucket = int(time.time() // _REPEAT_CRAWLER_IP_CACHE_SECONDS)
+    return _recent_repeat_crawler_ip_cached(value, cache_bucket)
+
+
+def _request_crawler_decision() -> dict[str, object]:
+    cached = getattr(g, "_crawler_decision", None)
+    if cached is not None:
+        return cached
+
+    ua = (request.user_agent.string or "").lower().strip()
+    crawler_name = _crawler_name_from_user_agent(ua)
+    decision: dict[str, object]
+    if crawler_name is not None:
+        decision = {
+            "is_crawler": True,
+            "crawler_name": crawler_name,
+            "should_block": not _is_allowlisted_crawler_name(crawler_name),
+        }
+    else:
+        probe_crawler_name = _probe_crawler_name_for_path(request.path)
+        if probe_crawler_name is not None:
+            decision = {
+                "is_crawler": True,
+                "crawler_name": probe_crawler_name,
+                "should_block": True,
+            }
+        elif not app.config.get("TESTING") and _recent_repeat_crawler_ip(_real_ip()):
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "repeat-crawler",
+                "should_block": True,
+            }
+        elif not app.config.get("TESTING") and _is_bot():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "other-bot",
+                "should_block": True,
+            }
+        else:
+            decision = {
+                "is_crawler": False,
+                "crawler_name": None,
+                "should_block": False,
+            }
+    g._crawler_decision = decision
+    return decision
 
 
 def _should_track_page_view_request() -> bool:
@@ -3392,10 +3509,13 @@ def _block_bots():
     ua = (request.user_agent.string or "").lower().strip()
     if any(sig in ua for sig in ("claude-code", "codex", "anthropic", "openai")):
         return
-    crawler_name = _crawler_name_from_user_agent(ua)
-    if _is_bot():
+    crawler_decision = _request_crawler_decision()
+    if crawler_decision["is_crawler"] and crawler_decision["should_block"]:
         if _should_track_page_view_request():
-            _record_page_view(is_crawler=True, crawler_name=crawler_name or "other-bot")
+            _record_page_view(
+                is_crawler=True,
+                crawler_name=str(crawler_decision["crawler_name"] or "other-bot"),
+            )
         return "Forbidden", 403
 
 
@@ -3407,11 +3527,12 @@ def _track_page_view():
     # Skip tracking for localhost requests
     if _real_ip() in ("127.0.0.1", "::1"):
         return
-    crawler_name = _crawler_name_from_user_agent(request.user_agent.string)
-    if crawler_name is not None:
-        _record_page_view(is_crawler=True, crawler_name=crawler_name)
-        return
-    if not app.config.get("TESTING") and _is_bot():
+    crawler_decision = _request_crawler_decision()
+    if crawler_decision["is_crawler"]:
+        _record_page_view(
+            is_crawler=True,
+            crawler_name=str(crawler_decision["crawler_name"] or "other-bot"),
+        )
         return
     # Skip tracking for admin / owner sessions
     _uid = session.get("user_id")
