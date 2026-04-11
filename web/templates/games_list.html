@@ -54,6 +54,9 @@
     transition: background 0.1s;
   }
   .game-row:hover { background: var(--surface-3); }
+  .game-row.live { border-left: 3px solid var(--accent); }
+  .game-row.upcoming { opacity: 0.82; }
+  .game-row.no-link { cursor: default; }
 
   .game-row-date {
     color: var(--muted);
@@ -125,6 +128,67 @@
     text-overflow: ellipsis;
   }
 
+  .section-label {
+    padding: 12px 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--muted);
+  }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--loss);
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--loss);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .period-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .upcoming-toggle {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .is-hidden { display: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
   @media (max-width: 640px) {
     .game-row { grid-template-columns: 80px 1fr auto 1fr; }
     .game-row-type { display: none; }
@@ -171,6 +235,35 @@
     const query = params.toString();
     window.location.href = '{{ url_for("games_list") }}' + (query ? '?' + query : '');
   }
+
+  function toggleUpcomingGames() {
+    const hiddenRows = document.querySelectorAll('[data-upcoming-extra].is-hidden');
+    hiddenRows.forEach((row) => row.classList.remove('is-hidden'));
+    const button = document.getElementById('upcoming-toggle-btn');
+    if (button) button.style.display = 'none';
+  }
+
+  async function refreshLiveRows() {
+    const response = await fetch('{{ url_for("api_games_live") }}', { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) return;
+    const payload = await response.json();
+    for (const game of (payload.games || [])) {
+      const row = document.querySelector('[data-live-game-id="' + game.game_id + '"]');
+      if (!row) continue;
+      const road = row.querySelector('[data-role="road-score"]');
+      const home = row.querySelector('[data-role="home-score"]');
+      const summary = row.querySelector('[data-role="live-summary"]');
+      if (road) road.textContent = game.road_score;
+      if (home) home.textContent = game.home_score;
+      if (summary) summary.textContent = game.summary || '';
+      if (game.status !== 'live') {
+        window.location.reload();
+        return;
+      }
+    }
+  }
+
+  window.setInterval(refreshLiveRows, 30000);
 </script>
 
 <div class="games-header">
@@ -194,19 +287,20 @@
   </div>
 </div>
 
-<div class="card">
-  {% if games %}
-  <div class="game-rows">
-    {% for game in games %}
-    {% set road = team_lookup.get(game.road_team_id) %}
-    {% set home = team_lookup.get(game.home_team_id) %}
-    {% set road_score = game.road_team_score %}
-    {% set home_score = game.home_team_score %}
-    {% set road_won = game.wining_team_id is not none and game.wining_team_id == game.road_team_id %}
-    {% set home_won = game.wining_team_id is not none and game.wining_team_id == game.home_team_id %}
-    <a class="game-row" href="{{ url_for('game_page', game_id=game.game_id) }}">
-      <span class="game-row-date">{{ fmt_date(game.game_date) }}</span>
-      <span class="game-team {{ 'winner' if road_won else ('loser' if home_won else '') }}">
+{% macro render_row(entry) %}
+  {% set game = entry.game %}
+  {% set road = team_lookup.get(entry.road_team_id) %}
+  {% set home = team_lookup.get(entry.home_team_id) %}
+  {% if entry.link_enabled %}
+  <a
+    class="game-row {{ entry.status }}"
+    href="{{ url_for('game_page', game_id=entry.game_id) }}"
+    {% if entry.status == 'live' %}data-live-game-id="{{ entry.game_id }}"{% endif %}>
+  {% else %}
+  <div class="game-row {{ entry.status }} no-link" aria-disabled="true">
+  {% endif %}
+      <span class="game-row-date">{{ fmt_date(entry.game_date) }}</span>
+      <span class="game-team {{ 'winner' if entry.road_won else ('loser' if entry.home_won else '') }}">
         {% if road and road.team_id %}
         <img
           class="game-team-logo"
@@ -216,22 +310,22 @@
           onerror="this.style.display='none'">
         {% endif %}
         <span class="game-team-main">
-          {{ road.abbr if road else (game.road_team_id or '-') }}
+          {{ road.abbr if road else (entry.road_team_id or '-') }}
           <span class="game-team-note">{{ t('Away', '客场') }}</span>
         </span>
       </span>
-      <span class="game-score-block">
-        <span class="game-score {{ 'winner' if road_won else ('loser' if home_won else '') }}">
-          {{ road_score if road_score is not none else '—' }}
+      <span class="game-score-block" aria-live="polite">
+        <span class="game-score {{ 'winner' if entry.road_won else ('loser' if entry.home_won else '') }}" data-role="road-score">
+          {{ entry.road_score if entry.road_score is not none else '—' }}
         </span>
         <span class="game-sep">–</span>
-        <span class="game-score {{ 'winner' if home_won else ('loser' if road_won else '') }}">
-          {{ home_score if home_score is not none else '—' }}
+        <span class="game-score {{ 'winner' if entry.home_won else ('loser' if entry.road_won else '') }}" data-role="home-score">
+          {{ entry.home_score if entry.home_score is not none else '—' }}
         </span>
       </span>
-      <span class="game-team right {{ 'winner' if home_won else ('loser' if road_won else '') }}">
+      <span class="game-team right {{ 'winner' if entry.home_won else ('loser' if entry.road_won else '') }}">
         <span class="game-team-main">
-          {{ home.abbr if home else (game.home_team_id or '-') }}
+          {{ home.abbr if home else (entry.home_team_id or '-') }}
           <span class="game-team-note">{{ t('Home', '主场') }}</span>
         </span>
         {% if home and home.team_id %}
@@ -243,9 +337,53 @@
           onerror="this.style.display='none'">
         {% endif %}
       </span>
-      <span class="game-row-type">{{ season_label(game.season) }}</span>
-    </a>
+      <span class="game-row-type">
+        {% if entry.status == 'live' %}
+        <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+        <span class="period-chip" data-role="live-summary">{{ entry.status_summary }}</span>
+        {% elif entry.status == 'upcoming' %}
+        {{ t('Upcoming', '未开始') }}
+        {% else %}
+        {{ season_label(entry.season) }}
+        {% endif %}
+      </span>
+  {% if entry.link_enabled %}
+  </a>
+  {% else %}
+  </div>
+  {% endif %}
+{% endmacro %}
+
+<div class="card">
+  {% if live_games or completed_games or upcoming_games %}
+  <div class="game-rows">
+    {% if live_games %}
+    <div class="section-label">LIVE</div>
+    {% for entry in live_games %}
+      {{ render_row(entry) }}
     {% endfor %}
+    {% endif %}
+
+    {% if completed_games %}
+    <div class="section-label">{{ t('Completed', '已结束') }}</div>
+    {% for entry in completed_games %}
+      {{ render_row(entry) }}
+    {% endfor %}
+    {% endif %}
+
+    {% if upcoming_games %}
+    <div class="section-label">{{ t('Upcoming', '未开始') }}</div>
+    {% for entry in upcoming_games %}
+      <div {% if loop.index > 5 %}data-upcoming-extra class="is-hidden"{% endif %}>
+        {{ render_row(entry) }}
+      </div>
+    {% endfor %}
+    {% if upcoming_games|length > 5 %}
+    <button id="upcoming-toggle-btn" class="upcoming-toggle" type="button" onclick="toggleUpcomingGames()">
+      {{ t('Show all upcoming', '显示全部未开始比赛') }}
+    </button>
+    {% endif %}
+    {% endif %}
   </div>
   {% else %}
   <p class="meta">

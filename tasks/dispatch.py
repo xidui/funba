@@ -35,6 +35,7 @@ from datetime import date as _date, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
+from db.game_status import infer_game_status
 from db.models import Game, MetricComputeRun, MetricRunLog, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
@@ -182,6 +183,7 @@ def discover_and_insert_games(
                 "home_team_score": None,
                 "road_team_score": None,
                 "wining_team_id": None,
+                "game_status": None,
                 "backfill_mismatch": False,
             }
         g = game_rows[gid]
@@ -194,6 +196,14 @@ def discover_and_insert_games(
             g["road_team_score"] = pts
         if wl == "W":
             g["wining_team_id"] = team_id
+
+    for game_row in game_rows.values():
+        game_row["game_status"] = infer_game_status(
+            game_date=game_row["game_date"],
+            wining_team_id=game_row["wining_team_id"],
+            home_team_score=game_row["home_team_score"],
+            road_team_score=game_row["road_team_score"],
+        )
 
     game_ids = set(game_rows.keys())
     if not game_ids:
@@ -214,6 +224,7 @@ def discover_and_insert_games(
                 game_date=stmt.inserted.game_date,
                 home_team_id=stmt.inserted.home_team_id,
                 road_team_id=stmt.inserted.road_team_id,
+                game_status=stmt.inserted.game_status,
                 home_team_score=func.coalesce(stmt.inserted.home_team_score, Game.home_team_score),
                 road_team_score=func.coalesce(stmt.inserted.road_team_score, Game.road_team_score),
                 wining_team_id=func.coalesce(stmt.inserted.wining_team_id, Game.wining_team_id),

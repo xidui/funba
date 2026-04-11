@@ -77,6 +77,7 @@ def _make_app():
     fake_line.normalize_game_line_score_payload = MagicMock()
     sys.modules["db.backfill_nba_game_line_score"] = fake_line
 
+    original_game_analysis = sys.modules.get("content_pipeline.game_analysis_issues")
     fake_game_analysis = types.ModuleType("content_pipeline.game_analysis_issues")
     for name in (
         "ensure_game_content_analysis_issue_for_game",
@@ -95,6 +96,11 @@ def _make_app():
             del sys.modules[key]
 
     import web.app as web_app
+
+    if original_game_analysis is not None:
+        sys.modules["content_pipeline.game_analysis_issues"] = original_game_analysis
+    else:
+        sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
     def _session_ctx():
         fake_session = MagicMock()
@@ -702,6 +708,7 @@ class TestMyMetricsRoute(unittest.TestCase):
                 "player_franchise": "Player Franchise",
                 "team": "Team",
                 "game": "Game",
+                "season": "Season",
             },
         )
 
@@ -1444,6 +1451,7 @@ class TestMetricDeepDiveWorkflow(unittest.TestCase):
              patch("web.app.SessionLocal", return_value=session), \
              patch("metrics.framework.runtime.get_metric", return_value=runtime_metric), \
              patch("web.app._metric_deep_dive_state", side_effect=[{"can_trigger": True, "active_post": None, "latest_post": None}, final_state]), \
+             patch("web.app._build_metric_deep_dive_brief", return_value="brief text"), \
              patch("web.app._create_metric_deep_dive_placeholder_post", return_value=(91, "2026-03-30T12:00:00Z")) as mock_create, \
              patch("web.app._ensure_paperclip_issue_for_post") as mock_ensure, \
              patch("web.app._mirror_paperclip_comment") as mock_mirror, \

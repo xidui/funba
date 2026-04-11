@@ -743,6 +743,30 @@
     background: rgba(249, 115, 22, 0.05);
   }
 
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--loss);
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--loss);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
   @media (max-width: 540px) {
     .bs-tab,
     .qf-label {
@@ -755,8 +779,11 @@
   }
 </style>
 
-{% set road_won = game.wining_team_id is not none and game.wining_team_id == game.road_team_id %}
-{% set home_won = game.wining_team_id is not none and game.wining_team_id == game.home_team_id %}
+{% set current_status = game_status or 'completed' %}
+{% set road_won = current_status == 'completed' and game.wining_team_id is not none and game.wining_team_id == game.road_team_id %}
+{% set home_won = current_status == 'completed' and game.wining_team_id is not none and game.wining_team_id == game.home_team_id %}
+{% set display_road_score = live_summary.road_score if current_status == 'live' and live_summary else game.road_team_score %}
+{% set display_home_score = live_summary.home_score if current_status == 'live' and live_summary else game.home_team_score %}
 
 <!-- ── Hero: Scoreboard + Score Progression ───────────────────────── -->
 <div class="card" style="padding:0; overflow:hidden;">
@@ -774,9 +801,9 @@
         <div class="sb-name">{{ team_name(game.road_team_id) }}</div>
       </a>
       <div class="sb-side">{{ t('Away', '客场') }}</div>
-      {% if road_won %}
+      {% if current_status == 'completed' and road_won %}
       <div style="margin-top:8px;"><span class="badge badge-win">{{ t('WIN', '胜') }}</span></div>
-      {% elif home_won %}
+      {% elif current_status == 'completed' and home_won %}
       <div style="margin-top:8px;"><span class="badge badge-loss">{{ t('L', '负') }}</span></div>
       {% endif %}
     </div>
@@ -785,16 +812,30 @@
     <div class="sb-center">
       <div class="sb-scores">
         <span class="sb-score {{ 'winner' if road_won else ('loser' if home_won else 'neutral') }}">
-          {{ game.road_team_score if game.road_team_score is not none else '—' }}
+          {{ display_road_score if display_road_score is not none else '—' }}
         </span>
         <span class="sb-dash">–</span>
         <span class="sb-score {{ 'winner' if home_won else ('loser' if road_won else 'neutral') }}">
-          {{ game.home_team_score if game.home_team_score is not none else '—' }}
+          {{ display_home_score if display_home_score is not none else '—' }}
         </span>
       </div>
-      <div class="sb-final">{{ t('Final', '最终') }}</div>
+      <div class="sb-final">
+        {% if current_status == 'live' %}
+        <span class="live-badge"><span class="live-dot"></span>{{ t('Live', '直播') }}</span>
+        {% elif current_status == 'upcoming' %}
+        {{ t('Scheduled', '已安排') }}
+        {% else %}
+        {{ t('Final', '最终') }}
+        {% endif %}
+      </div>
       <div class="sb-meta">
+        {% if current_status == 'live' and live_summary %}
+        {{ live_summary.summary }}&nbsp;·&nbsp;{{ fmt_date(game.game_date) }}
+        {% elif current_status == 'upcoming' %}
+        {{ t('Game starts on', '比赛开始于') }} {{ fmt_date(game.game_date) }}&nbsp;·&nbsp;{{ season_label(game.season) }}
+        {% else %}
         {{ fmt_date(game.game_date) }}&nbsp;·&nbsp;{{ season_label(game.season) }}
+        {% endif %}
       </div>
     </div>
 
@@ -811,15 +852,15 @@
         <div class="sb-name">{{ team_name(game.home_team_id) }}</div>
       </a>
       <div class="sb-side">{{ t('Home', '主场') }}</div>
-      {% if home_won %}
+      {% if current_status == 'completed' and home_won %}
       <div style="margin-top:8px;"><span class="badge badge-win">{{ t('WIN', '胜') }}</span></div>
-      {% elif road_won %}
+      {% elif current_status == 'completed' and road_won %}
       <div style="margin-top:8px;"><span class="badge badge-loss">{{ t('L', '负') }}</span></div>
       {% endif %}
     </div>
   </div>
 
-  {% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
+{% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
   <hr class="sb-chart-divider">
   <div class="sb-chart-wrap">
     <canvas id="score-chart"></canvas>
@@ -828,6 +869,7 @@
 </div>
 
 <!-- ── Game Metrics (async) ──────────────────────────────────────── -->
+{% if current_status == 'completed' %}
 <div id="game-metrics-panel" data-game-id="{{ game.game_id }}">
   <div class="card">
     <div style="color:var(--muted);font-size:13px;padding:16px;">{{ t('Loading metrics…', '指标加载中…') }}</div>
@@ -856,6 +898,7 @@
   .catch(function(){ el.innerHTML = '<div class="card"><div style="color:var(--loss);font-size:13px;padding:16px;">{{ t("Failed to load metrics", "指标加载失败") }}</div></div>'; });
 })();
 </script>
+{% endif %}
 
 {% if is_admin %}
 <div class="card">
@@ -1089,7 +1132,14 @@
 
 <!-- ── Box Score (Team + Players unified) ─────────────────────────── -->
 <div class="card">
-  <h2 style="margin-bottom:14px;">{{ t('Team Stats', '球队数据') }}</h2>
+  {% if current_status == 'upcoming' %}
+  <h2 style="margin-bottom:14px;">{{ t('Game Preview', '比赛预览') }}</h2>
+  <p class="meta" style="font-weight:600;">{{ t('Game starts on', '比赛开始于') }} {{ fmt_date(game.game_date) }}.</p>
+  {% else %}
+  <h2 style="margin-bottom:14px;">
+    {{ t('Team Stats', '球队数据') }}
+    {% if current_status == 'live' %}<span class="badge badge-neutral">{{ t('In Progress', '进行中') }}</span>{% endif %}
+  </h2>
   <div id="bs-team">
     {% if quarter_scores %}
     <div class="table-wrap" style="margin-bottom:16px;">
@@ -1239,11 +1289,17 @@
       {% endfor %}
     </div>
   </div>
+  {% endif %}
 </div>
 
 <!-- ── Shot Chart ─────────────────────────────────────────────────── -->
 <div class="card">
   <h2>{{ t('Shot Chart', '投篮图') }}</h2>
+  {% if current_status == 'live' %}
+  <p class="meta">{{ t('Shot chart becomes available after the game ends.', '投篮图会在比赛结束后显示。') }}</p>
+  {% elif current_status == 'upcoming' %}
+  <p class="meta">{{ t('Shot chart is not available before tip-off.', '比赛开始前暂无投篮图。') }}</p>
+  {% else %}
 
   {% if shot_backfill_status == "ok" and (shot_backfill_count|int > 0) %}
   <p class="meta" style="color:var(--win); font-weight:600; margin-bottom:8px;">
@@ -1352,12 +1408,21 @@
   <p class="meta" style="color:var(--muted);">{{ t('No shot data available for this game.', '这场比赛暂无投篮数据。') }}</p>
   {% endif %}
   {% endif %}
+  {% endif %}
 </div>
 
 <!-- ── Play By Play ───────────────────────────────────────────────── -->
 <div class="card">
-  <h2>{{ t('Play by Play', '逐回合') }}</h2>
-  {% if pbp_rows %}
+  <h2>
+    {% if current_status == 'live' %}
+    {{ t('Live Play by Play', '实时逐回合') }}
+    {% else %}
+    {{ t('Play by Play', '逐回合') }}
+    {% endif %}
+  </h2>
+  {% if current_status == 'upcoming' %}
+  <p class="meta">{{ t('Play-by-play will appear once the game begins.', '比赛开始后会显示逐回合内容。') }}</p>
+  {% elif pbp_rows %}
   <div class="pbp-wrap table-wrap" data-mobile-key="game-play-by-play">
     <table class="pbp-table">
       <thead>
@@ -1487,6 +1552,14 @@
     }
   })();
 </script>
+
+{% if current_status == 'live' and live_refresh_interval_ms %}
+<script>
+  window.setInterval(function () {
+    window.location.reload();
+  }, {{ live_refresh_interval_ms }});
+</script>
+{% endif %}
 
 {% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>

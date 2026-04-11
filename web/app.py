@@ -3726,6 +3726,34 @@ def _build_metric_deep_dive_brief(
     )
 
 
+def _create_metric_deep_dive_placeholder_post(metric_key: str, metric_name: str, brief_text: str) -> tuple[int, str]:
+    now = datetime.utcnow()
+    comments: list[dict[str, object]] = []
+    brief_timestamp = append_admin_comment(
+        comments,
+        text=brief_text,
+        author=_paperclip_actor_name(),
+        origin="system",
+        event_type=_SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF,
+    )
+    with SessionLocal() as s:
+        post = SocialPost(
+            topic=f"{metric_name} 数据分析",
+            source_date=date.today(),
+            source_metrics=json.dumps([metric_key], ensure_ascii=False),
+            source_game_ids=json.dumps([], ensure_ascii=False),
+            status="draft",
+            priority=35,
+            llm_model=None,
+            admin_comments=json.dumps(comments, ensure_ascii=False),
+            created_at=now,
+            updated_at=now,
+        )
+        s.add(post)
+        s.commit()
+        return post.id, brief_timestamp
+
+
 def _social_post_image_spec(raw_spec: str | None) -> tuple[object | None, str | None]:
     if not raw_spec:
         return None, None
@@ -5118,6 +5146,7 @@ _admin_content_deps = SimpleNamespace(
     paperclip_issue_url=lambda: _paperclip_issue_url,
     metric_deep_dive_state=lambda: _metric_deep_dive_state,
     build_metric_deep_dive_brief=lambda: _build_metric_deep_dive_brief,
+    create_metric_deep_dive_placeholder_post=lambda: _create_metric_deep_dive_placeholder_post,
     metric_def_view=lambda: _metric_def_view,
     resolve_game_analysis_issue_record=lambda: resolve_game_analysis_issue_record,
     ensure_game_content_analysis_issues=lambda: ensure_game_content_analysis_issues,

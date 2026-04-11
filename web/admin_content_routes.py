@@ -393,7 +393,11 @@ def register_admin_content_routes(app, deps):
                 metric_page_url=metric_page_url,
             )
 
-        post_id, brief_timestamp = _create_metric_deep_dive_placeholder_post(metric_key, metric_def.name, brief_text)
+        create_placeholder = getattr(deps, "create_metric_deep_dive_placeholder_post", None)
+        if create_placeholder is not None:
+            post_id, brief_timestamp = create_placeholder()(metric_key, metric_def.name, brief_text)
+        else:
+            post_id, brief_timestamp = _create_metric_deep_dive_placeholder_post(metric_key, metric_def.name, brief_text)
         deps.ensure_paperclip_issue_for_post()(post_id)
 
         SocialPost = deps.social_post_model()

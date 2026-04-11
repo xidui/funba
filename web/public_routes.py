@@ -8,6 +8,14 @@ from typing import Any, Callable
 from flask import abort, jsonify, request
 from sqlalchemy import case, func, or_
 
+from db.game_status import (
+    GAME_STATUS_COMPLETED,
+    GAME_STATUS_LIVE,
+    GAME_STATUS_UPCOMING,
+    get_game_status,
+)
+from web.live_game_data import fetch_live_game_detail, fetch_live_scoreboard_map
+
 
 _COMPARE_EMPTY_MARK = "—"
 _COMPARE_STATS_ROWS = [
@@ -19,6 +27,37 @@ _COMPARE_STATS_ROWS = [
     ("fg3_pct", "3P%"),
     ("ft_pct", "FT%"),
 ]
+
+
+def _game_status_rank(status: str | None) -> int:
+    if status == GAME_STATUS_LIVE:
+        return 0
+    if status == GAME_STATUS_COMPLETED:
+        return 1
+    if status == GAME_STATUS_UPCOMING:
+        return 2
+    return 3
+
+
+def _build_game_list_entry(game, live_snapshot: dict | None = None):
+    status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
+    road_score = live_snapshot.get("road_score") if live_snapshot else game.road_team_score
+    home_score = live_snapshot.get("home_score") if live_snapshot else game.home_team_score
+    return SimpleNamespace(
+        game=game,
+        game_id=game.game_id,
+        game_date=game.game_date,
+        season=game.season,
+        road_team_id=game.road_team_id,
+        home_team_id=game.home_team_id,
+        road_score=road_score,
+        home_score=home_score,
+        road_won=status == GAME_STATUS_COMPLETED and game.wining_team_id == game.road_team_id,
+        home_won=status == GAME_STATUS_COMPLETED and game.wining_team_id == game.home_team_id,
+        status=status,
+        status_summary=(live_snapshot or {}).get("summary") or "",
+        link_enabled=status != GAME_STATUS_UPCOMING,
+    )
 
 
 def register_public_routes(
@@ -75,9 +114,10 @@ def register_public_routes(
 
         with SessionLocal() as session:
             today = _date.today()
+            live_map = fetch_live_scoreboard_map()
             games = (
                 session.query(Game)
-                .filter(Game.game_date == today, Game.home_team_score.isnot(None))
+                .filter(Game.game_date == today)
                 .order_by(Game.game_id.asc())
                 .all()
             )
@@ -169,7 +209,13 @@ def register_public_routes(
             for game in games:
                 home_team = team_lookup.get(game.home_team_id)
                 road_team = team_lookup.get(game.road_team_id)
-                home_won = game.wining_team_id == game.home_team_id if game.wining_team_id else None
+                live_snapshot = live_map.get(game.game_id)
+                status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
+                home_won = (
+                    game.wining_team_id == game.home_team_id
+                    if status == GAME_STATUS_COMPLETED and game.wining_team_id
+                    else None
+                )
 
                 margins = margins_by_game.get(game.game_id, [])
                 home_lead = max(margins, default=0) if margins else 0
@@ -195,9 +241,11 @@ def register_public_routes(
                         "road_team_id": game.road_team_id,
                         "home_abbr": home_team.abbr if home_team else "???",
                         "road_abbr": road_team.abbr if road_team else "???",
-                        "home_score": game.home_team_score,
-                        "road_score": game.road_team_score,
+                        "home_score": live_snapshot.get("home_score") if live_snapshot else game.home_team_score,
+                        "road_score": live_snapshot.get("road_score") if live_snapshot else game.road_team_score,
                         "home_won": home_won,
+                        "status": status,
+                        "status_summary": (live_snapshot or {}).get("summary"),
                         "lead_changes": lead_changes_map.get(game.game_id),
                         "home_largest_lead": max(home_lead, 0),
                         "road_largest_lead": max(road_lead, 0),
@@ -213,6 +261,13 @@ def register_public_routes(
                         "road_assister": _leader(top_assister_map.get((game.game_id, game.road_team_id)), "ast"),
                     }
                 )
+            result.sort(
+                key=lambda item: (
+                    _game_status_rank(item["status"]),
+                    item["game_date"],
+                    item["game_id"],
+                )
+            )
             return result
 
     def home():
@@ -315,6 +370,7 @@ def register_public_routes(
 
         page_size = 30
         with SessionLocal() as session:
+            live_map = fetch_live_scoreboard_map()
             all_season_ids = sorted(
                 {row.season for row in session.query(Game.season).filter(Game.season.isnot(None)).all()},
                 key=get_season_sort_key(),
@@ -340,10 +396,29 @@ def register_public_routes(
                 games_q = games_q.filter(or_(Game.home_team_id == selected_team, Game.road_team_id == selected_team))
             games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
 
-            total = games_q.count()
+            all_games = games_q.all()
+            live_games = []
+            completed_all = []
+            upcoming_games = []
+            for game in all_games:
+                entry = _build_game_list_entry(game, live_map.get(game.game_id))
+                if entry.status == GAME_STATUS_LIVE:
+                    live_games.append(entry)
+                elif entry.status == GAME_STATUS_UPCOMING:
+                    upcoming_games.append(entry)
+                else:
+                    completed_all.append(entry)
+
+            live_games.sort(key=lambda item: (item.game_date, item.game_id))
+            completed_all.sort(key=lambda item: (item.game_date, item.game_id), reverse=True)
+            upcoming_games.sort(key=lambda item: (item.game_date, item.game_id))
+
+            total = len(completed_all)
             total_pages = max(1, (total + page_size - 1) // page_size)
             page = min(page, total_pages)
-            games = games_q.offset((page - 1) * page_size).limit(page_size).all()
+            start = (page - 1) * page_size
+            end = start + page_size
+            completed_games = completed_all[start:end]
 
             team_lookup = get_team_map(session)
             selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
@@ -352,7 +427,10 @@ def register_public_routes(
 
         return get_render_template()(
             "games_list.html",
-            games=games,
+            games=[entry.game for entry in completed_games],
+            live_games=live_games,
+            completed_games=completed_games,
+            upcoming_games=upcoming_games,
             team_lookup=team_lookup,
             all_teams=all_teams,
             all_season_ids=all_season_ids,
@@ -965,6 +1043,15 @@ def register_public_routes(
             max_year=max_year,
         )
 
+    def api_games_live():
+        return jsonify({"games": list(fetch_live_scoreboard_map().values())})
+
+    def api_game_live(game_id: str):
+        payload = fetch_live_game_detail(game_id)
+        if payload is None:
+            return jsonify({"ok": False, "game_id": game_id, "error": "live_data_unavailable"}), 503
+        return jsonify({"ok": True, **payload})
+
     app.add_url_rule("/cn/", endpoint="home_zh", view_func=home)
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/cn/games", endpoint="games_list_zh", view_func=games_list)
@@ -972,6 +1059,8 @@ def register_public_routes(
     app.add_url_rule("/cn/awards", endpoint="awards_page_zh", view_func=awards_page)
     app.add_url_rule("/awards", endpoint="awards_page", view_func=awards_page)
     app.add_url_rule("/api/players/hints", endpoint="player_hints_api", view_func=limiter.limit("60 per minute")(player_hints_api))
+    app.add_url_rule("/api/games/live", endpoint="api_games_live", view_func=api_games_live)
+    app.add_url_rule("/api/games/<game_id>/live", endpoint="api_game_live", view_func=api_game_live)
     app.add_url_rule("/cn/players/compare", endpoint="players_compare_zh", view_func=players_compare)
     app.add_url_rule("/players/compare", endpoint="players_compare", view_func=players_compare)
     app.add_url_rule("/cn/draft/<int:year>", endpoint="draft_page_zh", view_func=draft_page)
@@ -981,6 +1070,8 @@ def register_public_routes(
         home=home,
         games_list=games_list,
         awards_page=awards_page,
+        api_games_live=api_games_live,
+        api_game_live=api_game_live,
         player_hints_api=player_hints_api,
         players_compare=players_compare,
         draft_page=draft_page,

@@ -202,8 +202,8 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         description = create_payload["description"]
         self.assertTrue(create_payload["title"].startswith("Game content analysis — funba — 2026-03-29 — 0022501082"))
         self.assertIn("Game ID: 0022501082", description)
-        self.assertIn("one Xiaohongshu note variant", description)
-        self.assertIn("destination `xiaohongshu/graph_note`", description)
+        self.assertIn("create variants for all platforms listed in the default target set", description)
+        self.assertIn("Only create variants for currently enabled platforms: **hupu, xiaohongshu, reddit**.", description)
         waiting = next(row for row in result["results"] if row["status"] == "waiting_for_pipeline")
         self.assertEqual(waiting["game_id"], "0022501083")
         self.assertEqual(waiting["pipeline_stage"], "artifacts")

@@ -14,6 +14,7 @@ import time
 from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
+from db.game_status import is_game_completed
 from db.models import Game, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PlayerGameStats, Team
 from metrics.framework.base import (
     MetricResult,
@@ -243,6 +244,9 @@ def run_delta_only(
     game = session.query(Game).filter(Game.game_id == game_id).first()
     if game is None:
         logger.warning("Game %s not found; skipping.", game_id)
+        return False
+    if not is_game_completed(game):
+        logger.info("Game %s is not completed; skipping metric %s.", game_id, metric_key)
         return False
 
     season = game.season

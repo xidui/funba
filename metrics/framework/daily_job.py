@@ -23,6 +23,7 @@ from threading import Lock
 
 from sqlalchemy.orm import sessionmaker
 
+from db.game_status import completed_game_clause
 from db.models import Game, engine
 from metrics.framework.runner import already_processed, run_for_game
 
@@ -109,7 +110,7 @@ def _run_games(games: list, skip_existing: bool = False, workers: int = _DEFAULT
 def run_date(target_date: date, skip_existing: bool = False, workers: int = _DEFAULT_WORKERS) -> None:
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
-        games = session.query(Game).filter(Game.game_date == target_date).all()
+        games = session.query(Game).filter(Game.game_date == target_date, completed_game_clause(Game)).all()
 
     if not games:
         logger.info("No games found for %s.", target_date)
@@ -125,7 +126,7 @@ def run_season(season_year: str, skip_existing: bool = False, workers: int = _DE
     with SessionLocal() as session:
         games = (
             session.query(Game)
-            .filter(Game.season.like(f"{season_year}%"), Game.game_date.isnot(None))
+            .filter(Game.season.like(f"{season_year}%"), Game.game_date.isnot(None), completed_game_clause(Game))
             .order_by(Game.game_date.asc(), Game.game_id.asc())
             .all()
         )
@@ -143,7 +144,7 @@ def run_since(since_date: date, skip_existing: bool = False, workers: int = _DEF
     with SessionLocal() as session:
         games = (
             session.query(Game)
-            .filter(Game.game_date >= since_date, Game.game_date.isnot(None))
+            .filter(Game.game_date >= since_date, Game.game_date.isnot(None), completed_game_clause(Game))
             .order_by(Game.game_date.asc(), Game.game_id.asc())
             .all()
         )

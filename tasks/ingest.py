@@ -22,6 +22,7 @@ from db.backfill_nba_player_shot_detail import (
     back_fill_game_shot_record,
     is_game_shot_back_filled,
 )
+from db.game_status import infer_game_status
 from db.models import Game, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 from runtime_flags import get_runtime_flag
@@ -211,8 +212,14 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                         game.home_team_id if game.home_team_score > game.road_team_score
                         else game.road_team_id
                     )
-                    sess.commit()
-                    logger.info("ingest_game %s: backfilled zero-score Game row from TeamGameStats.", game_id)
+                game.game_status = infer_game_status(
+                    game_date=game.game_date,
+                    wining_team_id=game.wining_team_id,
+                    home_team_score=game.home_team_score,
+                    road_team_score=game.road_team_score,
+                )
+                sess.commit()
+                logger.info("ingest_game %s: backfilled zero-score Game row from TeamGameStats.", game_id)
 
     except Exception as exc:
         # Explicit retry with exponential backoff — fan-out has NOT happened yet
