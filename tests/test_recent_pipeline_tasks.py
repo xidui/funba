@@ -131,6 +131,7 @@ def test_ingest_yesterday_enqueues_each_game_without_chord():
 def test_ingest_game_enqueues_season_refresh_after_success():
     before_status = {
         "exists_game": True,
+        "game_status": "completed",
         "artifacts_supported": True,
         "has_detail": True,
         "has_pbp": True,
@@ -139,6 +140,7 @@ def test_ingest_game_enqueues_season_refresh_after_success():
     }
     after_status = {
         "exists_game": True,
+        "game_status": "completed",
         "artifacts_supported": True,
         "has_detail": True,
         "has_pbp": True,
@@ -195,6 +197,7 @@ def test_ingest_game_enqueues_season_refresh_after_success():
 def test_ingest_game_retries_when_artifacts_still_incomplete():
     before_status = {
         "exists_game": True,
+        "game_status": "completed",
         "artifacts_supported": True,
         "has_detail": False,
         "has_pbp": False,
@@ -203,6 +206,7 @@ def test_ingest_game_retries_when_artifacts_still_incomplete():
     }
     after_status = {
         "exists_game": True,
+        "game_status": "completed",
         "artifacts_supported": True,
         "has_detail": False,
         "has_pbp": False,
@@ -365,18 +369,57 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
 
 
 def test_sync_schedule_games_enables_unplayed_upsert_mode():
-    with patch.object(dispatch_tasks, "discover_and_insert_games", return_value={"g1"}) as discover_mock:
-        result = dispatch_tasks.sync_schedule_games(date_from="04/01/2026", date_to="05/01/2026")
+    assert dispatch_tasks._schedule_seasons("22025") == ["2025-26"]
+    assert dispatch_tasks._schedule_seasons(date_from="04/01/2026", date_to="05/01/2026") == ["2025-26"]
 
-    discover_mock.assert_called_once_with(
-        season=None,
-        season_types=None,
-        date_from="04/01/2026",
-        date_to="05/01/2026",
-        include_unplayed=True,
-        upsert_existing=True,
+
+def test_schedule_game_rows_from_frame_marks_future_games_upcoming_without_scores():
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [
+            {
+                "gameId": "0022501186",
+                "gameDate": "04/12/2026 00:00:00",
+                "gameStatus": 1,
+                "homeTeam_teamId": "1610612738",
+                "awayTeam_teamId": "1610612753",
+                "homeTeam_score": 0,
+                "awayTeam_score": 0,
+            },
+            {
+                "gameId": "0052500101",
+                "gameDate": "04/14/2026 00:00:00",
+                "gameStatus": 1,
+                "homeTeam_teamId": None,
+                "awayTeam_teamId": None,
+                "homeTeam_score": 0,
+                "awayTeam_score": 0,
+            },
+        ]
     )
-    assert result == {"g1"}
+
+    rows = dispatch_tasks._schedule_game_rows_from_frame(
+        frame,
+        date_from="04/11/2026",
+        date_to="04/12/2026",
+        season_types=["Regular Season"],
+    )
+
+    assert list(rows) == ["0022501186"]
+    assert rows["0022501186"] == {
+        "game_id": "0022501186",
+        "season": "22025",
+        "game_date": date.fromisoformat("2026-04-12"),
+        "home_team_id": "1610612738",
+        "road_team_id": "1610612753",
+        "home_team_score": None,
+        "road_team_score": None,
+        "wining_team_id": None,
+        "game_status": "upcoming",
+        "backfill_mismatch": False,
+        "data_source": "nba_api_scheduleleaguev2",
+    }
 
 
 def test_sync_schedule_window_syncs_expected_date_range():
@@ -405,6 +448,52 @@ def test_sync_schedule_window_syncs_expected_date_range():
         "date_to": "04/06/2026",
         "season_types": ["PlayIn", "Playoffs"],
         "synced_games": 2,
+    }
+
+
+def test_ingest_game_skips_existing_upcoming_game():
+    before_status = {
+        "exists_game": True,
+        "game_status": "upcoming",
+        "artifacts_supported": True,
+        "has_detail": False,
+        "has_pbp": False,
+        "has_shot": False,
+        "season": "22025",
+    }
+    status_session = _ctx(MagicMock())
+
+    ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
+    try:
+        with patch.object(
+            ingest_tasks,
+            "_session_factory",
+            return_value=MagicMock(side_effect=[status_session]),
+        ), patch.object(
+            ingest_tasks,
+            "_load_game_artifact_status",
+            return_value=before_status,
+        ), patch.object(
+            ingest_tasks,
+            "_fetch_api_row",
+        ) as fetch_mock, patch(
+            "tasks.metrics.refresh_current_season_metrics.delay",
+        ) as refresh_delay_mock:
+            result = ingest_tasks.ingest_game.run("future-game")
+    finally:
+        ingest_tasks.ingest_game.pop_request()
+
+    fetch_mock.assert_not_called()
+    refresh_delay_mock.assert_not_called()
+    assert result == {
+        "game_id": "future-game",
+        "status": "skipped",
+        "skip_reason": "upcoming",
+        "new_game": False,
+        "detail_pbp_refreshed": False,
+        "shot_refreshed": False,
+        "line_score_rows": 0,
+        "metric_tasks_enqueued": 0,
     }
 
 

@@ -22,7 +22,7 @@ from db.backfill_nba_player_shot_detail import (
     back_fill_game_shot_record,
     is_game_shot_back_filled,
 )
-from db.game_status import infer_game_status
+from db.game_status import GAME_STATUS_COMPLETED, completed_game_clause, get_game_status, infer_game_status
 from db.models import Game, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 from runtime_flags import get_runtime_flag
@@ -92,6 +92,7 @@ def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = 
         "game_id": game_id,
         "season": season,
         "exists_game": game is not None,
+        "game_status": get_game_status(game) if game is not None else None,
         "artifacts_supported": artifacts_supported,
         "has_detail": has_detail,
         "has_pbp": has_pbp,
@@ -150,10 +151,24 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         with SessionLocal() as sess:
             status_before = _load_game_artifact_status(sess, game_id)
             game_exists = status_before["exists_game"]
+            game_status = status_before.get("game_status")
             artifacts_supported = status_before["artifacts_supported"]
             has_detail = status_before["has_detail"]
             has_pbp = status_before["has_pbp"]
             has_shot = status_before["has_shot"]
+
+        if game_exists and game_status != GAME_STATUS_COMPLETED:
+            logger.info("ingest_game %s: skipping %s game already stored in DB.", game_id, game_status or "non-completed")
+            return {
+                "game_id": game_id,
+                "status": "skipped",
+                "skip_reason": game_status or "non_completed",
+                "new_game": False,
+                "detail_pbp_refreshed": False,
+                "shot_refreshed": False,
+                "line_score_rows": 0,
+                "metric_tasks_enqueued": 0,
+            }
 
         needs_detail_pbp = not (has_detail and has_pbp)
         needs_shot = not has_shot
@@ -482,7 +497,7 @@ def enqueue_metric_backfill(self, metric_key: str, force: bool = False) -> dict:
         game_ids = [
             row.game_id
             for row in sess.query(Game.game_id)
-            .filter(Game.game_date.isnot(None))
+            .filter(Game.game_date.isnot(None), completed_game_clause(Game))
             .order_by(Game.game_date.asc(), Game.game_id.asc())
             .all()
         ]

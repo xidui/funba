@@ -35,7 +35,13 @@ from datetime import date as _date, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from db.game_status import infer_game_status
+from db.game_status import (
+    GAME_STATUS_COMPLETED,
+    GAME_STATUS_LIVE,
+    GAME_STATUS_UPCOMING,
+    completed_game_clause,
+    infer_game_status,
+)
 from db.models import Game, MetricComputeRun, MetricRunLog, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
@@ -73,7 +79,10 @@ def _query_games(
 ) -> list[str]:
     sess = _session()
     try:
-        q = sess.query(Game.game_id).filter(Game.game_date.isnot(None))
+        q = sess.query(Game.game_id).filter(
+            Game.game_date.isnot(None),
+            completed_game_clause(Game),
+        )
         if season:
             q = q.filter(Game.season.like(f"{season}%"))
         if date_from:
@@ -88,7 +97,12 @@ def _query_games(
 def _all_game_ids() -> list[str]:
     sess = _session()
     try:
-        return [row.game_id for row in sess.query(Game.game_id).filter(Game.game_date.isnot(None)).all()]
+        return [
+            row.game_id
+            for row in sess.query(Game.game_id)
+            .filter(Game.game_date.isnot(None), completed_game_clause(Game))
+            .all()
+        ]
     finally:
         sess.close()
 
@@ -113,6 +127,194 @@ def _clear_run_logs(game_ids: list[str], metric_keys: list[str] | None = None) -
 
 def _parse_optional_date(value: str | None):
     return _date.fromisoformat(value) if value else None
+
+
+def _normalize_stats_season(season: str | None) -> str | None:
+    text = str(season or "").strip()
+    if not text:
+        return None
+    if len(text) == 5 and text.isdigit() and text[0] in {"1", "2", "4", "5"}:
+        start_year = int(text[1:])
+        return f"{start_year}-{str(start_year + 1)[-2:]}"
+    return text
+
+
+def _season_start_year_for_date(target_date: _date) -> int:
+    # NBA seasons span autumn to the following spring.
+    return target_date.year if target_date.month >= 7 else target_date.year - 1
+
+
+def _parse_nba_api_mmddyyyy(value: str | None) -> _date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return datetime.strptime(text, "%m/%d/%Y").date()
+
+
+def _schedule_seasons(
+    season: str | None = None,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    normalized = _normalize_stats_season(season)
+    if normalized:
+        return [normalized]
+
+    parsed_from = _parse_nba_api_mmddyyyy(date_from)
+    parsed_to = _parse_nba_api_mmddyyyy(date_to)
+    start_date = parsed_from or parsed_to or _date.today()
+    end_date = parsed_to or parsed_from or start_date
+
+    start_year = _season_start_year_for_date(min(start_date, end_date))
+    end_year = _season_start_year_for_date(max(start_date, end_date))
+    return [f"{year}-{str(year + 1)[-2:]}" for year in range(start_year, end_year + 1)]
+
+
+def _schedule_type_code(game_id: str | None) -> str | None:
+    text = str(game_id or "").strip()
+    if len(text) < 3 or not text[:3].isdigit():
+        return None
+    return text[2]
+
+
+def _schedule_season_code(game_id: str | None) -> str | None:
+    text = str(game_id or "").strip()
+    if len(text) < 5 or not text[:5].isdigit():
+        return None
+    season_type = text[2]
+    season_year = text[3:5]
+    if season_type not in {"1", "2", "4", "5"}:
+        return None
+    return f"{season_type}20{season_year}"
+
+
+def _schedule_status_from_code(game_status: int | str | None) -> str:
+    try:
+        code = int(float(game_status)) if game_status not in (None, "") else 1
+    except (TypeError, ValueError):
+        code = 1
+    if code >= 3:
+        return GAME_STATUS_COMPLETED
+    if code == 2:
+        return GAME_STATUS_LIVE
+    return GAME_STATUS_UPCOMING
+
+
+_SCHEDULE_SEASON_TYPE_CODES = {
+    "pre season": "1",
+    "preseason": "1",
+    "regular season": "2",
+    "playoffs": "4",
+    "playin": "5",
+    "play-in": "5",
+}
+
+
+def _allowed_schedule_type_codes(season_types: list[str] | None) -> set[str]:
+    if not season_types:
+        return {"2", "4", "5"}
+    allowed: set[str] = set()
+    for season_type in season_types:
+        code = _SCHEDULE_SEASON_TYPE_CODES.get(str(season_type or "").strip().lower())
+        if code:
+            allowed.add(code)
+    return allowed or {"2", "4", "5"}
+
+
+def _parse_schedule_game_date(value) -> _date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = text.split(" ", 1)[0]
+    try:
+        return datetime.strptime(text, "%m/%d/%Y").date()
+    except ValueError:
+        return None
+
+
+def _schedule_team_id(value) -> str | None:
+    text = str(value or "").strip()
+    if not text or text.lower() == "nan":
+        return None
+    try:
+        return str(int(float(text)))
+    except (TypeError, ValueError):
+        return text
+
+
+def _schedule_score(value, *, status: str) -> int | None:
+    if status == GAME_STATUS_UPCOMING:
+        return None
+    if value in (None, "", "nan"):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _schedule_game_rows_from_frame(
+    frame,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    season_types: list[str] | None = None,
+) -> dict[str, dict]:
+    allowed_type_codes = _allowed_schedule_type_codes(season_types)
+    parsed_from = _parse_nba_api_mmddyyyy(date_from)
+    parsed_to = _parse_nba_api_mmddyyyy(date_to)
+
+    game_rows: dict[str, dict] = {}
+    for _, row in frame.iterrows():
+        gid = str(row.get("gameId") or "").strip()
+        if not gid:
+            continue
+
+        type_code = _schedule_type_code(gid)
+        if type_code not in allowed_type_codes:
+            continue
+
+        game_date = _parse_schedule_game_date(row.get("gameDate"))
+        if game_date is None:
+            continue
+        if parsed_from and game_date < parsed_from:
+            continue
+        if parsed_to and game_date > parsed_to:
+            continue
+
+        status = _schedule_status_from_code(row.get("gameStatus"))
+        home_team_id = _schedule_team_id(row.get("homeTeam_teamId"))
+        road_team_id = _schedule_team_id(row.get("awayTeam_teamId"))
+        home_score = _schedule_score(row.get("homeTeam_score"), status=status)
+        road_score = _schedule_score(row.get("awayTeam_score"), status=status)
+
+        winner_id = None
+        if (
+            status == GAME_STATUS_COMPLETED
+            and home_team_id
+            and road_team_id
+            and home_score is not None
+            and road_score is not None
+            and home_score != road_score
+        ):
+            winner_id = home_team_id if home_score > road_score else road_team_id
+
+        game_rows[gid] = {
+            "game_id": gid,
+            "season": _schedule_season_code(gid),
+            "game_date": game_date,
+            "home_team_id": home_team_id,
+            "road_team_id": road_team_id,
+            "home_team_score": home_score,
+            "road_team_score": road_score,
+            "wining_team_id": winner_id,
+            "game_status": status,
+            "backfill_mismatch": False,
+            "data_source": "nba_api_scheduleleaguev2",
+        }
+
+    return game_rows
 
 
 def discover_and_insert_games(
@@ -251,14 +453,61 @@ def sync_schedule_games(
     date_to: str | None = None,
 ) -> set[str]:
     """Sync schedule rows, including future / not-yet-played games, into Game."""
-    return discover_and_insert_games(
-        season=season,
-        season_types=season_types,
+    import pandas as pd
+    from nba_api.stats.endpoints import scheduleleaguev2
+    from sqlalchemy.dialects.mysql import insert as mysql_insert
+
+    frames = []
+    for season_value in _schedule_seasons(season, date_from=date_from, date_to=date_to):
+        try:
+            schedule = scheduleleaguev2.ScheduleLeagueV2(season=season_value, league_id="00")
+            frame = schedule.get_data_frames()[0]
+            if frame is not None and not frame.empty:
+                frames.append(frame)
+        except Exception as exc:
+            print(f"Warning: ScheduleLeagueV2 failed for {season_value}: {exc}", file=sys.stderr)
+
+    if not frames:
+        return set()
+
+    full_df = pd.concat(frames, ignore_index=True)
+    game_rows = _schedule_game_rows_from_frame(
+        full_df,
         date_from=date_from,
         date_to=date_to,
-        include_unplayed=True,
-        upsert_existing=True,
+        season_types=season_types,
     )
+    if not game_rows:
+        return set()
+
+    game_ids = set(game_rows.keys())
+    sess = _session()
+    try:
+        existing_ids = {
+            r.game_id
+            for r in sess.query(Game.game_id).filter(Game.game_id.in_(game_ids)).all()
+        }
+        inserted_count = len(game_ids - existing_ids)
+        updated_count = len(game_ids & existing_ids)
+
+        stmt = mysql_insert(Game).values(list(game_rows.values()))
+        stmt = stmt.on_duplicate_key_update(
+            season=stmt.inserted.season,
+            game_date=stmt.inserted.game_date,
+            home_team_id=func.coalesce(stmt.inserted.home_team_id, Game.home_team_id),
+            road_team_id=func.coalesce(stmt.inserted.road_team_id, Game.road_team_id),
+            game_status=stmt.inserted.game_status,
+            home_team_score=func.coalesce(stmt.inserted.home_team_score, Game.home_team_score),
+            road_team_score=func.coalesce(stmt.inserted.road_team_score, Game.road_team_score),
+            wining_team_id=func.coalesce(stmt.inserted.wining_team_id, Game.wining_team_id),
+        )
+        sess.execute(stmt)
+        sess.commit()
+        print(f"Synced {len(game_rows)} schedule Game record(s) ({inserted_count} inserted, {updated_count} updated).")
+    finally:
+        sess.close()
+
+    return game_ids
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
@@ -516,7 +765,11 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
         sess = _session()
         try:
             seasons = sorted(
-                r.season for r in sess.query(Game.season).distinct().filter(Game.season.isnot(None)).all()
+                r.season
+                for r in sess.query(Game.season)
+                .filter(Game.season.isnot(None), completed_game_clause(Game))
+                .distinct()
+                .all()
             )
         finally:
             sess.close()

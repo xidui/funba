@@ -69,7 +69,10 @@ app.conf.update(
         "sync-schedule-window": {
             "task": "tasks.ingest.sync_schedule_window",
             "schedule": crontab(hour=6, minute=0),
-            "kwargs": {"season_types": ["PlayIn", "Playoffs"]},
+            "kwargs": {
+                "lookahead_days": 365,
+                "season_types": ["Regular Season", "PlayIn", "Playoffs"],
+            },
         },
     },
 

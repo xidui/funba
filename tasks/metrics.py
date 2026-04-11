@@ -962,7 +962,11 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
         else:
             # Fallback: use the latest regular season
             all_seasons = [
-                r[0] for r in session.query(Game.season).distinct().all()
+                r[0]
+                for r in session.query(Game.season)
+                .filter(Game.season.isnot(None), completed_game_clause(Game))
+                .distinct()
+                .all()
                 if r[0] and str(r[0]).startswith("2")
             ]
             affected_seasons = {max(all_seasons)} if all_seasons else set()
