@@ -251,6 +251,24 @@
     flex-shrink: 0;
   }
 
+  .season-select {
+    appearance: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 5px 30px 5px 11px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .season-select:hover, .season-select:focus { border-color: var(--accent); }
+
   .no-results {
     text-align: center;
     padding: 40px 20px;
@@ -268,9 +286,14 @@
 <div class="players-header">
   <div>
     <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Players', '球员') }}</h1>
-    <div class="players-count" id="players-count">{{ player_count }} {{ t('players', '名球员') }} · {{ season_label(current_season) }}</div>
+    <div class="players-count" id="players-count">{{ player_count }} {{ t('players', '名球员') }}</div>
   </div>
   <div class="players-controls">
+    <select class="season-select" onchange="location.href='{{ url_for('players_browse') }}?season='+this.value">
+      {% for sid in season_ids %}
+      <option value="{{ sid }}" {% if sid == selected_season %}selected{% endif %}>{{ season_label(sid) }}</option>
+      {% endfor %}
+    </select>
     <div class="players-search-wrap">
       <svg class="players-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

@@ -1101,7 +1101,18 @@ def register_public_routes(
         Game = get_game_model()
 
         with SessionLocal() as session:
-            current_season = _latest_regular_season(session)
+            latest_season = _latest_regular_season(session)
+
+            # Available regular seasons for the dropdown
+            season_ids = sorted(
+                [
+                    row.season
+                    for row in session.query(Game.season).filter(Game.season.like("2%")).distinct().all()
+                ],
+                key=get_season_sort_key(),
+                reverse=True,
+            )
+            selected_season = request.args.get("season") or latest_season
 
             # Get current teams (non-legacy)
             teams = (
@@ -1112,7 +1123,7 @@ def register_public_routes(
             )
             team_lookup = {t.team_id: t for t in teams}
 
-            # Get each active player's most recent team in the current season
+            # Get each player's most recent team in the selected season
             latest_team_sub = (
                 session.query(
                     PlayerGameStats.player_id,
@@ -1121,7 +1132,7 @@ def register_public_routes(
                 )
                 .join(Game, Game.game_id == PlayerGameStats.game_id)
                 .filter(
-                    Game.season == current_season,
+                    Game.season == selected_season,
                     PlayerGameStats.team_id.isnot(None),
                 )
                 .group_by(PlayerGameStats.player_id, PlayerGameStats.team_id)
@@ -1177,7 +1188,7 @@ def register_public_routes(
                 )
                 .join(Game, Game.game_id == PlayerGameStats.game_id)
                 .filter(
-                    Game.season == current_season,
+                    Game.season == selected_season,
                     PlayerGameStats.player_id.in_(player_ids_in_season),
                 )
                 .group_by(PlayerGameStats.player_id)
@@ -1244,7 +1255,8 @@ def register_public_routes(
             teams_with_players=teams_with_players,
             all_players=all_players,
             player_count=len(all_players),
-            current_season=current_season,
+            selected_season=selected_season,
+            season_ids=season_ids,
         )
 
     def api_games_live():
