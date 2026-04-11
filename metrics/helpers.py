@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
+from db.game_status import completed_game_clause
 from db.models import Game, GameLineScore, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
 from metrics.framework.base import career_season_type_code, is_career_season
 
@@ -252,7 +253,7 @@ def season_pbp_offensive_foul_events(session: Session, season: str) -> list[dict
     query = (
         session.query(GamePlayByPlay, Game)
         .join(Game, Game.game_id == GamePlayByPlay.game_id)
-        .filter(GamePlayByPlay.event_msg_type == 6)
+        .filter(GamePlayByPlay.event_msg_type == 6, completed_game_clause(Game))
     )
     if is_career_season(season):
         code = career_season_type_code(season)

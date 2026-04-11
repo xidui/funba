@@ -325,6 +325,8 @@
     transition: border-color 0.15s;
   }
   .today-game:hover { border-color: var(--border-2); text-decoration: none; }
+  .today-game.live { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+  .today-game.upcoming { opacity: 0.86; }
 
   .today-matchup {
     display: flex;
@@ -370,6 +372,36 @@
     font-size: 11px;
     color: var(--muted);
     font-weight: 600;
+  }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--loss);
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--loss);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .today-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-top: 8px;
   }
 
   /* Stats strip below scoreboard */
@@ -485,6 +517,11 @@
     .ts-middle { padding: 0 8px; }
     .ts-val-side { font-size: 11px; min-width: 24px; }
     .ts-label { font-size: 8px; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
 </style>
 
@@ -638,25 +675,48 @@
   </div>
   <div class="today-games-list">
     {% for g in today_games %}
-    <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-game">
+    <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-game {{ g.status }}" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
       {# ── Scoreboard row ── #}
       <div class="today-matchup">
         <div class="today-team{% if g.home_won == false %} winner{% endif %}">
           <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg"
                alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
           <span class="today-abbr">{{ g.road_abbr }}</span>
-          <span class="today-score{% if g.home_won == false %} win{% endif %}">{{ g.road_score }}</span>
+          <span class="today-score{% if g.home_won == false %} win{% endif %}" data-role="road-score">{{ g.road_score if g.road_score is not none else '—' }}</span>
         </div>
         <span class="today-at">@</span>
         <div class="today-team home{% if g.home_won == true %} winner{% endif %}">
-          <span class="today-score{% if g.home_won == true %} win{% endif %}">{{ g.home_score }}</span>
+          <span class="today-score{% if g.home_won == true %} win{% endif %}" data-role="home-score">{{ g.home_score if g.home_score is not none else '—' }}</span>
           <span class="today-abbr">{{ g.home_abbr }}</span>
           <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg"
                alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
         </div>
       </div>
+      <div class="today-status">
+        {% if g.status == 'live' %}
+        <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+        <span data-role="live-summary">{{ g.status_summary }}</span>
+        {% elif g.status == 'upcoming' %}
+        <span>{{ t('Upcoming', '未开始') }}</span>
+        {% else %}
+        <span>{{ t('Final', '最终') }}</span>
+        {% endif %}
+      </div>
       {# ── Stats strip ── #}
       <div class="today-stats">
+        {% if g.status != 'completed' %}
+        <div class="ts-cell ts-middle" style="grid-column:1 / -1; border:0; padding:8px 0;">
+          <div class="ts-row ts-row-center">
+            <span class="ts-label">
+              {% if g.status == 'live' %}
+              {{ t('Live game updates every 30 seconds', '比赛进行中，每30秒更新一次') }}
+              {% else %}
+              {{ t('Scheduled matchup', '已安排的比赛') }}
+              {% endif %}
+            </span>
+          </div>
+        </div>
+        {% else %}
         {# Road leaders #}
         <div class="ts-cell ts-leaders">
           {% for ldr in [g.road_scorer, g.road_rebounder, g.road_assister] %}
@@ -709,12 +769,38 @@
           {% endif %}
           {% endfor %}
         </div>
+        {% endif %}
       </div>
     </a>
     {% endfor %}
   </div>
 </div>
 {% endif %}
+
+<script>
+(function () {
+  async function refreshTodayGames() {
+    const response = await fetch('{{ url_for("api_games_live") }}', { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) return;
+    const payload = await response.json();
+    for (const game of (payload.games || [])) {
+      const card = document.querySelector('[data-live-game-id="' + game.game_id + '"]');
+      if (!card) continue;
+      const road = card.querySelector('[data-role="road-score"]');
+      const home = card.querySelector('[data-role="home-score"]');
+      const summary = card.querySelector('[data-role="live-summary"]');
+      if (road) road.textContent = game.road_score;
+      if (home) home.textContent = game.home_score;
+      if (summary) summary.textContent = game.summary || '';
+      if (game.status !== 'live') {
+        window.location.reload();
+        return;
+      }
+    }
+  }
+  window.setInterval(refreshTodayGames, 30000);
+})();
+</script>
 
 {% if east_standings or west_standings %}
 <div class="card">

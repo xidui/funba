@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
+from db.game_status import completed_game_clause
 from db.models import Game, GamePlayByPlay, PlayerGameStats, ShotRecord, Team, TeamGameStats
 from metrics.framework.base import CAREER_SEASON, is_career_season, career_season_type_code
 
@@ -260,6 +261,7 @@ def _season_type_codes(season_types: list[str] | None) -> set[str] | None:
 
 
 def _apply_season_scope(q, season: str, definition: dict):
+    q = q.filter(completed_game_clause(Game))
     if is_career_season(season):
         # Career bucket like "all_regular" — filter to that season type
         type_code = career_season_type_code(season)

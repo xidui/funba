@@ -1,5 +1,6 @@
 from nba_api.stats.endpoints import boxscoretraditionalv3
 from datetime import datetime
+from db.game_status import infer_game_status
 from db.models import Team, TeamGameStats, PlayerGameStats, Player, Game, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
@@ -333,6 +334,12 @@ def back_fill_game_detail(game, game_record, sess, commit):
     game_record.home_team_score = home_team_stats['PTS']
     game_record.road_team_score = road_team_stats['PTS']
     game_record.wining_team_id = home_team_id if home_team_stats['PTS'] > road_team_stats['PTS'] else road_team_id
+    game_record.game_status = infer_game_status(
+        game_date=game_record.game_date.date() if game_record.game_date else None,
+        wining_team_id=game_record.wining_team_id,
+        home_team_score=game_record.home_team_score,
+        road_team_score=game_record.road_team_score,
+    )
 
     # Ensure parent Game row exists before inserting child stats rows.
     sess.add(game_record)

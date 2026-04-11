@@ -26,6 +26,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
+from db.game_status import completed_game_clause
 from db.models import Game, MetricComputeRun, MetricResult, MetricRunLog, engine
 from metrics.framework.base import is_career_season
 from metrics.framework.runner import run_delta_only, reduce_metric, run_season_metric
@@ -294,7 +295,10 @@ def _metric_seasons(session, metric_key: str) -> list[str]:
 def _run_game_ids_query(session, run: MetricComputeRun):
     from db.models import Game
 
-    q = session.query(Game.game_id).filter(Game.game_date.isnot(None))
+    q = session.query(Game.game_id).filter(
+        Game.game_date.isnot(None),
+        completed_game_clause(Game),
+    )
     if run.target_season:
         q = q.filter(Game.season.like(f"{run.target_season}%"))
     if run.target_date_from:
@@ -760,7 +764,7 @@ def reduce_after_ingest(self, results: list, game_id: str) -> dict:
         with SessionLocal() as session:
             total_games = (
                 session.query(func.count(Game.game_id))
-                .filter(Game.game_date.isnot(None))
+                .filter(Game.game_date.isnot(None), completed_game_clause(Game))
                 .scalar() or 0
             )
             session.query(MetricComputeRun).filter(

@@ -10,6 +10,7 @@ WEB_APP_DB_MODEL_NAMES = (
     "Award",
     "Feedback",
     "Game",
+    "GameContentAnalysisIssue",
     "GameContentAnalysisIssuePost",
     "GameLineScore",
     "GamePlayByPlay",

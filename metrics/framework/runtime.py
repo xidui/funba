@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
 from db import models as db_models
+from db.game_status import completed_game_clause
 from metrics.framework.base import (
     CAREER_SEASON,
     MetricDefinition,
@@ -252,7 +253,7 @@ def _career_ready_from_season_results(session: Session, base_key: str, career_se
     expected = {
         season
         for (season,) in session.query(Game.season)
-        .filter(Game.game_date.isnot(None), Game.season.like(prefix))
+        .filter(Game.game_date.isnot(None), Game.season.like(prefix), completed_game_clause(Game))
         .distinct()
         .all()
         if season

@@ -7,6 +7,9 @@ from typing import Any, Callable
 from flask import abort, request
 from sqlalchemy import case, func
 
+from db.game_status import GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
+from web.live_game_data import fetch_live_game_detail, fetch_live_scoreboard_map
+
 
 def register_detail_routes(
     app,
@@ -410,6 +413,35 @@ def register_detail_routes(
             if game is None:
                 abort(404, description=f"Game {game_id} not found")
 
+            def _game_analysis_issues():
+                return [
+                    {
+                        "id": item.id,
+                        "issue_id": item.issue_id,
+                        "issue_identifier": item.issue_identifier,
+                        "issue_url": get_paperclip_issue_url()(item.issue_identifier),
+                        "issue_status": item.issue_status,
+                        "title": item.title,
+                        "trigger_source": item.trigger_source,
+                        "source_date": item.source_date,
+                        "created_at": item.created_at,
+                        "updated_at": item.updated_at,
+                        "created_at_label": item.created_at.replace("T", " ")[:19] if item.created_at else None,
+                        "updated_at_label": item.updated_at.replace("T", " ")[:19] if item.updated_at else None,
+                        "posts": [
+                            {
+                                "post_id": int(post["post_id"]),
+                                "topic": str(post.get("topic") or ""),
+                                "status": str(post.get("status") or ""),
+                                "source_date": str(post.get("source_date") or ""),
+                                "discovered_via": str(post.get("discovered_via") or ""),
+                            }
+                            for post in item.posts
+                        ],
+                    }
+                    for item in get_game_analysis_issue_history()(game_id)
+                ]
+
             if not has_game_line_score(session, game_id):
                 try:
                     from db.backfill_nba_game_line_score import back_fill_game_line_score
@@ -418,6 +450,74 @@ def register_detail_routes(
                     get_logger().exception("inline line-score fetch failed for game_id=%s", game_id)
 
             teams = get_team_map()(session)
+            game_status = get_game_status(game)
+            live_summary = fetch_live_scoreboard_map().get(game_id)
+
+            if game_status == GAME_STATUS_LIVE:
+                live_payload = fetch_live_game_detail(game_id)
+                if live_payload is not None:
+                    live_summary = live_payload["summary"]
+                    return get_render_template()(
+                        "game.html",
+                        game=game,
+                        game_status=game_status,
+                        live_summary=live_summary,
+                        live_refresh_interval_ms=15000,
+                        team_name=lambda team_id: get_team_name()(teams, team_id),
+                        team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                        fmt_date=get_fmt_date(),
+                        team_stats=live_payload["team_stats"],
+                        players_by_team=live_payload["players_by_team"],
+                        ordered_team_ids=[team_id for team_id in live_payload["ordered_team_ids"] if team_id],
+                        pbp_rows=live_payload["pbp_rows"],
+                        shot_rows=[],
+                        shot_rows_by_team={},
+                        shot_chart_team_ids=[],
+                        shot_made_count=0,
+                        shot_miss_count=0,
+                        shot_made_count_by_team={},
+                        shot_miss_count_by_team={},
+                        shot_backfill_status=request.args.get("shot_backfill"),
+                        shot_backfill_count=request.args.get("shot_count"),
+                        score_progression_json="[]",
+                        road_abbr=get_team_abbr()(teams, game.road_team_id),
+                        home_abbr=get_team_abbr()(teams, game.home_team_id),
+                        quarter_scores=live_payload["quarter_scores"],
+                        home_team_id=game.home_team_id,
+                        game_analysis_issues=_game_analysis_issues(),
+                    )
+
+            if game_status == GAME_STATUS_UPCOMING:
+                return get_render_template()(
+                    "game.html",
+                    game=game,
+                    game_status=game_status,
+                    live_summary=live_summary,
+                    live_refresh_interval_ms=None,
+                    team_name=lambda team_id: get_team_name()(teams, team_id),
+                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    fmt_date=get_fmt_date(),
+                    team_stats=[],
+                    players_by_team={},
+                    ordered_team_ids=[team_id for team_id in [game.road_team_id, game.home_team_id] if team_id],
+                    pbp_rows=[],
+                    shot_rows=[],
+                    shot_rows_by_team={},
+                    shot_chart_team_ids=[],
+                    shot_made_count=0,
+                    shot_miss_count=0,
+                    shot_made_count_by_team={},
+                    shot_miss_count_by_team={},
+                    shot_backfill_status=request.args.get("shot_backfill"),
+                    shot_backfill_count=request.args.get("shot_count"),
+                    score_progression_json="[]",
+                    road_abbr=get_team_abbr()(teams, game.road_team_id),
+                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    quarter_scores=[],
+                    home_team_id=game.home_team_id,
+                    game_analysis_issues=[],
+                )
+
             team_stats_rows = (
                 session.query(TeamGameStats)
                 .filter(TeamGameStats.game_id == game_id)
@@ -626,37 +726,14 @@ def register_detail_routes(
             road_abbr = get_team_abbr()(teams, game.road_team_id)
             home_abbr = get_team_abbr()(teams, game.home_team_id)
             home_team_id = game.home_team_id
-            game_analysis_issues = [
-                {
-                    "id": item.id,
-                    "issue_id": item.issue_id,
-                    "issue_identifier": item.issue_identifier,
-                    "issue_url": get_paperclip_issue_url()(item.issue_identifier),
-                    "issue_status": item.issue_status,
-                    "title": item.title,
-                    "trigger_source": item.trigger_source,
-                    "source_date": item.source_date,
-                    "created_at": item.created_at,
-                    "updated_at": item.updated_at,
-                    "created_at_label": item.created_at.replace("T", " ")[:19] if item.created_at else None,
-                    "updated_at_label": item.updated_at.replace("T", " ")[:19] if item.updated_at else None,
-                    "posts": [
-                        {
-                            "post_id": int(post["post_id"]),
-                            "topic": str(post.get("topic") or ""),
-                            "status": str(post.get("status") or ""),
-                            "source_date": str(post.get("source_date") or ""),
-                            "discovered_via": str(post.get("discovered_via") or ""),
-                        }
-                        for post in item.posts
-                    ],
-                }
-                for item in get_game_analysis_issue_history()(game_id)
-            ]
+            game_analysis_issues = _game_analysis_issues()
 
         return get_render_template()(
             "game.html",
             game=game,
+            game_status=game_status,
+            live_summary=live_summary,
+            live_refresh_interval_ms=None,
             team_name=lambda team_id: get_team_name()(teams, team_id),
             team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
             fmt_date=get_fmt_date(),

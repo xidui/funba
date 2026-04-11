@@ -87,8 +87,7 @@ class TestGamesList(unittest.TestCase):
         games_query = MagicMock()
         games_query.filter.return_value = games_query
         games_query.order_by.return_value = games_query
-        games_query.count.return_value = 1
-        games_query.offset.return_value.limit.return_value.all.return_value = [game]
+        games_query.all.return_value = [game]
 
         team_map_query = MagicMock()
         team_map_query.all.return_value = [selected_team, other_team]
@@ -108,6 +107,7 @@ class TestGamesList(unittest.TestCase):
         self.assertIs(kwargs["selected_team_obj"], selected_team)
         self.assertEqual(kwargs["all_teams"], [selected_team, other_team])
         self.assertEqual(kwargs["games"], [game])
+        self.assertEqual(len(kwargs["completed_games"]), 1)
         self.assertEqual(kwargs["page"], 1)
         self.assertEqual(kwargs["total_pages"], 1)
 
@@ -134,8 +134,7 @@ class TestGamesList(unittest.TestCase):
         games_query = MagicMock()
         games_query.filter.return_value = games_query
         games_query.order_by.return_value = games_query
-        games_query.count.return_value = 0
-        games_query.offset.return_value.limit.return_value.all.return_value = []
+        games_query.all.return_value = []
 
         team_map_query = MagicMock()
         team_map_query.all.return_value = [legacy_team]
