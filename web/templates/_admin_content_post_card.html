@@ -10,6 +10,12 @@
   <div class="post-summary">
     {{ p.variant_count }} variant{{ 's' if p.variant_count != 1 }}
     {% if p.source_metrics %} · {{ p.source_metrics|length }} metric{{ 's' if p.source_metrics|length != 1 }}{% endif %}
+    {% if p.source_game_ids %}
+      ·
+      {% for gid in p.source_game_ids %}
+        <a href="{{ url_for('game_page', game_id=gid) }}" onclick="event.stopPropagation();" style="color:var(--accent);font-weight:600;">Game {{ gid[-4:] }}</a>{{ ', ' if not loop.last }}
+      {% endfor %}
+    {% endif %}
   </div>
 
   <div class="delivery-chips">
