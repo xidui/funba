@@ -45,7 +45,7 @@ def main():
         )
         if args.season:
             games_q = games_q.filter(Game.season == args.season)
-        games_q = games_q.order_by(Game.game_date.asc())
+        games_q = games_q.order_by(Game.season.desc(), Game.game_date.desc())
         all_games = games_q.all()
 
         # Already done
