@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
+from types import SimpleNamespace
 
 from db.game_status import (
     GAME_STATUS_COMPLETED,
@@ -80,6 +82,82 @@ def _summary_text(status: str, period: int, raw_clock: str | None, status_text: 
     return str(status_text or "")
 
 
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _snapshot_game_date(raw_snapshot: dict) -> date | None:
+    text = str(raw_snapshot.get("game_date") or "").strip()
+    if text:
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            pass
+
+    for key in ("gameEt", "gameTimeUTC"):
+        parsed = _parse_iso_datetime(raw_snapshot.get(key))
+        if parsed is not None:
+            return parsed.date()
+    return None
+
+
+def _season_from_game_id(game_id: str | None) -> str | None:
+    text = str(game_id or "").strip()
+    if len(text) < 5 or not text[:5].isdigit():
+        return None
+
+    season_type = text[2]
+    season_year = text[3:5]
+    if season_type not in {"2", "4", "5"}:
+        return None
+    return f"{season_type}20{season_year}"
+
+
+def build_live_game_stub(snapshot: dict | None):
+    if not snapshot:
+        return None
+
+    game_id = str(snapshot.get("game_id") or "")
+    if not game_id:
+        return None
+
+    status = str(snapshot.get("status") or "").strip().lower() or None
+    home_team_id = str(snapshot.get("home_team_id") or "")
+    road_team_id = str(snapshot.get("road_team_id") or "")
+    home_score = snapshot.get("home_score")
+    road_score = snapshot.get("road_score")
+    winner_id = None
+    if (
+        status == GAME_STATUS_COMPLETED
+        and home_team_id
+        and road_team_id
+        and home_score is not None
+        and road_score is not None
+        and home_score != road_score
+    ):
+        winner_id = home_team_id if home_score > road_score else road_team_id
+
+    return SimpleNamespace(
+        game_id=game_id,
+        game_date=_snapshot_game_date(snapshot),
+        season=str(snapshot.get("season") or _season_from_game_id(game_id) or "") or None,
+        home_team_id=home_team_id or None,
+        road_team_id=road_team_id or None,
+        home_team_score=home_score,
+        road_team_score=road_score,
+        wining_team_id=winner_id,
+        game_status=status,
+    )
+
+
 def fetch_live_scoreboard_map() -> dict[str, dict]:
     try:
         from nba_api.live.nba.endpoints.scoreboard import ScoreBoard
@@ -98,11 +176,14 @@ def fetch_live_scoreboard_map() -> dict[str, dict]:
         if not game_id:
             continue
         status = _status_from_code(game.get("gameStatus"))
+        game_date = _snapshot_game_date(game)
         home_team = game.get("homeTeam") or {}
         away_team = game.get("awayTeam") or {}
         result[game_id] = {
             "game_id": game_id,
             "status": status,
+            "season": _season_from_game_id(game_id),
+            "game_date": game_date.isoformat() if game_date else None,
             "status_text": str(game.get("gameStatusText") or ""),
             "period": _safe_int(game.get("period")),
             "clock": _format_clock(game.get("gameClock")),

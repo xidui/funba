@@ -14,7 +14,7 @@ from db.game_status import (
     GAME_STATUS_UPCOMING,
     get_game_status,
 )
-from web.live_game_data import fetch_live_game_detail, fetch_live_scoreboard_map
+from web.live_game_data import build_live_game_stub, fetch_live_game_detail, fetch_live_scoreboard_map
 
 
 _COMPARE_EMPTY_MARK = "—"
@@ -58,6 +58,36 @@ def _build_game_list_entry(game, live_snapshot: dict | None = None):
         status_summary=(live_snapshot or {}).get("summary") or "",
         link_enabled=status != GAME_STATUS_UPCOMING,
     )
+
+
+def _supplement_missing_live_games(
+    games: list,
+    live_map: dict[str, dict],
+    *,
+    selected_season: str | None = None,
+    selected_team: str | None = None,
+) -> list:
+    existing_game_ids = {game.game_id for game in games}
+    supplemented = list(games)
+
+    for snapshot in live_map.values():
+        if snapshot.get("status") not in {GAME_STATUS_LIVE, GAME_STATUS_UPCOMING}:
+            continue
+        game_id = str(snapshot.get("game_id") or "")
+        if not game_id or game_id in existing_game_ids:
+            continue
+        if selected_season and snapshot.get("season") != selected_season:
+            continue
+        if selected_team and selected_team not in {snapshot.get("home_team_id"), snapshot.get("road_team_id")}:
+            continue
+
+        stub = build_live_game_stub(snapshot)
+        if stub is None:
+            continue
+        supplemented.append(stub)
+        existing_game_ids.add(game_id)
+
+    return supplemented
 
 
 def register_public_routes(
@@ -121,6 +151,8 @@ def register_public_routes(
                 .order_by(Game.game_id.asc())
                 .all()
             )
+            persisted_game_ids = {game.game_id for game in games}
+            games = _supplement_missing_live_games(games, live_map)
             if not games:
                 games = (
                     session.query(Game)
@@ -130,9 +162,10 @@ def register_public_routes(
                 )
                 if not games:
                     return []
+                persisted_game_ids = {game.game_id for game in games}
 
             game_date = games[0].game_date
-            game_ids = [g.game_id for g in games]
+            game_ids = [g.game_id for g in games if g.game_id in persisted_game_ids]
 
             lc_rows = (
                 session.query(MetricResultModel.game_id, MetricResultModel.value_num)
@@ -211,9 +244,20 @@ def register_public_routes(
                 road_team = team_lookup.get(game.road_team_id)
                 live_snapshot = live_map.get(game.game_id)
                 status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
+                winner_id = getattr(game, "wining_team_id", None)
+                display_home_score = live_snapshot.get("home_score") if live_snapshot else game.home_team_score
+                display_road_score = live_snapshot.get("road_score") if live_snapshot else game.road_team_score
+                if (
+                    winner_id is None
+                    and status == GAME_STATUS_COMPLETED
+                    and display_home_score is not None
+                    and display_road_score is not None
+                    and display_home_score != display_road_score
+                ):
+                    winner_id = game.home_team_id if display_home_score > display_road_score else game.road_team_id
                 home_won = (
-                    game.wining_team_id == game.home_team_id
-                    if status == GAME_STATUS_COMPLETED and game.wining_team_id
+                    winner_id == game.home_team_id
+                    if status == GAME_STATUS_COMPLETED and winner_id
                     else None
                 )
 
@@ -241,8 +285,8 @@ def register_public_routes(
                         "road_team_id": game.road_team_id,
                         "home_abbr": home_team.abbr if home_team else "???",
                         "road_abbr": road_team.abbr if road_team else "???",
-                        "home_score": live_snapshot.get("home_score") if live_snapshot else game.home_team_score,
-                        "road_score": live_snapshot.get("road_score") if live_snapshot else game.road_team_score,
+                        "home_score": display_home_score,
+                        "road_score": display_road_score,
                         "home_won": home_won,
                         "status": status,
                         "status_summary": (live_snapshot or {}).get("summary"),
@@ -397,6 +441,12 @@ def register_public_routes(
             games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
 
             all_games = games_q.all()
+            all_games = _supplement_missing_live_games(
+                all_games,
+                live_map,
+                selected_season=selected_season,
+                selected_team=selected_team,
+            )
             live_games = []
             completed_all = []
             upcoming_games = []
