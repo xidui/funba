@@ -294,7 +294,7 @@
   {% if entry.link_enabled %}
   <a
     class="game-row {{ entry.status }}"
-    href="{{ url_for('game_page', game_id=entry.game_id) }}"
+    href="{{ game_url(entry.game_id) }}"
     {% if entry.status == 'live' %}data-live-game-id="{{ entry.game_id }}"{% endif %}>
   {% else %}
   <div class="game-row {{ entry.status }} no-link" aria-disabled="true">

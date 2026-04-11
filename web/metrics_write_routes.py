@@ -318,6 +318,9 @@ def register_metrics_write_routes(app, deps):
                 names = {team_id: deps.team_name()(tm, team_id) for team_id in entity_ids}
             elif scope == "game":
                 names, game_dates = deps.resolve_game_entity_names()(session, entity_ids)
+                Game = deps.game_model()
+                game_slug_rows = session.query(Game.game_id, Game.slug).filter(Game.game_id.in_(entity_ids)).all()
+                game_slugs = {g.game_id: g.slug for g in game_slug_rows}
             else:
                 names = {}
                 game_dates = {}
@@ -328,6 +331,7 @@ def register_metrics_write_routes(app, deps):
                     row["entity_slug"] = slugs.get(row["entity_id"], row["entity_id"])
                 if scope == "game":
                     row["date"] = game_dates.get(row["entity_id"], "")
+                    row["entity_slug"] = game_slugs.get(row["entity_id"], row["entity_id"])
 
         return jsonify({"ok": True, "rows": rows})
 
@@ -603,6 +607,7 @@ def register_metrics_write_routes(app, deps):
                 road_score = scores.get(road_id)
                 entry = {
                     "game_id": gid,
+                    "game_slug": game.slug or f"game-{gid}",
                     "game_date": game.game_date.isoformat() if game.game_date else None,
                     "season": game.season,
                     "home_team": deps.team_abbr()(team_map, game.home_team_id),

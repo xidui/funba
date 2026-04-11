@@ -19,7 +19,7 @@
     <tbody>
       {% for g in m.rows %}
       <tr>
-        <td><a href="{{ url_for('game_page', game_id=g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
+        <td><a href="{{ game_url(g.game_id) }}" class="mono">{{ g.game_id }}</a></td>
         <td>{{ g.game_date }}</td>
         <td>{{ g.season }}</td>
       </tr>

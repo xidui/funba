@@ -675,7 +675,7 @@
   </div>
   <div class="today-games-list">
     {% for g in today_games %}
-    <a href="{{ url_for('game_page', game_id=g.game_id) }}" class="today-game {{ g.status }}" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
+    <a href="{{ game_url(g.game_id) }}" class="today-game {{ g.status }}" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
       {# ── Scoreboard row ── #}
       <div class="today-matchup">
         <div class="today-team{% if g.home_won == false %} winner{% endif %}">

@@ -1164,7 +1164,7 @@
             {% endif %}
           </td>
           <td class="mobile-hide nowrap">
-            <a href="{{ url_for('game_page', game_id=row.game_id) }}" class="gl-score-link">
+            <a href="{{ game_url(row.game_id) }}" class="gl-score-link">
               {% if row.player_team_score is not none and row.opponent_score is not none %}
               {{ row.player_team_score }}–{{ row.opponent_score }}
               {% else %}

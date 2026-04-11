@@ -265,7 +265,7 @@
             <span class="meta">—</span>
             {% endif %}
           </td>
-          <td class="nowrap score-cell"><a href="{{ url_for('game_page', game_id=row.game_id) }}" class="score-link">{{ row.score }}</a></td>
+          <td class="nowrap score-cell"><a href="{{ game_url(row.game_id) }}" class="score-link">{{ row.score }}</a></td>
         </tr>
         {% endfor %}
       </tbody>

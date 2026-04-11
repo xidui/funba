@@ -878,7 +878,7 @@
 <script>
 (function(){
   var el = document.getElementById('game-metrics-panel');
-  fetch('{{ url_for("game_fragment_metrics", game_id="__GAME_ID__") }}'.replace('__GAME_ID__', el.dataset.gameId), {
+  fetch('{{ url_for("game_fragment_metrics", slug=game.slug) }}', {
     headers: {'X-Requested-With': 'fetch'},
     credentials: 'same-origin',
   })
@@ -1542,7 +1542,7 @@
           }
           statusEl.textContent = 'Fetched ' + n + ' shots. Reloading…';
           setTimeout(() => {
-            window.location.href = '{{ url_for("game_page", game_id=game.game_id) }}?shot_backfill=ok&shot_count=' + n;
+            window.location.href = '{{ game_url(game.game_id) }}?shot_backfill=ok&shot_count=' + n;
           }, 350);
         } catch (_) {
           statusEl.textContent = 'Failed to fetch shot chart.';

@@ -1071,7 +1071,7 @@
               <span class="ongoing-badge">ongoing</span>
               {% endif %}
             {% elif r.entity_type == 'game' %}
-              <a class="entity-link" href="{{ url_for('game_page', game_id=r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
+              <a class="entity-link" href="{{ game_url(r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
                 {% if r.road_team_id %}
                 <img class="entity-thumb team" style="width:22px;height:22px;"
                      src="https://cdn.nba.com/logos/nba/{{ r.road_team_id }}/global/L/logo.svg"
@@ -1536,14 +1536,14 @@ function toggleMetricEnabled(metricKey) {
     const hasStat = games.some(g => g.player_line || g.team_line);
     const logo = id => `<img src="https://cdn.nba.com/logos/nba/${id}/global/L/logo.svg" style="width:16px;height:16px;vertical-align:middle" onerror="this.style.display='none'">`;
 
-    const gameBase = "{{ url_for('game_page', game_id='__GAME_ID__') }}";
+    const gameBase = "{{ url_for('game_page', slug='__GAME_SLUG__') }}";
     let html = `<div class="drilldown-title">{{ t('Qualifying games', '符合条件的比赛') }} (${total})</div>`;
     html += `<table class="drilldown-table"><thead><tr>
       <th>{{ t('Date', '日期') }}</th><th>{{ t('Matchup', '对阵') }}</th><th>{{ t('Score', '比分') }}</th><th>W/L</th>${hasStat ? '<th>{{ t("Stats", "数据") }}</th>' : ''}
     </tr></thead><tbody>`;
 
     html += games.map(g => {
-      const url = gameBase.replace('__GAME_ID__', g.game_id);
+      const url = gameBase.replace('__GAME_SLUG__', g.game_slug || g.game_id);
       const score = (g.home_score != null && g.road_score != null)
         ? `${g.road_score} - ${g.home_score}` : '';
       const stat = g.player_line || g.team_line || '';

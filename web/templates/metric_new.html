@@ -1386,7 +1386,7 @@
           ? "{{ url_for('player_page', slug='__SLUG__') }}".replace('__SLUG__', r.entity_slug || baseId)
           : scope === 'team'
             ? "{{ url_for('team_page', team_id='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId)
-            : "{{ url_for('game_page', game_id='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId);
+            : "{{ url_for('game_page', slug='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId);
         const dateCol = isGame && r.date ? `<td style="color:var(--muted);font-size:12px;white-space:nowrap;">${r.date}</td>` : '';
         const ctxLabel = r.context_label ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.context_label}</div>` : '';
         return `<tr>

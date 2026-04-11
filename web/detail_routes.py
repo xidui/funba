@@ -398,7 +398,7 @@ def register_detail_routes(
             team_championships=team_championships,
         )
 
-    def game_page(game_id: str):
+    def game_page(slug: str):
         SessionLocal = get_session_local()
         Game = get_game_model()
         TeamGameStats = get_team_game_stats_model()
@@ -410,8 +410,9 @@ def register_detail_routes(
         with SessionLocal() as session:
             from db.backfill_nba_game_line_score import has_game_line_score
 
-            persisted_game = session.query(Game).filter(Game.game_id == game_id).first()
+            persisted_game = session.query(Game).filter(Game.slug == slug).first()
             game = persisted_game
+            game_id = game.game_id if game else slug
 
             def _game_analysis_issues():
                 return [
@@ -780,25 +781,25 @@ def register_detail_routes(
             game_analysis_issues=game_analysis_issues,
         )
 
-    def game_fragment_metrics(game_id: str):
+    def game_fragment_metrics(slug: str):
         SessionLocal = get_session_local()
         Game = get_game_model()
 
         with SessionLocal() as session:
-            game = session.query(Game).filter(Game.game_id == game_id).first()
+            game = session.query(Game).filter(Game.slug == slug).first()
             if game is None:
                 abort(404)
-            game_metrics = get_metric_results()(session, "game", game_id, game.season)
+            game_metrics = get_metric_results()(session, "game", game.game_id, game.season)
         return get_render_template()("_game_metrics.html", game_metrics=game_metrics)
 
     app.add_url_rule("/cn/players/<slug>", endpoint="player_page_zh", view_func=player_page)
     app.add_url_rule("/players/<slug>", endpoint="player_page", view_func=player_page)
     app.add_url_rule("/cn/teams/<team_id>", endpoint="team_page_zh", view_func=team_page)
     app.add_url_rule("/teams/<team_id>", endpoint="team_page", view_func=team_page)
-    app.add_url_rule("/cn/games/<game_id>", endpoint="game_page_zh", view_func=game_page)
-    app.add_url_rule("/games/<game_id>", endpoint="game_page", view_func=game_page)
-    app.add_url_rule("/cn/games/<game_id>/fragment/metrics", endpoint="game_fragment_metrics_zh", view_func=game_fragment_metrics)
-    app.add_url_rule("/games/<game_id>/fragment/metrics", endpoint="game_fragment_metrics", view_func=game_fragment_metrics)
+    app.add_url_rule("/cn/games/<slug>", endpoint="game_page_zh", view_func=game_page)
+    app.add_url_rule("/games/<slug>", endpoint="game_page", view_func=game_page)
+    app.add_url_rule("/cn/games/<slug>/fragment/metrics", endpoint="game_fragment_metrics_zh", view_func=game_fragment_metrics)
+    app.add_url_rule("/games/<slug>/fragment/metrics", endpoint="game_fragment_metrics", view_func=game_fragment_metrics)
 
     return SimpleNamespace(
         player_page=player_page,

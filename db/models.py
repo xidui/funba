@@ -126,6 +126,7 @@ class Game(Base):
     __tablename__ = 'Game'
 
     game_id = Column(String(50), primary_key=True)
+    slug = Column(String(100), unique=True, nullable=True, index=True)
     data_source = Column(String(64), nullable=False, default='nba_api_box_scores')
     season = Column(String(50))
     game_date = Column(DATE)

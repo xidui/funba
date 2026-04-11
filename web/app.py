@@ -528,10 +528,10 @@ def sitemap_metrics_xml():
 @app.route("/sitemap-games-<int:season>.xml")
 def sitemap_games_xml(season: int):
     with SessionLocal() as db:
-        games = db.query(Game.game_id).filter(Game.season == season).all()
+        games = db.query(Game.slug).filter(Game.season == season, Game.slug.isnot(None)).all()
     if not games:
         abort(404)
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/games/{gid}" for (gid,) in games]))
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/games/{slug}" for (slug,) in games]))
 
 
 # ── Google OAuth ─────────────────────────────────────────────────────────────
@@ -822,6 +822,33 @@ def _player_url(player_id: str) -> str:
     if slug:
         return _localized_url_for("player_page", slug=slug)
     return _localized_url_for("player_page", slug=f"player-{player_id}")
+
+
+# ── Game slug cache ──────────────────────────────────────────────────────────
+
+_game_slug_cache: dict[str, str] = {}
+_game_slug_cache_ts: float = 0
+
+
+def _ensure_game_slug_cache() -> dict[str, str]:
+    import time
+    global _game_slug_cache, _game_slug_cache_ts
+    now = time.monotonic()
+    if _game_slug_cache and (now - _game_slug_cache_ts) < 300:
+        return _game_slug_cache
+    with SessionLocal() as session:
+        rows = session.query(Game.game_id, Game.slug).filter(Game.slug.isnot(None)).all()
+        _game_slug_cache = {r.game_id: r.slug for r in rows}
+    _game_slug_cache_ts = now
+    return _game_slug_cache
+
+
+def _game_url(game_id: str) -> str:
+    slug_map = _ensure_game_slug_cache()
+    slug = slug_map.get(str(game_id))
+    if slug:
+        return _localized_url_for("game_page", slug=slug)
+    return _localized_url_for("game_page", slug=f"game-{game_id}")
 
 
 def _award_entry_from_row(row, teams: dict[str, Team]) -> dict[str, object]:
@@ -4367,6 +4394,7 @@ def inject_template_helpers():
         "canonical_url": _canonical_url(),
         "hreflang_links": _hreflang_links(),
         "player_url": _player_url,
+        "game_url": _game_url,
     }
 
 

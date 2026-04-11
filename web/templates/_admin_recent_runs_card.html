@@ -7,7 +7,7 @@
     <tbody>
       {% for r in recent %}
       <tr class="recent-row">
-        <td><a href="{{ url_for('game_page', game_id=r.game_id) }}" class="mono">{{ r.game_id }}</a></td>
+        <td><a href="{{ game_url(r.game_id) }}" class="mono">{{ r.game_id }}</a></td>
         <td class="mono">{{ r.metric_key }}</td>
         <td class="js-local-time" data-utc="{{ r.computed_at.strftime('%Y-%m-%dT%H:%M:%SZ') if r.computed_at else '' }}">{{ r.computed_at.strftime('%m/%d %H:%M:%S') if r.computed_at else '—' }}</td>
       </tr>
