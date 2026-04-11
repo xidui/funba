@@ -11,27 +11,25 @@ from db.llm_models import ensure_model_available, env_default_llm_model, provide
 _FIELD_ORDER = (
     "key",
     "name",
+    "name_zh",
     "description",
+    "description_zh",
     "scope",
     "category",
-    "status",
-    "source_type",
-    "group_key",
-    "time_scope",
     "min_sample",
     "career_min_sample",
     "supports_career",
     "career",
-    "incremental",
     "rank_order",
-    "result_count",
+)
+_LONG_TEXT_FIELDS = {"expression", "module_doc", "definition_json", "code_python", "source_excerpt"}
+_EXCLUDED_SEARCH_FIELDS = {
+    "code_python",
     "expression",
     "module_doc",
     "definition_json",
     "source_excerpt",
-)
-_LONG_TEXT_FIELDS = {"expression", "module_doc", "definition_json", "code_python", "source_excerpt"}
-_EXCLUDED_SEARCH_FIELDS = {"code_python"}
+}
 _MAX_FIELD_CHARS = 2400
 _MAX_DOCUMENT_CHARS = 8000
 
@@ -61,10 +59,8 @@ def _stringify_candidate_value(key: str, value) -> str:
 
 def _candidate_search_document(candidate: dict) -> str:
     lines: list[str] = []
-    seen: set[str] = set()
 
     def _append(key: str) -> None:
-        seen.add(key)
         if key in _EXCLUDED_SEARCH_FIELDS:
             return
         text = _stringify_candidate_value(key, candidate.get(key))
@@ -72,11 +68,6 @@ def _candidate_search_document(candidate: dict) -> str:
             lines.append(f"{key}: {text}")
 
     for key in _FIELD_ORDER:
-        _append(key)
-
-    for key in sorted(candidate):
-        if key in seen:
-            continue
         _append(key)
 
     document = "\n".join(lines)

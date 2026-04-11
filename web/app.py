@@ -1201,11 +1201,17 @@ def _code_metric_metadata_from_code(
     return metadata
 
 
+@lru_cache(maxsize=1024)
+def _cached_code_metric_metadata_for_catalog(code_python: str, expected_key: str | None) -> tuple[tuple[str, object], ...]:
+    metadata = _code_metric_metadata_from_code(code_python, expected_key=expected_key)
+    return tuple(metadata.items())
+
+
 def _safe_code_metric_metadata(row: MetricDefinitionModel) -> dict:
     if row.source_type != "code" or not row.code_python:
         return {}
     try:
-        return _code_metric_metadata_from_code(row.code_python, expected_key=row.key)
+        return dict(_cached_code_metric_metadata_for_catalog(row.code_python, row.key))
     except Exception as exc:
         logger.warning("Failed to inspect code metric %s for catalog metadata: %s", row.key, exc)
         return {}

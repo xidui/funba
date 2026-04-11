@@ -14,7 +14,9 @@ def test_candidate_search_document_includes_rich_fields_and_truncates_long_text(
         {
             "key": "clutch_fg_pct",
             "name": "Clutch FG%",
+            "name_zh": "关键命中率",
             "description": "Field goal percentage in clutch time.",
+            "description_zh": "关键时刻投篮命中率。",
             "scope": "player",
             "category": "efficiency",
             "min_sample": 5,
@@ -27,10 +29,12 @@ def test_candidate_search_document_includes_rich_fields_and_truncates_long_text(
 
     assert "min_sample: 5" in doc
     assert "supports_career: yes" in doc
-    assert "expression:" in doc
-    assert "source_excerpt:" in doc
+    assert "name_zh: 关键命中率" in doc
+    assert "description_zh: 关键时刻投篮命中率。" in doc
+    assert "expression:" not in doc
+    assert "source_excerpt:" not in doc
     assert "code_python:" not in doc
-    assert "[truncated]" in doc
+    assert "[truncated]" not in doc
 
 
 def test_rank_metrics_requires_llm_key():
