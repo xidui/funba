@@ -630,6 +630,57 @@
   }
   .box-score-team .dnp-row td a { color: var(--muted); }
 
+  /* ── Period stats expand ───────────────────────────────────────── */
+  .box-score-team tr.player-row { cursor: pointer; }
+  .box-score-team tr.player-row td:first-child a { pointer-events: auto; }
+
+  .period-detail { display: none; }
+  .period-detail.open { display: table-row; }
+  .period-detail td {
+    padding: 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+    background: var(--surface-2);
+  }
+
+  .period-table-wrap {
+    padding: 6px 10px 8px;
+  }
+
+  .period-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    color: var(--muted-2);
+  }
+  .period-table th {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    padding: 3px 6px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .period-table th:first-child { text-align: left; }
+  .period-table td {
+    padding: 3px 6px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    border-bottom: none;
+  }
+  .period-table td:first-child {
+    text-align: left;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .period-loading {
+    padding: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
   /* ── Shot chart grid ──────────────────────────────────────────── */
   .shot-charts-grid {
     display: grid;
@@ -1249,7 +1300,7 @@
               <tr class="bench-separator"><td colspan="13"></td></tr>
               {% endif %}
               {% set ns.prev_starter = row.is_starter if not row.is_dnp else false %}
-              <tr class="{% if row.is_dnp %}dnp-row{% elif not row.is_starter %}bench-row{% endif %}">
+              <tr class="player-row {% if row.is_dnp %}dnp-row{% elif not row.is_starter %}bench-row{% endif %}" data-player-id="{{ row.player_id }}" onclick="togglePeriodStats(this, event)">
                 <td>
                   <a href="{{ player_url(row.player_id) }}">{{ row.player_name }}</a>
                 </td>
@@ -1276,6 +1327,13 @@
                   {% else %}
                   <span class="meta">—</span>
                   {% endif %}
+                </td>
+              </tr>
+              <tr class="period-detail" id="period-{{ row.player_id }}">
+                <td colspan="13">
+                  <div class="period-table-wrap">
+                    <div class="period-loading">{{ t('Loading…', '加载中…') }}</div>
+                  </div>
                 </td>
               </tr>
               {% endfor %}
@@ -1765,5 +1823,85 @@
 })();
 </script>
 {% endif %}
+
+<script>
+(function () {
+  const gameId = '{{ game.game_id }}';
+  let periodCache = null;
+  let fetchPromise = null;
+
+  function periodLabel(p) {
+    return p <= 4 ? 'Q' + p : 'OT' + (p - 4);
+  }
+
+  function fmtPM(v) {
+    if (v > 0) return '<span class="pm-pos">+' + v + '</span>';
+    if (v < 0) return '<span class="pm-neg">' + v + '</span>';
+    return '<span class="meta">0</span>';
+  }
+
+  function renderPeriodTable(periods) {
+    if (!periods || !periods.length) return '<div class="period-loading">{{ t("No period data available.", "暂无分节数据。") }}</div>';
+    let html = '<table class="period-table"><thead><tr>';
+    html += '<th></th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG</th><th>3P</th><th>FT</th><th>+/−</th>';
+    html += '</tr></thead><tbody>';
+    for (const p of periods) {
+      const m = p.min + ':' + String(p.sec).padStart(2, '0');
+      html += '<tr>';
+      html += '<td>' + periodLabel(p.period) + '</td>';
+      html += '<td>' + m + '</td>';
+      html += '<td>' + p.pts + '</td>';
+      html += '<td>' + p.reb + '</td>';
+      html += '<td>' + p.ast + '</td>';
+      html += '<td>' + p.stl + '</td>';
+      html += '<td>' + p.blk + '</td>';
+      html += '<td>' + p.tov + '</td>';
+      html += '<td>' + p.fgm + '-' + p.fga + '</td>';
+      html += '<td>' + p.fg3m + '-' + p.fg3a + '</td>';
+      html += '<td>' + p.ftm + '-' + p.fta + '</td>';
+      html += '<td>' + fmtPM(p.plus_minus) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+  }
+
+  function fetchPeriodData() {
+    if (periodCache) return Promise.resolve(periodCache);
+    if (fetchPromise) return fetchPromise;
+    fetchPromise = fetch('/api/games/' + gameId + '/period-stats')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        periodCache = data.ok ? data.players : {};
+        return periodCache;
+      })
+      .catch(function () {
+        periodCache = {};
+        return periodCache;
+      });
+    return fetchPromise;
+  }
+
+  window.togglePeriodStats = function (row, event) {
+    if (event.target.closest('a')) return;
+    const pid = row.dataset.playerId;
+    const detail = document.getElementById('period-' + pid);
+    if (!detail) return;
+
+    if (detail.classList.contains('open')) {
+      detail.classList.remove('open');
+      return;
+    }
+
+    detail.classList.add('open');
+    const wrap = detail.querySelector('.period-table-wrap');
+
+    fetchPeriodData().then(function (players) {
+      const periods = players[pid];
+      wrap.innerHTML = renderPeriodTable(periods);
+    });
+  };
+})();
+</script>
 
 {% endblock %}

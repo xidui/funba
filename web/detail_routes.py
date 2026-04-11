@@ -4,7 +4,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from flask import abort, request
+from flask import abort, jsonify, request
 from sqlalchemy import case, func
 
 from db.game_status import GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
@@ -791,6 +791,74 @@ def register_detail_routes(
                 abort(404)
             game_metrics = get_metric_results()(session, "game", game.game_id, game.season)
         return get_render_template()("_game_metrics.html", game_metrics=game_metrics)
+
+    def api_game_period_stats(game_id: str):
+        """Return per-period player stats for a game. Fetch from NBA API if not in DB."""
+        from db.models import PlayerGamePeriodStats
+
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+
+        with SessionLocal() as session:
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                return jsonify({"ok": False, "error": "game not found"}), 404
+
+            rows = (
+                session.query(PlayerGamePeriodStats)
+                .filter(PlayerGamePeriodStats.game_id == game_id)
+                .order_by(PlayerGamePeriodStats.period, PlayerGamePeriodStats.player_id)
+                .all()
+            )
+
+            if not rows:
+                # Try fetching from NBA API
+                try:
+                    from db.backfill_nba_game_detail import (
+                        create_player_period_stats,
+                        fetch_all_period_stats,
+                    )
+
+                    periods = fetch_all_period_stats(game_id)
+                    if periods:
+                        for period, period_rows in periods.items():
+                            for ps in period_rows:
+                                create_player_period_stats(session, game_id, period, ps)
+                        session.commit()
+                        rows = (
+                            session.query(PlayerGamePeriodStats)
+                            .filter(PlayerGamePeriodStats.game_id == game_id)
+                            .order_by(PlayerGamePeriodStats.period, PlayerGamePeriodStats.player_id)
+                            .all()
+                        )
+                except Exception:
+                    get_logger().exception("Failed to fetch period stats for %s", game_id)
+
+            result: dict[str, list[dict]] = {}
+            for r in rows:
+                result.setdefault(r.player_id, []).append({
+                    "period": r.period,
+                    "min": r.min or 0,
+                    "sec": r.sec or 0,
+                    "pts": r.pts or 0,
+                    "reb": r.reb or 0,
+                    "ast": r.ast or 0,
+                    "stl": r.stl or 0,
+                    "blk": r.blk or 0,
+                    "tov": r.tov or 0,
+                    "fgm": r.fgm or 0,
+                    "fga": r.fga or 0,
+                    "fg3m": r.fg3m or 0,
+                    "fg3a": r.fg3a or 0,
+                    "ftm": r.ftm or 0,
+                    "fta": r.fta or 0,
+                    "pf": r.pf or 0,
+                    "plus_minus": r.plus_minus or 0,
+                })
+
+        return jsonify({"ok": True, "players": result})
+
+    app.add_url_rule("/api/games/<game_id>/period-stats", endpoint="api_game_period_stats", view_func=api_game_period_stats)
 
     app.add_url_rule("/cn/players/<slug>", endpoint="player_page_zh", view_func=player_page)
     app.add_url_rule("/players/<slug>", endpoint="player_page", view_func=player_page)
