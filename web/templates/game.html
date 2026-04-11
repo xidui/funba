@@ -11,7 +11,7 @@
   "@context": "https://schema.org",
   "@type": "SportsEvent",
   "name": "{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }}",
-  "startDate": "{{ game.game_date.isoformat() }}",
+  "startDate": "{{ game.game_date.isoformat() if game.game_date else '' }}",
   "url": "https://funba.app/games/{{ game.game_id }}",
   "homeTeam": {
     "@type": "SportsTeam",
