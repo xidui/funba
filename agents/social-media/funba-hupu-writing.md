@@ -197,6 +197,17 @@ Required rules:
   - `[[IMAGE:...]]`
   - `[[TAGS:...]]`
 
+## Player Names
+
+Always use full player names on first mention — never use English nicknames, abbreviations, or initials that casual readers may not recognize.
+
+- ✗ `KAT砍下21分` — many readers won't know KAT is who
+- ✓ `唐斯（Karl-Anthony Towns）砍下21分`
+- ✗ `AD缺阵` → ✓ `浓眉（Anthony Davis）缺阵`
+- ✗ `CP3助攻` → ✓ `克里斯·保罗助攻`
+
+After the first full-name mention you may use the commonly recognized Chinese short name (e.g. 唐斯, 浓眉, 詹姆斯) for the rest of the post. Do not use English-only abbreviations like KAT, AD, CP3, LBJ, SGA anywhere in Chinese content.
+
 ## Chinese Basketball Language
 
 Write like a real Chinese basketball community poster, not like a literal translator.

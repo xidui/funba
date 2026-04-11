@@ -10,6 +10,10 @@ This document is for the **metric data series** only. Do not mix with game-analy
 
 Write in Chinese.
 
+## Player Names
+
+Always use full player names on first mention — never use English nicknames or abbreviations (KAT, AD, CP3, LBJ, SGA, etc.). After the first full-name mention, use the commonly recognized Chinese short name (唐斯, 浓眉, 詹姆斯, etc.).
+
 ## Length
 
 - Title: under 20 characters (Xiaohongshu hard limit)

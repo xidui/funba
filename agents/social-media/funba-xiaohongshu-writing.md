@@ -36,6 +36,10 @@ Treat `funba.app` as the underlying data engine behind the post, not just a site
 - use the available body budget; do not stop at a shallow short note when more metric depth would still fit under the limit
 - stay below the ceiling with enough room for native topic anchors
 
+## Player Names
+
+Always use full player names on first mention — never use English nicknames, abbreviations, or initials that casual readers may not recognize (e.g. KAT, AD, CP3, LBJ, SGA). After the first full-name mention you may use the commonly recognized Chinese short name (e.g. 唐斯, 浓眉, 詹姆斯) for the rest of the post.
+
 ## Tone
 
 Write like a concise Chinese social note, not like a forum thread.
