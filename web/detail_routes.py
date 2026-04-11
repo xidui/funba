@@ -463,6 +463,37 @@ def register_detail_routes(
             game_status = get_game_status(game)
             live_summary = (live_payload or {}).get("summary") or fetch_live_scoreboard_map().get(game_id)
 
+            def _render_scoreboard_only_game(*, refresh_interval_ms, game_analysis_issues):
+                return get_render_template()(
+                    "game.html",
+                    game=game,
+                    game_status=game_status,
+                    live_summary=live_summary,
+                    live_refresh_interval_ms=refresh_interval_ms,
+                    team_name=lambda team_id: get_team_name()(teams, team_id),
+                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    fmt_date=get_fmt_date(),
+                    team_stats=[],
+                    players_by_team={},
+                    ordered_team_ids=[team_id for team_id in [game.road_team_id, game.home_team_id] if team_id],
+                    pbp_rows=[],
+                    shot_rows=[],
+                    shot_rows_by_team={},
+                    shot_chart_team_ids=[],
+                    shot_made_count=0,
+                    shot_miss_count=0,
+                    shot_made_count_by_team={},
+                    shot_miss_count_by_team={},
+                    shot_backfill_status=request.args.get("shot_backfill"),
+                    shot_backfill_count=request.args.get("shot_count"),
+                    score_progression_json="[]",
+                    road_abbr=get_team_abbr()(teams, game.road_team_id),
+                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    quarter_scores=[],
+                    home_team_id=game.home_team_id,
+                    game_analysis_issues=game_analysis_issues,
+                )
+
             if game_status == GAME_STATUS_LIVE:
                 if live_payload is None:
                     live_payload = fetch_live_game_detail(game_id)
@@ -497,35 +528,14 @@ def register_detail_routes(
                         home_team_id=game.home_team_id,
                         game_analysis_issues=_game_analysis_issues(),
                     )
+                return _render_scoreboard_only_game(
+                    refresh_interval_ms=15000,
+                    game_analysis_issues=_game_analysis_issues(),
+                )
 
             if game_status == GAME_STATUS_UPCOMING:
-                return get_render_template()(
-                    "game.html",
-                    game=game,
-                    game_status=game_status,
-                    live_summary=live_summary,
-                    live_refresh_interval_ms=None,
-                    team_name=lambda team_id: get_team_name()(teams, team_id),
-                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
-                    fmt_date=get_fmt_date(),
-                    team_stats=[],
-                    players_by_team={},
-                    ordered_team_ids=[team_id for team_id in [game.road_team_id, game.home_team_id] if team_id],
-                    pbp_rows=[],
-                    shot_rows=[],
-                    shot_rows_by_team={},
-                    shot_chart_team_ids=[],
-                    shot_made_count=0,
-                    shot_miss_count=0,
-                    shot_made_count_by_team={},
-                    shot_miss_count_by_team={},
-                    shot_backfill_status=request.args.get("shot_backfill"),
-                    shot_backfill_count=request.args.get("shot_count"),
-                    score_progression_json="[]",
-                    road_abbr=get_team_abbr()(teams, game.road_team_id),
-                    home_abbr=get_team_abbr()(teams, game.home_team_id),
-                    quarter_scores=[],
-                    home_team_id=game.home_team_id,
+                return _render_scoreboard_only_game(
+                    refresh_interval_ms=None,
                     game_analysis_issues=[],
                 )
 
