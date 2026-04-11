@@ -27,6 +27,7 @@
       <th class="hide-mobile">PBP</th>
       <th class="hide-mobile">Line</th>
       <th class="hide-mobile">Shots</th>
+      <th class="hide-mobile">Period</th>
       <th>Metrics</th>
       <th style="text-align:center">Status</th>
       <th></th>
@@ -75,7 +76,7 @@
           <div style="font-size:11px; color:var(--muted);">Remaining: {{ row.detail_remaining }}</div>
         {% endif %}
       </td>
-      {% for val, hide in [(row.pbp, true), (row.line, true), (row.shot, true), (row.metrics, false)] %}
+      {% for val, hide in [(row.pbp, true), (row.line, true), (row.shot, true), (row.period, true), (row.metrics, false)] %}
       {% if row.total %}
         {% set pct = (val / row.total * 100) %}
         {% set css = 'danger' if pct < 90 else ('warn' if pct < 100 else '') %}

@@ -164,6 +164,7 @@ def register_admin_misc_routes(app, deps):
                         COUNT(DISTINCT pbp.game_id) AS has_pbp,
                         COUNT(DISTINCT gls.game_id) AS has_line,
                         COUNT(DISTINCT sr.game_id)  AS has_shot,
+                        COUNT(DISTINCT pps.game_id) AS has_period,
                         COALESCE(SUM(mrl_agg.metric_cnt > 0), 0) AS has_metrics,
                         0                                        AS active_claims
                     FROM Game g
@@ -175,6 +176,7 @@ def register_admin_misc_routes(app, deps):
                     LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
                     LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGamePeriodStats) pps ON pps.game_id = g.game_id
                     LEFT JOIN (
                         SELECT game_id,
                                COUNT(DISTINCT metric_key) AS metric_cnt
@@ -240,9 +242,10 @@ def register_admin_misc_routes(app, deps):
                         "pbp": row.has_pbp,
                         "line": row.has_line,
                         "shot": row.has_shot,
+                        "period": row.has_period,
                         "metrics": row.has_metrics,
                         "active_claims": row.active_claims,
-                        "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_metrics,
+                        "complete": row.total == row.has_detail == row.has_pbp == row.has_shot == row.has_period == row.has_metrics,
                     }
                     for row in coverage_rows
                 ]
