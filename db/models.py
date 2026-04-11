@@ -254,6 +254,38 @@ class PlayerGameStats(Base):
     )
 
 
+class PlayerGamePeriodStats(Base):
+    __tablename__ = 'PlayerGamePeriodStats'
+
+    game_id = Column(String(50), ForeignKey('Game.game_id'), primary_key=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id'), primary_key=True)
+    player_id = Column(String(50), ForeignKey('Player.player_id'), primary_key=True)
+    period = Column(Integer, primary_key=True)
+    min = Column(Integer)
+    sec = Column(Integer)
+    pts = Column(Integer)
+    fgm = Column(Integer)
+    fga = Column(Integer)
+    fg3m = Column(Integer)
+    fg3a = Column(Integer)
+    ftm = Column(Integer)
+    fta = Column(Integer)
+    oreb = Column(Integer)
+    dreb = Column(Integer)
+    reb = Column(Integer)
+    ast = Column(Integer)
+    stl = Column(Integer)
+    blk = Column(Integer)
+    tov = Column(Integer)
+    pf = Column(Integer)
+    plus_minus = Column(Integer)
+
+    __table_args__ = (
+        Index('ix_PlayerGamePeriodStats_game_id', 'game_id'),
+        Index('ix_PlayerGamePeriodStats_player_id', 'player_id'),
+    )
+
+
 class GamePlayByPlay(Base):
     __tablename__ = 'GamePlayByPlay'
 

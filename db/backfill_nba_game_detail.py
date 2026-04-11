@@ -1,7 +1,7 @@
 from nba_api.stats.endpoints import boxscoretraditionalv3
 from datetime import datetime
 from db.game_status import infer_game_status
-from db.models import Team, TeamGameStats, PlayerGameStats, Player, Game, engine
+from db.models import Team, TeamGameStats, PlayerGameStats, PlayerGamePeriodStats, Player, Game, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 import logging
@@ -178,6 +178,97 @@ def fetch_game_details(game_id):
     except Exception as e:
         logger.error(f"Failed to fetch game details for {game_id}, error: {e}")
         raise e
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, max=4),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception_type((ConnectionError, Timeout)),
+    before_sleep=before_sleep_log(logger, logging.INFO),
+)
+def fetch_period_stats(game_id, period):
+    """Fetch box score for a single period. Returns None if period has no data."""
+    try:
+        raw = boxscoretraditionalv3.BoxScoreTraditionalV3(
+            game_id=game_id,
+            start_period=str(period),
+            end_period=str(period),
+            range_type='1',
+            timeout=30,
+        ).get_dict()
+        boxscore = raw.get('boxScoreTraditional') or {}
+        home_team = boxscore.get('homeTeam') or {}
+        away_team = boxscore.get('awayTeam') or {}
+        all_players = (home_team.get('players') or []) + (away_team.get('players') or [])
+        if not any(p.get('statistics', {}).get('minutes', '0:00') != '0:00' for p in all_players):
+            return None
+        rows = []
+        for team in [home_team, away_team]:
+            team_id = team.get('teamId')
+            for player in team.get('players') or []:
+                stats = player.get('statistics') or {}
+                if stats.get('minutes', '0:00') == '0:00':
+                    continue
+                rows.append(_normalize_player_stats(player, team_id, game_id))
+        return rows
+    except Exception as e:
+        logger.error(f"Failed to fetch period {period} for {game_id}: {e}")
+        raise
+
+
+def fetch_all_period_stats(game_id):
+    """Fetch per-period box scores for all periods (Q1-Q4 + OTs)."""
+    import time as _time
+    all_periods = {}
+    for period in range(1, 12):
+        try:
+            rows = fetch_period_stats(game_id, period)
+        except RetryError:
+            # Network failure after retries — stop trying more periods
+            break
+        except Exception:
+            # API parse error (e.g. period doesn't exist) — no more periods
+            break
+        if rows is None:
+            break
+        all_periods[period] = rows
+        if period >= 4:
+            _time.sleep(0.6)
+    return all_periods
+
+
+def create_player_period_stats(session, game_id, period, player_stats):
+    """Create or update a PlayerGamePeriodStats row."""
+    player_id = str(player_stats['PLAYER_ID'])
+    team_id = str(player_stats['TEAM_ID'])
+    min_value, sec_value = _parse_minutes(player_stats.get('MIN'))
+
+    record = session.query(PlayerGamePeriodStats).filter_by(
+        game_id=game_id, team_id=team_id, player_id=player_id, period=period,
+    ).first()
+    if record is None:
+        record = PlayerGamePeriodStats(
+            game_id=game_id, team_id=team_id, player_id=player_id, period=period,
+        )
+    record.min = min_value
+    record.sec = sec_value
+    record.pts = player_stats['PTS']
+    record.fgm = player_stats['FGM']
+    record.fga = player_stats['FGA']
+    record.fg3m = player_stats['FG3M']
+    record.fg3a = player_stats['FG3A']
+    record.ftm = player_stats['FTM']
+    record.fta = player_stats['FTA']
+    record.oreb = player_stats['OREB']
+    record.dreb = player_stats['DREB']
+    record.reb = player_stats['REB']
+    record.ast = player_stats['AST']
+    record.stl = player_stats['STL']
+    record.blk = player_stats['BLK']
+    record.tov = player_stats['TO']
+    record.pf = player_stats['PF']
+    record.plus_minus = player_stats['PLUS_MINUS']
+    session.add(record)
 
 
 def create_team_game_stats(session, game_id, team_stats, on_road, win):
@@ -357,6 +448,17 @@ def back_fill_game_detail(game, game_record, sess, commit):
         starter += create_player_game_stats(sess, player_stats)
     if starter != 10:
         logger.warning('not 10 starters in the game {}'.format(game['MATCHUP']))
+
+    # Backfill per-period player stats
+    try:
+        period_data = fetch_all_period_stats(game['GAME_ID'])
+        for period, period_rows in period_data.items():
+            for ps in period_rows:
+                create_player_period_stats(sess, game['GAME_ID'], period, ps)
+        if period_data:
+            logger.info(f"Stored per-period stats for {game['GAME_ID']}: {len(period_data)} periods")
+    except Exception as e:
+        logger.warning(f"Per-period stats failed for {game['GAME_ID']}: {e}")
 
     if commit:
         try:
