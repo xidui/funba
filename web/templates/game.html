@@ -1251,7 +1251,7 @@
               {% set ns.prev_starter = row.is_starter if not row.is_dnp else false %}
               <tr class="{% if row.is_dnp %}dnp-row{% elif not row.is_starter %}bench-row{% endif %}">
                 <td>
-                  <a href="{{ url_for('player_page', player_id=row.player_id) }}">{{ row.player_name }}</a>
+                  <a href="{{ player_url(row.player_id) }}">{{ row.player_name }}</a>
                 </td>
                 <td class="mobile-hide meta">{{ row.status }}</td>
                 <td class="mobile-hide">{{ row.minutes }}</td>

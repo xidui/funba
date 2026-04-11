@@ -532,7 +532,7 @@
           loading="lazy"
           onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
         />
-        <a class="compare-player-name" href="{{ url_for('player_page', player_id=card.player.player_id) }}">{{ display_player_name(card.player) }}</a>
+        <a class="compare-player-name" href="{{ player_url(card.player.player_id) }}">{{ display_player_name(card.player) }}</a>
         <p class="compare-player-meta">
           {{ card.team_label }}{% if card.player.position %} &middot; {{ card.player.position }}{% endif %}
         </p>

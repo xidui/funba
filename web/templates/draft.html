@@ -159,7 +159,7 @@
           <td>{{ player.draft_round or "—" }}</td>
           <td>{{ player.draft_number or "—" }}</td>
           <td class="player-cell">
-            <a class="draft-player-link" href="{{ url_for('player_page', player_id=player.player_id) }}">
+            <a class="draft-player-link" href="{{ player_url(player.player_id) }}">
               <img
                 class="draft-player-headshot"
                 src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ player.player_id }}.png"

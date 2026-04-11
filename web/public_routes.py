@@ -586,6 +586,7 @@ def register_public_routes(
         items = [
             {
                 "player_id": player.player_id,
+                "slug": player.slug or f"player-{player.player_id}",
                 "full_name": player.full_name_zh if get_is_zh() and getattr(player, "full_name_zh", None) else player.full_name,
             }
             for player in players

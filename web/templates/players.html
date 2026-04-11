@@ -411,7 +411,7 @@
       </div>
       <div class="team-roster">
         {% for p in team.players %}
-        <a class="player-card" href="{{ url_for('player_page', player_id=p.player_id) }}">
+        <a class="player-card" href="{{ player_url(p.player_id) }}">
           <img
             src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
             alt=""
@@ -482,7 +482,7 @@
   const searchLabel = document.getElementById('search-results-label');
   const seasonContent = document.getElementById('season-content');
   const hintsUrl = "{{ url_for('player_hints_api') }}";
-  const profileBase = "{{ url_for('player_page', player_id='__PID__') }}";
+  const profileBase = "{{ url_for('player_page', slug='__SLUG__') }}";
   let searchTimer = null;
   let searchController = null;
 
@@ -509,7 +509,7 @@
       } else {
         searchLabel.textContent = items.length + ' {{ t("results", "条结果") }}';
         searchGrid.innerHTML = items.map(p =>
-          `<a class="search-result-card" href="${profileBase.replace('__PID__', p.player_id)}">` +
+          `<a class="search-result-card" href="${profileBase.replace('__SLUG__', p.slug)}">` +
             `<img src="https://cdn.nba.com/headshots/nba/latest/260x190/${esc(p.player_id)}.png" alt="" class="player-headshot" loading="lazy" onerror="this.style.visibility='hidden'" />` +
             `<div class="player-info"><div class="player-name">${esc(p.full_name)}</div></div>` +
           `</a>`

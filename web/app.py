@@ -514,8 +514,8 @@ def sitemap_teams_xml():
 @app.route("/sitemap-players.xml")
 def sitemap_players_xml():
     with SessionLocal() as db:
-        players = db.query(Player.player_id).all()
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/players/{pid}" for (pid,) in players]))
+        players = db.query(Player.slug).filter(Player.slug.isnot(None)).all()
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/players/{slug}" for (slug,) in players]))
 
 
 @app.route("/sitemap-metrics.xml")
@@ -795,6 +795,33 @@ def _player_headshot_url(player_id: str | None) -> str | None:
     if not player_id:
         return None
     return f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"
+
+
+# ── Player slug cache ────────────────────────────────────────────────────────
+
+_player_slug_cache: dict[str, str] = {}
+_player_slug_cache_ts: float = 0
+
+
+def _ensure_player_slug_cache() -> dict[str, str]:
+    import time
+    global _player_slug_cache, _player_slug_cache_ts
+    now = time.monotonic()
+    if _player_slug_cache and (now - _player_slug_cache_ts) < 300:
+        return _player_slug_cache
+    with SessionLocal() as session:
+        rows = session.query(Player.player_id, Player.slug).filter(Player.slug.isnot(None)).all()
+        _player_slug_cache = {r.player_id: r.slug for r in rows}
+    _player_slug_cache_ts = now
+    return _player_slug_cache
+
+
+def _player_url(player_id: str) -> str:
+    slug_map = _ensure_player_slug_cache()
+    slug = slug_map.get(str(player_id))
+    if slug:
+        return _localized_url_for("player_page", slug=slug)
+    return _localized_url_for("player_page", slug=f"player-{player_id}")
 
 
 def _award_entry_from_row(row, teams: dict[str, Team]) -> dict[str, object]:
@@ -4339,6 +4366,7 @@ def inject_template_helpers():
         "paperclip_issue_url": lambda identifier: build_paperclip_issue_url(identifier, paperclip_issue_base_url),
         "canonical_url": _canonical_url(),
         "hreflang_links": _hreflang_links(),
+        "player_url": _player_url,
     }
 
 

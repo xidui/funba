@@ -60,6 +60,7 @@ class Player(Base):
     full_name = Column(String(100))
     full_name_zh = Column(String(100), nullable=True)
     nick_name = Column(String(50), default="")
+    slug = Column(String(150), unique=True, nullable=True, index=True)
     is_active = Column(Boolean)
     is_team = Column(Boolean, default=False)
 

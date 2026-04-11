@@ -310,10 +310,9 @@ def register_metrics_write_routes(app, deps):
             entity_ids = [row["entity_id"] for row in rows]
             if scope == "player":
                 Player = deps.player_model()
-                names = {
-                    p.player_id: p.full_name
-                    for p in session.query(Player.player_id, Player.full_name).filter(Player.player_id.in_(entity_ids)).all()
-                }
+                player_rows = session.query(Player.player_id, Player.full_name, Player.slug).filter(Player.player_id.in_(entity_ids)).all()
+                names = {p.player_id: p.full_name for p in player_rows}
+                slugs = {p.player_id: p.slug for p in player_rows}
             elif scope == "team":
                 tm = deps.team_map()(session)
                 names = {team_id: deps.team_name()(tm, team_id) for team_id in entity_ids}
@@ -325,6 +324,8 @@ def register_metrics_write_routes(app, deps):
 
             for row in rows:
                 row["entity_name"] = names.get(row["entity_id"], row.get("value_str") or row["entity_id"])
+                if scope == "player":
+                    row["entity_slug"] = slugs.get(row["entity_id"], row["entity_id"])
                 if scope == "game":
                     row["date"] = game_dates.get(row["entity_id"], "")
 

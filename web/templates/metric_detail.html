@@ -1057,7 +1057,7 @@
                    src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ player_id }}.png"
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
-              <a class="entity-link" href="{{ url_for('player_page', player_id=player_id) }}">{{ r.entity_label }}</a>
+              <a class="entity-link" href="{{ player_url(player_id) }}">{{ r.entity_label }}</a>
               {% if r.is_active %}<span class="active-dot" title="Active player"></span>{% endif %}
             {% elif r.entity_type == 'team' %}
               <img class="entity-thumb team"

@@ -1383,7 +1383,7 @@
           : r.value_num.toLocaleString(undefined, {maximumFractionDigits: 2}));
         const baseId = r.entity_id.split(':')[0];
         const entityUrl = scope === 'player'
-          ? "{{ url_for('player_page', player_id='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId)
+          ? "{{ url_for('player_page', slug='__SLUG__') }}".replace('__SLUG__', r.entity_slug || baseId)
           : scope === 'team'
             ? "{{ url_for('team_page', team_id='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId)
             : "{{ url_for('game_page', game_id='__ENTITY_ID__') }}".replace('__ENTITY_ID__', baseId);

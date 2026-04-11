@@ -425,7 +425,7 @@
                 loading="lazy"
                 onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
               />
-              <a href="{{ url_for('player_page', player_id=entry.player_id) }}">{{ entry.player_name }}</a>
+              <a href="{{ player_url(entry.player_id) }}">{{ entry.player_name }}</a>
               {% if entry.team_id %}
               <a class="award-team-chip" href="{{ url_for('team_page', team_id=entry.team_id) }}">{{ entry.team_abbr }}</a>
               {% elif entry.team_name %}
@@ -475,7 +475,7 @@
               onerror="this.onerror=null;this.src='{{ url_for('static', filename='player-placeholder.svg') }}';"
             />
             <div class="award-player-copy">
-              <a href="{{ url_for('player_page', player_id=winner.player_id) }}">{{ winner.player_name }}</a>
+              <a href="{{ player_url(winner.player_id) }}">{{ winner.player_name }}</a>
               <div class="award-meta-line">
                 {% if winner.team_id %}
                 <a class="award-team-chip" href="{{ url_for('team_page', team_id=winner.team_id) }}">{{ winner.team_abbr }}</a>

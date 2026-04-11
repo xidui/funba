@@ -52,7 +52,7 @@ def register_detail_routes(
     get_player_headshot_url: Callable[[], Callable[[str | None], str | None]],
     get_logger: Callable[[], Any],
 ):
-    def player_page(player_id: str):
+    def player_page(slug: str):
         SessionLocal = get_session_local()
         Player = get_player_model()
         Award = get_award_model()
@@ -62,9 +62,10 @@ def register_detail_routes(
         PlayerSalary = get_player_salary_model()
 
         with SessionLocal() as session:
-            player = session.query(Player).filter(Player.player_id == player_id).first()
+            player = session.query(Player).filter(Player.slug == slug).first()
             if player is None:
-                abort(404, description=f"Player {player_id} not found")
+                abort(404, description=f"Player not found")
+            player_id = player.player_id
 
             player_award_rows = (
                 session.query(
@@ -790,8 +791,8 @@ def register_detail_routes(
             game_metrics = get_metric_results()(session, "game", game_id, game.season)
         return get_render_template()("_game_metrics.html", game_metrics=game_metrics)
 
-    app.add_url_rule("/cn/players/<player_id>", endpoint="player_page_zh", view_func=player_page)
-    app.add_url_rule("/players/<player_id>", endpoint="player_page", view_func=player_page)
+    app.add_url_rule("/cn/players/<slug>", endpoint="player_page_zh", view_func=player_page)
+    app.add_url_rule("/players/<slug>", endpoint="player_page", view_func=player_page)
     app.add_url_rule("/cn/teams/<team_id>", endpoint="team_page_zh", view_func=team_page)
     app.add_url_rule("/teams/<team_id>", endpoint="team_page", view_func=team_page)
     app.add_url_rule("/cn/games/<game_id>", endpoint="game_page_zh", view_func=game_page)
