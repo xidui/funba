@@ -394,7 +394,7 @@
   {# ── Team sections (all hidden by default, shown when a team is picked) ── #}
   <div id="team-rosters">
     {% for team in teams_with_players %}
-    <div class="team-section" data-team-abbr="{{ team.abbr }}" style="display:none;">
+    <div class="team-section" data-team-abbr="{{ team.abbr }}">
       <div class="team-section-header">
         <img
           src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
@@ -442,7 +442,7 @@
   const picker = document.getElementById('team-picker');
   const sections = document.querySelectorAll('#team-rosters .team-section');
   const picks = picker.querySelectorAll('.team-pick');
-  let activeTeam = null;
+  let activeTeam = 'all';
 
   function selectTeam(abbr) {
     activeTeam = abbr;
