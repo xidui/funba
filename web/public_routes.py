@@ -1103,10 +1103,10 @@ def register_public_routes(
         with SessionLocal() as session:
             current_season = _latest_regular_season(session)
 
-            # Get active teams (non-legacy)
+            # Get current teams (non-legacy)
             teams = (
                 session.query(Team)
-                .filter(Team.active == True, Team.is_legacy == False)
+                .filter(Team.is_legacy == False)
                 .order_by(Team.full_name.asc())
                 .all()
             )
