@@ -5,13 +5,112 @@
 {% block og_description %}{{ t('Browse all NBA players by team or name.', '按球队或姓名浏览所有NBA球员。') }}{% endblock %}
 {% block content %}
 <style>
-  .players-header {
+  /* ── Search hero ── */
+  .players-search-hero {
+    margin-bottom: 24px;
+  }
+
+  .players-search-hero h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+
+  .players-search-box {
+    position: relative;
+    max-width: 640px;
+  }
+
+  .players-search-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+    padding: 13px 16px 13px 42px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .players-search-input::placeholder { color: var(--muted); }
+  .players-search-input:focus {
+    border-color: rgba(249, 115, 22, 0.5);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .players-search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  /* ── Search results ── */
+  .search-results-area {
+    display: none;
+    margin-bottom: 24px;
+  }
+
+  .search-results-area.visible { display: block; }
+
+  .search-results-header {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .search-results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 8px;
+  }
+
+  .search-result-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .search-result-card:hover {
+    border-color: var(--accent);
+    background: var(--surface-2);
+    text-decoration: none;
+  }
+
+  .search-no-results {
+    padding: 20px 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* ── Season bar ── */
+  .season-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
+  }
+
+  .season-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
   }
 
   .players-count {
@@ -19,40 +118,23 @@
     color: var(--muted);
   }
 
-  .players-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .players-search {
+  .season-select {
+    appearance: none;
     background: var(--surface-2);
     border: 1px solid var(--border-2);
-    border-radius: 8px;
+    border-radius: 7px;
     color: var(--text);
     font-size: 13px;
-    font-family: inherit;
-    padding: 8px 12px 8px 34px;
+    font-weight: 600;
+    padding: 5px 30px 5px 11px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
     outline: none;
-    min-width: 220px;
     transition: border-color 0.15s;
   }
-  .players-search:focus { border-color: var(--accent); }
-  .players-search::placeholder { color: var(--muted); }
-
-  .players-search-wrap {
-    position: relative;
-  }
-
-  .players-search-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--muted);
-    pointer-events: none;
-  }
+  .season-select:hover, .season-select:focus { border-color: var(--accent); }
 
   .view-toggle {
     display: inline-flex;
@@ -251,24 +333,6 @@
     flex-shrink: 0;
   }
 
-  .season-select {
-    appearance: none;
-    background: var(--surface-2);
-    border: 1px solid var(--border-2);
-    border-radius: 7px;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 600;
-    padding: 5px 30px 5px 11px;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 9px center;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .season-select:hover, .season-select:focus { border-color: var(--accent); }
-
   .no-results {
     text-align: center;
     padding: 40px 20px;
@@ -277,65 +341,103 @@
   }
 
   @media (max-width: 640px) {
-    .players-search { min-width: 160px; }
+    .players-search-input { font-size: 14px; padding: 12px 14px 12px 38px; }
     .team-roster { grid-template-columns: 1fr; }
     .all-players-grid { grid-template-columns: 1fr; }
+    .search-results-grid { grid-template-columns: 1fr; }
   }
 </style>
 
-<div class="players-header">
-  <div>
-    <h1 style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px;">{{ t('Players', '球员') }}</h1>
-    <div class="players-count" id="players-count">{{ player_count }} {{ t('players', '名球员') }}</div>
+{# ── Search hero ── #}
+<div class="players-search-hero">
+  <h1>{{ t('Players', '球员') }}</h1>
+  <div class="players-search-box">
+    <svg class="players-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input
+      id="players-search"
+      class="players-search-input"
+      type="search"
+      placeholder="{{ t('Search any player…', '搜索任意球员…') }}"
+      autocomplete="off"
+      spellcheck="false"
+    />
   </div>
-  <div class="players-controls">
-    <select class="season-select" onchange="location.href='{{ url_for('players_browse') }}?season='+this.value">
-      {% for sid in season_ids %}
-      <option value="{{ sid }}" {% if sid == selected_season %}selected{% endif %}>{{ season_label(sid) }}</option>
-      {% endfor %}
-    </select>
-    <div class="players-search-wrap">
-      <svg class="players-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/>
-        <path d="m21 21-4.35-4.35"/>
-      </svg>
-      <input
-        id="players-filter"
-        class="players-search"
-        type="search"
-        placeholder="{{ t('Filter players…', '筛选球员…') }}"
-        autocomplete="off"
-        spellcheck="false"
-      />
+</div>
+
+{# ── Search results (hidden until typing) ── #}
+<div id="search-results" class="search-results-area">
+  <div class="search-results-header" id="search-results-label"></div>
+  <div class="search-results-grid" id="search-results-grid"></div>
+</div>
+
+{# ── Season content ── #}
+<div id="season-content">
+  <div class="season-bar">
+    <div class="season-bar-left">
+      <select class="season-select" onchange="location.href='{{ url_for('players_browse') }}?season='+this.value">
+        {% for sid in season_ids %}
+        <option value="{{ sid }}" {% if sid == selected_season %}selected{% endif %}>{{ season_label(sid) }}</option>
+        {% endfor %}
+      </select>
+      <div class="players-count">{{ player_count }} {{ t('players', '名球员') }}</div>
     </div>
     <div class="view-toggle">
       <button class="view-btn active" data-view="team">{{ t('By Team', '按球队') }}</button>
       <button class="view-btn" data-view="all">{{ t('All', '全部') }}</button>
     </div>
   </div>
-</div>
 
-<div id="view-team">
-  {% for team in teams_with_players %}
-  <div class="team-section" data-team-abbr="{{ team.abbr }}">
-    <div class="team-section-header">
-      <img
-        src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
-        alt="{{ team.abbr }}"
-        class="team-section-logo"
-        loading="lazy"
-        onerror="this.style.display='none'"
-      />
-      <a href="{{ url_for('team_page', team_id=team.team_id) }}" style="text-decoration:none;">
-        <span class="team-section-name">{{ team.full_name }}</span>
-        <span class="team-section-abbr">{{ team.abbr }}</span>
-      </a>
-      <span class="team-section-count" data-team-count>{{ team.players|length }}</span>
+  <div id="view-team">
+    {% for team in teams_with_players %}
+    <div class="team-section" data-team-abbr="{{ team.abbr }}">
+      <div class="team-section-header">
+        <img
+          src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
+          alt="{{ team.abbr }}"
+          class="team-section-logo"
+          loading="lazy"
+          onerror="this.style.display='none'"
+        />
+        <a href="{{ url_for('team_page', team_id=team.team_id) }}" style="text-decoration:none;">
+          <span class="team-section-name">{{ team.full_name }}</span>
+          <span class="team-section-abbr">{{ team.abbr }}</span>
+        </a>
+        <span class="team-section-count" data-team-count>{{ team.players|length }}</span>
+      </div>
+      <div class="team-roster">
+        {% for p in team.players %}
+        <a class="player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}">
+          <img
+            src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
+            alt=""
+            class="player-headshot"
+            loading="lazy"
+            onerror="this.style.visibility='hidden'"
+          />
+          <div class="player-info">
+            <div class="player-name">{{ p.full_name }}</div>
+            {% if p.position %}<div class="player-meta">{{ p.position }}{% if p.jersey %} · #{{ p.jersey }}{% endif %}</div>{% endif %}
+          </div>
+          <div class="player-stats">
+            <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
+            <div class="player-stat"><span class="player-stat-val">{{ p.rpg }}</span><span class="player-stat-label">RPG</span></div>
+            <div class="player-stat"><span class="player-stat-val">{{ p.apg }}</span><span class="player-stat-label">APG</span></div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
     </div>
-    <div class="team-roster">
-      {% for p in team.players %}
-      <a class="player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}">
+    {% endfor %}
+  </div>
+
+  <div id="view-all" style="display:none;">
+    <div class="all-players-grid">
+      {% for p in all_players %}
+      <a class="all-player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}" data-team="{{ p.team_abbr|lower }}">
         <img
           src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
           alt=""
@@ -345,7 +447,7 @@
         />
         <div class="player-info">
           <div class="player-name">{{ p.full_name }}</div>
-          {% if p.position %}<div class="player-meta">{{ p.position }}{% if p.jersey %} · #{{ p.jersey }}{% endif %}</div>{% endif %}
+          {% if p.position %}<div class="player-meta">{{ p.position }} · <span style="color:var(--accent);font-weight:700;">{{ p.team_abbr }}</span></div>{% endif %}
         </div>
         <div class="player-stats">
           <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
@@ -356,45 +458,18 @@
       {% endfor %}
     </div>
   </div>
-  {% endfor %}
-</div>
 
-<div id="view-all" style="display:none;">
-  <div class="all-players-grid">
-    {% for p in all_players %}
-    <a class="all-player-card" href="{{ url_for('player_page', player_id=p.player_id) }}" data-name="{{ p.full_name|lower }}" data-team="{{ p.team_abbr|lower }}">
-      <img
-        src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
-        alt=""
-        class="player-headshot"
-        loading="lazy"
-        onerror="this.style.visibility='hidden'"
-      />
-      <div class="player-info">
-        <div class="player-name">{{ p.full_name }}</div>
-        {% if p.position %}<div class="player-meta">{{ p.position }} · <span style="color:var(--accent);font-weight:700;">{{ p.team_abbr }}</span></div>{% endif %}
-      </div>
-      <div class="player-stats">
-        <div class="player-stat"><span class="player-stat-val">{{ p.ppg }}</span><span class="player-stat-label">PPG</span></div>
-        <div class="player-stat"><span class="player-stat-val">{{ p.rpg }}</span><span class="player-stat-label">RPG</span></div>
-        <div class="player-stat"><span class="player-stat-val">{{ p.apg }}</span><span class="player-stat-label">APG</span></div>
-      </div>
-    </a>
-    {% endfor %}
+  <div id="no-results" class="no-results" style="display:none;">
+    {{ t('No players found.', '未找到球员。') }}
   </div>
-</div>
-
-<div id="no-results" class="no-results" style="display:none;">
-  {{ t('No players found.', '未找到球员。') }}
 </div>
 
 <script>
 (function () {
-  const filterInput = document.getElementById('players-filter');
+  /* ── View toggle (team / all) ── */
   const viewTeam = document.getElementById('view-team');
   const viewAll = document.getElementById('view-all');
   const noResults = document.getElementById('no-results');
-  const countLabel = document.getElementById('players-count');
   const viewBtns = document.querySelectorAll('.view-btn');
   let currentView = 'team';
 
@@ -406,40 +481,71 @@
       viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
       viewTeam.style.display = view === 'team' ? '' : 'none';
       viewAll.style.display = view === 'all' ? '' : 'none';
-      applyFilter();
+      noResults.style.display = 'none';
     });
   });
 
-  function applyFilter() {
-    const q = (filterInput.value || '').trim().toLowerCase();
-    let visible = 0;
+  /* ── Global player search ── */
+  const searchInput = document.getElementById('players-search');
+  const searchArea = document.getElementById('search-results');
+  const searchGrid = document.getElementById('search-results-grid');
+  const searchLabel = document.getElementById('search-results-label');
+  const seasonContent = document.getElementById('season-content');
+  const hintsUrl = "{{ url_for('player_hints_api') }}";
+  const profileBase = "{{ url_for('player_page', player_id='__PID__') }}";
+  let searchTimer = null;
+  let searchController = null;
 
-    if (currentView === 'team') {
-      viewTeam.querySelectorAll('.team-section').forEach(section => {
-        const cards = section.querySelectorAll('.player-card');
-        let teamVisible = 0;
-        cards.forEach(card => {
-          const match = !q || card.dataset.name.includes(q);
-          card.style.display = match ? '' : 'none';
-          if (match) teamVisible++;
-        });
-        section.style.display = teamVisible > 0 ? '' : 'none';
-        const countEl = section.querySelector('[data-team-count]');
-        if (countEl) countEl.textContent = teamVisible;
-        visible += teamVisible;
-      });
-    } else {
-      viewAll.querySelectorAll('.all-player-card').forEach(card => {
-        const match = !q || card.dataset.name.includes(q) || card.dataset.team.includes(q);
-        card.style.display = match ? '' : 'none';
-        if (match) visible++;
-      });
-    }
-
-    noResults.style.display = visible === 0 ? '' : 'none';
+  function esc(s) {
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
   }
 
-  filterInput.addEventListener('input', applyFilter);
+  async function doSearch(q) {
+    if (searchController) searchController.abort();
+    searchController = new AbortController();
+    const url = new URL(hintsUrl, location.origin);
+    url.searchParams.set('q', q);
+    url.searchParams.set('limit', '30');
+    try {
+      const r = await fetch(url, { signal: searchController.signal });
+      if (!r.ok) return;
+      const data = await r.json();
+      const items = data.items || [];
+      if (!items.length) {
+        searchLabel.textContent = '{{ t("No players found", "未找到球员") }}';
+        searchGrid.innerHTML = '<div class="search-no-results">{{ t("Try a different name.", "试试其他名字。") }}</div>';
+      } else {
+        searchLabel.textContent = items.length + ' {{ t("results", "条结果") }}';
+        searchGrid.innerHTML = items.map(p =>
+          `<a class="search-result-card" href="${profileBase.replace('__PID__', p.player_id)}">` +
+            `<img src="https://cdn.nba.com/headshots/nba/latest/260x190/${esc(p.player_id)}.png" alt="" class="player-headshot" loading="lazy" onerror="this.style.visibility='hidden'" />` +
+            `<div class="player-info"><div class="player-name">${esc(p.full_name)}</div></div>` +
+          `</a>`
+        ).join('');
+      }
+      searchArea.classList.add('visible');
+      seasonContent.style.display = 'none';
+    } catch (_) {}
+  }
+
+  function clearSearch() {
+    searchArea.classList.remove('visible');
+    searchGrid.innerHTML = '';
+    seasonContent.style.display = '';
+  }
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (!q) { clearSearch(); return; }
+    searchTimer = setTimeout(() => doSearch(q), 200);
+  });
+
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { searchInput.value = ''; clearSearch(); searchInput.blur(); }
+  });
 })();
 </script>
 {% endblock %}
