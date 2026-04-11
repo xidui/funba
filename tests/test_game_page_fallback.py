@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -93,6 +94,7 @@ class TestGamePageFallback(unittest.TestCase):
         self.assertEqual(response["game_status"], "live")
         self.assertEqual(response["game"].game_id, "0022501178")
         self.assertEqual(response["game"].season, "22025")
+        self.assertEqual(response["game"].game_date, date(2026, 4, 10))
         self.assertEqual(response["live_summary"]["summary"], "Q2 4:26")
         self.assertEqual(response["live_refresh_interval_ms"], 15000)
 

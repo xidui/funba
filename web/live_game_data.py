@@ -333,12 +333,14 @@ def fetch_live_game_detail(game_id: str) -> dict | None:
     home_team = game.get("homeTeam") or {}
     away_team = game.get("awayTeam") or {}
     status = _status_from_code(game.get("gameStatus"))
+    game_date = _snapshot_game_date(game)
     actions = pbp_payload.get("game", {}).get("actions", [])
 
     return {
         "summary": {
             "game_id": str(game.get("gameId") or game_id),
             "status": status,
+            "game_date": game_date.isoformat() if game_date else None,
             "status_text": str(game.get("gameStatusText") or ""),
             "period": _safe_int(game.get("period")),
             "clock": _format_clock(game.get("gameClock")),
