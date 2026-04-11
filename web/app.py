@@ -257,6 +257,7 @@ _LOCALIZED_PUBLIC_ENDPOINTS = {
     "home": "home_zh",
     "games_list": "games_list_zh",
     "awards_page": "awards_page_zh",
+    "players_browse": "players_browse_zh",
     "players_compare": "players_compare_zh",
     "draft_page": "draft_page_zh",
     "player_page": "player_page_zh",
@@ -4442,6 +4443,7 @@ home = _public_views.home
 games_list = _public_views.games_list
 awards_page = _public_views.awards_page
 player_hints_api = _public_views.player_hints_api
+players_browse = _public_views.players_browse
 players_compare = _public_views.players_compare
 draft_page = _public_views.draft_page
 _player_stat_summary = _public_views.player_stat_summary

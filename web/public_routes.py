@@ -1093,6 +1093,120 @@ def register_public_routes(
             max_year=max_year,
         )
 
+    def players_browse():
+        SessionLocal = get_session_local()
+        Player = get_player_model()
+        PlayerGameStats = get_player_game_stats_model()
+        Team = get_team_model()
+        Game = get_game_model()
+
+        with SessionLocal() as session:
+            current_season = _latest_regular_season(session)
+
+            # Get active teams (non-legacy)
+            teams = (
+                session.query(Team)
+                .filter(Team.active == True, Team.is_legacy == False)
+                .order_by(Team.full_name.asc())
+                .all()
+            )
+            team_lookup = {t.team_id: t for t in teams}
+
+            # Get each active player's most recent team in the current season
+            latest_team_sub = (
+                session.query(
+                    PlayerGameStats.player_id,
+                    PlayerGameStats.team_id,
+                    func.max(Game.game_date).label("last_date"),
+                )
+                .join(Game, Game.game_id == PlayerGameStats.game_id)
+                .filter(
+                    Game.season == current_season,
+                    PlayerGameStats.team_id.isnot(None),
+                )
+                .group_by(PlayerGameStats.player_id, PlayerGameStats.team_id)
+                .subquery()
+            )
+
+            ranked_sub = (
+                session.query(
+                    latest_team_sub.c.player_id,
+                    latest_team_sub.c.team_id,
+                    func.row_number()
+                    .over(
+                        partition_by=latest_team_sub.c.player_id,
+                        order_by=latest_team_sub.c.last_date.desc(),
+                    )
+                    .label("rn"),
+                )
+                .subquery()
+            )
+
+            player_team_rows = (
+                session.query(ranked_sub.c.player_id, ranked_sub.c.team_id)
+                .filter(ranked_sub.c.rn == 1)
+                .all()
+            )
+            player_team_map = {row.player_id: row.team_id for row in player_team_rows}
+
+            # All non-team players that have stats in this season
+            player_ids_in_season = set(player_team_map.keys())
+            players = (
+                session.query(Player)
+                .filter(
+                    Player.player_id.in_(player_ids_in_season),
+                    Player.is_team == False,
+                )
+                .order_by(Player.full_name.asc())
+                .all()
+            )
+
+            # Build team→players map
+            teams_with_players = []
+            is_zh = get_is_zh()
+            for team in teams:
+                team_players = []
+                for p in players:
+                    if player_team_map.get(p.player_id) == team.team_id:
+                        team_players.append({
+                            "player_id": p.player_id,
+                            "full_name": p.full_name_zh if is_zh and p.full_name_zh else p.full_name,
+                            "position": p.position or "",
+                            "jersey": p.jersey or "",
+                        })
+                if team_players:
+                    team_players.sort(key=lambda x: x["full_name"])
+                    teams_with_players.append({
+                        "team_id": team.team_id,
+                        "abbr": team.abbr,
+                        "full_name": team.full_name_zh if is_zh and team.full_name_zh else team.full_name,
+                        "players": team_players,
+                    })
+
+            # Also collect all players flat for the "all" view
+            all_players = []
+            for p in players:
+                tid = player_team_map.get(p.player_id)
+                team = team_lookup.get(tid)
+                all_players.append({
+                    "player_id": p.player_id,
+                    "full_name": p.full_name_zh if is_zh and p.full_name_zh else p.full_name,
+                    "position": p.position or "",
+                    "jersey": p.jersey or "",
+                    "team_abbr": team.abbr if team else "",
+                    "team_id": tid or "",
+                })
+
+        t = get_t()
+        render_template = get_render_template()
+        return render_template(
+            "players.html",
+            teams_with_players=teams_with_players,
+            all_players=all_players,
+            player_count=len(all_players),
+            current_season=current_season,
+        )
+
     def api_games_live():
         return jsonify({"games": list(fetch_live_scoreboard_map().values())})
 
@@ -1109,6 +1223,8 @@ def register_public_routes(
     app.add_url_rule("/cn/awards", endpoint="awards_page_zh", view_func=awards_page)
     app.add_url_rule("/awards", endpoint="awards_page", view_func=awards_page)
     app.add_url_rule("/api/players/hints", endpoint="player_hints_api", view_func=limiter.limit("60 per minute")(player_hints_api))
+    app.add_url_rule("/cn/players", endpoint="players_browse_zh", view_func=players_browse)
+    app.add_url_rule("/players", endpoint="players_browse", view_func=players_browse)
     app.add_url_rule("/api/games/live", endpoint="api_games_live", view_func=api_games_live)
     app.add_url_rule("/api/games/<game_id>/live", endpoint="api_game_live", view_func=api_game_live)
     app.add_url_rule("/cn/players/compare", endpoint="players_compare_zh", view_func=players_compare)
@@ -1120,6 +1236,7 @@ def register_public_routes(
         home=home,
         games_list=games_list,
         awards_page=awards_page,
+        players_browse=players_browse,
         api_games_live=api_games_live,
         api_game_live=api_game_live,
         player_hints_api=player_hints_api,

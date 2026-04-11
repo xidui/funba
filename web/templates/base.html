@@ -241,32 +241,6 @@
         pointer-events: none;
       }
 
-      .gs-dropdown {
-        display: none;
-        position: absolute;
-        top: calc(100% + 6px);
-        left: 0;
-        right: 0;
-        background: var(--surface-2);
-        border: 1px solid var(--border-2);
-        border-radius: 10px;
-        overflow: hidden;
-        z-index: 200;
-        box-shadow: var(--dropdown-shadow);
-      }
-
-      .gs-dropdown.open { display: block; }
-
-      .gs-item {
-        padding: 10px 14px;
-        cursor: pointer;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text);
-        transition: background 0.1s;
-      }
-
-      .gs-item:hover, .gs-item.focused { background: var(--surface-3); }
 
       .mobile-nav-toggle {
         display: none;
@@ -1138,13 +1112,6 @@
           min-height: 44px;
           padding: 10px 12px 10px 36px;
         }
-        .gs-dropdown {
-          max-height: 60vh;
-          overflow-y: auto;
-        }
-        .gs-item {
-          padding: 12px 14px;
-        }
         .card {
           padding: 14px;
         }
@@ -1317,12 +1284,11 @@
             id="gs-input"
             class="gs-input"
             type="search"
-            placeholder="{{ t('Search players…', '搜索球员…') }}"
+            placeholder="{{ t('Search metrics…', '搜索指标…') }}"
             autocomplete="off"
             spellcheck="false"
-            aria-label="{{ t('Search players', '搜索球员') }}"
+            aria-label="{{ t('Search metrics', '搜索指标') }}"
           />
-          <div id="gs-dropdown" class="gs-dropdown" role="listbox"></div>
         </div>
 
         <button
@@ -1342,6 +1308,7 @@
 
         <nav class="topbar-nav">
           <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if active_public_endpoint == 'home' }}">{{ t('Home', '首页') }}</a>
+          <a href="{{ url_for('players_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'players_browse' }}">{{ t('Players', '球员') }}</a>
           <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if active_public_endpoint == 'games_list' }}">{{ t('Games', '比赛') }}</a>
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}">{{ t('Metrics', '指标') }}</a>
           <a href="{{ url_for('awards_page') }}" class="nav-link {{ 'active' if active_public_endpoint == 'awards_page' }}">{{ t('Awards', '荣誉') }}</a>
@@ -1427,6 +1394,7 @@
         <div class="mobile-nav-inner">
           <div class="mobile-nav-list">
             <a href="{{ url_for('home') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'home' }}" role="menuitem">{{ t('Home', '首页') }}</a>
+            <a href="{{ url_for('players_browse') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'players_browse' }}" role="menuitem">{{ t('Players', '球员') }}</a>
             <a href="{{ url_for('games_list') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'games_list' }}" role="menuitem">{{ t('Games', '比赛') }}</a>
             <a href="{{ url_for('metrics_browse') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}" role="menuitem">{{ t('Metrics', '指标') }}</a>
             <a href="{{ url_for('awards_page') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'awards_page' }}" role="menuitem">{{ t('Awards', '荣誉') }}</a>
@@ -1532,6 +1500,7 @@
           <h4 class="footer-heading">{{ t('Explore', '浏览') }}</h4>
           <ul class="footer-links">
             <li><a href="{{ url_for('home') }}">{{ t('Home', '首页') }}</a></li>
+            <li><a href="{{ url_for('players_browse') }}">{{ t('Players', '球员') }}</a></li>
             <li><a href="{{ url_for('games_list') }}">{{ t('Games', '比赛') }}</a></li>
             <li><a href="{{ url_for('metrics_browse') }}">{{ t('Metrics', '指标') }}</a></li>
           </ul>
@@ -1732,21 +1701,10 @@
       })();
 
       (function () {
-        const input    = document.getElementById('gs-input');
-        const dropdown = document.getElementById('gs-dropdown');
-        if (!input || !dropdown) return;
+        const input = document.getElementById('gs-input');
+        if (!input) return;
 
-        const profileBase = "{{ url_for('player_page', player_id='__PID__') }}";
-        const hintsUrl    = "{{ url_for('player_hints_api') }}";
-
-        let timer      = null;
-        let controller = null;
-        let focusIdx   = -1;
-        let items      = [];
-
-        function go(pid) {
-          window.location.href = profileBase.replace('__PID__', pid);
-        }
+        const metricsUrl = "{{ url_for('metrics_browse') }}";
 
         function closeMenuIfOpen() {
           if (window.funbaMobileMenu && window.funbaMobileMenu.isOpen()) {
@@ -1754,73 +1712,21 @@
           }
         }
 
-        function render(newItems) {
-          items    = newItems;
-          focusIdx = -1;
-          dropdown.innerHTML = '';
-          if (!items.length) { dropdown.classList.remove('open'); return; }
-          items.forEach((p, i) => {
-            const el = document.createElement('div');
-            el.className = 'gs-item';
-            el.setAttribute('role', 'option');
-            el.textContent = p.full_name;
-            el.addEventListener('mousedown', e => { e.preventDefault(); go(p.player_id); });
-            dropdown.appendChild(el);
-          });
-          dropdown.classList.add('open');
-        }
-
-        function moveFocus(delta) {
-          const els = dropdown.querySelectorAll('.gs-item');
-          if (!els.length) return;
-          els[focusIdx]?.classList.remove('focused');
-          focusIdx = Math.max(0, Math.min(focusIdx + delta, els.length - 1));
-          els[focusIdx].classList.add('focused');
-        }
-
-        async function load(q) {
-          if (controller) controller.abort();
-          controller = new AbortController();
-          const url  = new URL(hintsUrl, location.origin);
-          url.searchParams.set('q', q);
-          url.searchParams.set('limit', '10');
-          try {
-            const r = await fetch(url, { signal: controller.signal });
-            if (!r.ok) return;
-            const d = await r.json();
-            render(d.items || []);
-          } catch (_) {}
-        }
-
-        input.addEventListener('input', () => {
-          clearTimeout(timer);
-          const q = input.value.trim();
-          if (!q) { dropdown.classList.remove('open'); return; }
-          timer = setTimeout(() => load(q), 160);
-        });
-
         input.addEventListener('keydown', e => {
-          if (e.key === 'ArrowDown')  { e.preventDefault(); moveFocus(+1); }
-          else if (e.key === 'ArrowUp')   { e.preventDefault(); moveFocus(-1); }
-          else if (e.key === 'Enter') {
+          if (e.key === 'Enter') {
             e.preventDefault();
-            if (focusIdx >= 0 && items[focusIdx]) go(items[focusIdx].player_id);
-            else if (items.length === 1)           go(items[0].player_id);
+            const q = input.value.trim();
+            if (q) {
+              window.location.href = metricsUrl + '?q=' + encodeURIComponent(q);
+            } else {
+              window.location.href = metricsUrl;
+            }
           }
-          else if (e.key === 'Escape') { dropdown.classList.remove('open'); input.blur(); }
+          else if (e.key === 'Escape') { input.blur(); }
         });
 
-        input.addEventListener('focus', () => {
-          closeMenuIfOpen();
-          if (input.value.trim()) load(input.value.trim());
-        });
-
+        input.addEventListener('focus', closeMenuIfOpen);
         input.addEventListener('pointerdown', closeMenuIfOpen);
-
-        document.addEventListener('click', e => {
-          if (!input.contains(e.target) && !dropdown.contains(e.target))
-            dropdown.classList.remove('open');
-        });
       })();
 
       // ── Admin dropdown ────────────────────────────────────────────
