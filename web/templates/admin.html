@@ -312,8 +312,7 @@
         scheduledEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse;table-layout:fixed;">
           <thead><tr><th ${thL}>Task</th><th ${th}>Interval</th></tr></thead><tbody>` +
           data.scheduled.map(s => {
-            const interval = s.every ? `${s.every}s` : '?';
-            const friendly = s.every >= 3600 ? `${Math.round(s.every/3600)}h` : s.every >= 60 ? `${Math.round(s.every/60)}m` : `${s.every}s`;
+            const friendly = s.display || (s.every ? `${s.every}s` : '?');
             return `<tr><td ${tdL}><span style="font-weight:600;">${s.name}</span></td><td ${td}>${friendly}</td></tr>`;
           }).join('') + '</tbody></table>';
       } else if (scheduledEl) {

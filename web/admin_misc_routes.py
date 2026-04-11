@@ -8,6 +8,42 @@ from flask import abort, jsonify, redirect, request, url_for
 from sqlalchemy import extract, func
 
 
+def _format_schedule_interval(schedule) -> str:
+    if isinstance(schedule, (int, float)):
+        seconds = int(schedule)
+        if seconds >= 3600 and seconds % 3600 == 0:
+            return f"{seconds // 3600}h"
+        if seconds >= 60 and seconds % 60 == 0:
+            return f"{seconds // 60}m"
+        return f"{seconds}s"
+
+    minute = getattr(schedule, "_orig_minute", None)
+    hour = getattr(schedule, "_orig_hour", None)
+    day_of_month = getattr(schedule, "_orig_day_of_month", None)
+    month_of_year = getattr(schedule, "_orig_month_of_year", None)
+    day_of_week = getattr(schedule, "_orig_day_of_week", None)
+
+    if (
+        minute is not None
+        and hour is not None
+        and day_of_month is not None
+        and month_of_year is not None
+        and day_of_week is not None
+    ):
+        minute_text = str(minute)
+        hour_text = str(hour)
+        dom_text = str(day_of_month)
+        moy_text = str(month_of_year)
+        dow_text = str(day_of_week)
+
+        if dom_text == moy_text == dow_text == "*" and minute_text.isdigit() and hour_text.isdigit():
+            return f"daily {int(hour_text):02d}:{int(minute_text):02d}"
+
+        return f"cron {minute_text} {hour_text} {dom_text} {moy_text} {dow_text}"
+
+    return str(schedule or "?")
+
+
 def register_admin_misc_routes(app, deps):
     def api_data_games():
         denied = deps.require_admin_json()()
@@ -341,7 +377,15 @@ def register_admin_misc_routes(app, deps):
             from tasks.celery_app import app as _celery_app
 
             for name, entry in (_celery_app.conf.beat_schedule or {}).items():
-                scheduled.append({"name": name, "task": entry.get("task", ""), "every": str(entry.get("schedule", ""))})
+                schedule = entry.get("schedule", "")
+                scheduled.append(
+                    {
+                        "name": name,
+                        "task": entry.get("task", ""),
+                        "every": int(schedule) if isinstance(schedule, (int, float)) else None,
+                        "display": _format_schedule_interval(schedule),
+                    }
+                )
         except Exception:
             pass
 
