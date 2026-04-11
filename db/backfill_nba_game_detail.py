@@ -232,7 +232,7 @@ def fetch_all_period_stats(game_id):
         if rows is None:
             break
         all_periods[period] = rows
-        _time.sleep(3)
+        _time.sleep(0.5)
     return all_periods
 
 
