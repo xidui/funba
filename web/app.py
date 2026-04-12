@@ -2374,6 +2374,17 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     all_metric_keys = {r.metric_key for r in rows}
     metric_name_cache = _batch_metric_names(session, all_metric_keys)
 
+    # Batch-load categories (keyed by base key — career variants share the parent's category).
+    metric_category_cache: dict[str, str] = {}
+    if all_base_keys:
+        for k, cat in (
+            session.query(MetricDefinitionModel.key, MetricDefinitionModel.category)
+            .filter(MetricDefinitionModel.key.in_(all_base_keys))
+            .all()
+        ):
+            if cat:
+                metric_category_cache[k] = cat
+
     # Batch-load sub_key_type for split metrics (we already know which keys are splits,
     # now fetch the type so we know how to render the labels).
     sub_key_type_map: dict[str, str] = {}
@@ -2464,6 +2475,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         entry = {
             "metric_key": r.metric_key,
             "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+            "category": metric_category_cache.get(r.metric_key.removesuffix("_career"), ""),
             "entity_id": r.entity_id,
             "value_num": r.value_num,
             "value_str": r.value_str,
@@ -2498,6 +2510,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         entry = {
             "metric_key": metric_key,
             "metric_name": bucket["metric_name"],
+            "category": metric_category_cache.get(metric_key.removesuffix("_career"), ""),
             "entity_id": bucket["entity_id"],
             "value_num": top["value_num"],
             "value_str": top["value_str"],
@@ -2592,7 +2605,24 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     else:
         season_extra = []
 
-    return {"season": season_metrics, "season_extra": season_extra, "alltime": alltime_metrics}
+    # Split off matchup-split entries so the player page can render them in
+    # their own section (full-width cards) instead of mixing them into the
+    # regular metric grid where they don't fit.
+    def _partition_splits(items):
+        main = [e for e in items if not e.get("splits")]
+        splits = [e for e in items if e.get("splits")]
+        return main, splits
+
+    season_metrics, season_splits = _partition_splits(season_metrics)
+    alltime_metrics, alltime_splits = _partition_splits(alltime_metrics)
+
+    return {
+        "season": season_metrics,
+        "season_extra": season_extra,
+        "season_splits": season_splits,
+        "alltime": alltime_metrics,
+        "alltime_splits": alltime_splits,
+    }
 
 
 def _metric_backfill_component(session, metric_key: str, total_games: int) -> dict:

@@ -536,7 +536,8 @@
   #section-metrics,
   #section-salary,
   #section-shots,
-  #section-games {
+  #section-games,
+  #section-matchup-splits {
     scroll-margin-top: 120px;
   }
 
@@ -545,8 +546,232 @@
     #section-metrics,
     #section-salary,
     #section-shots,
-    #section-games {
+    #section-games,
+    #section-matchup-splits {
       scroll-margin-top: 130px;
+    }
+  }
+
+  /* ── Category collapsible groups ────────────────────────────── */
+  .metric-category {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .metric-category[open] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  .metric-category > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.04)) 60%, var(--surface));
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    user-select: none;
+    transition: background 0.15s ease;
+  }
+  .metric-category > summary:hover {
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    color: var(--text);
+  }
+  .metric-category > summary::-webkit-details-marker { display: none; }
+  .metric-category > summary::before {
+    content: "▸";
+    display: inline-block;
+    font-size: 9px;
+    opacity: 0.6;
+    transition: transform 0.15s ease;
+  }
+  .metric-category[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .metric-category > summary .cat-count {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted-2);
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .metric-category .metrics-grid {
+    border: none;
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Matchup Splits section ─────────────────────────────────── */
+  .matchup-splits-section {
+    margin-top: 20px;
+  }
+  .split-bucket-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 16px 0 8px;
+  }
+  .split-bucket-title:first-of-type {
+    margin-top: 0;
+  }
+  .matchup-split-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s ease;
+  }
+  .matchup-split-card.notable {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  }
+  .matchup-split-card > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 14px;
+    user-select: none;
+  }
+  .matchup-split-card > summary::-webkit-details-marker { display: none; }
+  .split-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+  }
+  .split-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .split-primary-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.01em;
+  }
+  .split-primary-vs {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .split-primary-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .split-primary-team img {
+    width: 20px;
+    height: 20px;
+  }
+  .split-count-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted-2);
+    padding: 4px 10px;
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.06)) 80%, transparent);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .matchup-split-card[open] .split-count-chip::after {
+    content: "▴";
+    font-size: 9px;
+  }
+  .matchup-split-card:not([open]) .split-count-chip::after {
+    content: "▾";
+    font-size: 9px;
+  }
+  .matchup-split-card .split-body {
+    padding: 12px 16px 14px;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.02)) 40%, var(--surface));
+  }
+  .split-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px 10px;
+  }
+  .split-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+  .split-cell:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .split-cell img {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  .split-cell .split-cell-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .split-cell .split-cell-value {
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .split-cell.split-cell-top {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .split-footer {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .split-full-link {
+    font-size: 11px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .split-full-link:hover {
+    text-decoration: underline;
+  }
+  @media (max-width: 640px) {
+    .matchup-split-card > summary {
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .split-primary {
+      justify-self: start;
+    }
+    .split-count-chip {
+      justify-self: start;
     }
   }
 </style>
@@ -849,7 +1074,9 @@
 
 {% set season_metrics = player_metrics.season %}
 {% set alltime_metrics = player_metrics.alltime %}
-{% if season_metrics or alltime_metrics %}
+{% set season_splits = player_metrics.season_splits or [] %}
+{% set alltime_splits = player_metrics.alltime_splits or [] %}
+{% if season_metrics or alltime_metrics or season_splits or alltime_splits %}
 <section class="section metrics-section" id="section-metrics">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
@@ -857,170 +1084,101 @@
   {% set playoffs_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playoffs')|list if alltime_metrics else [] %}
   {% set playin_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playin')|list if alltime_metrics else [] %}
 
+  {# Category priority order + localized labels #}
+  {% set category_order = ['scoring', 'playmaking', 'defense', 'efficiency', 'record', 'aggregate', 'conditional', 'milestone', 'streaks', 'awards', 'salary'] %}
+  {% set category_labels = {
+    'scoring': t('Scoring', '得分'),
+    'playmaking': t('Playmaking', '组织'),
+    'defense': t('Defense', '防守'),
+    'efficiency': t('Efficiency', '效率'),
+    'record': t('Records', '纪录'),
+    'aggregate': t('Aggregates', '累计数据'),
+    'conditional': t('Situational', '场景数据'),
+    'milestone': t('Milestones', '里程碑'),
+    'streaks': t('Streaks', '连胜/连场'),
+    'awards': t('Awards', '荣誉'),
+    'salary': t('Salary', '薪资'),
+  } %}
+
   {% macro render_metric_card(m, href) %}
-    {% if m.splits %}
-      <details class="metric-card metric-split{% if m.is_notable %} metric-notable{% endif %}" style="padding:0;">
-        <summary style="cursor:pointer;list-style:none;padding:12px;display:block;">
-          <div class="metric-key">{{ m.metric_name }}</div>
-          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          {% if m.primary_sub_key_info %}
-          <div class="metric-split-best" style="font-size:11px;color:var(--muted);margin-top:2px;">
-            {{ t('best vs', '最佳对位') }}
-            {% if m.primary_sub_key_info.team_id %}
-              {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
-              {% if _turl %}<a href="{{ _turl }}" style="color:var(--accent);text-decoration:none;">{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}</a>{% else %}{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}{% endif %}
-            {% else %}
-              {{ m.primary_sub_key_info.label }}
-            {% endif %}
-          </div>
-          {% endif %}
-          <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">{{ m.splits|length }} {{ t('opponents', '对位') }} &#9662;</span>
-          </div>
-        </summary>
-        <div class="metric-splits-table" style="border-top:1px solid var(--border);padding:8px 12px 12px;">
-          <table style="width:100%;font-size:12px;border-collapse:collapse;">
-            <thead>
-              <tr style="color:var(--muted-2);">
-                <th style="text-align:left;padding:3px 4px;">{{ t('Opp', '对手') }}</th>
-                <th style="text-align:right;padding:3px 4px;">{{ t('Value', '数值') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for s in m.splits %}
-              <tr>
-                <td style="padding:3px 4px;">
-                  {% if s.sub_key_info and s.sub_key_info.team_id %}
-                    {% set _sturl = team_url(s.sub_key_info.team_id) %}
-                    {% if _sturl %}<a href="{{ _sturl }}" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">{% endif %}
-                    <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
-                         alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
-                    {{ s.sub_key_info.abbr or s.sub_key_info.label }}
-                    {% if _sturl %}</a>{% endif %}
-                  {% else %}
-                    {{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}
-                  {% endif %}
-                </td>
-                <td style="text-align:right;padding:3px 4px;font-variant-numeric:tabular-nums;">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          <div style="margin-top:8px;text-align:right;">
-            <a href="{{ href }}&expand=1&q={{ m.entity_id }}" style="font-size:11px;color:var(--accent);text-decoration:none;">{{ t('full leaderboard →', '完整排行 →') }}</a>
-          </div>
-        </div>
-      </details>
-    {% else %}
-      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-         href="{{ href }}" style="text-decoration:none;">
-        <div class="metric-key">{{ m.metric_name }}</div>
-        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-        <div class="metric-ranks">
-          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
-          {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
-        </div>
-      </a>
-    {% endif %}
+    <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+       href="{{ href }}" style="text-decoration:none;">
+      <div class="metric-key">{{ m.metric_name }}</div>
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      <div class="metric-ranks">
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
+        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
+      </div>
+    </a>
   {% endmacro %}
 
   {% macro render_metric_card_career(m, href) %}
-    {% if m.splits %}
-      <details class="metric-card metric-split{% if m.is_notable %} metric-notable{% endif %}" style="padding:0;">
-        <summary style="cursor:pointer;list-style:none;padding:12px;display:block;">
-          <div class="metric-key">{{ m.metric_name }}</div>
-          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          {% if m.primary_sub_key_info %}
-          <div class="metric-split-best" style="font-size:11px;color:var(--muted);margin-top:2px;">
-            {{ t('best vs', '最佳对位') }}
-            {% if m.primary_sub_key_info.team_id %}
-              {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
-              {% if _turl %}<a href="{{ _turl }}" style="color:var(--accent);text-decoration:none;">{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}</a>{% else %}{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}{% endif %}
-            {% else %}
-              {{ m.primary_sub_key_info.label }}
-            {% endif %}
+    <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+       href="{{ href }}" style="text-decoration:none;">
+      <div class="metric-key">{{ m.metric_name }}</div>
+      <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      <div class="metric-ranks">
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
+      </div>
+    </a>
+  {% endmacro %}
+
+  {% macro render_category_groups(items, card_macro, career_kind) %}
+    {%- set ns = namespace(idx=0, extra_cats=[]) -%}
+    {# Pre-compute known categories present + leftover ones for the "other" bucket #}
+    {%- for m in items -%}
+      {%- set c = m.category or '' -%}
+      {%- if c and c not in category_order and c not in ns.extra_cats -%}
+        {%- set _ = ns.extra_cats.append(c) -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {%- set all_cats = category_order + ns.extra_cats + [''] -%}
+    {%- for cat in all_cats -%}
+      {%- if cat -%}
+        {%- set group = items|selectattr('category', 'equalto', cat)|list -%}
+      {%- else -%}
+        {%- set group = items|selectattr('category', 'equalto', '')|list -%}
+      {%- endif -%}
+      {%- if group -%}
+        {%- set ns.idx = ns.idx + 1 -%}
+        <details class="metric-category"{% if ns.idx <= 2 %} open{% endif %}>
+          <summary>
+            <span>{{ category_labels.get(cat, cat|title if cat else t('Other', '其他')) }}</span>
+            <span class="cat-count">{{ group|length }}</span>
+          </summary>
+          <div class="metrics-grid">
+            {% for m in group %}
+              {% if career_kind %}
+                {{ card_macro(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+              {% else %}
+                {{ card_macro(m, url_for('metric_detail', metric_key=m.metric_key)) }}
+              {% endif %}
+            {% endfor %}
           </div>
-          {% endif %}
-          <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">{{ m.splits|length }} {{ t('opponents', '对位') }} &#9662;</span>
-          </div>
-        </summary>
-        <div class="metric-splits-table" style="border-top:1px solid var(--border);padding:8px 12px 12px;">
-          <table style="width:100%;font-size:12px;border-collapse:collapse;">
-            <thead>
-              <tr style="color:var(--muted-2);">
-                <th style="text-align:left;padding:3px 4px;">{{ t('Opp', '对手') }}</th>
-                <th style="text-align:right;padding:3px 4px;">{{ t('Value', '数值') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for s in m.splits %}
-              <tr>
-                <td style="padding:3px 4px;">
-                  {% if s.sub_key_info and s.sub_key_info.team_id %}
-                    {% set _sturl = team_url(s.sub_key_info.team_id) %}
-                    {% if _sturl %}<a href="{{ _sturl }}" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">{% endif %}
-                    <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
-                         alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
-                    {{ s.sub_key_info.abbr or s.sub_key_info.label }}
-                    {% if _sturl %}</a>{% endif %}
-                  {% else %}
-                    {{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}
-                  {% endif %}
-                </td>
-                <td style="text-align:right;padding:3px 4px;font-variant-numeric:tabular-nums;">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          <div style="margin-top:8px;text-align:right;">
-            <a href="{{ href }}&expand=1&q={{ m.entity_id }}" style="font-size:11px;color:var(--accent);text-decoration:none;">{{ t('full leaderboard →', '完整排行 →') }}</a>
-          </div>
-        </div>
-      </details>
-    {% else %}
-      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-         href="{{ href }}" style="text-decoration:none;">
-        <div class="metric-key">{{ m.metric_name }}</div>
-        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-        <div class="metric-ranks">
-          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
-        </div>
-      </a>
-    {% endif %}
+        </details>
+      {%- endif -%}
+    {%- endfor -%}
   {% endmacro %}
 
   <div class="metrics-columns">
     {% if season_metrics %}
     <div class="metrics-col">
       <h3 class="metrics-col-title">{{ season_label(selected_season) }}</h3>
-      <div class="metrics-grid">
-        {% for m in season_metrics %}
-          {{ render_metric_card(m, url_for('metric_detail', metric_key=m.metric_key)) }}
-        {% endfor %}
-      </div>
+      {{ render_category_groups(season_metrics, render_metric_card, false) }}
     </div>
     {% endif %}
 
     {% if regular_career %}
     <div class="metrics-col">
       <h3 class="metrics-col-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
-      <div class="metrics-grid">
-        {% for m in regular_career %}
-          {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
-        {% endfor %}
-      </div>
+      {{ render_category_groups(regular_career, render_metric_card_career, true) }}
     </div>
     {% endif %}
 
     {% if playoffs_career %}
     <div class="metrics-col">
       <h3 class="metrics-col-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
-      <div class="metrics-grid">
-        {% for m in playoffs_career %}
-          {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
-        {% endfor %}
-      </div>
+      {{ render_category_groups(playoffs_career, render_metric_card_career, true) }}
     </div>
     {% endif %}
   </div>
@@ -1032,11 +1190,92 @@
     </button>
   </div>
   <div id="playin-metrics-block" style="display:none;margin-top:8px;">
-    <div class="metrics-grid" style="max-width:33.3%;">
-      {% for m in playin_career %}
-        {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
-      {% endfor %}
+    <div style="max-width:33.3%;">
+      {{ render_category_groups(playin_career, render_metric_card_career, true) }}
     </div>
+  </div>
+  {% endif %}
+
+  {# ── Matchup Splits ────────────────────────────────────────── #}
+  {% if season_splits or alltime_splits %}
+  {% set regular_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_regular')|list %}
+  {% set playoffs_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playoffs')|list %}
+  {% set playin_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playin')|list %}
+
+  {% macro render_split_wide(m, href) %}
+    <details class="matchup-split-card{% if m.is_notable %} notable{% endif %}">
+      <summary>
+        <div class="split-title">{{ m.metric_name }}</div>
+        <div class="split-primary">
+          <span class="split-primary-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</span>
+          {% if m.primary_sub_key_info %}
+          <span class="split-primary-vs">{{ t('vs', '对位') }}</span>
+          {% if m.primary_sub_key_info.team_id %}
+            {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
+            <a href="{{ _turl or '#' }}" class="split-primary-team">
+              <img src="https://cdn.nba.com/logos/nba/{{ m.primary_sub_key_info.team_id }}/global/L/logo.svg"
+                   alt="" loading="lazy" onerror="this.style.display='none'">
+              {{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}
+            </a>
+          {% else %}
+            <span class="split-primary-team">{{ m.primary_sub_key_info.label }}</span>
+          {% endif %}
+          {% endif %}
+        </div>
+        <span class="split-count-chip">{{ m.splits|length }} {{ t('opponents', '对手') }}</span>
+      </summary>
+      <div class="split-body">
+        <div class="split-grid">
+          {% for s in m.splits %}
+            {% set _is_team = s.sub_key_info and s.sub_key_info.team_id %}
+            {% set _cell_url = team_url(s.sub_key_info.team_id) if _is_team else ('#') %}
+            <a href="{{ _cell_url or '#' }}" class="split-cell{% if loop.first %} split-cell-top{% endif %}">
+              {% if _is_team %}
+              <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                   alt="" loading="lazy" onerror="this.style.display='none'">
+              {% endif %}
+              <span class="split-cell-name">{{ s.sub_key_info.abbr or s.sub_key_info.label if s.sub_key_info else s.sub_key }}</span>
+              <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
+            </a>
+          {% endfor %}
+        </div>
+        <div class="split-footer">
+          <a href="{{ href }}&expand=1&entity={{ m.entity_id }}" class="split-full-link">{{ t('full leaderboard →', '完整排行 →') }}</a>
+        </div>
+      </div>
+    </details>
+  {% endmacro %}
+
+  <div class="matchup-splits-section" id="section-matchup-splits">
+    <h2 class="section-title" style="margin-top:28px;">{{ t('Matchup Splits', '对位数据') }}</h2>
+
+    {% if season_splits %}
+    <h3 class="split-bucket-title">{{ season_label(selected_season) }}</h3>
+    {% for m in season_splits %}
+      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key)) }}
+    {% endfor %}
+    {% endif %}
+
+    {% if regular_splits %}
+    <h3 class="split-bucket-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
+    {% for m in regular_splits %}
+      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+    {% endfor %}
+    {% endif %}
+
+    {% if playoffs_splits %}
+    <h3 class="split-bucket-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
+    {% for m in playoffs_splits %}
+      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+    {% endfor %}
+    {% endif %}
+
+    {% if playin_splits %}
+    <h3 class="split-bucket-title">{{ t('Play-In Career', '附加赛生涯') }}</h3>
+    {% for m in playin_splits %}
+      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+    {% endfor %}
+    {% endif %}
   </div>
   {% endif %}
 </section>
