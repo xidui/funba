@@ -720,6 +720,10 @@ class CodeMetricDefinition(MetricDefinition):
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")
         self.per_game = getattr(self._inner, "per_game", True)
+        self.sub_key_type = getattr(row, "sub_key_type", None)
+        self.sub_key_label = getattr(row, "sub_key_label", None)
+        self.sub_key_label_zh = getattr(row, "sub_key_label_zh", None)
+        self.sub_key_rank_scope = getattr(row, "sub_key_rank_scope", None)
         self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
         self.max_results_per_season = getattr(row, "max_results_per_season", None) or getattr(self._inner, "max_results_per_season", None)
 

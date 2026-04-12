@@ -997,6 +997,10 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         career=bool(getattr(metric_def, "career", False)),
         supports_career=bool(getattr(metric_def, "supports_career", False)),
         trigger=getattr(metric_def, "trigger", "game"),
+        sub_key_type=getattr(metric_def, "sub_key_type", None),
+        sub_key_label=getattr(metric_def, "sub_key_label", None),
+        sub_key_label_zh=getattr(metric_def, "sub_key_label_zh", None),
+        sub_key_rank_scope=getattr(metric_def, "sub_key_rank_scope", None),
     )
 
 
@@ -2274,6 +2278,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             MetricResultModel.metric_key,
             MetricResultModel.entity_id,
             MetricResultModel.season,
+            MetricResultModel.sub_key,
             MetricResultModel.rank_group,
             MetricResultModel.value_num,
             MetricResultModel.value_str,
@@ -2331,7 +2336,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         rank, total = rank_map.get(r.id, (1, 1))
         rows.append(SimpleNamespace(
             id=r.id, metric_key=r.metric_key, entity_id=r.entity_id,
-            season=r.season, rank_group=r.rank_group,
+            season=r.season, sub_key=r.sub_key or "", rank_group=r.rank_group,
             value_num=r.value_num, value_str=r.value_str,
             context_json=r.context_json, computed_at=r.computed_at,
             rank=rank, total=total,
@@ -2347,8 +2352,51 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     all_metric_keys = {r.metric_key for r in rows}
     metric_name_cache = _batch_metric_names(session, all_metric_keys)
 
+    # Batch-load sub_key metadata for split metrics.
+    # Look up by base key (strip _career suffix) since MetricDefinition only stores base keys.
+    sub_key_type_map: dict[str, str] = {}
+    if all_metric_keys:
+        base_lookup = {k.removesuffix("_career") for k in all_metric_keys}
+        md_rows = (
+            session.query(MetricDefinitionModel.key, MetricDefinitionModel.sub_key_type)
+            .filter(MetricDefinitionModel.key.in_(base_lookup))
+            .all()
+        )
+        base_sub_key_types = {k: st for k, st in md_rows if st}
+        for mk in all_metric_keys:
+            base = mk.removesuffix("_career")
+            if base in base_sub_key_types:
+                sub_key_type_map[mk] = base_sub_key_types[base]
+    sub_key_label_cache: dict[tuple[str, str], dict] = {}
+    if sub_key_type_map:
+        team_sub_keys = {r.sub_key for r in rows if r.sub_key and sub_key_type_map.get(r.metric_key) == "team"}
+        for tid in team_sub_keys:
+            team = team_map.get(tid)
+            if team:
+                sub_key_label_cache[("team", tid)] = {
+                    "label": _display_team_name(team) or team.abbr or tid,
+                    "abbr": team.abbr,
+                    "team_id": tid,
+                }
+            else:
+                sub_key_label_cache[("team", tid)] = {"label": tid, "abbr": None, "team_id": tid}
+        player_sub_keys = {r.sub_key for r in rows if r.sub_key and sub_key_type_map.get(r.metric_key) == "player"}
+        if player_sub_keys:
+            for pid, fn, fn_zh in (
+                session.query(Player.player_id, Player.full_name, Player.full_name_zh)
+                .filter(Player.player_id.in_(list(player_sub_keys)))
+                .all()
+            ):
+                sub_key_label_cache[("player", str(pid))] = {
+                    "label": (fn_zh if _is_zh() and fn_zh else fn) or str(pid),
+                    "player_id": str(pid),
+                }
+
     season_metrics = []
     alltime_metrics = []
+    # For split metrics (sub_key_type set), collect all splits per (metric_key, season)
+    # and later collapse into a single card with a `splits` list.
+    split_accum: dict[tuple, dict] = {}
     for r in rows:
         ctx = json.loads(r.context_json) if r.context_json else {}
         rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
@@ -2356,6 +2404,42 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         context_label = _resolve_context_label(base_key, ctx, db_templates)
         rank, total = r.rank, r.total
         is_notable = total > 0 and rank / total <= 0.25
+        sub_key_type = sub_key_type_map.get(r.metric_key)
+
+        if sub_key_type and r.sub_key:
+            info = sub_key_label_cache.get((sub_key_type, r.sub_key), {"label": r.sub_key})
+            split_entry = {
+                "sub_key": r.sub_key,
+                "sub_key_info": info,
+                "value_num": r.value_num,
+                "value_str": r.value_str,
+                "rank": rank,
+                "total": total,
+                "is_notable": is_notable,
+                "context": ctx,
+                "context_label": context_label,
+            }
+            group_key = (r.metric_key, r.season)
+            bucket = split_accum.get(group_key)
+            if bucket is None:
+                bucket = {
+                    "metric_key": r.metric_key,
+                    "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+                    "entity_id": r.entity_id,
+                    "season": r.season,
+                    "rank_group": r.rank_group,
+                    "rank_group_label": rank_group_label,
+                    "computed_at": r.computed_at,
+                    "sub_key_type": sub_key_type,
+                    "splits": [],
+                    "career_rank": None,
+                    "career_total": None,
+                    "career_is_notable": False,
+                }
+                split_accum[group_key] = bucket
+            bucket["splits"].append(split_entry)
+            continue
+
         entry = {
             "metric_key": r.metric_key,
             "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
@@ -2379,6 +2463,42 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         if r.metric_key.endswith("_career") or is_career_season(r.season):
             entry["career_type"] = r.season
             entry["career_type_label"] = _CAREER_TYPE_LABEL.get(r.season, "Career")
+            alltime_metrics.append(entry)
+        else:
+            season_metrics.append(entry)
+
+    # Collapse split-metric buckets: sort splits best-first, promote the top as primary,
+    # then append to season_metrics or alltime_metrics.
+    for (metric_key, season_val), bucket in split_accum.items():
+        splits = bucket["splits"]
+        is_asc = metric_key in _asc_keys or metric_key.removesuffix("_career") in _asc_keys
+        splits.sort(key=lambda s: (s["value_num"] or 0), reverse=not is_asc)
+        top = splits[0]
+        entry = {
+            "metric_key": metric_key,
+            "metric_name": bucket["metric_name"],
+            "entity_id": bucket["entity_id"],
+            "value_num": top["value_num"],
+            "value_str": top["value_str"],
+            "rank": top["rank"],
+            "total": top["total"],
+            "is_notable": top["is_notable"],
+            "is_hero": False,
+            "context": top["context"],
+            "context_label": top["context_label"],
+            "rank_group": bucket["rank_group"],
+            "rank_group_label": bucket["rank_group_label"],
+            "computed_at": bucket["computed_at"],
+            "career_rank": None,
+            "career_total": None,
+            "career_is_notable": False,
+            "sub_key_type": bucket["sub_key_type"],
+            "splits": splits,
+            "primary_sub_key_info": top["sub_key_info"],
+        }
+        if metric_key.endswith("_career") or is_career_season(season_val):
+            entry["career_type"] = season_val
+            entry["career_type_label"] = _CAREER_TYPE_LABEL.get(season_val, "Career")
             alltime_metrics.append(entry)
         else:
             season_metrics.append(entry)

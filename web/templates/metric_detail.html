@@ -1033,7 +1033,7 @@
           {% endif %}
         </th>
         {% if show_rank_group %}<th>{{ t('Group', '分组') }}</th>{% endif %}
-        {% if has_sub_keys and expand %}<th>{{ t('Entry', '条目') }}</th>{% endif %}
+        {% if has_sub_keys %}<th>{{ metric_def.sub_key_label_zh if lang == 'zh' and metric_def.sub_key_label_zh else (metric_def.sub_key_label or t('Entry', '条目')) }}</th>{% endif %}
         {% if show_all_seasons and not is_season_scope %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
         <th class="right">{{ t('Value', '数值') }}</th>
         {% if metric_def.scope != 'game' %}<th class="right">{{ t('Games', '比赛') }}</th>{% endif %}
@@ -1093,8 +1093,23 @@
         {% if show_rank_group %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.rank_group_label or 'All' }}</td>
         {% endif %}
-        {% if has_sub_keys and expand %}
-        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.sub_key }}</td>
+        {% if has_sub_keys %}
+        <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
+          {% if r.sub_key_info and r.sub_key_info.team_id %}
+            {% set _turl = team_url(r.sub_key_info.team_id) %}
+            <a href="{{ _turl or '#' }}"
+               style="display:inline-flex;align-items:center;gap:4px;color:inherit;text-decoration:none;">
+              <img src="https://cdn.nba.com/logos/nba/{{ r.sub_key_info.team_id }}/global/L/logo.svg"
+                   alt="" loading="lazy" style="width:18px;height:18px;" onerror="this.style.display='none'">
+              <span>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</span>
+            </a>
+          {% elif r.sub_key_info and r.sub_key_info.player_id %}
+            <a href="{{ player_url(r.sub_key_info.player_id) }}"
+               style="color:inherit;text-decoration:none;">{{ r.sub_key_info.label }}</a>
+          {% else %}
+            {{ r.sub_key or '—' }}
+          {% endif %}
+        </td>
         {% endif %}
         {% if show_all_seasons and not is_season_scope %}
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>

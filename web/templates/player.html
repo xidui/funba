@@ -857,21 +857,146 @@
   {% set playoffs_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playoffs')|list if alltime_metrics else [] %}
   {% set playin_career = alltime_metrics|selectattr('career_type', 'equalto', 'all_playin')|list if alltime_metrics else [] %}
 
+  {% macro render_metric_card(m, href) %}
+    {% if m.splits %}
+      <details class="metric-card metric-split{% if m.is_notable %} metric-notable{% endif %}" style="padding:0;">
+        <summary style="cursor:pointer;list-style:none;padding:12px;display:block;">
+          <div class="metric-key">{{ m.metric_name }}</div>
+          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+          {% if m.primary_sub_key_info %}
+          <div class="metric-split-best" style="font-size:11px;color:var(--muted);margin-top:2px;">
+            {{ t('best vs', '最佳对位') }}
+            {% if m.primary_sub_key_info.team_id %}
+              {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
+              {% if _turl %}<a href="{{ _turl }}" style="color:var(--accent);text-decoration:none;">{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}</a>{% else %}{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}{% endif %}
+            {% else %}
+              {{ m.primary_sub_key_info.label }}
+            {% endif %}
+          </div>
+          {% endif %}
+          <div class="metric-ranks">
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">{{ m.splits|length }} {{ t('opponents', '对位') }} &#9662;</span>
+          </div>
+        </summary>
+        <div class="metric-splits-table" style="border-top:1px solid var(--border);padding:8px 12px 12px;">
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <thead>
+              <tr style="color:var(--muted-2);">
+                <th style="text-align:left;padding:3px 4px;">{{ t('Opp', '对手') }}</th>
+                <th style="text-align:right;padding:3px 4px;">{{ t('Value', '数值') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in m.splits %}
+              <tr>
+                <td style="padding:3px 4px;">
+                  {% if s.sub_key_info and s.sub_key_info.team_id %}
+                    {% set _sturl = team_url(s.sub_key_info.team_id) %}
+                    {% if _sturl %}<a href="{{ _sturl }}" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">{% endif %}
+                    <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                         alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
+                    {{ s.sub_key_info.abbr or s.sub_key_info.label }}
+                    {% if _sturl %}</a>{% endif %}
+                  {% else %}
+                    {{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}
+                  {% endif %}
+                </td>
+                <td style="text-align:right;padding:3px 4px;font-variant-numeric:tabular-nums;">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div style="margin-top:8px;text-align:right;">
+            <a href="{{ href }}&expand=1&q={{ m.entity_id }}" style="font-size:11px;color:var(--accent);text-decoration:none;">{{ t('full leaderboard →', '完整排行 →') }}</a>
+          </div>
+        </div>
+      </details>
+    {% else %}
+      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+         href="{{ href }}" style="text-decoration:none;">
+        <div class="metric-key">{{ m.metric_name }}</div>
+        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+        <div class="metric-ranks">
+          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
+          {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
+        </div>
+      </a>
+    {% endif %}
+  {% endmacro %}
+
+  {% macro render_metric_card_career(m, href) %}
+    {% if m.splits %}
+      <details class="metric-card metric-split{% if m.is_notable %} metric-notable{% endif %}" style="padding:0;">
+        <summary style="cursor:pointer;list-style:none;padding:12px;display:block;">
+          <div class="metric-key">{{ m.metric_name }}</div>
+          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+          {% if m.primary_sub_key_info %}
+          <div class="metric-split-best" style="font-size:11px;color:var(--muted);margin-top:2px;">
+            {{ t('best vs', '最佳对位') }}
+            {% if m.primary_sub_key_info.team_id %}
+              {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
+              {% if _turl %}<a href="{{ _turl }}" style="color:var(--accent);text-decoration:none;">{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}</a>{% else %}{{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}{% endif %}
+            {% else %}
+              {{ m.primary_sub_key_info.label }}
+            {% endif %}
+          </div>
+          {% endif %}
+          <div class="metric-ranks">
+            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">{{ m.splits|length }} {{ t('opponents', '对位') }} &#9662;</span>
+          </div>
+        </summary>
+        <div class="metric-splits-table" style="border-top:1px solid var(--border);padding:8px 12px 12px;">
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <thead>
+              <tr style="color:var(--muted-2);">
+                <th style="text-align:left;padding:3px 4px;">{{ t('Opp', '对手') }}</th>
+                <th style="text-align:right;padding:3px 4px;">{{ t('Value', '数值') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in m.splits %}
+              <tr>
+                <td style="padding:3px 4px;">
+                  {% if s.sub_key_info and s.sub_key_info.team_id %}
+                    {% set _sturl = team_url(s.sub_key_info.team_id) %}
+                    {% if _sturl %}<a href="{{ _sturl }}" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">{% endif %}
+                    <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                         alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
+                    {{ s.sub_key_info.abbr or s.sub_key_info.label }}
+                    {% if _sturl %}</a>{% endif %}
+                  {% else %}
+                    {{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}
+                  {% endif %}
+                </td>
+                <td style="text-align:right;padding:3px 4px;font-variant-numeric:tabular-nums;">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div style="margin-top:8px;text-align:right;">
+            <a href="{{ href }}&expand=1&q={{ m.entity_id }}" style="font-size:11px;color:var(--accent);text-decoration:none;">{{ t('full leaderboard →', '完整排行 →') }}</a>
+          </div>
+        </div>
+      </details>
+    {% else %}
+      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
+         href="{{ href }}" style="text-decoration:none;">
+        <div class="metric-key">{{ m.metric_name }}</div>
+        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+        <div class="metric-ranks">
+          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
+        </div>
+      </a>
+    {% endif %}
+  {% endmacro %}
+
   <div class="metrics-columns">
     {% if season_metrics %}
     <div class="metrics-col">
       <h3 class="metrics-col-title">{{ season_label(selected_season) }}</h3>
       <div class="metrics-grid">
         {% for m in season_metrics %}
-        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" style="text-decoration:none;">
-          <div class="metric-key">{{ m.metric_name }}</div>
-          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
-            {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
-          </div>
-        </a>
+          {{ render_metric_card(m, url_for('metric_detail', metric_key=m.metric_key)) }}
         {% endfor %}
       </div>
     </div>
@@ -882,14 +1007,7 @@
       <h3 class="metrics-col-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
       <div class="metrics-grid">
         {% for m in regular_career %}
-        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-          <div class="metric-key">{{ m.metric_name }}</div>
-          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
-          </div>
-        </a>
+          {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
         {% endfor %}
       </div>
     </div>
@@ -900,14 +1018,7 @@
       <h3 class="metrics-col-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
       <div class="metrics-grid">
         {% for m in playoffs_career %}
-        <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-          <div class="metric-key">{{ m.metric_name }}</div>
-          <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          <div class="metric-ranks">
-            <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}/{{ m.total }}</span>
-          </div>
-        </a>
+          {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
         {% endfor %}
       </div>
     </div>
@@ -923,14 +1034,7 @@
   <div id="playin-metrics-block" style="display:none;margin-top:8px;">
     <div class="metrics-grid" style="max-width:33.3%;">
       {% for m in playin_career %}
-      <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
-         href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.career_type) }}" style="text-decoration:none;">
-        <div class="metric-key">{{ m.metric_name }}</div>
-        <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-        <div class="metric-ranks">
-          <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }}</span>
-        </div>
-      </a>
+        {{ render_metric_card_career(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
       {% endfor %}
     </div>
   </div>

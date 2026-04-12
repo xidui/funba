@@ -435,6 +435,10 @@ class MetricDefinition(Base):
     expression = Column(Text, nullable=True)          # original plain-English input
     min_sample = Column(Integer, nullable=False, default=1)
     max_results_per_season = Column(Integer, nullable=True)
+    sub_key_type = Column(String(16), nullable=True)          # 'team' | 'player' | 'month' | 'zone' | None
+    sub_key_label = Column(String(64), nullable=True)         # English header, e.g. "Opponent"
+    sub_key_label_zh = Column(String(64), nullable=True)      # Chinese header, e.g. "对手球队"
+    sub_key_rank_scope = Column(String(16), nullable=True)    # 'entity' | 'global' | None
     created_by_user_id = Column(String(36), ForeignKey('User.id'), nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)

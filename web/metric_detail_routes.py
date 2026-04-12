@@ -338,6 +338,35 @@ def register_metric_detail_routes(app, deps):
 
             labels, player_active, game_info = _resolve_entity_labels(session, rows)
             team_map = deps.team_map()(session)
+
+            sub_key_labels: dict[str, dict] = {}
+            sub_key_type = getattr(metric_def, "sub_key_type", None)
+            if sub_key_type and rows:
+                sub_key_values = {str(r.sub_key) for r in rows if r.sub_key}
+                if sub_key_type == "team" and sub_key_values:
+                    for tid in sub_key_values:
+                        team = team_map.get(tid)
+                        if team:
+                            sub_key_labels[tid] = {
+                                "label": deps.display_team_name()(team) or team.abbr or tid,
+                                "abbr": team.abbr,
+                                "team_id": tid,
+                                "slug": getattr(team, "slug", None),
+                            }
+                        else:
+                            sub_key_labels[tid] = {"label": tid, "abbr": None, "team_id": tid, "slug": None}
+                elif sub_key_type == "player" and sub_key_values:
+                    pid_rows = (
+                        session.query(Player.player_id, Player.full_name, Player.full_name_zh, Player.slug)
+                        .filter(Player.player_id.in_(list(sub_key_values)))
+                        .all()
+                    )
+                    for pid, fn, fn_zh, slug in pid_rows:
+                        sub_key_labels[str(pid)] = {
+                            "label": (fn_zh if deps.is_zh() and fn_zh else fn) or str(pid),
+                            "player_id": str(pid),
+                            "slug": slug,
+                        }
             rank_labels = {1: "Best", 2: "2nd best", 3: "3rd best"}
             scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "results", "season": "seasons"}.get(metric_def.scope, "entities")
             if is_career_metric:
@@ -406,6 +435,7 @@ def register_metric_detail_routes(app, deps):
                         "season": deps.season_label()(row.season),
                         "season_raw": row.season,
                         "sub_key": row.sub_key or "",
+                        "sub_key_info": sub_key_labels.get(str(row.sub_key)) if row.sub_key else None,
                         "value_num": row.value_num,
                         "value_str": row.value_str,
                         "is_notable": is_notable,
