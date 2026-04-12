@@ -929,6 +929,50 @@
     color: var(--muted-2);
     text-align: center;
   }
+  .split-game-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 6px 4px;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .pagination-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 9px;
+    border-radius: 5px;
+    font-size: 13px;
+    line-height: 1;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  .pagination-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .pagination-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .pagination-indicator {
+    color: var(--text);
+    font-weight: 600;
+    min-width: 18px;
+    text-align: right;
+  }
+  .pagination-sep {
+    opacity: 0.5;
+  }
+  .pagination-range {
+    margin-left: 8px;
+    color: var(--muted-2);
+    font-size: 10px;
+  }
   @media (max-width: 640px) {
     .split-game-table thead th,
     .split-game-table td {
@@ -1493,8 +1537,15 @@
                     {% endfor %}
                   </tbody>
                 </table>
-                {% if (s.games_meta or [])|length > 100 %}
-                <div class="split-game-more">+{{ (s.games_meta|length) - 100 }} {{ t('more', '更多') }}</div>
+                {% if (s.games_meta or [])|length > 20 %}
+                <div class="split-game-pagination">
+                  <button type="button" class="pagination-btn pagination-prev" aria-label="Previous">‹</button>
+                  <span class="pagination-indicator">1</span>
+                  <span class="pagination-sep">/</span>
+                  <span class="pagination-total">{{ ((s.games_meta|length + 19) // 20) }}</span>
+                  <button type="button" class="pagination-btn pagination-next" aria-label="Next">›</button>
+                  <span class="pagination-range"></span>
+                </div>
                 {% endif %}
               </div>
               {% endif %}
@@ -1550,6 +1601,55 @@
       var grid = card.querySelector('.split-grid');
       if (!grid) return;
 
+      var PAGE_SIZE = 20;
+
+      function initPagination(content) {
+        var rows = Array.prototype.slice.call(content.querySelectorAll('.split-game-trow'));
+        var totalRows = rows.length;
+        var paginationEl = content.querySelector('.split-game-pagination');
+        if (totalRows <= PAGE_SIZE) {
+          rows.forEach(function(r) { r.hidden = false; });
+          if (paginationEl) paginationEl.hidden = true;
+          return;
+        }
+        if (paginationEl) paginationEl.hidden = false;
+        var totalPages = Math.ceil(totalRows / PAGE_SIZE);
+        var currentPage = 0;
+
+        function render() {
+          var start = currentPage * PAGE_SIZE;
+          var end = Math.min(start + PAGE_SIZE, totalRows);
+          rows.forEach(function(r, i) { r.hidden = !(i >= start && i < end); });
+          var indicator = content.querySelector('.pagination-indicator');
+          if (indicator) indicator.textContent = String(currentPage + 1);
+          var rangeEl = content.querySelector('.pagination-range');
+          if (rangeEl) rangeEl.textContent = (start + 1) + '–' + end + ' of ' + totalRows;
+          var prevBtn = content.querySelector('.pagination-prev');
+          var nextBtn = content.querySelector('.pagination-next');
+          if (prevBtn) prevBtn.disabled = currentPage === 0;
+          if (nextBtn) nextBtn.disabled = currentPage >= totalPages - 1;
+        }
+
+        var prevBtn = content.querySelector('.pagination-prev');
+        var nextBtn = content.querySelector('.pagination-next');
+        if (prevBtn && !prevBtn.dataset.bound) {
+          prevBtn.dataset.bound = '1';
+          prevBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (currentPage > 0) { currentPage--; render(); }
+          });
+        }
+        if (nextBtn && !nextBtn.dataset.bound) {
+          nextBtn.dataset.bound = '1';
+          nextBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (currentPage < totalPages - 1) { currentPage++; render(); }
+          });
+        }
+        currentPage = 0;
+        render();
+      }
+
       function showCell(cellEl, idx) {
         // highlight active cell
         grid.querySelectorAll('.split-cell-active').forEach(function(c) { c.classList.remove('split-cell-active'); });
@@ -1561,10 +1661,12 @@
         var arrowLeft = cellRect.left - gridRect.left + cellRect.width / 2;
         arrow.style.left = arrowLeft + 'px';
 
-        // swap content
+        // swap content + init pagination
         contents.forEach(function(c) {
           c.hidden = c.dataset.cellIdx !== String(idx);
         });
+        var activeContent = panel.querySelector('[data-cell-idx="' + idx + '"]');
+        if (activeContent) initPagination(activeContent);
         panel.hidden = false;
       }
 
