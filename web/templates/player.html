@@ -1202,7 +1202,7 @@
   {% set playoffs_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playoffs')|list %}
   {% set playin_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playin')|list %}
 
-  {% macro render_split_wide(m, href) %}
+  {% macro render_split_wide(m, season_for_url) %}
     <details class="matchup-split-card{% if m.is_notable %} notable{% endif %}">
       <summary>
         <div class="split-title">{{ m.metric_name }}</div>
@@ -1240,7 +1240,7 @@
           {% endfor %}
         </div>
         <div class="split-footer">
-          <a href="{{ href }}&expand=1&entity={{ m.entity_id }}" class="split-full-link">{{ t('full leaderboard →', '完整排行 →') }}</a>
+          <a href="{{ url_for('metric_detail', metric_key=m.metric_key, season=season_for_url, expand='1', entity=m.entity_id) }}" class="split-full-link">{{ t('full leaderboard →', '完整排行 →') }}</a>
         </div>
       </div>
     </details>
@@ -1252,28 +1252,28 @@
     {% if season_splits %}
     <h3 class="split-bucket-title">{{ season_label(selected_season) }}</h3>
     {% for m in season_splits %}
-      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key)) }}
+      {{ render_split_wide(m, selected_season) }}
     {% endfor %}
     {% endif %}
 
     {% if regular_splits %}
     <h3 class="split-bucket-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
     {% for m in regular_splits %}
-      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+      {{ render_split_wide(m, m.career_type) }}
     {% endfor %}
     {% endif %}
 
     {% if playoffs_splits %}
     <h3 class="split-bucket-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
     {% for m in playoffs_splits %}
-      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+      {{ render_split_wide(m, m.career_type) }}
     {% endfor %}
     {% endif %}
 
     {% if playin_splits %}
     <h3 class="split-bucket-title">{{ t('Play-In Career', '附加赛生涯') }}</h3>
     {% for m in playin_splits %}
-      {{ render_split_wide(m, url_for('metric_detail', metric_key=m.metric_key, season=m.career_type)) }}
+      {{ render_split_wide(m, m.career_type) }}
     {% endfor %}
     {% endif %}
   </div>
