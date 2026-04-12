@@ -202,6 +202,11 @@ class MetricDefinition(ABC):
     career_aggregate_mode: str | None = None  # "season_results" → runtime aggregates concrete-season contexts
     career_sum_keys: tuple[str, ...] = ()
     career_max_keys: tuple[str, ...] = ()
+    # When True, the season_results reducer groups contexts by (entity_id, sub_key)
+    # instead of entity_id alone. The metric's compute_career_value() then receives
+    # sub_key= and rows= kwargs so split metrics (e.g. player_3pm_vs_opponent)
+    # can reduce across seasons without losing the split dimension.
+    career_group_by_sub_key: bool = False
 
     # Optional format string for context label display, e.g. "{b2b_wins}/{b2b_games} B2B".
     # Keys are interpolated from the context dict via str.format_map().

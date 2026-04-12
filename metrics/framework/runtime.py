@@ -272,12 +272,21 @@ def _career_ready_from_season_results(session: Session, base_key: str, career_se
     return expected.issubset(available)
 
 
-def _career_context_rows(session: Session, base_key: str, career_season: str) -> list[tuple[str, dict]]:
+def _career_context_rows(session: Session, base_key: str, career_season: str) -> list[tuple[str, str, dict]]:
+    """Load all concrete-season MetricResult rows feeding into a career bucket.
+
+    Returns 3-tuples of (entity_id, sub_key, context_dict). sub_key defaults
+    to "" when the metric is not split.
+    """
     prefix = _career_season_prefix(career_season)
     if not prefix:
         return []
     rows = (
-        session.query(MetricResultModel.entity_id, MetricResultModel.context_json)
+        session.query(
+            MetricResultModel.entity_id,
+            MetricResultModel.sub_key,
+            MetricResultModel.context_json,
+        )
         .filter(
             MetricResultModel.metric_key == base_key,
             MetricResultModel.season.like(prefix),
@@ -285,15 +294,15 @@ def _career_context_rows(session: Session, base_key: str, career_season: str) ->
         )
         .all()
     )
-    parsed: list[tuple[str, dict]] = []
-    for entity_id, context_json in rows:
+    parsed: list[tuple[str, str, dict]] = []
+    for entity_id, sub_key, context_json in rows:
         if not entity_id:
             continue
         try:
             context = json.loads(context_json) if context_json else {}
         except Exception:
             context = {}
-        parsed.append((str(entity_id), context))
+        parsed.append((str(entity_id), str(sub_key or ""), context))
     return parsed
 
 
@@ -331,36 +340,47 @@ def _coerce_number(value):
 
 
 def _aggregate_contexts(
-    rows: list[tuple[str, dict]],
+    rows: list[tuple[str, str, dict]],
     *,
     sum_keys: tuple[str, ...],
     max_keys: tuple[str, ...] = (),
     min_keys: tuple[str, ...] = (),
-) -> dict[str, dict]:
+    group_by_sub_key: bool = False,
+):
+    """Aggregate season context rows into totals for career reduction.
+
+    Rows are 3-tuples (entity_id, sub_key, context). When ``group_by_sub_key``
+    is False the aggregator collapses by entity_id (original behavior);
+    when True it groups by (entity_id, sub_key) so split-metric slices stay
+    separate. Return type differs accordingly:
+      - False → dict[str, dict]           keyed by entity_id
+      - True  → dict[tuple[str, str], dict] keyed by (entity_id, sub_key)
+    """
     sum_key_set = set(sum_keys)
     max_key_set = set(max_keys)
     min_key_set = set(min_keys)
-    totals_by_entity: dict[str, dict] = {}
-    for entity_id, context in rows:
-        totals = totals_by_entity.setdefault(entity_id, {})
-        for key in sum_key_set:
-            number = _coerce_number(context.get(key))
+    totals_by_key: dict = {}
+    for entity_id, sub_key, context in rows:
+        key = (entity_id, sub_key) if group_by_sub_key else entity_id
+        totals = totals_by_key.setdefault(key, {})
+        for k in sum_key_set:
+            number = _coerce_number(context.get(k))
             if number is None:
                 continue
-            totals[key] = totals.get(key, 0.0) + number
-        for key in max_key_set:
-            number = _coerce_number(context.get(key))
+            totals[k] = totals.get(k, 0.0) + number
+        for k in max_key_set:
+            number = _coerce_number(context.get(k))
             if number is None:
                 continue
-            current = totals.get(key)
-            totals[key] = number if current is None else max(current, number)
-        for key in min_key_set:
-            number = _coerce_number(context.get(key))
+            current = totals.get(k)
+            totals[k] = number if current is None else max(current, number)
+        for k in min_key_set:
+            number = _coerce_number(context.get(k))
             if number is None:
                 continue
-            current = totals.get(key)
-            totals[key] = number if current is None else min(current, number)
-    return totals_by_entity
+            current = totals.get(k)
+            totals[k] = number if current is None else min(current, number)
+    return totals_by_key
 
 
 def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
@@ -375,19 +395,43 @@ def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
 def _aggregate_declared_career_metric(session: Session, metric: MetricDefinition, season: str) -> list[MetricResult]:
     base_key = _career_base_key(metric)
     rows = _career_context_rows(session, base_key, season)
-    totals_by_entity = _aggregate_contexts(
+    group_by_sub_key = bool(getattr(metric, "career_group_by_sub_key", False))
+    totals_by_key = _aggregate_contexts(
         rows,
         sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
         max_keys=tuple(getattr(metric, "career_max_keys", ()) or ()),
         min_keys=tuple(getattr(metric, "career_min_keys", ()) or ()),
+        group_by_sub_key=group_by_sub_key,
     )
 
     results: list[MetricResult] = []
-    for entity_id in sorted(totals_by_entity):
-        result = metric.compute_career_value(totals_by_entity[entity_id], season, entity_id)
-        if result is not None:
-            result.metric_key = metric.key
-            results.append(result)
+
+    if group_by_sub_key:
+        # Index raw rows by (entity, sub_key) so the metric can inspect
+        # per-season context details in addition to aggregated totals.
+        raw_by_key: dict[tuple[str, str], list[dict]] = {}
+        for entity_id, sub_key, context in rows:
+            raw_by_key.setdefault((entity_id, sub_key), []).append(context)
+        for key in sorted(totals_by_key):
+            entity_id, sub_key = key
+            result = metric.compute_career_value(
+                totals_by_key[key],
+                season,
+                entity_id,
+                sub_key=sub_key,
+                rows=raw_by_key.get(key, []),
+            )
+            if result is not None:
+                result.metric_key = metric.key
+                if not result.sub_key:
+                    result.sub_key = sub_key
+                results.append(result)
+    else:
+        for entity_id in sorted(totals_by_key):
+            result = metric.compute_career_value(totals_by_key[entity_id], season, entity_id)
+            if result is not None:
+                result.metric_key = metric.key
+                results.append(result)
     return results
 
 
@@ -716,6 +760,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_sum_keys = tuple(getattr(self._inner, "career_sum_keys", ()) or ())
         self.career_max_keys = tuple(getattr(self._inner, "career_max_keys", ()) or ())
         self.career_min_keys = tuple(getattr(self._inner, "career_min_keys", ()) or ())
+        self.career_group_by_sub_key = bool(getattr(self._inner, "career_group_by_sub_key", False))
         self.season_types = normalize_metric_season_types(getattr(self._inner, "season_types", None))
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")
@@ -777,12 +822,17 @@ class CodeMetricDefinition(MetricDefinition):
             return None
         return fn(ReadOnlySession(session), season)
 
-    def compute_career_value(self, totals, season, entity_id):
+    def compute_career_value(self, totals, season, entity_id, **kwargs):
         original_supports_career = getattr(self._inner, "supports_career", False)
         if self.career and not original_supports_career and _metric_declares_career_reducer(self):
             self._inner.supports_career = True
         try:
-            result = self._inner.compute_career_value(totals, season, entity_id)
+            # Only forward sub_key/rows kwargs to inner if the metric opted into
+            # sub_key grouping; old metrics keep their 3-arg signature.
+            if self.career_group_by_sub_key:
+                result = self._inner.compute_career_value(totals, season, entity_id, **kwargs)
+            else:
+                result = self._inner.compute_career_value(totals, season, entity_id)
         finally:
             if self.career and not original_supports_career and _metric_declares_career_reducer(self):
                 self._inner.supports_career = original_supports_career

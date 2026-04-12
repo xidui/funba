@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
+from metrics.framework.base import MetricDefinition, MetricResult
 from db.models import Game, PlayerGameStats
 
 QUAL_CAP = 500
@@ -37,18 +37,17 @@ class Player3PMvsOpponent(MetricDefinition):
     rank_order = "desc"
     season_types = ("regular", "playoffs", "playin")
 
+    career_aggregate_mode = "season_results"
+    career_group_by_sub_key = True
+    career_sum_keys = ("fg3m", "fg3a", "games")
+
     def compute_season(self, session, season):
         q = (
             session.query(PlayerGameStats, Game)
             .join(Game, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id.isnot(None))
+            .filter(Game.season == season)
         )
-        if is_career_season(season):
-            code = career_season_type_code(season)
-            if code:
-                q = q.filter(Game.season.like(f"{code}%"))
-        else:
-            q = q.filter(Game.season == season)
 
         totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0, "game_rows": []})
         for pgs, game in q.all():
@@ -97,6 +96,39 @@ class Player3PMvsOpponent(MetricDefinition):
                 context=ctx,
             ))
         return results
+
+    def compute_career_value(self, totals, season, entity_id, sub_key="", rows=None):
+        fg3m = int(totals.get("fg3m", 0))
+        if fg3m <= 0:
+            return None
+        fg3a = int(totals.get("fg3a", 0))
+        games = int(totals.get("games", 0))
+        # Merge qualifying_game_ids across all season rows (sorted by date desc, capped).
+        qual = []
+        for ctx in (rows or []):
+            qual.extend(ctx.get("qualifying_game_ids") or [])
+        total_qual = len(qual)
+        capped = qual[:QUAL_CAP]
+        ctx_out = {
+            "fg3m": fg3m,
+            "fg3a": fg3a,
+            "games": games,
+            "opponent_team_id": sub_key,
+            "qualifying_game_ids": capped,
+        }
+        if total_qual > QUAL_CAP:
+            ctx_out["qualifying_game_total"] = total_qual
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            sub_key=sub_key,
+            value_num=float(fg3m),
+            value_str=f"{fg3m} 3PM",
+            context=ctx_out,
+        )
 '''
 
 
@@ -105,7 +137,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
+from metrics.framework.base import MetricDefinition, MetricResult
 from db.models import Game, PlayerGameStats
 
 QUAL_CAP = 500
@@ -126,18 +158,17 @@ class Player3PctVsOpponent(MetricDefinition):
     rank_order = "desc"
     season_types = ("regular", "playoffs", "playin")
 
+    career_aggregate_mode = "season_results"
+    career_group_by_sub_key = True
+    career_sum_keys = ("fg3m", "fg3a", "games")
+
     def compute_season(self, session, season):
         q = (
             session.query(PlayerGameStats, Game)
             .join(Game, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id.isnot(None))
+            .filter(Game.season == season)
         )
-        if is_career_season(season):
-            code = career_season_type_code(season)
-            if code:
-                q = q.filter(Game.season.like(f"{code}%"))
-        else:
-            q = q.filter(Game.season == season)
 
         totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0, "game_rows": []})
         for pgs, game in q.all():
@@ -189,6 +220,40 @@ class Player3PctVsOpponent(MetricDefinition):
                 context=ctx,
             ))
         return results
+
+    def compute_career_value(self, totals, season, entity_id, sub_key="", rows=None):
+        fg3a = int(totals.get("fg3a", 0))
+        if fg3a < self.min_sample:
+            return None
+        fg3m = int(totals.get("fg3m", 0))
+        games = int(totals.get("games", 0))
+        pct = fg3m / fg3a
+        qual = []
+        for ctx in (rows or []):
+            qual.extend(ctx.get("qualifying_game_ids") or [])
+        total_qual = len(qual)
+        capped = qual[:QUAL_CAP]
+        ctx_out = {
+            "fg3_pct": round(pct, 4),
+            "fg3m": fg3m,
+            "fg3a": fg3a,
+            "games": games,
+            "opponent_team_id": sub_key,
+            "qualifying_game_ids": capped,
+        }
+        if total_qual > QUAL_CAP:
+            ctx_out["qualifying_game_total"] = total_qual
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            sub_key=sub_key,
+            value_num=round(pct, 4),
+            value_str=f"{pct:.1%}",
+            context=ctx_out,
+        )
 '''
 
 
@@ -197,7 +262,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
+from metrics.framework.base import MetricDefinition, MetricResult
 from db.models import Game, PlayerGameStats
 
 QUAL_CAP = 500
@@ -218,18 +283,17 @@ class PlayerTripleDoublesVsOpponent(MetricDefinition):
     rank_order = "desc"
     season_types = ("regular", "playoffs", "playin")
 
+    career_aggregate_mode = "season_results"
+    career_group_by_sub_key = True
+    career_sum_keys = ("triple_doubles", "games")
+
     def compute_season(self, session, season):
         q = (
             session.query(PlayerGameStats, Game)
             .join(Game, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id.isnot(None))
+            .filter(Game.season == season)
         )
-        if is_career_season(season):
-            code = career_season_type_code(season)
-            if code:
-                q = q.filter(Game.season.like(f"{code}%"))
-        else:
-            q = q.filter(Game.season == season)
 
         totals = defaultdict(lambda: {"td": 0, "games": 0, "td_games": []})
         for pgs, game in q.all():
@@ -281,6 +345,36 @@ class PlayerTripleDoublesVsOpponent(MetricDefinition):
                 context=ctx,
             ))
         return results
+
+    def compute_career_value(self, totals, season, entity_id, sub_key="", rows=None):
+        td = int(totals.get("triple_doubles", 0))
+        if td <= 0:
+            return None
+        games = int(totals.get("games", 0))
+        qual = []
+        for ctx in (rows or []):
+            qual.extend(ctx.get("qualifying_game_ids") or [])
+        total_qual = len(qual)
+        capped = qual[:QUAL_CAP]
+        ctx_out = {
+            "triple_doubles": td,
+            "games": games,
+            "opponent_team_id": sub_key,
+            "qualifying_game_ids": capped,
+        }
+        if total_qual > QUAL_CAP:
+            ctx_out["qualifying_game_total"] = total_qual
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            sub_key=sub_key,
+            value_num=float(td),
+            value_str=f"{td} TD",
+            context=ctx_out,
+        )
 '''
 
 
@@ -289,7 +383,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
+from metrics.framework.base import MetricDefinition, MetricResult
 from db.models import Game, PlayerGameStats
 
 
@@ -308,18 +402,18 @@ class PlayerMaxPtsVsOpponent(MetricDefinition):
     rank_order = "desc"
     season_types = ("regular", "playoffs", "playin")
 
+    career_aggregate_mode = "season_results"
+    career_group_by_sub_key = True
+    career_max_keys = ("max_pts",)
+    career_sum_keys = ("games",)
+
     def compute_season(self, session, season):
         q = (
             session.query(PlayerGameStats, Game)
             .join(Game, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id.isnot(None))
+            .filter(Game.season == season)
         )
-        if is_career_season(season):
-            code = career_season_type_code(season)
-            if code:
-                q = q.filter(Game.season.like(f"{code}%"))
-        else:
-            q = q.filter(Game.season == season)
 
         best = {}  # (player_id, opp_id) -> dict
         counts = defaultdict(int)
@@ -367,6 +461,38 @@ class PlayerMaxPtsVsOpponent(MetricDefinition):
                 },
             ))
         return results
+
+    def compute_career_value(self, totals, season, entity_id, sub_key="", rows=None):
+        max_pts = int(totals.get("max_pts", 0) or 0)
+        if max_pts <= 0:
+            return None
+        # Find the season row that produced the max to pull its game_id/date.
+        best_ctx = None
+        for ctx in (rows or []):
+            pts = int(ctx.get("max_pts") or 0)
+            if best_ctx is None or pts > int(best_ctx.get("max_pts") or 0):
+                best_ctx = ctx
+        best_ctx = best_ctx or {}
+        games = int(totals.get("games", 0))
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            sub_key=sub_key,
+            value_num=float(max_pts),
+            value_str=f"{max_pts} PTS",
+            context={
+                "max_pts": max_pts,
+                "max_game_id": best_ctx.get("max_game_id"),
+                "max_game_date": best_ctx.get("max_game_date"),
+                "max_game_season": best_ctx.get("max_game_season"),
+                "games": games,
+                "opponent_team_id": sub_key,
+                "qualifying_game_ids": [best_ctx.get("max_game_id")] if best_ctx.get("max_game_id") else [],
+            },
+        )
 '''
 
 
@@ -375,7 +501,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
+from metrics.framework.base import MetricDefinition, MetricResult
 from db.models import Game, PlayerGameStats
 
 
@@ -394,18 +520,18 @@ class PlayerMaxAstVsOpponent(MetricDefinition):
     rank_order = "desc"
     season_types = ("regular", "playoffs", "playin")
 
+    career_aggregate_mode = "season_results"
+    career_group_by_sub_key = True
+    career_max_keys = ("max_ast",)
+    career_sum_keys = ("games",)
+
     def compute_season(self, session, season):
         q = (
             session.query(PlayerGameStats, Game)
             .join(Game, Game.game_id == PlayerGameStats.game_id)
             .filter(PlayerGameStats.player_id.isnot(None))
+            .filter(Game.season == season)
         )
-        if is_career_season(season):
-            code = career_season_type_code(season)
-            if code:
-                q = q.filter(Game.season.like(f"{code}%"))
-        else:
-            q = q.filter(Game.season == season)
 
         best = {}
         counts = defaultdict(int)
@@ -453,6 +579,37 @@ class PlayerMaxAstVsOpponent(MetricDefinition):
                 },
             ))
         return results
+
+    def compute_career_value(self, totals, season, entity_id, sub_key="", rows=None):
+        max_ast = int(totals.get("max_ast", 0) or 0)
+        if max_ast <= 0:
+            return None
+        best_ctx = None
+        for ctx in (rows or []):
+            ast = int(ctx.get("max_ast") or 0)
+            if best_ctx is None or ast > int(best_ctx.get("max_ast") or 0):
+                best_ctx = ctx
+        best_ctx = best_ctx or {}
+        games = int(totals.get("games", 0))
+        return MetricResult(
+            metric_key=self.key,
+            entity_type="player",
+            entity_id=entity_id,
+            season=season,
+            game_id=None,
+            sub_key=sub_key,
+            value_num=float(max_ast),
+            value_str=f"{max_ast} AST",
+            context={
+                "max_ast": max_ast,
+                "max_game_id": best_ctx.get("max_game_id"),
+                "max_game_date": best_ctx.get("max_game_date"),
+                "max_game_season": best_ctx.get("max_game_season"),
+                "games": games,
+                "opponent_team_id": sub_key,
+                "qualifying_game_ids": [best_ctx.get("max_game_id")] if best_ctx.get("max_game_id") else [],
+            },
+        )
 '''
 
 
