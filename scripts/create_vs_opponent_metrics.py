@@ -505,6 +505,7 @@ def upsert_metric(session: Session, spec: dict) -> None:
             status="published",
             code_python=spec["code_python"],
             min_sample=spec["min_sample"],
+            group_key="opponent_splits",
             sub_key_type="team",
             sub_key_label="Opponent",
             sub_key_label_zh="对手球队",
@@ -525,6 +526,7 @@ def upsert_metric(session: Session, spec: dict) -> None:
         existing.status = "published"
         existing.code_python = spec["code_python"]
         existing.min_sample = spec["min_sample"]
+        existing.group_key = "opponent_splits"
         existing.sub_key_type = "team"
         existing.sub_key_label = "Opponent"
         existing.sub_key_label_zh = "对手球队"
