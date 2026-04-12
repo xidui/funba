@@ -103,6 +103,8 @@ def rank_metrics(
         "Return JSON only as an array of objects: "
         '[{"key":"metric_key","reason":"short reason"}, ...]\n'
         f"Return at most {limit} results.\n"
+        "Each metric key must appear AT MOST ONCE in the output. Never repeat a key "
+        "even with a different reason.\n"
         "Prefer semantic relevance over keyword overlap.\n"
         "A strong match may come from the metric description, expression, rule definition, "
         "implementation details, min sample, career support, or ranking direction.\n\n"
