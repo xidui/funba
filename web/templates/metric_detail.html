@@ -675,7 +675,6 @@
     font-variant-numeric: tabular-nums;
     font-family: 'Inter', sans-serif;
     font-weight: 400;
-    max-width: 680px;
   }
   .md-split-drilldown-table thead th {
     text-align: left;
@@ -2057,8 +2056,8 @@ function toggleMetricEnabled(metricKey) {
       var idx = btn.dataset.rowIdx;
       var row = document.getElementById('md-split-drilldown-' + idx);
       if (!row) return;
-      var isOpen = row.style.display !== 'none' && row.style.display !== '';
-      // Close any other open expansion rows
+      var isOpen = btn.classList.contains('open');
+      // Close any other open expansion rows first
       document.querySelectorAll('.md-split-drilldown-row').forEach(function(r) {
         if (r !== row) r.style.display = 'none';
       });
@@ -2069,7 +2068,7 @@ function toggleMetricEnabled(metricKey) {
         row.style.display = 'none';
         btn.classList.remove('open');
       } else {
-        row.style.display = '';
+        row.style.display = 'table-row';
         btn.classList.add('open');
         initPagination(row);
       }
