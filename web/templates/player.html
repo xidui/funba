@@ -611,16 +611,57 @@
   .matchup-splits-section {
     margin-top: 20px;
   }
+  .split-bucket {
+    margin-top: 16px;
+  }
+  .split-bucket:first-of-type {
+    margin-top: 0;
+  }
+  .split-bucket > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .split-bucket > summary::-webkit-details-marker { display: none; }
   .split-bucket-title {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    margin: 16px 0 8px;
+    margin: 0 0 10px;
+    padding: 6px 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    transition: color 0.15s ease;
   }
-  .split-bucket-title:first-of-type {
-    margin-top: 0;
+  .split-bucket > summary:hover .split-bucket-title {
+    color: var(--text);
+  }
+  .split-bucket-title::before {
+    content: "▸";
+    font-size: 10px;
+    opacity: 0.5;
+    transition: transform 0.15s ease;
+  }
+  .split-bucket[open] > summary .split-bucket-title::before {
+    transform: rotate(90deg);
+  }
+  .split-bucket-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted-2);
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.05)) 60%, transparent);
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .split-bucket-body {
+    padding-top: 2px;
   }
   .matchup-split-card {
     border: 1px solid var(--border);
@@ -1585,31 +1626,59 @@
     <h2 class="section-title" style="margin-top:28px;">{{ t('Matchup Splits', '对位数据') }}</h2>
 
     {% if season_splits %}
-    <h3 class="split-bucket-title">{{ season_label(selected_season) }}</h3>
-    {% for m in season_splits %}
-      {{ render_split_wide(m, selected_season) }}
-    {% endfor %}
+    <details class="split-bucket" open>
+      <summary class="split-bucket-title">
+        <span>{{ season_label(selected_season) }}</span>
+        <span class="split-bucket-count">{{ season_splits|length }}</span>
+      </summary>
+      <div class="split-bucket-body">
+        {% for m in season_splits %}
+          {{ render_split_wide(m, selected_season) }}
+        {% endfor %}
+      </div>
+    </details>
     {% endif %}
 
     {% if regular_splits %}
-    <h3 class="split-bucket-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
-    {% for m in regular_splits %}
-      {{ render_split_wide(m, m.career_type) }}
-    {% endfor %}
+    <details class="split-bucket">
+      <summary class="split-bucket-title">
+        <span>{{ t('Regular Season Career', '常规赛生涯') }}</span>
+        <span class="split-bucket-count">{{ regular_splits|length }}</span>
+      </summary>
+      <div class="split-bucket-body">
+        {% for m in regular_splits %}
+          {{ render_split_wide(m, m.career_type) }}
+        {% endfor %}
+      </div>
+    </details>
     {% endif %}
 
     {% if playoffs_splits %}
-    <h3 class="split-bucket-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
-    {% for m in playoffs_splits %}
-      {{ render_split_wide(m, m.career_type) }}
-    {% endfor %}
+    <details class="split-bucket">
+      <summary class="split-bucket-title">
+        <span>{{ t('Playoffs Career', '季后赛生涯') }}</span>
+        <span class="split-bucket-count">{{ playoffs_splits|length }}</span>
+      </summary>
+      <div class="split-bucket-body">
+        {% for m in playoffs_splits %}
+          {{ render_split_wide(m, m.career_type) }}
+        {% endfor %}
+      </div>
+    </details>
     {% endif %}
 
     {% if playin_splits %}
-    <h3 class="split-bucket-title">{{ t('Play-In Career', '附加赛生涯') }}</h3>
-    {% for m in playin_splits %}
-      {{ render_split_wide(m, m.career_type) }}
-    {% endfor %}
+    <details class="split-bucket">
+      <summary class="split-bucket-title">
+        <span>{{ t('Play-In Career', '附加赛生涯') }}</span>
+        <span class="split-bucket-count">{{ playin_splits|length }}</span>
+      </summary>
+      <div class="split-bucket-body">
+        {% for m in playin_splits %}
+          {{ render_split_wide(m, m.career_type) }}
+        {% endfor %}
+      </div>
+    </details>
     {% endif %}
   </div>
 
