@@ -507,8 +507,8 @@ def sitemap_static_xml():
 @app.route("/sitemap-teams.xml")
 def sitemap_teams_xml():
     with SessionLocal() as db:
-        teams = db.query(Team.team_id).all()
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/teams/{tid}" for (tid,) in teams]))
+        teams = db.query(Team.slug).filter(Team.slug.isnot(None)).all()
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/teams/{slug}" for (slug,) in teams]))
 
 
 @app.route("/sitemap-players.xml")
@@ -849,6 +849,35 @@ def _game_url(game_id: str) -> str:
     if slug:
         return _localized_url_for("game_page", slug=slug)
     return _localized_url_for("game_page", slug=f"game-{game_id}")
+
+
+# ── Team slug cache ──────────────────────────────────────────────────────────
+
+_team_slug_cache: dict[str, str] = {}
+_team_slug_cache_ts: float = 0
+
+
+def _ensure_team_slug_cache() -> dict[str, str]:
+    import time
+    global _team_slug_cache, _team_slug_cache_ts
+    now = time.monotonic()
+    if _team_slug_cache and (now - _team_slug_cache_ts) < 300:
+        return _team_slug_cache
+    with SessionLocal() as session:
+        rows = session.query(Team.team_id, Team.slug).filter(Team.slug.isnot(None)).all()
+        _team_slug_cache = {r.team_id: r.slug for r in rows}
+    _team_slug_cache_ts = now
+    return _team_slug_cache
+
+
+def _team_url(team_id: str | None) -> str | None:
+    if not team_id:
+        return None
+    slug_map = _ensure_team_slug_cache()
+    slug = slug_map.get(str(team_id))
+    if slug:
+        return _localized_url_for("team_page", slug=slug)
+    return None
 
 
 def _award_entry_from_row(row, teams: dict[str, Team]) -> dict[str, object]:
@@ -4395,6 +4424,7 @@ def inject_template_helpers():
         "hreflang_links": _hreflang_links(),
         "player_url": _player_url,
         "game_url": _game_url,
+        "team_url": _team_url,
         "game_slug_map": _ensure_game_slug_cache(),
     }
 

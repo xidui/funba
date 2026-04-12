@@ -14,7 +14,7 @@
   "@context": "https://schema.org",
   "@type": "SportsTeam",
   "name": "{{ team_name }}",
-  "url": "https://funba.app/teams/{{ team.team_id }}",
+  "url": "https://funba.app/teams/{{ team.slug }}",
   "logo": "https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg",
   "sport": "Basketball",
   "memberOf": {
@@ -218,7 +218,7 @@
     <span class="meta">{{ t('Since', '始于') }} {{ team.start_season }}</span>
     {% endif %}
     {% if canonical_team and canonical_team.team_id != team.team_id %}
-    <span class="meta">→ {{ t('Now', '现') }} <a href="{{ url_for('team_page', team_id=canonical_team.team_id) }}">{{ display_team_name(canonical_team) }}</a></span>
+    <span class="meta">→ {{ t('Now', '现') }} <a href="{{ url_for('team_page', slug=canonical_team.slug) }}">{{ display_team_name(canonical_team) }}</a></span>
     {% endif %}
   </div>
   {% elif not team.active %}
@@ -380,7 +380,7 @@
         <tr class="{% if row.result == 'W' %}row-win{% elif row.result == 'L' %}row-loss{% endif %}">
           <td class="nowrap meta">{{ row.game_date }}</td>
           <td>
-            <a href="{{ url_for('team_page', team_id=row.opponent_id) }}">{{ row.opponent_name }}</a>
+            {% if row.opponent_slug %}<a href="{{ url_for('team_page', slug=row.opponent_slug) }}">{{ row.opponent_name }}</a>{% else %}{{ row.opponent_name }}{% endif %}
           </td>
           <td class="mobile-hide meta">{{ row.where }}</td>
           <td>

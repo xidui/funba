@@ -1064,7 +1064,7 @@
                    src="https://cdn.nba.com/logos/nba/{{ r.entity_id }}/global/L/logo.svg"
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
-              <a class="entity-link" href="{{ url_for('team_page', team_id=r.entity_id) }}">{{ r.entity_label }}</a>
+              <a class="entity-link" href="{{ team_url(r.entity_id) }}">{{ r.entity_label }}</a>
             {% elif r.entity_type == 'season' %}
               <span class="entity-link" style="font-weight:500;">{{ r.entity_label }}</span>
               {% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %}

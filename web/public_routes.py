@@ -373,6 +373,7 @@ def register_public_routes(
                     total = wins + losses
                     entry = {
                         "team_id": row.team_id,
+                        "slug": team.slug if team else None,
                         "abbr": abbr,
                         "full_name": full_name,
                         "wins": wins,
@@ -396,6 +397,7 @@ def register_public_routes(
                         "abbr": team.abbr,
                         "full_name": get_display_team_name()(team),
                         "team_id": team.team_id,
+                        "slug": team.slug,
                         "lat": pos[0],
                         "lon": pos[1],
                     }

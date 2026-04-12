@@ -201,10 +201,10 @@ def register_detail_routes(
                             "ast": stat.ast if stat.ast is not None else "-",
                             "player_team_id": stat.team_id,
                             "player_team_abbr": get_team_abbr()(teams, stat.team_id),
-                            "player_team_href": get_localized_url_for()("team_page", team_id=stat.team_id) if stat.team_id else None,
+                            "player_team_href": get_localized_url_for()("team_page", slug=teams[stat.team_id].slug) if stat.team_id and stat.team_id in teams and teams[stat.team_id].slug else None,
                             "opponent_id": opponent_id,
                             "opponent_abbr": get_team_abbr()(teams, opponent_id),
-                            "opponent_href": get_localized_url_for()("team_page", team_id=opponent_id) if opponent_id else None,
+                            "opponent_href": get_localized_url_for()("team_page", slug=teams[opponent_id].slug) if opponent_id and opponent_id in teams and teams[opponent_id].slug else None,
                             "is_home": is_home,
                             "player_team_score": player_team_score,
                             "opponent_score": opponent_score,
@@ -265,7 +265,7 @@ def register_detail_routes(
             salary_rows=salary_rows,
         )
 
-    def team_page(team_id: str):
+    def team_page(slug: str):
         SessionLocal = get_session_local()
         Team = get_team_model()
         Award = get_award_model()
@@ -273,9 +273,10 @@ def register_detail_routes(
         TeamGameStats = get_team_game_stats_model()
 
         with SessionLocal() as session:
-            team = session.query(Team).filter(Team.team_id == team_id).first()
+            team = session.query(Team).filter(Team.slug == slug).first()
             if team is None:
-                abort(404, description=f"Team {team_id} not found")
+                abort(404, description=f"Team not found")
+            team_id = team.team_id
 
             canonical_team = None
             if team.canonical_team_id and team.canonical_team_id != team.team_id:
@@ -377,11 +378,13 @@ def register_detail_routes(
                         result = "L"
                         status = "Loss"
 
+                    opponent_team = teams.get(opponent_id) if opponent_id else None
                     current_games.append(
                         {
                             "game_id": game.game_id,
                             "game_date": get_fmt_date()(game.game_date),
                             "opponent_id": opponent_id,
+                            "opponent_slug": opponent_team.slug if opponent_team else None,
                             "opponent_name": get_team_name()(teams, opponent_id),
                             "where": where,
                             "result": result,
@@ -870,8 +873,8 @@ def register_detail_routes(
 
     app.add_url_rule("/cn/players/<slug>", endpoint="player_page_zh", view_func=player_page)
     app.add_url_rule("/players/<slug>", endpoint="player_page", view_func=player_page)
-    app.add_url_rule("/cn/teams/<team_id>", endpoint="team_page_zh", view_func=team_page)
-    app.add_url_rule("/teams/<team_id>", endpoint="team_page", view_func=team_page)
+    app.add_url_rule("/cn/teams/<slug>", endpoint="team_page_zh", view_func=team_page)
+    app.add_url_rule("/teams/<slug>", endpoint="team_page", view_func=team_page)
     app.add_url_rule("/cn/games/<slug>", endpoint="game_page_zh", view_func=game_page)
     app.add_url_rule("/games/<slug>", endpoint="game_page", view_func=game_page)
     app.add_url_rule("/cn/games/<slug>/fragment/metrics", endpoint="game_fragment_metrics_zh", view_func=game_fragment_metrics)

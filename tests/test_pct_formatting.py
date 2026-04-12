@@ -86,7 +86,7 @@ class TestTeamPageSeasonSummary(unittest.TestCase):
         )
 
     def test_team_page_builds_shooting_percentages_for_template(self):
-        team = SimpleNamespace(team_id="1610612738", full_name="Boston Celtics")
+        team = SimpleNamespace(team_id="1610612738", full_name="Boston Celtics", slug="boston-celtics", canonical_team_id=None)
 
         team_query = MagicMock()
         team_query.filter.return_value.first.return_value = team
@@ -121,13 +121,13 @@ class TestTeamPageSeasonSummary(unittest.TestCase):
             current_games_query,
         ]
 
-        with self.web_app.app.test_request_context("/teams/1610612738"):
+        with self.web_app.app.test_request_context("/teams/boston-celtics"):
             with patch.object(self.web_app, "SessionLocal", return_value=session), \
                  patch.object(self.web_app, "_team_map", return_value={}), \
                  patch.object(self.web_app, "_get_metric_results", return_value={"season": [], "alltime": []}), \
                  patch.object(self.web_app, "is_pro", return_value=False), \
                  patch.object(self.web_app, "render_template", return_value="rendered") as render_template:
-                response = self.web_app.team_page("1610612738")
+                response = self.web_app.team_page("boston-celtics")
 
         self.assertEqual(response, "rendered")
         _, kwargs = render_template.call_args
@@ -230,7 +230,7 @@ class TestPlayerPageGameRowLinks(unittest.TestCase):
             salary_query,
         ]
 
-        teams = {"1610612742": SimpleNamespace(team_id="1610612742", abbr="DAL", full_name="Dallas Mavericks")}
+        teams = {"1610612742": SimpleNamespace(team_id="1610612742", abbr="DAL", full_name="Dallas Mavericks", slug="dallas-mavericks")}
 
         with self.web_app.app.test_request_context("/players/1642843?season=22025"):
             with patch.object(self.web_app, "SessionLocal", return_value=session), \
@@ -245,7 +245,7 @@ class TestPlayerPageGameRowLinks(unittest.TestCase):
         self.assertEqual(response, "rendered")
         _, kwargs = render_template.call_args
         self.assertEqual(len(kwargs["game_rows"]), 1)
-        self.assertEqual(kwargs["game_rows"][0]["player_team_href"], "/teams/1610612742")
+        self.assertEqual(kwargs["game_rows"][0]["player_team_href"], "/teams/dallas-mavericks")
         self.assertIsNone(kwargs["game_rows"][0]["opponent_href"])
 
 

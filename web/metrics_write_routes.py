@@ -316,6 +316,7 @@ def register_metrics_write_routes(app, deps):
             elif scope == "team":
                 tm = deps.team_map()(session)
                 names = {team_id: deps.team_name()(tm, team_id) for team_id in entity_ids}
+                team_slugs = {team_id: tm[team_id].slug for team_id in entity_ids if team_id in tm and tm[team_id].slug}
             elif scope == "game":
                 names, game_dates = deps.resolve_game_entity_names()(session, entity_ids)
                 Game = deps.game_model()
@@ -329,6 +330,8 @@ def register_metrics_write_routes(app, deps):
                 row["entity_name"] = names.get(row["entity_id"], row.get("value_str") or row["entity_id"])
                 if scope == "player":
                     row["entity_slug"] = slugs.get(row["entity_id"], row["entity_id"])
+                if scope == "team":
+                    row["entity_slug"] = team_slugs.get(row["entity_id"], row["entity_id"])
                 if scope == "game":
                     row["date"] = game_dates.get(row["entity_id"], "")
                     row["entity_slug"] = game_slugs.get(row["entity_id"], row["entity_id"])

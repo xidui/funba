@@ -36,6 +36,7 @@ class Team(Base):
 
     id = Column(Integer, primary_key=True)
     team_id = Column(String(50), unique=True)
+    slug = Column(String(150), unique=True, nullable=True, index=True)
     full_name = Column(String(100))
     full_name_zh = Column(String(100), nullable=True)
     abbr = Column(String(5))

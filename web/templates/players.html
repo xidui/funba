@@ -403,7 +403,7 @@
           loading="lazy"
           onerror="this.style.display='none'"
         />
-        <a href="{{ url_for('team_page', team_id=team.team_id) }}" style="text-decoration:none;">
+        <a href="{{ team_url(team.team_id) }}" style="text-decoration:none;">
           <span class="team-section-name">{{ team.full_name }}</span>
           <span class="team-section-abbr">{{ team.abbr }}</span>
         </a>

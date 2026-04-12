@@ -427,7 +427,7 @@
               />
               <a href="{{ player_url(entry.player_id) }}">{{ entry.player_name }}</a>
               {% if entry.team_id %}
-              <a class="award-team-chip" href="{{ url_for('team_page', team_id=entry.team_id) }}">{{ entry.team_abbr }}</a>
+              <a class="award-team-chip" href="{{ team_url(entry.team_id) }}">{{ entry.team_abbr }}</a>
               {% elif entry.team_name %}
               <span class="award-team-chip">{{ entry.team_name }}</span>
               {% endif %}
@@ -445,13 +445,13 @@
           <div class="award-player">
             <div class="award-player-copy">
               {% if champion.team_id %}
-              <a href="{{ url_for('team_page', team_id=champion.team_id) }}">{{ champion.team_name }}</a>
+              <a href="{{ team_url(champion.team_id) }}">{{ champion.team_name }}</a>
               {% else %}
               <span style="font-family:'Outfit', sans-serif; font-size:16px; font-weight:700; color:var(--heading);">{{ champion.team_name or champion.notes or t('Unknown Team', '未知球队') }}</span>
               {% endif %}
               <div class="award-meta-line">
                 {% if champion.team_id %}
-                <a class="award-team-chip" href="{{ url_for('team_page', team_id=champion.team_id) }}">{{ champion.team_abbr }}</a>
+                <a class="award-team-chip" href="{{ team_url(champion.team_id) }}">{{ champion.team_abbr }}</a>
                 {% endif %}
                 {% if group.streak %}
                 <span class="award-streak">&times;{{ group.streak }}</span>
@@ -478,7 +478,7 @@
               <a href="{{ player_url(winner.player_id) }}">{{ winner.player_name }}</a>
               <div class="award-meta-line">
                 {% if winner.team_id %}
-                <a class="award-team-chip" href="{{ url_for('team_page', team_id=winner.team_id) }}">{{ winner.team_abbr }}</a>
+                <a class="award-team-chip" href="{{ team_url(winner.team_id) }}">{{ winner.team_abbr }}</a>
                 {% elif winner.team_name %}
                 <span class="award-team-chip">{{ winner.team_name }}</span>
                 {% endif %}

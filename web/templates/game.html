@@ -841,7 +841,7 @@
   <div class="scoreboard">
     <!-- Away team -->
     <div class="sb-team away">
-      <a href="{{ url_for('team_page', team_id=game.road_team_id) }}" class="sb-team-link">
+      <a href="{{ team_url(game.road_team_id) }}" class="sb-team-link">
         <img
           class="sb-logo"
           src="https://cdn.nba.com/logos/nba/{{ game.road_team_id }}/global/L/logo.svg"
@@ -892,7 +892,7 @@
 
     <!-- Home team -->
     <div class="sb-team home">
-      <a href="{{ url_for('team_page', team_id=game.home_team_id) }}" class="sb-team-link">
+      <a href="{{ team_url(game.home_team_id) }}" class="sb-team-link">
         <img
           class="sb-logo"
           src="https://cdn.nba.com/logos/nba/{{ game.home_team_id }}/global/L/logo.svg"
@@ -1239,7 +1239,7 @@
           {% for row in team_stats %}
           <tr class="{% if row.win %}row-win{% elif row.win is not none %}row-loss{% endif %}">
             <td>
-              <a href="{{ url_for('team_page', team_id=row.team_id) }}">{{ team_name(row.team_id) }}</a>
+              <a href="{{ team_url(row.team_id) }}">{{ team_name(row.team_id) }}</a>
             </td>
             <td><strong>{{ row.pts if row.pts is not none else '—' }}</strong></td>
             <td>{{ row.reb if row.reb is not none else '—' }}</td>

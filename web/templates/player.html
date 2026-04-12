@@ -580,7 +580,7 @@
         <span class="player-honor-badge">75 Greatest</span>
         {% endif %}
         {% if player_current_team %}
-        <a href="{{ url_for('team_page', team_id=player_current_team.team_id) }}"
+        <a href="{{ url_for('team_page', slug=player_current_team.slug) }}"
            style="font-size:12px; font-weight:600; color:var(--accent); text-decoration:none; letter-spacing:0.03em;">
           {{ player_current_team.abbr }}
         </a>
