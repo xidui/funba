@@ -2616,6 +2616,56 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     season_metrics, season_splits = _partition_splits(season_metrics)
     alltime_metrics, alltime_splits = _partition_splits(alltime_metrics)
 
+    # Batch-load game metadata for every game_id referenced by split cells,
+    # so the template can build a dropdown list (date + opponent + link)
+    # without N+1 queries. Attach as split_entry["games_meta"].
+    all_split_entries = season_splits + alltime_splits
+    if all_split_entries:
+        gid_set: set[str] = set()
+        for entry in all_split_entries:
+            for s in entry.get("splits", []):
+                for gid in (s.get("context") or {}).get("qualifying_game_ids") or []:
+                    if gid:
+                        gid_set.add(str(gid))
+        if gid_set:
+            game_rows = (
+                session.query(
+                    Game.game_id,
+                    Game.game_date,
+                    Game.season,
+                    Game.home_team_id,
+                    Game.road_team_id,
+                    Game.home_team_score,
+                    Game.road_team_score,
+                    Game.slug,
+                )
+                .filter(Game.game_id.in_(list(gid_set)))
+                .all()
+            )
+            game_meta_map: dict[str, dict] = {}
+            for g in game_rows:
+                game_meta_map[str(g.game_id)] = {
+                    "game_id": str(g.game_id),
+                    "date": g.game_date.isoformat() if g.game_date else "",
+                    "season": str(g.season) if g.season else "",
+                    "home_team_id": str(g.home_team_id) if g.home_team_id else "",
+                    "road_team_id": str(g.road_team_id) if g.road_team_id else "",
+                    "home_score": g.home_team_score,
+                    "road_score": g.road_team_score,
+                    "slug": g.slug,
+                }
+            for entry in all_split_entries:
+                for s in entry.get("splits", []):
+                    gids = (s.get("context") or {}).get("qualifying_game_ids") or []
+                    metas = []
+                    for gid in gids:
+                        meta = game_meta_map.get(str(gid))
+                        if not meta:
+                            continue
+                        metas.append(meta)
+                    metas.sort(key=lambda m: m.get("date") or "", reverse=True)
+                    s["games_meta"] = metas
+
     return {
         "season": season_metrics,
         "season_extra": season_extra,

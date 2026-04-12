@@ -775,6 +775,87 @@
   .split-cell.split-cell-top {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
+
+  /* ── Multi-game dropdown ────────────────────────────────────── */
+  .split-cell-games-details {
+    position: relative;
+    display: inline-block;
+  }
+  .split-cell-games-details > summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline;
+  }
+  .split-cell-games-details > summary::-webkit-details-marker { display: none; }
+  .split-cell-games-details > summary::after {
+    content: "▾";
+    font-size: 8px;
+    margin-left: 2px;
+    opacity: 0.5;
+  }
+  .split-cell-games-details[open] > summary::after {
+    content: "▴";
+  }
+  .split-games-popup {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    max-width: 300px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    z-index: 50;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    font-variant-numeric: tabular-nums;
+  }
+  .split-game-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .split-game-row:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .split-game-row img {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .split-game-date {
+    color: var(--muted);
+    font-weight: 500;
+    min-width: 70px;
+  }
+  .split-game-vs {
+    color: var(--muted-2);
+    font-size: 10px;
+  }
+  .split-game-opp {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .split-game-score {
+    margin-left: auto;
+    color: var(--muted-2);
+    font-size: 10px;
+  }
+  .split-game-more {
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--muted-2);
+    text-align: center;
+  }
   .split-footer {
     margin-top: 10px;
     display: flex;
@@ -1270,9 +1351,33 @@
               {% if _qual|length == 1 %}
                 <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ t('Open game', '查看比赛') }}">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</a>
               {% elif _qual|length > 1 %}
-                <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ _qual_total }} {{ t('games, click latest', '场比赛，点击查看最新') }}">
-                  {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
-                </a>
+                <details class="split-cell-games-details">
+                  <summary class="split-cell-value" title="{{ _qual_total }} {{ t('games — click to list', '场比赛 — 点击展开') }}">
+                    {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
+                  </summary>
+                  <div class="split-games-popup">
+                    {% for gm in (s.games_meta or [])[:50] %}
+                      {% set _gurl = game_url(gm.game_id) %}
+                      {% set _opp_id = gm.home_team_id if gm.home_team_id != (s.sub_key_info.team_id if s.sub_key_info else '') else gm.road_team_id %}
+                      {% set _is_home = gm.home_team_id == (s.sub_key_info.team_id if s.sub_key_info else '') %}
+                      <a href="{{ _gurl or '#' }}" class="split-game-row">
+                        <span class="split-game-date">{{ gm.date or '—' }}</span>
+                        <span class="split-game-vs">{{ '@' if _is_home else 'vs' }}</span>
+                        {% if s.sub_key_info and s.sub_key_info.team_id %}
+                        <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                             alt="" loading="lazy" onerror="this.style.display='none'">
+                        <span class="split-game-opp">{{ s.sub_key_info.abbr }}</span>
+                        {% endif %}
+                        {% if gm.road_score and gm.home_score %}
+                        <span class="split-game-score">{{ gm.road_score }}-{{ gm.home_score }}</span>
+                        {% endif %}
+                      </a>
+                    {% endfor %}
+                    {% if (s.games_meta or [])|length > 50 %}
+                    <div class="split-game-more">{{ t('+', '+') }}{{ (s.games_meta|length) - 50 }} {{ t('more', '更多') }}</div>
+                    {% endif %}
+                  </div>
+                </details>
               {% else %}
                 <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
               {% endif %}
