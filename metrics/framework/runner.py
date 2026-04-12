@@ -519,10 +519,19 @@ def run_season_metric(
                 MetricRunLog.season == season,
             ).delete(synchronize_session=False)
 
-        persisted_results = [
-            r for r in (results or [])
-            if r and r.value_num is not None and r.value_num != 0
-        ]
+        # Split metrics (sub_key_type set) persist ALL rows, including
+        # below-threshold ones that carry value_num=None. Career reducers for
+        # these metrics read raw counters from context and need every season
+        # row to produce correct totals. Also, a computed value of 0 (e.g.
+        # win_pct=0% vs a dominant opponent) is semantically meaningful and
+        # must not be silently dropped.
+        if getattr(metric_def, "sub_key_type", None):
+            persisted_results = [r for r in (results or []) if r]
+        else:
+            persisted_results = [
+                r for r in (results or [])
+                if r and r.value_num is not None and r.value_num != 0
+            ]
 
         # Trim to max_results_per_season if set, keeping the best-ranked results.
         cap = getattr(metric_def, "max_results_per_season", None)

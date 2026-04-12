@@ -2395,6 +2395,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     sub_key_type_map: dict[str, str] = {}
     fill_zero_keys: set[str] = set()
     metric_min_sample: dict[str, int] = {}
+    metric_sample_note: dict[str, str] = {}
     if split_base_keys:
         md_rows = (
             session.query(
@@ -2402,13 +2403,26 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
                 MetricDefinitionModel.sub_key_type,
                 MetricDefinitionModel.fill_missing_sub_keys_with_zero,
                 MetricDefinitionModel.min_sample,
+                MetricDefinitionModel.description,
+                MetricDefinitionModel.description_zh,
             )
             .filter(MetricDefinitionModel.key.in_(split_base_keys))
             .all()
         )
-        base_sub_key_types = {k: st for k, st, _, _ in md_rows if st}
-        base_fill_zero = {k for k, _, fz, _ in md_rows if fz}
-        base_min_sample = {k: int(ms or 1) for k, _, _, ms in md_rows}
+        base_sub_key_types = {k: st for k, st, _, _, _, _ in md_rows if st}
+        base_fill_zero = {k for k, _, fz, _, _, _ in md_rows if fz}
+        base_min_sample = {k: int(ms or 1) for k, _, _, ms, _, _ in md_rows}
+        # Extract the "(min X attempts)" / "(至少 X 次出手)" parenthetical from the
+        # localized description so the UI can surface it as a subtitle.
+        _paren_re = re.compile(r"[（(]([^)）]+)[）)]")
+        base_sample_note: dict[str, str] = {}
+        for k, _st, _fz, ms, desc, desc_zh in md_rows:
+            if not ms or int(ms) <= 1:
+                continue
+            localized = _localized_metric_description(desc, desc_zh)
+            m = _paren_re.search(localized or "")
+            if m:
+                base_sample_note[k] = m.group(1).strip()
         for mk in split_metric_keys:
             base = mk.removesuffix("_career")
             if base in base_sub_key_types:
@@ -2416,6 +2430,8 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             if base in base_fill_zero:
                 fill_zero_keys.add(mk)
             metric_min_sample[mk] = base_min_sample.get(base, 1)
+            if base in base_sample_note:
+                metric_sample_note[mk] = base_sample_note[base]
     sub_key_label_cache: dict[tuple[str, str], dict] = {}
     if sub_key_type_map:
         team_sub_keys = {r.sub_key for r in rows if r.sub_key and sub_key_type_map.get(r.metric_key) == "team"}
@@ -2630,6 +2646,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "sub_key_type": bucket["sub_key_type"],
             "splits": splits,
             "primary_sub_key_info": top["sub_key_info"],
+            "sample_note": metric_sample_note.get(metric_key, ""),
         }
         if metric_key.endswith("_career") or is_career_season(season_val):
             entry["career_type"] = season_val
