@@ -722,11 +722,23 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: var(--text);
-    text-decoration: none;
     transition: background 0.15s ease;
+    min-width: 0;
   }
   .split-cell:hover {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .split-cell-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+  }
+  .split-cell-team:hover {
+    color: var(--accent);
   }
   .split-cell img {
     width: 18px;
@@ -745,6 +757,20 @@
     color: var(--accent);
     font-weight: 600;
     white-space: nowrap;
+    text-decoration: none;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    border-radius: 4px;
+  }
+  a.split-cell-value:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .split-cell-games-sup {
+    font-size: 9px;
+    color: var(--muted-2);
+    margin-left: 2px;
+    font-weight: 500;
+    vertical-align: super;
   }
   .split-cell.split-cell-top {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -1228,15 +1254,29 @@
         <div class="split-grid">
           {% for s in m.splits %}
             {% set _is_team = s.sub_key_info and s.sub_key_info.team_id %}
-            {% set _cell_url = team_url(s.sub_key_info.team_id) if _is_team else ('#') %}
-            <a href="{{ _cell_url or '#' }}" class="split-cell{% if loop.first %} split-cell-top{% endif %}">
+            {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
+            {% set _qual_total = s.context.qualifying_game_total if s.context and s.context.qualifying_game_total else _qual|length %}
+            <div class="split-cell{% if loop.first %} split-cell-top{% endif %}">
               {% if _is_team %}
-              <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
-                   alt="" loading="lazy" onerror="this.style.display='none'">
+                {% set _team_href = team_url(s.sub_key_info.team_id) %}
+                <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
+                  <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                       alt="" loading="lazy" onerror="this.style.display='none'">
+                  <span class="split-cell-name">{{ s.sub_key_info.abbr or s.sub_key_info.label }}</span>
+                </a>
+              {% else %}
+                <span class="split-cell-name">{{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}</span>
               {% endif %}
-              <span class="split-cell-name">{{ s.sub_key_info.abbr or s.sub_key_info.label if s.sub_key_info else s.sub_key }}</span>
-              <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
-            </a>
+              {% if _qual|length == 1 %}
+                <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ t('Open game', '查看比赛') }}">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</a>
+              {% elif _qual|length > 1 %}
+                <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ _qual_total }} {{ t('games, click latest', '场比赛，点击查看最新') }}">
+                  {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
+                </a>
+              {% else %}
+                <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
+              {% endif %}
+            </div>
           {% endfor %}
         </div>
         <div class="split-footer">

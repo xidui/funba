@@ -19,6 +19,8 @@ from collections import defaultdict
 from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
 from db.models import Game, PlayerGameStats
 
+QUAL_CAP = 500
+
 
 class Player3PMvsOpponent(MetricDefinition):
     key = "player_3pm_vs_opponent"
@@ -48,7 +50,7 @@ class Player3PMvsOpponent(MetricDefinition):
         else:
             q = q.filter(Game.season == season)
 
-        totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0})
+        totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0, "game_rows": []})
         for pgs, game in q.all():
             fg3m = int(pgs.fg3m or 0)
             fg3a = int(pgs.fg3a or 0)
@@ -63,12 +65,26 @@ class Player3PMvsOpponent(MetricDefinition):
             totals[key]["fg3m"] += fg3m
             totals[key]["fg3a"] += fg3a
             totals[key]["games"] += 1
+            if fg3m > 0 or fg3a > 0:
+                totals[key]["game_rows"].append((str(game.game_date) if game.game_date else "", str(game.game_id), fg3m))
 
         results = []
         for (player_id, opp_id), t in totals.items():
             fg3m = t["fg3m"]
             if fg3m <= 0:
                 continue
+            rows = sorted(t["game_rows"], key=lambda r: (-r[2], r[0]))
+            total_qual = len(rows)
+            capped = rows[:QUAL_CAP]
+            ctx = {
+                "fg3m": fg3m,
+                "fg3a": t["fg3a"],
+                "games": t["games"],
+                "opponent_team_id": opp_id,
+                "qualifying_game_ids": [r[1] for r in capped],
+            }
+            if total_qual > QUAL_CAP:
+                ctx["qualifying_game_total"] = total_qual
             results.append(MetricResult(
                 metric_key=self.key,
                 entity_type="player",
@@ -78,12 +94,7 @@ class Player3PMvsOpponent(MetricDefinition):
                 sub_key=opp_id,
                 value_num=float(fg3m),
                 value_str=f"{fg3m} 3PM",
-                context={
-                    "fg3m": fg3m,
-                    "fg3a": t["fg3a"],
-                    "games": t["games"],
-                    "opponent_team_id": opp_id,
-                },
+                context=ctx,
             ))
         return results
 '''
@@ -96,6 +107,8 @@ from collections import defaultdict
 
 from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
 from db.models import Game, PlayerGameStats
+
+QUAL_CAP = 500
 
 
 class Player3PctVsOpponent(MetricDefinition):
@@ -126,7 +139,7 @@ class Player3PctVsOpponent(MetricDefinition):
         else:
             q = q.filter(Game.season == season)
 
-        totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0})
+        totals = defaultdict(lambda: {"fg3m": 0, "fg3a": 0, "games": 0, "game_rows": []})
         for pgs, game in q.all():
             fg3m = int(pgs.fg3m or 0)
             fg3a = int(pgs.fg3a or 0)
@@ -141,6 +154,8 @@ class Player3PctVsOpponent(MetricDefinition):
             totals[key]["fg3m"] += fg3m
             totals[key]["fg3a"] += fg3a
             totals[key]["games"] += 1
+            if fg3a > 0:
+                totals[key]["game_rows"].append((str(game.game_date) if game.game_date else "", str(game.game_id), fg3m, fg3a))
 
         results = []
         for (player_id, opp_id), t in totals.items():
@@ -149,6 +164,19 @@ class Player3PctVsOpponent(MetricDefinition):
                 continue
             fg3m = t["fg3m"]
             pct = fg3m / fg3a
+            rows = sorted(t["game_rows"], key=lambda r: r[0], reverse=True)
+            total_qual = len(rows)
+            capped = rows[:QUAL_CAP]
+            ctx = {
+                "fg3_pct": round(pct, 4),
+                "fg3m": fg3m,
+                "fg3a": fg3a,
+                "games": t["games"],
+                "opponent_team_id": opp_id,
+                "qualifying_game_ids": [r[1] for r in capped],
+            }
+            if total_qual > QUAL_CAP:
+                ctx["qualifying_game_total"] = total_qual
             results.append(MetricResult(
                 metric_key=self.key,
                 entity_type="player",
@@ -158,13 +186,7 @@ class Player3PctVsOpponent(MetricDefinition):
                 sub_key=opp_id,
                 value_num=round(pct, 4),
                 value_str=f"{pct:.1%}",
-                context={
-                    "fg3_pct": round(pct, 4),
-                    "fg3m": fg3m,
-                    "fg3a": fg3a,
-                    "games": t["games"],
-                    "opponent_team_id": opp_id,
-                },
+                context=ctx,
             ))
         return results
 '''
@@ -177,6 +199,8 @@ from collections import defaultdict
 
 from metrics.framework.base import MetricDefinition, MetricResult, is_career_season, career_season_type_code
 from db.models import Game, PlayerGameStats
+
+QUAL_CAP = 500
 
 
 class PlayerTripleDoublesVsOpponent(MetricDefinition):
@@ -207,7 +231,7 @@ class PlayerTripleDoublesVsOpponent(MetricDefinition):
         else:
             q = q.filter(Game.season == season)
 
-        totals = defaultdict(lambda: {"td": 0, "games": 0})
+        totals = defaultdict(lambda: {"td": 0, "games": 0, "td_games": []})
         for pgs, game in q.all():
             pts = int(pgs.pts or 0)
             reb = int(pgs.reb or 0)
@@ -227,12 +251,24 @@ class PlayerTripleDoublesVsOpponent(MetricDefinition):
             totals[key]["games"] += 1
             if tally >= 3:
                 totals[key]["td"] += 1
+                totals[key]["td_games"].append((str(game.game_date) if game.game_date else "", str(game.game_id)))
 
         results = []
         for (player_id, opp_id), t in totals.items():
             td = t["td"]
             if td <= 0:
                 continue
+            rows = sorted(t["td_games"], key=lambda r: r[0], reverse=True)
+            total_qual = len(rows)
+            capped = rows[:QUAL_CAP]
+            ctx = {
+                "triple_doubles": td,
+                "games": t["games"],
+                "opponent_team_id": opp_id,
+                "qualifying_game_ids": [r[1] for r in capped],
+            }
+            if total_qual > QUAL_CAP:
+                ctx["qualifying_game_total"] = total_qual
             results.append(MetricResult(
                 metric_key=self.key,
                 entity_type="player",
@@ -242,11 +278,7 @@ class PlayerTripleDoublesVsOpponent(MetricDefinition):
                 sub_key=opp_id,
                 value_num=float(td),
                 value_str=f"{td} TD",
-                context={
-                    "triple_doubles": td,
-                    "games": t["games"],
-                    "opponent_team_id": opp_id,
-                },
+                context=ctx,
             ))
         return results
 '''
@@ -331,6 +363,7 @@ class PlayerMaxPtsVsOpponent(MetricDefinition):
                     "max_game_season": b["season"],
                     "games": counts[(player_id, opp_id)],
                     "opponent_team_id": opp_id,
+                    "qualifying_game_ids": [b["game_id"]],
                 },
             ))
         return results
@@ -416,6 +449,7 @@ class PlayerMaxAstVsOpponent(MetricDefinition):
                     "max_game_season": b["season"],
                     "games": counts[(player_id, opp_id)],
                     "opponent_team_id": opp_id,
+                    "qualifying_game_ids": [b["game_id"]],
                 },
             ))
         return results

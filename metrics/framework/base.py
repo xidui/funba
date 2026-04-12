@@ -94,7 +94,26 @@ def season_matches_metric_types(season: str | None, season_types) -> bool:
 
 @dataclass
 class MetricResult:
-    """In-memory result produced by a MetricDefinition before persistence."""
+    """In-memory result produced by a MetricDefinition before persistence.
+
+    Drill-down convention
+    ---------------------
+    Metrics that want inline drill-down to the games behind a value should
+    set ``context["qualifying_game_ids"]`` to a list of game_id strings.
+    This is the unified path for both regular and split (sub_key) metrics:
+    a MetricResult row already identifies a unique (entity, season, sub_key)
+    slice, and its context names the games that produced the value.
+
+    Soft cap: 500 game_ids per row. If a metric's qualifying set exceeds
+    that, slice to the 500 most relevant (top by value or most-recent) and
+    optionally store the real total in ``context["qualifying_game_total"]``
+    so the UI can show "500 of 1603". Metrics that genuinely need drill-down
+    beyond 500 rows should fall back to compute_qualifications() / the
+    MetricRunLog-based path instead.
+
+    The template layer reads ``context.qualifying_game_ids`` directly from
+    MetricResult.context_json — no API call, no MetricRunLog join.
+    """
     metric_key: str
     entity_type: str          # 'player' | 'team' | 'game' | 'league' | 'season'
     entity_id: str | None     # player_id or team_id; None for league-scope
