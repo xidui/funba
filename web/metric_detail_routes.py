@@ -97,6 +97,8 @@ def register_metric_detail_routes(app, deps):
             show_all_seasons = False
         page = max(1, int(request.args.get("page", 1) or 1))
         search_q = request.args.get("q", "").strip()
+        entity_filter_id = request.args.get("entity", "").strip()
+        sub_key_filter = request.args.get("sub_key", "").strip()
         active_only = request.args.get("active") == "1"
         expand = request.args.get("expand") == "1"
         sort_by = request.args.get("sort", "")
@@ -250,7 +252,7 @@ def register_metric_detail_routes(app, deps):
                 .first()
             ) is not None
 
-            if has_sub_keys and not expand:
+            if has_sub_keys and not expand and not entity_filter_id and not sub_key_filter:
                 is_asc_dedup = deps.metric_rank_order()(session, metric_key) == "asc"
                 dedup_order = MetricResultModel.value_num.asc() if is_asc_dedup else MetricResultModel.value_num.desc()
                 dedup_rn = func.row_number().over(
@@ -301,7 +303,17 @@ def register_metric_detail_routes(app, deps):
                     active_like_filters = [ranked_q.c.entity_id.like(f"{pid}:%") for pid in active_player_ids]
                     base_rows_q = base_rows_q.filter(or_(*active_like_filters)) if active_like_filters else base_rows_q.filter(False)
 
-            if search_q:
+            if entity_filter_id:
+                base_rows_q = base_rows_q.filter(ranked_q.c.entity_id == entity_filter_id)
+            if sub_key_filter:
+                base_rows_q = base_rows_q.filter(ranked_q.c.sub_key == sub_key_filter)
+
+            if entity_filter_id or sub_key_filter:
+                rows = base_rows_q.limit(500).all()
+                total = len(rows)
+                total_pages = 1
+                page = 1
+            elif search_q:
                 matching_player_ids = [
                     r[0]
                     for r in session.query(Player.player_id)
@@ -522,6 +534,10 @@ def register_metric_detail_routes(app, deps):
             backfill=backfill,
             has_drilldown=has_drilldown,
             search_q=search_q,
+            entity_filter_id=entity_filter_id,
+            sub_key_filter=sub_key_filter,
+            entity_filter_label=labels.get(("player", entity_filter_id)) or labels.get(("team", entity_filter_id)) or entity_filter_id if entity_filter_id else "",
+            sub_key_filter_info=sub_key_labels.get(sub_key_filter) if sub_key_filter else None,
             metric_deep_dive=metric_deep_dive,
             has_sub_keys=has_sub_keys,
             expand=expand,

@@ -946,16 +946,38 @@
 
 {% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
 {% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
-<form method="get" action="{{ search_base_url }}" style="margin-bottom:16px;">
+
+{% if entity_filter_id or sub_key_filter %}
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+  <span style="font-size:12px;color:var(--muted);">{{ t('Filter:', '过滤：') }}</span>
+  {% if entity_filter_id %}
+  <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--accent);color:#0b0f19;font-size:12px;font-weight:600;">
+    {{ entity_filter_label }}
+    <a href="{{ search_base_url }}{% if sub_key_filter %}?sub_key={{ sub_key_filter }}{% endif %}" style="color:inherit;text-decoration:none;opacity:0.7;" title="{{ t('Clear', '清除') }}">✕</a>
+  </span>
+  {% endif %}
+  {% if sub_key_filter %}
+  <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--accent);color:#0b0f19;font-size:12px;font-weight:600;">
+    vs {{ sub_key_filter_info.label if sub_key_filter_info else sub_key_filter }}
+    <a href="{{ search_base_url }}{% if entity_filter_id %}?entity={{ entity_filter_id }}{% endif %}" style="color:inherit;text-decoration:none;opacity:0.7;" title="{{ t('Clear', '清除') }}">✕</a>
+  </span>
+  {% endif %}
+</div>
+{% endif %}
+
+<form id="mdetail-search-form" method="get" action="{{ search_base_url }}" style="margin-bottom:16px;position:relative;">
   <input type="hidden" name="season" value="{{ _season_param }}">
   {% if sort_by %}<input type="hidden" name="sort" value="{{ sort_by }}">{% endif %}
-  <div style="display:flex;align-items:center;gap:8px;max-width:420px;">
+  <div style="display:flex;align-items:center;gap:8px;max-width:420px;position:relative;">
     <input
+      id="mdetail-search-input"
       type="search"
       name="q"
       value="{{ search_q }}"
-      placeholder="Search by name…"
+      placeholder="{{ t('Search player name…', '搜索球员…') }}"
       autocomplete="off"
+      data-metric-key="{{ metric_def.key }}"
+      data-season-param="{{ _season_param }}"
       style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font-size:13px;outline:none;transition:border-color 0.15s;"
       onfocus="this.style.borderColor='var(--accent)'"
       onblur="this.style.borderColor='var(--border-2)'"
@@ -964,7 +986,64 @@
     <a href="{{ search_base_url }}" style="font-size:12px;font-weight:600;color:var(--muted);text-decoration:none;white-space:nowrap;" title="Clear search">✕ Clear</a>
     {% endif %}
   </div>
+  <div id="mdetail-search-dropdown" style="position:absolute;top:100%;left:0;max-width:420px;width:100%;background:var(--surface);border:1px solid var(--border-2);border-radius:8px;margin-top:4px;max-height:320px;overflow-y:auto;z-index:100;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.4);"></div>
 </form>
+
+<script>
+(function() {
+  var input = document.getElementById('mdetail-search-input');
+  var dropdown = document.getElementById('mdetail-search-dropdown');
+  var form = document.getElementById('mdetail-search-form');
+  if (!input || !dropdown || !form) return;
+  var metricKey = input.dataset.metricKey;
+  var seasonParam = input.dataset.seasonParam;
+  var basePath = form.action;
+  var debounceTimer = null;
+  var activeIdx = -1;
+  var currentItems = [];
+
+  function buildUrl(entityId) {
+    var url = basePath + '?season=' + encodeURIComponent(seasonParam) + '&entity=' + encodeURIComponent(entityId);
+    return url;
+  }
+  function render(items) {
+    currentItems = items;
+    activeIdx = -1;
+    if (!items.length) { dropdown.style.display = 'none'; dropdown.innerHTML = ''; return; }
+    dropdown.innerHTML = items.map(function(it, i) {
+      return '<a href="' + buildUrl(it.player_id) + '" class="mdetail-hint" data-idx="' + i + '" style="display:flex;align-items:center;gap:10px;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-bottom:1px solid var(--border-2);">'
+        + '<img src="https://cdn.nba.com/headshots/nba/latest/260x190/' + it.player_id + '.png" loading="lazy" onerror="this.style.visibility=\'hidden\'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">'
+        + '<span>' + it.full_name + '</span></a>';
+    }).join('');
+    dropdown.style.display = 'block';
+  }
+  function fetchHints(q) {
+    if (!q || q.length < 1) { dropdown.style.display = 'none'; return; }
+    fetch('/api/players/hints?q=' + encodeURIComponent(q) + '&limit=10')
+      .then(function(r) { return r.json(); })
+      .then(function(data) { render(data.items || []); })
+      .catch(function() { dropdown.style.display = 'none'; });
+  }
+  input.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function() { fetchHints(input.value.trim()); }, 150);
+  });
+  input.addEventListener('focus', function() { if (currentItems.length) dropdown.style.display = 'block'; });
+  input.addEventListener('blur', function() { setTimeout(function() { dropdown.style.display = 'none'; }, 200); });
+  input.addEventListener('keydown', function(e) {
+    if (!currentItems.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, currentItems.length - 1); highlight(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); highlight(); }
+    else if (e.key === 'Enter') {
+      if (activeIdx >= 0) { e.preventDefault(); window.location.href = buildUrl(currentItems[activeIdx].player_id); }
+    } else if (e.key === 'Escape') { dropdown.style.display = 'none'; }
+  });
+  function highlight() {
+    var links = dropdown.querySelectorAll('.mdetail-hint');
+    links.forEach(function(a, i) { a.style.background = (i === activeIdx) ? 'var(--accent)' : ''; a.style.color = (i === activeIdx) ? '#0b0f19' : 'var(--text)'; });
+  }
+})();
+</script>
 
 {% if result_rows %}
 <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
@@ -1058,6 +1137,16 @@
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ player_url(player_id) }}">{{ r.entity_label }}</a>
+              {% if has_sub_keys %}
+              <a class="row-filter-btn" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, entity=r.entity_id) }}"
+                 title="{{ t('Filter to ' ~ r.entity_label, '只看 ' ~ r.entity_label) }}"
+                 aria-label="filter"
+                 style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--muted-2);text-decoration:none;margin-left:4px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+                </svg>
+              </a>
+              {% endif %}
               {% if r.is_active %}<span class="active-dot" title="Active player"></span>{% endif %}
             {% elif r.entity_type == 'team' %}
               <img class="entity-thumb team"
@@ -1065,6 +1154,16 @@
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ team_url(r.entity_id) }}">{{ r.entity_label }}</a>
+              {% if has_sub_keys %}
+              <a class="row-filter-btn" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, entity=r.entity_id) }}"
+                 title="{{ t('Filter to ' ~ r.entity_label, '只看 ' ~ r.entity_label) }}"
+                 aria-label="filter"
+                 style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--muted-2);text-decoration:none;margin-left:4px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+                </svg>
+              </a>
+              {% endif %}
             {% elif r.entity_type == 'season' %}
               <span class="entity-link" style="font-weight:500;">{{ r.entity_label }}</span>
               {% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %}
@@ -1095,6 +1194,7 @@
         {% endif %}
         {% if has_sub_keys %}
         <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
+          <span style="display:inline-flex;align-items:center;gap:4px;">
           {% if r.sub_key_info and r.sub_key_info.team_id %}
             {% set _turl = team_url(r.sub_key_info.team_id) %}
             <a href="{{ _turl or '#' }}"
@@ -1103,12 +1203,29 @@
                    alt="" loading="lazy" style="width:18px;height:18px;" onerror="this.style.display='none'">
               <span>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</span>
             </a>
+            <a class="row-filter-btn" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sub_key=r.sub_key) }}"
+               title="{{ t('Show all players vs ' ~ (r.sub_key_info.abbr or r.sub_key_info.label), '查看所有球员 vs ' ~ (r.sub_key_info.abbr or r.sub_key_info.label)) }}"
+               aria-label="filter by opponent"
+               style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--muted-2);text-decoration:none;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+              </svg>
+            </a>
           {% elif r.sub_key_info and r.sub_key_info.player_id %}
             <a href="{{ player_url(r.sub_key_info.player_id) }}"
                style="color:inherit;text-decoration:none;">{{ r.sub_key_info.label }}</a>
+            <a class="row-filter-btn" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sub_key=r.sub_key) }}"
+               title="{{ t('Filter to this split', '只看此切片') }}"
+               aria-label="filter"
+               style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--muted-2);text-decoration:none;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+              </svg>
+            </a>
           {% else %}
             {{ r.sub_key or '—' }}
           {% endif %}
+          </span>
         </td>
         {% endif %}
         {% if show_all_seasons and not is_season_scope %}
