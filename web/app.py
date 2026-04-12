@@ -711,13 +711,13 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_rookie_first": {
         "label": "All-Rookie 1st",
         "short_label": "All-Rk 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-Rk 1st",
         "entity": "player",
     },
     "all_rookie_second": {
         "label": "All-Rookie 2nd",
         "short_label": "All-Rk 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-Rk 2nd",
         "entity": "player",
     },
 }
@@ -770,6 +770,8 @@ def _award_badge_label(award_type: str) -> str:
         "2nd Team": "二阵",
         "3rd Team": "三阵",
         "6th Man": "第六人",
+        "All-Rk 1st": "新秀一阵",
+        "All-Rk 2nd": "新秀二阵",
     }
     return zh_labels.get(label, label) if _is_zh() else label
 
