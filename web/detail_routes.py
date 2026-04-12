@@ -223,6 +223,8 @@ def register_detail_routes(
                 if latest_team:
                     player_current_team_id = latest_team[0]
 
+            player_current_team = teams.get(player_current_team_id) if player_current_team_id else None
+
             player_metrics = get_metric_results()(session, "player", player_id, selected_season)
             salary_records = (
                 session.query(PlayerSalary)
@@ -254,6 +256,7 @@ def register_detail_routes(
             shot_made_count=shot_made_count,
             heatmap_zones=heatmap_zones,
             player_current_team_id=player_current_team_id,
+            player_current_team=player_current_team,
             season_options=season_options,
             selected_season=selected_season,
             game_rows=game_rows,
@@ -273,6 +276,10 @@ def register_detail_routes(
             team = session.query(Team).filter(Team.team_id == team_id).first()
             if team is None:
                 abort(404, description=f"Team {team_id} not found")
+
+            canonical_team = None
+            if team.canonical_team_id and team.canonical_team_id != team.team_id:
+                canonical_team = session.query(Team).filter(Team.team_id == team.canonical_team_id).first()
 
             championship_rows = (
                 session.query(Award.season)
@@ -396,6 +403,7 @@ def register_detail_routes(
             current_games=current_games,
             team_metrics=team_metrics,
             team_championships=team_championships,
+            canonical_team=canonical_team,
         )
 
     def game_page(slug: str):

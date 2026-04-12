@@ -138,6 +138,27 @@
     border-color: var(--accent);
   }
 
+  /* ── Legacy / inactive team banner ─────────────────────── */
+  .team-legacy-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+    border: 1px solid var(--border);
+    font-size: 0.88rem;
+    color: var(--muted-2);
+  }
+  .team-legacy-banner a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .team-legacy-banner a:hover { text-decoration: underline; }
+
   /* Score link — fills full cell for tap target; hover/focus handled here */
   td.score-cell { padding: 0; }
   a.score-link {
@@ -184,10 +205,27 @@
     </div>
     {% endif %}
     <span class="meta">
-      {% if team.city %}{{ team.city }}{% endif %}
+      {% if team.city %}{{ team.city }}{% if team.state and team.state != team.city %}, {{ team.state }}{% endif %}{% endif %}
       {% if team.year_founded %}&nbsp;· {{ t('Est.', '建队') }} {{ team.year_founded }}{% endif %}
     </span>
   </div>
+  {% if team.is_legacy %}
+  <div class="team-legacy-banner">
+    <span>{{ t('Defunct', '已停用') }}</span>
+    {% if team.start_season and team.end_season and team.end_season|int < 2100 %}
+    <span class="meta">{{ team.start_season }}–{{ team.end_season }}</span>
+    {% elif team.start_season %}
+    <span class="meta">{{ t('Since', '始于') }} {{ team.start_season }}</span>
+    {% endif %}
+    {% if canonical_team and canonical_team.team_id != team.team_id %}
+    <span class="meta">→ {{ t('Now', '现') }} <a href="{{ url_for('team_page', team_id=canonical_team.team_id) }}">{{ display_team_name(canonical_team) }}</a></span>
+    {% endif %}
+  </div>
+  {% elif not team.active %}
+  <div class="team-legacy-banner">
+    <span>{{ t('Inactive', '非活跃') }}</span>
+  </div>
+  {% endif %}
 </div>
 
 {% if team.head_coach or team.arena or team.owner or team.general_manager %}

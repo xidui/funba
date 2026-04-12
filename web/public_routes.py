@@ -329,6 +329,12 @@ def register_public_routes(
                 .limit(30)
                 .all()
             )
+            legacy_teams = (
+                session.query(Team)
+                .filter(Team.is_legacy.is_(True))
+                .order_by(Team.full_name.asc())
+                .all()
+            )
             team_lookup = get_team_map(session)
 
             standing_season_ids = [
@@ -399,6 +405,7 @@ def register_public_routes(
         return get_render_template()(
             "home.html",
             teams=teams,
+            legacy_teams=legacy_teams,
             team_map_data=team_map_data,
             east_standings=east_standings,
             west_standings=west_standings,

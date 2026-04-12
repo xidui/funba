@@ -579,9 +579,18 @@
         {% if player.greatest_75_flag %}
         <span class="player-honor-badge">75 Greatest</span>
         {% endif %}
+        {% if player_current_team %}
+        <a href="{{ url_for('team_page', team_id=player_current_team.team_id) }}"
+           style="font-size:12px; font-weight:600; color:var(--accent); text-decoration:none; letter-spacing:0.03em;">
+          {{ player_current_team.abbr }}
+        </a>
+        {% endif %}
       </div>
 
       <h1>{{ player_name }}</h1>
+      {% if player.nick_name and player.nick_name != player.first_name and '.' not in player.nick_name %}
+      <div class="meta" style="margin-top:-4px; font-size:0.88rem;">"{{ player.nick_name }}"</div>
+      {% endif %}
 
       {% if player.birth_date or player.height or player.weight or player.country or player.school or player.draft_year or (player.from_year and player.to_year) or player.season_exp %}
       <div class="player-bio-grid">

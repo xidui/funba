@@ -557,6 +557,19 @@
     <p class="meta">{{ t('Could not load teams.', '球队加载失败。') }}</p>
     {% endif %}
   </div>
+
+  {% if legacy_teams %}
+  <details style="margin-top:16px;">
+    <summary style="cursor:pointer; font-family:'Outfit',sans-serif; font-size:14px; font-weight:600; color:var(--muted); user-select:none;">
+      {{ t('Historical Teams', '历史球队') }} <span class="meta" style="font-weight:400;">({{ legacy_teams|length }})</span>
+    </summary>
+    <div class="team-chip-grid" style="margin-top:10px;">
+      {% for team in legacy_teams %}
+      <a href="{{ url_for('team_page', team_id=team.team_id) }}" class="team-chip" style="opacity:0.7; font-size:11px;" title="{{ display_team_name(team) }}{% if team.start_season and team.end_season and team.end_season|int < 2100 %} ({{ team.start_season }}–{{ team.end_season }}){% endif %}">{{ team.abbr }}</a>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
