@@ -710,23 +710,27 @@
   }
   .split-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 6px 10px;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
   }
   .split-cell {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    border-radius: 6px;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.04)) 65%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: var(--text);
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
     min-width: 0;
   }
   .split-cell:hover {
-    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
   }
   .split-cell-team {
     display: inline-flex;
@@ -773,7 +777,8 @@
     vertical-align: super;
   }
   .split-cell.split-cell-top {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
 
   /* ── Multi-game inline panel ────────────────────────────────── */
