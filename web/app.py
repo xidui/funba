@@ -2292,43 +2292,65 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     if not entity_rows:
         return {"season": [], "alltime": []}
 
-    # Step 2: Compute rank and total via a self-join instead of a window function.
+    # Identify split metrics (with sub_key_type) — they need special handling
+    # and must NOT go through the per-row peer-rank self-join, which would
+    # Cartesian-explode when the split metric has O(players × opponents) rows.
+    all_entity_keys = {r.metric_key for r in entity_rows}
+    split_base_keys: set[str] = set()
+    if all_entity_keys:
+        base_lookup = {k.removesuffix("_career") for k in all_entity_keys}
+        md_sub_rows = (
+            session.query(MetricDefinitionModel.key)
+            .filter(
+                MetricDefinitionModel.key.in_(base_lookup),
+                MetricDefinitionModel.sub_key_type.isnot(None),
+            )
+            .all()
+        )
+        split_base_keys = {row.key for row in md_sub_rows}
+    split_metric_keys = {
+        k for k in all_entity_keys
+        if k.removesuffix("_career") in split_base_keys
+    }
+
+    # Step 2: Compute rank and total via a self-join — only for non-split rows.
     # For desc-ranked metrics: rank = COUNT(peers with higher value) + 1
     # For asc-ranked metrics: rank = COUNT(peers with lower value) + 1
-    entity_ids_set = {r.id for r in entity_rows}
-    MR = MetricResultModel
-    e_alias = MR.__table__.alias("e")
-    p_alias = MR.__table__.alias("p")
+    non_split_ids = {r.id for r in entity_rows if r.metric_key not in split_metric_keys}
+    rank_map: dict[int, tuple[int, int]] = {}
+    if non_split_ids:
+        MR = MetricResultModel
+        e_alias = MR.__table__.alias("e")
+        p_alias = MR.__table__.alias("p")
 
-    # Build the comparison expression, flipping for asc metrics
-    if _asc_keys:
-        better_expr = case(
-            (e_alias.c.metric_key.in_(_asc_keys), p_alias.c.value_num < e_alias.c.value_num),
-            else_=(p_alias.c.value_num > e_alias.c.value_num),
+        if _asc_keys:
+            better_expr = case(
+                (e_alias.c.metric_key.in_(_asc_keys), p_alias.c.value_num < e_alias.c.value_num),
+                else_=(p_alias.c.value_num > e_alias.c.value_num),
+            )
+        else:
+            better_expr = p_alias.c.value_num > e_alias.c.value_num
+
+        join_cond = and_(
+            p_alias.c.entity_type == e_alias.c.entity_type,
+            p_alias.c.metric_key == e_alias.c.metric_key,
+            p_alias.c.season == e_alias.c.season,
+            func.coalesce(p_alias.c.rank_group, "__none__") == func.coalesce(e_alias.c.rank_group, "__none__"),
+            p_alias.c.value_num.isnot(None),
         )
-    else:
-        better_expr = p_alias.c.value_num > e_alias.c.value_num
 
-    join_cond = and_(
-        p_alias.c.entity_type == e_alias.c.entity_type,
-        p_alias.c.metric_key == e_alias.c.metric_key,
-        p_alias.c.season == e_alias.c.season,
-        func.coalesce(p_alias.c.rank_group, "__none__") == func.coalesce(e_alias.c.rank_group, "__none__"),
-        p_alias.c.value_num.isnot(None),
-    )
-
-    rank_q = (
-        session.query(
-            e_alias.c.id,
-            func.count(p_alias.c.id).label("total"),
-            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        rank_q = (
+            session.query(
+                e_alias.c.id,
+                func.count(p_alias.c.id).label("total"),
+                (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+            )
+            .select_from(e_alias)
+            .join(p_alias, join_cond)
+            .filter(e_alias.c.id.in_(non_split_ids))
+            .group_by(e_alias.c.id)
         )
-        .select_from(e_alias)
-        .join(p_alias, join_cond)
-        .filter(e_alias.c.id.in_(entity_ids_set))
-        .group_by(e_alias.c.id)
-    )
-    rank_map = {r.id: (r.rank, r.total) for r in rank_q.all()}
+        rank_map = {r.id: (r.rank, r.total) for r in rank_q.all()}
 
     # Build combined rows with rank/total attached
     rows = []
@@ -2352,18 +2374,17 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     all_metric_keys = {r.metric_key for r in rows}
     metric_name_cache = _batch_metric_names(session, all_metric_keys)
 
-    # Batch-load sub_key metadata for split metrics.
-    # Look up by base key (strip _career suffix) since MetricDefinition only stores base keys.
+    # Batch-load sub_key_type for split metrics (we already know which keys are splits,
+    # now fetch the type so we know how to render the labels).
     sub_key_type_map: dict[str, str] = {}
-    if all_metric_keys:
-        base_lookup = {k.removesuffix("_career") for k in all_metric_keys}
+    if split_base_keys:
         md_rows = (
             session.query(MetricDefinitionModel.key, MetricDefinitionModel.sub_key_type)
-            .filter(MetricDefinitionModel.key.in_(base_lookup))
+            .filter(MetricDefinitionModel.key.in_(split_base_keys))
             .all()
         )
         base_sub_key_types = {k: st for k, st in md_rows if st}
-        for mk in all_metric_keys:
+        for mk in split_metric_keys:
             base = mk.removesuffix("_career")
             if base in base_sub_key_types:
                 sub_key_type_map[mk] = base_sub_key_types[base]
