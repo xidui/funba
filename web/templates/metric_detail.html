@@ -597,32 +597,25 @@
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
-  /* Inline multi-game drill-down on metric detail page */
-  .md-value-details {
-    display: inline-block;
-    position: relative;
-  }
-  .md-value-details > summary {
-    list-style: none;
+  /* Inline drill-down trigger button for split metrics */
+  .md-split-trigger {
     cursor: pointer;
-    display: inline;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
     padding: 2px 6px;
     margin: -2px -6px;
     border-radius: 4px;
-    color: var(--accent);
     transition: background 0.15s ease;
   }
-  .md-value-details > summary::-webkit-details-marker { display: none; }
-  .md-value-details > summary::after {
-    content: " ▾";
-    font-size: 9px;
-    opacity: 0.5;
-  }
-  .md-value-details[open] > summary::after {
-    content: " ▴";
-  }
-  .md-value-details > summary:hover {
+  .md-split-trigger:hover {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  .md-split-trigger.open {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
   }
   .md-value-games-sup {
     font-size: 10px;
@@ -631,111 +624,183 @@
     margin-left: 2px;
     vertical-align: super;
   }
-  .md-games-popup {
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
-    z-index: 80;
-    min-width: 280px;
-    background: var(--surface);
-    border: 1px solid var(--border-2);
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-    padding: 6px;
-    text-align: left;
+  .md-split-trigger::after {
+    content: " ▾";
+    font-size: 9px;
+    opacity: 0.5;
+    margin-left: 2px;
   }
-  .md-games-table {
+  .md-split-trigger.open::after {
+    content: " ▴";
+  }
+
+  /* Inline expansion row with games table + pagination */
+  .md-split-drilldown-row > td {
+    padding: 0 !important;
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.03)) 80%, var(--surface));
+    border-top: none;
+  }
+  .md-split-drilldown-panel {
+    padding: 14px 24px 18px;
+    border-left: 3px solid var(--accent);
+    animation: md-split-drilldown-in 0.15s ease;
+  }
+  @keyframes md-split-drilldown-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .md-split-drilldown-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 10px;
+    font-family: 'Inter', sans-serif;
+  }
+  .md-split-drilldown-vs {
+    color: var(--muted-2);
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .md-split-drilldown-value {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .md-split-drilldown-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     font-family: 'Inter', sans-serif;
     font-weight: 400;
+    max-width: 680px;
   }
-  .md-games-table thead th {
+  .md-split-drilldown-table thead th {
     text-align: left;
-    padding: 4px 6px;
+    padding: 6px 10px;
     color: var(--muted-2);
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-weight: 700;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
-  .md-games-table thead th.right {
+  .md-split-drilldown-table thead th.right {
     text-align: right;
   }
-  .md-games-table tbody tr {
+  .md-split-drilldown-table tbody tr {
     cursor: pointer;
     transition: background 0.12s ease;
   }
-  .md-games-table tbody tr.md-game-row td {
-    padding: 5px 6px;
+  .md-split-drilldown-table tbody tr.md-split-game-row td {
+    padding: 7px 10px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
     white-space: nowrap;
     color: var(--text);
   }
-  .md-games-table tbody tr:last-child td {
+  .md-split-drilldown-table tbody tr:last-child td {
     border-bottom: none;
   }
-  .md-games-table tbody tr.game-win {
-    background: color-mix(in srgb, var(--win, #4ade80) 6%, transparent);
+  .md-split-drilldown-table tbody tr.game-win {
+    background: color-mix(in srgb, var(--win, #4ade80) 7%, transparent);
   }
-  .md-games-table tbody tr.game-win:hover {
-    background: color-mix(in srgb, var(--win, #4ade80) 14%, transparent);
+  .md-split-drilldown-table tbody tr.game-win:hover {
+    background: color-mix(in srgb, var(--win, #4ade80) 15%, transparent);
   }
-  .md-games-table tbody tr.game-loss {
-    background: color-mix(in srgb, var(--loss, #f87171) 6%, transparent);
+  .md-split-drilldown-table tbody tr.game-loss {
+    background: color-mix(in srgb, var(--loss, #f87171) 7%, transparent);
   }
-  .md-games-table tbody tr.game-loss:hover {
-    background: color-mix(in srgb, var(--loss, #f87171) 14%, transparent);
+  .md-split-drilldown-table tbody tr.game-loss:hover {
+    background: color-mix(in srgb, var(--loss, #f87171) 15%, transparent);
   }
-  .md-games-table tr:hover {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-  .md-game-date {
+  .md-split-game-date {
     color: var(--muted);
-    min-width: 75px;
+    min-width: 90px;
   }
-  .md-game-matchup {
+  .md-split-game-matchup {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
   }
-  .md-game-vs {
+  .md-split-game-matchup img {
+    width: 16px;
+    height: 16px;
+  }
+  .md-split-game-vs {
     color: var(--muted-2);
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
   }
-  .md-wl-chip {
+  .md-split-wl-chip {
     display: inline-block;
-    width: 14px;
-    padding: 0;
+    width: 16px;
+    padding: 1px 0;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     text-align: center;
-    margin-right: 4px;
+    margin-right: 6px;
     font-family: 'Outfit', sans-serif;
   }
-  .md-wl-chip.wl-win {
+  .md-split-wl-chip.wl-win {
     background: var(--win, #4ade80);
     color: #0b2418;
   }
-  .md-wl-chip.wl-loss {
+  .md-split-wl-chip.wl-loss {
     background: var(--loss, #f87171);
     color: #2a0b0b;
   }
-  .md-score-nums {
+  .md-split-score-nums {
+    font-variant-numeric: tabular-nums;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 11px;
   }
-  .md-games-more {
-    padding: 5px 6px;
-    font-size: 10px;
+  /* Pagination */
+  .md-split-pagination {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 2px 2px;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .md-split-pag-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 9px;
+    border-radius: 5px;
+    font-size: 13px;
+    line-height: 1;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  .md-split-pag-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .md-split-pag-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .md-split-pag-indicator {
+    color: var(--text);
+    font-weight: 600;
+    min-width: 18px;
+    text-align: right;
+  }
+  .md-split-pag-sep {
+    opacity: 0.5;
+  }
+  .md-split-pag-range {
+    margin-left: 10px;
     color: var(--muted-2);
-    text-align: center;
+    font-size: 10px;
   }
 
   .reason-text {
@@ -1388,54 +1453,9 @@
           {% if _games_meta|length == 1 %}
             <a class="value-cell value-cell-game-link" href="{{ game_url(_games_meta[0].game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ r.value_str or r.value_num }}</a>
           {% elif _games_meta|length > 1 %}
-            <details class="md-value-details">
-              <summary class="value-cell value-cell-trigger" title="{{ r.qual_total }} {{ t('games — click to list', '场比赛 — 点击展开') }}">
-                {{ r.value_str or r.value_num }}<sup class="md-value-games-sup">{{ r.qual_total }}</sup>
-              </summary>
-              <div class="md-games-popup">
-                <table class="md-games-table">
-                  <thead>
-                    <tr>
-                      <th>{{ t('Date', '日期') }}</th>
-                      <th>{{ t('Matchup', '对阵') }}</th>
-                      <th class="right">{{ t('Result', '结果') }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for gm in _games_meta[:20] %}
-                      {% set _gurl = game_url(gm.game_id) %}
-                      {# For player-scope split rows, the "opponent" is the sub_key; treat
-                         the player's team as the NON-sub_key side. #}
-                      {% set _opp_id = r.sub_key if r.sub_key else '' %}
-                      {% set _opp_is_home = gm.home_team_id == _opp_id %}
-                      {% set _player_score = gm.road_score if _opp_is_home else gm.home_score %}
-                      {% set _opp_score = gm.home_score if _opp_is_home else gm.road_score %}
-                      {% set _has_score = _player_score is not none and _opp_score is not none %}
-                      {% set _won = _has_score and _player_score > _opp_score %}
-                      <tr class="md-game-row{% if _has_score %} {{ 'game-win' if _won else 'game-loss' }}{% endif %}" onclick="window.location.href='{{ _gurl }}'">
-                        <td class="md-game-date">{{ gm.date or '—' }}</td>
-                        <td class="md-game-matchup">
-                          <span class="md-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
-                          {% if _opp_id %}
-                            <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'" style="width:16px;height:16px;">
-                            <span>{{ r.sub_key_info.abbr if r.sub_key_info else _opp_id }}</span>
-                          {% endif %}
-                        </td>
-                        <td class="right md-game-score">
-                          {% if _has_score %}
-                            <span class="md-wl-chip {{ 'wl-win' if _won else 'wl-loss' }}">{{ 'W' if _won else 'L' }}</span>
-                            <span class="md-score-nums">{{ _player_score }}–{{ _opp_score }}</span>
-                          {% else %}—{% endif %}
-                        </td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-                {% if _games_meta|length > 20 %}
-                <div class="md-games-more">+{{ (_games_meta|length) - 20 }} {{ t('more', '更多') }}</div>
-                {% endif %}
-              </div>
-            </details>
+            <button type="button" class="value-cell value-cell-trigger md-split-trigger" data-row-idx="{{ loop.index }}" title="{{ r.qual_total }} {{ t('games — click to expand', '场比赛 — 点击展开') }}">
+              {{ r.value_str or r.value_num }}<sup class="md-value-games-sup">{{ r.qual_total }}</sup>
+            </button>
           {% elif has_drilldown and r.value_num is not none %}
           <span class="value-cell games-drilldown"
                 data-entity-id="{{ r.entity_id }}"
@@ -1462,7 +1482,70 @@
         </td>
         <td class="reason-text">{{ r.notable_reason or '—' }}</td>
       </tr>
-      {% if has_drilldown %}
+      {% if (r.games_meta or [])|length > 1 %}
+      {% set _games_meta = r.games_meta %}
+      <tr class="md-split-drilldown-row" id="md-split-drilldown-{{ loop.index }}" style="display:none;" data-row-idx="{{ loop.index }}">
+        <td colspan="99">
+          <div class="md-split-drilldown-panel">
+            <div class="md-split-drilldown-header">
+              <strong>{{ r.entity_label }}</strong>
+              {% if r.sub_key_info and r.sub_key_info.team_id %}
+                <span class="md-split-drilldown-vs">{{ t('vs', '对位') }}</span>
+                <img src="https://cdn.nba.com/logos/nba/{{ r.sub_key_info.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'" style="width:16px;height:16px;vertical-align:middle;">
+                <span>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</span>
+              {% endif %}
+              <span class="md-split-drilldown-value">· {{ r.value_str or r.value_num }} · {{ r.qual_total }} {{ t('games', '场') }}</span>
+            </div>
+            <table class="md-split-drilldown-table">
+              <thead>
+                <tr>
+                  <th>{{ t('Date', '日期') }}</th>
+                  <th>{{ t('Matchup', '对阵') }}</th>
+                  <th class="right">{{ t('Result', '结果') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for gm in _games_meta[:500] %}
+                  {% set _gurl = game_url(gm.game_id) %}
+                  {% set _opp_id = r.sub_key if r.sub_key else '' %}
+                  {% set _opp_is_home = gm.home_team_id == _opp_id %}
+                  {% set _player_score = gm.road_score if _opp_is_home else gm.home_score %}
+                  {% set _opp_score = gm.home_score if _opp_is_home else gm.road_score %}
+                  {% set _has_score = _player_score is not none and _opp_score is not none %}
+                  {% set _won = _has_score and _player_score > _opp_score %}
+                  <tr class="md-split-game-row{% if _has_score %} {{ 'game-win' if _won else 'game-loss' }}{% endif %}" onclick="window.location.href='{{ _gurl }}'">
+                    <td class="md-split-game-date">{{ gm.date or '—' }}</td>
+                    <td class="md-split-game-matchup">
+                      <span class="md-split-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
+                      {% if _opp_id %}
+                        <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+                        <span>{{ r.sub_key_info.abbr if r.sub_key_info else _opp_id }}</span>
+                      {% endif %}
+                    </td>
+                    <td class="right md-split-game-score">
+                      {% if _has_score %}
+                        <span class="md-split-wl-chip {{ 'wl-win' if _won else 'wl-loss' }}">{{ 'W' if _won else 'L' }}</span>
+                        <span class="md-split-score-nums">{{ _player_score }}–{{ _opp_score }}</span>
+                      {% else %}—{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% if _games_meta|length > 20 %}
+            <div class="md-split-pagination">
+              <button type="button" class="md-split-pag-btn md-split-pag-prev" aria-label="Previous">‹</button>
+              <span class="md-split-pag-indicator">1</span>
+              <span class="md-split-pag-sep">/</span>
+              <span class="md-split-pag-total">{{ ((_games_meta|length + 19) // 20) }}</span>
+              <button type="button" class="md-split-pag-btn md-split-pag-next" aria-label="Next">›</button>
+              <span class="md-split-pag-range"></span>
+            </div>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% elif has_drilldown %}
       <tr class="drilldown-row" id="drilldown-{{ loop.index }}" style="display:none">
         <td colspan="99">
           <div class="drilldown-panel">
@@ -1915,4 +1998,83 @@ function toggleMetricEnabled(metricKey) {
 })();
 </script>
 {% endif %}
+
+<script>
+/* Inline split-metric drill-down: toggle row below, paginate at 20 games/page */
+(function() {
+  var PAGE_SIZE = 20;
+
+  function initPagination(expansionRow) {
+    var rows = Array.prototype.slice.call(expansionRow.querySelectorAll('.md-split-game-row'));
+    var total = rows.length;
+    var pagination = expansionRow.querySelector('.md-split-pagination');
+    if (total <= PAGE_SIZE) {
+      rows.forEach(function(r) { r.hidden = false; });
+      if (pagination) pagination.hidden = true;
+      return;
+    }
+    if (pagination) pagination.hidden = false;
+    var totalPages = Math.ceil(total / PAGE_SIZE);
+    var currentPage = 0;
+
+    function render() {
+      var start = currentPage * PAGE_SIZE;
+      var end = Math.min(start + PAGE_SIZE, total);
+      rows.forEach(function(r, i) { r.hidden = !(i >= start && i < end); });
+      var ind = expansionRow.querySelector('.md-split-pag-indicator');
+      if (ind) ind.textContent = String(currentPage + 1);
+      var range = expansionRow.querySelector('.md-split-pag-range');
+      if (range) range.textContent = (start + 1) + '–' + end + ' of ' + total;
+      var prevBtn = expansionRow.querySelector('.md-split-pag-prev');
+      var nextBtn = expansionRow.querySelector('.md-split-pag-next');
+      if (prevBtn) prevBtn.disabled = currentPage === 0;
+      if (nextBtn) nextBtn.disabled = currentPage >= totalPages - 1;
+    }
+
+    var prevBtn = expansionRow.querySelector('.md-split-pag-prev');
+    var nextBtn = expansionRow.querySelector('.md-split-pag-next');
+    if (prevBtn && !prevBtn.dataset.bound) {
+      prevBtn.dataset.bound = '1';
+      prevBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (currentPage > 0) { currentPage--; render(); }
+      });
+    }
+    if (nextBtn && !nextBtn.dataset.bound) {
+      nextBtn.dataset.bound = '1';
+      nextBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (currentPage < totalPages - 1) { currentPage++; render(); }
+      });
+    }
+    currentPage = 0;
+    render();
+  }
+
+  document.querySelectorAll('.md-split-trigger').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var idx = btn.dataset.rowIdx;
+      var row = document.getElementById('md-split-drilldown-' + idx);
+      if (!row) return;
+      var isOpen = row.style.display !== 'none' && row.style.display !== '';
+      // Close any other open expansion rows
+      document.querySelectorAll('.md-split-drilldown-row').forEach(function(r) {
+        if (r !== row) r.style.display = 'none';
+      });
+      document.querySelectorAll('.md-split-trigger.open').forEach(function(b) {
+        if (b !== btn) b.classList.remove('open');
+      });
+      if (isOpen) {
+        row.style.display = 'none';
+        btn.classList.remove('open');
+      } else {
+        row.style.display = '';
+        btn.classList.add('open');
+        initPagination(row);
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}
