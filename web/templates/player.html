@@ -780,6 +780,20 @@
     background: color-mix(in srgb, var(--accent) 14%, var(--surface));
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
+  .split-cell.split-cell-placeholder {
+    background: transparent;
+    border-color: color-mix(in srgb, var(--border) 40%, transparent);
+    opacity: 0.55;
+  }
+  .split-cell.split-cell-placeholder:hover {
+    opacity: 0.85;
+    background: color-mix(in srgb, var(--border) 20%, transparent);
+    border-color: var(--border);
+  }
+  .split-cell-value-zero {
+    color: var(--muted-2) !important;
+    font-weight: 500;
+  }
 
   /* ── Multi-game inline panel ────────────────────────────────── */
   .split-cell-trigger {
@@ -1469,7 +1483,8 @@
             {% set _is_team = s.sub_key_info and s.sub_key_info.team_id %}
             {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
             {% set _qual_total = s.context.qualifying_game_total if s.context and s.context.qualifying_game_total else _qual|length %}
-            <div class="split-cell{% if loop.first %} split-cell-top{% endif %}" data-cell-idx="{{ loop.index0 }}">
+            {% set _is_placeholder = s.is_placeholder %}
+            <div class="split-cell{% if loop.first and not _is_placeholder %} split-cell-top{% endif %}{% if _is_placeholder %} split-cell-placeholder{% endif %}" data-cell-idx="{{ loop.index0 }}">
               {% if _is_team %}
                 {% set _team_href = team_url(s.sub_key_info.team_id) %}
                 <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
@@ -1480,7 +1495,9 @@
               {% else %}
                 <span class="split-cell-name">{{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}</span>
               {% endif %}
-              {% if _qual|length == 1 %}
+              {% if _is_placeholder %}
+                <span class="split-cell-value split-cell-value-zero">0</span>
+              {% elif _qual|length == 1 %}
                 <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ t('Open game', '查看比赛') }}">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</a>
               {% elif _qual|length > 1 %}
                 <button type="button" class="split-cell-value split-cell-trigger" data-cell-idx="{{ loop.index0 }}" title="{{ _qual_total }} {{ t('games — click to list', '场比赛 — 点击查看') }}">

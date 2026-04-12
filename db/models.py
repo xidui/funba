@@ -439,6 +439,10 @@ class MetricDefinition(Base):
     sub_key_label = Column(String(64), nullable=True)         # English header, e.g. "Opponent"
     sub_key_label_zh = Column(String(64), nullable=True)      # Chinese header, e.g. "对手球队"
     sub_key_rank_scope = Column(String(16), nullable=True)    # 'entity' | 'global' | None
+    # When True, the player page fills missing sub_keys (e.g. opponents
+    # the player faced but didn't produce any of the measured thing against)
+    # with is_placeholder=True zero entries so all opponents show up.
+    fill_missing_sub_keys_with_zero = Column(Boolean, nullable=False, default=False)
     created_by_user_id = Column(String(36), ForeignKey('User.id'), nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)

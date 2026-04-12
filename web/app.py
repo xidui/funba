@@ -1001,6 +1001,7 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         sub_key_label=getattr(metric_def, "sub_key_label", None),
         sub_key_label_zh=getattr(metric_def, "sub_key_label_zh", None),
         sub_key_rank_scope=getattr(metric_def, "sub_key_rank_scope", None),
+        fill_missing_sub_keys_with_zero=bool(getattr(metric_def, "fill_missing_sub_keys_with_zero", False)),
     )
 
 
@@ -2385,20 +2386,27 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             if cat:
                 metric_category_cache[k] = cat
 
-    # Batch-load sub_key_type for split metrics (we already know which keys are splits,
-    # now fetch the type so we know how to render the labels).
+    # Batch-load sub_key_type + fill_missing_sub_keys_with_zero for split metrics.
     sub_key_type_map: dict[str, str] = {}
+    fill_zero_keys: set[str] = set()
     if split_base_keys:
         md_rows = (
-            session.query(MetricDefinitionModel.key, MetricDefinitionModel.sub_key_type)
+            session.query(
+                MetricDefinitionModel.key,
+                MetricDefinitionModel.sub_key_type,
+                MetricDefinitionModel.fill_missing_sub_keys_with_zero,
+            )
             .filter(MetricDefinitionModel.key.in_(split_base_keys))
             .all()
         )
-        base_sub_key_types = {k: st for k, st in md_rows if st}
+        base_sub_key_types = {k: st for k, st, _ in md_rows if st}
+        base_fill_zero = {k for k, _, fz in md_rows if fz}
         for mk in split_metric_keys:
             base = mk.removesuffix("_career")
             if base in base_sub_key_types:
                 sub_key_type_map[mk] = base_sub_key_types[base]
+            if base in base_fill_zero:
+                fill_zero_keys.add(mk)
     sub_key_label_cache: dict[tuple[str, str], dict] = {}
     if sub_key_type_map:
         team_sub_keys = {r.sub_key for r in rows if r.sub_key and sub_key_type_map.get(r.metric_key) == "team"}
@@ -2500,12 +2508,92 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         else:
             season_metrics.append(entry)
 
+    # For split metrics that opted into fill_missing_sub_keys_with_zero, fill in
+    # opponents the player faced but didn't produce any of the measured thing
+    # against (e.g. Jokic 0 3PM vs some teams). Rate metrics should leave this
+    # flag off because 0 on a rate is ambiguous.
+    opponent_universe: dict[tuple, set[str]] = {}
+    if split_accum and entity_type == "player" and fill_zero_keys:
+        wanted_buckets = {
+            (bucket["entity_id"], season_val)
+            for (mk, season_val), bucket in split_accum.items()
+            if mk in fill_zero_keys
+        }
+        for eid, season_val in wanted_buckets:
+            from metrics.framework.base import career_season_type_code as _career_type, is_career_season as _is_career
+            if _is_career(season_val):
+                code = _career_type(season_val)
+                season_filter = Game.season.like(f"{code}%") if code else None
+            else:
+                season_filter = Game.season == season_val
+            if season_filter is None:
+                opponent_universe[(eid, season_val)] = set()
+                continue
+            q = (
+                session.query(
+                    case(
+                        (PlayerGameStats.team_id == Game.home_team_id, Game.road_team_id),
+                        else_=Game.home_team_id,
+                    ).label("opp_id")
+                )
+                .select_from(PlayerGameStats)
+                .join(Game, Game.game_id == PlayerGameStats.game_id)
+                .filter(
+                    PlayerGameStats.player_id == eid,
+                    PlayerGameStats.team_id.isnot(None),
+                    season_filter,
+                )
+                .distinct()
+            )
+            opponent_universe[(eid, season_val)] = {str(row.opp_id) for row in q.all() if row.opp_id}
+
+    # Resolve labels for any opponent ids we haven't seen yet in split rows.
+    extra_team_ids = {
+        opp_id
+        for universe in opponent_universe.values()
+        for opp_id in universe
+        if ("team", opp_id) not in sub_key_label_cache
+    }
+    for tid in extra_team_ids:
+        team = team_map.get(tid)
+        if team:
+            sub_key_label_cache[("team", tid)] = {
+                "label": _display_team_name(team) or team.abbr or tid,
+                "abbr": team.abbr,
+                "team_id": tid,
+            }
+        else:
+            sub_key_label_cache[("team", tid)] = {"label": tid, "abbr": None, "team_id": tid}
+
     # Collapse split-metric buckets: sort splits best-first, promote the top as primary,
     # then append to season_metrics or alltime_metrics.
     for (metric_key, season_val), bucket in split_accum.items():
         splits = bucket["splits"]
         is_asc = metric_key in _asc_keys or metric_key.removesuffix("_career") in _asc_keys
         splits.sort(key=lambda s: (s["value_num"] or 0), reverse=not is_asc)
+
+        # Fill missing opponents with is_placeholder=True zero entries so the UI
+        # can display "0" cells for opponents the player faced but didn't
+        # produce the measured thing against.
+        if metric_key in fill_zero_keys:
+            universe = opponent_universe.get((bucket["entity_id"], season_val), set())
+            existing = {s["sub_key"] for s in splits}
+            for opp_id in sorted(universe - existing):
+                info = sub_key_label_cache.get(("team", opp_id), {"label": opp_id, "abbr": None, "team_id": opp_id})
+                splits.append({
+                    "sub_key": opp_id,
+                    "sub_key_info": info,
+                    "value_num": 0,
+                    "value_str": "0",
+                    "rank": None,
+                    "total": None,
+                    "is_notable": False,
+                    "is_placeholder": True,
+                    "context": {},
+                    "context_label": "",
+                    "games_meta": [],
+                })
+
         top = splits[0]
         entry = {
             "metric_key": metric_key,

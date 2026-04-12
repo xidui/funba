@@ -625,6 +625,7 @@ METRICS = [
         "category": "scoring",
         "min_sample": 1,
         "code_python": PLAYER_3PM_VS_OPPONENT.strip(),
+        "fill_missing_sub_keys_with_zero": True,
     },
     {
         "key": "player_3p_pct_vs_opponent",
@@ -637,6 +638,7 @@ METRICS = [
         "category": "scoring",
         "min_sample": 20,
         "code_python": PLAYER_3P_PCT_VS_OPPONENT.strip(),
+        "fill_missing_sub_keys_with_zero": False,
     },
     {
         "key": "player_triple_doubles_vs_opponent",
@@ -649,6 +651,7 @@ METRICS = [
         "category": "aggregate",
         "min_sample": 1,
         "code_python": PLAYER_TRIPLE_DOUBLES_VS_OPPONENT.strip(),
+        "fill_missing_sub_keys_with_zero": True,
     },
     {
         "key": "player_max_pts_vs_opponent",
@@ -661,6 +664,7 @@ METRICS = [
         "category": "scoring",
         "min_sample": 1,
         "code_python": PLAYER_MAX_PTS_VS_OPPONENT.strip(),
+        "fill_missing_sub_keys_with_zero": True,
     },
     {
         "key": "player_max_ast_vs_opponent",
@@ -673,6 +677,7 @@ METRICS = [
         "category": "playmaking",
         "min_sample": 1,
         "code_python": PLAYER_MAX_AST_VS_OPPONENT.strip(),
+        "fill_missing_sub_keys_with_zero": True,
     },
 ]
 
@@ -701,6 +706,7 @@ def upsert_metric(session: Session, spec: dict) -> None:
             sub_key_label="Opponent",
             sub_key_label_zh="对手球队",
             sub_key_rank_scope="entity",
+            fill_missing_sub_keys_with_zero=spec.get("fill_missing_sub_keys_with_zero", False),
             created_at=now,
             updated_at=now,
         )
@@ -722,6 +728,7 @@ def upsert_metric(session: Session, spec: dict) -> None:
         existing.sub_key_label = "Opponent"
         existing.sub_key_label_zh = "对手球队"
         existing.sub_key_rank_scope = "entity"
+        existing.fill_missing_sub_keys_with_zero = spec.get("fill_missing_sub_keys_with_zero", False)
         existing.updated_at = now
         action = "updated"
     print(f"  {action}: {spec['key']}")
