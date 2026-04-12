@@ -400,9 +400,54 @@ def register_metric_detail_routes(app, deps):
 
             base_key = metric_key.removesuffix("_career")
             detail_db_templates = deps.load_context_label_templates()(session, {base_key})
-            result_rows = []
+
+            # Batch-load game metadata for rows whose context has qualifying_game_ids,
+            # so we can render inline drill-down tables like the player page does.
+            all_qual_ids: set[str] = set()
+            parsed_contexts: list[dict] = []
             for row in rows:
-                ctx = json.loads(row.context_json) if row.context_json else {}
+                _ctx = {}
+                if row.context_json:
+                    try:
+                        _ctx = json.loads(row.context_json)
+                    except Exception:
+                        _ctx = {}
+                parsed_contexts.append(_ctx)
+                for gid in (_ctx.get("qualifying_game_ids") or []):
+                    if gid:
+                        all_qual_ids.add(str(gid))
+            Game = deps.game_model()
+            games_meta_map: dict[str, dict] = {}
+            if all_qual_ids:
+                game_rows = (
+                    session.query(
+                        Game.game_id,
+                        Game.game_date,
+                        Game.season,
+                        Game.home_team_id,
+                        Game.road_team_id,
+                        Game.home_team_score,
+                        Game.road_team_score,
+                        Game.slug,
+                    )
+                    .filter(Game.game_id.in_(list(all_qual_ids)))
+                    .all()
+                )
+                for g in game_rows:
+                    games_meta_map[str(g.game_id)] = {
+                        "game_id": str(g.game_id),
+                        "date": g.game_date.isoformat() if g.game_date else "",
+                        "season": str(g.season) if g.season else "",
+                        "home_team_id": str(g.home_team_id) if g.home_team_id else "",
+                        "road_team_id": str(g.road_team_id) if g.road_team_id else "",
+                        "home_score": g.home_team_score,
+                        "road_score": g.road_team_score,
+                        "slug": g.slug,
+                    }
+
+            result_rows = []
+            for row_idx, row in enumerate(rows):
+                ctx = parsed_contexts[row_idx]
                 games_counted = (
                     ctx.get("games")
                     or ctx.get("total_games")
@@ -431,6 +476,16 @@ def register_metric_detail_routes(app, deps):
                         game_road_abbr = deps.team_abbr()(team_map, gi[2])
                         game_home_abbr = deps.team_abbr()(team_map, gi[1])
                         game_date_str = deps.fmt_date()(gi[0])
+                # Build per-row games_meta from qualifying_game_ids (sorted by date desc)
+                qual_ids = ctx.get("qualifying_game_ids") or []
+                row_games_meta: list[dict] = []
+                for gid in qual_ids:
+                    meta = games_meta_map.get(str(gid))
+                    if meta:
+                        row_games_meta.append(meta)
+                row_games_meta.sort(key=lambda m: m.get("date") or "", reverse=True)
+                qual_total = ctx.get("qualifying_game_total") or len(qual_ids)
+
                 result_rows.append(
                     {
                         "rank": rank,
@@ -457,6 +512,8 @@ def register_metric_detail_routes(app, deps):
                         "rank_group": row.rank_group,
                         "rank_group_label": rank_group_label,
                         "games_counted": int(games_counted) if games_counted is not None else None,
+                        "games_meta": row_games_meta,
+                        "qual_total": qual_total,
                     }
                 )
             show_rank_group = any(r["rank_group_label"] for r in result_rows)

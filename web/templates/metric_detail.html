@@ -585,6 +585,158 @@
     font-weight: 700;
     color: var(--text);
   }
+  a.value-cell-game-link {
+    color: var(--accent);
+    text-decoration: none;
+    padding: 2px 6px;
+    margin: -2px -6px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+  }
+  a.value-cell-game-link:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+
+  /* Inline multi-game drill-down on metric detail page */
+  .md-value-details {
+    display: inline-block;
+    position: relative;
+  }
+  .md-value-details > summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline;
+    padding: 2px 6px;
+    margin: -2px -6px;
+    border-radius: 4px;
+    color: var(--accent);
+    transition: background 0.15s ease;
+  }
+  .md-value-details > summary::-webkit-details-marker { display: none; }
+  .md-value-details > summary::after {
+    content: " ▾";
+    font-size: 9px;
+    opacity: 0.5;
+  }
+  .md-value-details[open] > summary::after {
+    content: " ▴";
+  }
+  .md-value-details > summary:hover {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  .md-value-games-sup {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--muted-2);
+    margin-left: 2px;
+    vertical-align: super;
+  }
+  .md-games-popup {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 80;
+    min-width: 280px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 6px;
+    text-align: left;
+  }
+  .md-games-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+  }
+  .md-games-table thead th {
+    text-align: left;
+    padding: 4px 6px;
+    color: var(--muted-2);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .md-games-table thead th.right {
+    text-align: right;
+  }
+  .md-games-table tbody tr {
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .md-games-table tbody tr.md-game-row td {
+    padding: 5px 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .md-games-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .md-games-table tbody tr.game-win {
+    background: color-mix(in srgb, var(--win, #4ade80) 6%, transparent);
+  }
+  .md-games-table tbody tr.game-win:hover {
+    background: color-mix(in srgb, var(--win, #4ade80) 14%, transparent);
+  }
+  .md-games-table tbody tr.game-loss {
+    background: color-mix(in srgb, var(--loss, #f87171) 6%, transparent);
+  }
+  .md-games-table tbody tr.game-loss:hover {
+    background: color-mix(in srgb, var(--loss, #f87171) 14%, transparent);
+  }
+  .md-games-table tr:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .md-game-date {
+    color: var(--muted);
+    min-width: 75px;
+  }
+  .md-game-matchup {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .md-game-vs {
+    color: var(--muted-2);
+    font-size: 9px;
+    text-transform: uppercase;
+  }
+  .md-wl-chip {
+    display: inline-block;
+    width: 14px;
+    padding: 0;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-align: center;
+    margin-right: 4px;
+    font-family: 'Outfit', sans-serif;
+  }
+  .md-wl-chip.wl-win {
+    background: var(--win, #4ade80);
+    color: #0b2418;
+  }
+  .md-wl-chip.wl-loss {
+    background: var(--loss, #f87171);
+    color: #2a0b0b;
+  }
+  .md-score-nums {
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .md-games-more {
+    padding: 5px 6px;
+    font-size: 10px;
+    color: var(--muted-2);
+    text-align: center;
+  }
 
   .reason-text {
     font-size: 12px;
@@ -1232,7 +1384,59 @@
         <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}
         <td class="right">
-          {% if has_drilldown and r.value_num is not none %}
+          {% set _games_meta = r.games_meta or [] %}
+          {% if _games_meta|length == 1 %}
+            <a class="value-cell value-cell-game-link" href="{{ game_url(_games_meta[0].game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ r.value_str or r.value_num }}</a>
+          {% elif _games_meta|length > 1 %}
+            <details class="md-value-details">
+              <summary class="value-cell value-cell-trigger" title="{{ r.qual_total }} {{ t('games — click to list', '场比赛 — 点击展开') }}">
+                {{ r.value_str or r.value_num }}<sup class="md-value-games-sup">{{ r.qual_total }}</sup>
+              </summary>
+              <div class="md-games-popup">
+                <table class="md-games-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t('Date', '日期') }}</th>
+                      <th>{{ t('Matchup', '对阵') }}</th>
+                      <th class="right">{{ t('Result', '结果') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for gm in _games_meta[:20] %}
+                      {% set _gurl = game_url(gm.game_id) %}
+                      {# For player-scope split rows, the "opponent" is the sub_key; treat
+                         the player's team as the NON-sub_key side. #}
+                      {% set _opp_id = r.sub_key if r.sub_key else '' %}
+                      {% set _opp_is_home = gm.home_team_id == _opp_id %}
+                      {% set _player_score = gm.road_score if _opp_is_home else gm.home_score %}
+                      {% set _opp_score = gm.home_score if _opp_is_home else gm.road_score %}
+                      {% set _has_score = _player_score is not none and _opp_score is not none %}
+                      {% set _won = _has_score and _player_score > _opp_score %}
+                      <tr class="md-game-row{% if _has_score %} {{ 'game-win' if _won else 'game-loss' }}{% endif %}" onclick="window.location.href='{{ _gurl }}'">
+                        <td class="md-game-date">{{ gm.date or '—' }}</td>
+                        <td class="md-game-matchup">
+                          <span class="md-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
+                          {% if _opp_id %}
+                            <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'" style="width:16px;height:16px;">
+                            <span>{{ r.sub_key_info.abbr if r.sub_key_info else _opp_id }}</span>
+                          {% endif %}
+                        </td>
+                        <td class="right md-game-score">
+                          {% if _has_score %}
+                            <span class="md-wl-chip {{ 'wl-win' if _won else 'wl-loss' }}">{{ 'W' if _won else 'L' }}</span>
+                            <span class="md-score-nums">{{ _player_score }}–{{ _opp_score }}</span>
+                          {% else %}—{% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% if _games_meta|length > 20 %}
+                <div class="md-games-more">+{{ (_games_meta|length) - 20 }} {{ t('more', '更多') }}</div>
+                {% endif %}
+              </div>
+            </details>
+          {% elif has_drilldown and r.value_num is not none %}
           <span class="value-cell games-drilldown"
                 data-entity-id="{{ r.entity_id }}"
                 data-season="{{ r.season_raw }}"
