@@ -493,20 +493,24 @@ class TeamResolver:
         start_year = _to_int_or_none(_row_value(row, "start_year", "year_founded", "first_season", "season_founded"))
         end_year = _to_int_or_none(_row_value(row, "end_year", "last_season", "season_active_till"))
 
+        is_still_active = end_year is None or end_year >= 2100
         updates = {
             "full_name": team.full_name if preserve_identity else full_name,
             "abbr": team.abbr if preserve_identity else abbr,
             "nick_name": team.nick_name if preserve_identity else (nick_name or (full_name.split()[-1] if full_name else None)),
             "city": team.city if preserve_identity else city,
             "year_founded": start_year,
-            "is_legacy": False if end_year is None else True,
             "start_season": str(start_year) if start_year is not None else None,
-            "end_season": str(end_year) if end_year is not None else None,
-            "active": end_year is None,
         }
         for field, value in updates.items():
             if value is None:
                 continue
+            if getattr(team, field) != value:
+                setattr(team, field, value)
+                changed = True
+        # Lifecycle fields: always apply (must allow clearing to None)
+        new_end_season = None if is_still_active else str(end_year)
+        for field, value in (("is_legacy", not is_still_active), ("active", is_still_active), ("end_season", new_end_season)):
             if getattr(team, field) != value:
                 setattr(team, field, value)
                 changed = True
