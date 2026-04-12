@@ -2386,27 +2386,34 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             if cat:
                 metric_category_cache[k] = cat
 
-    # Batch-load sub_key_type + fill_missing_sub_keys_with_zero for split metrics.
+    # Batch-load sub_key_type + fill flag + min_sample for split metrics.
+    # min_sample > 1 is used as the signal that this is a rate-style metric
+    # (needs a meaningful attempt threshold), so placeholder cells show "—"
+    # instead of "0" to avoid implying a degenerate 0/0 rate.
     sub_key_type_map: dict[str, str] = {}
     fill_zero_keys: set[str] = set()
+    metric_min_sample: dict[str, int] = {}
     if split_base_keys:
         md_rows = (
             session.query(
                 MetricDefinitionModel.key,
                 MetricDefinitionModel.sub_key_type,
                 MetricDefinitionModel.fill_missing_sub_keys_with_zero,
+                MetricDefinitionModel.min_sample,
             )
             .filter(MetricDefinitionModel.key.in_(split_base_keys))
             .all()
         )
-        base_sub_key_types = {k: st for k, st, _ in md_rows if st}
-        base_fill_zero = {k for k, _, fz in md_rows if fz}
+        base_sub_key_types = {k: st for k, st, _, _ in md_rows if st}
+        base_fill_zero = {k for k, _, fz, _ in md_rows if fz}
+        base_min_sample = {k: int(ms or 1) for k, _, _, ms in md_rows}
         for mk in split_metric_keys:
             base = mk.removesuffix("_career")
             if base in base_sub_key_types:
                 sub_key_type_map[mk] = base_sub_key_types[base]
             if base in base_fill_zero:
                 fill_zero_keys.add(mk)
+            metric_min_sample[mk] = base_min_sample.get(base, 1)
     sub_key_label_cache: dict[tuple[str, str], dict] = {}
     if sub_key_type_map:
         team_sub_keys = {r.sub_key for r in rows if r.sub_key and sub_key_type_map.get(r.metric_key) == "team"}
@@ -2573,18 +2580,22 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         splits.sort(key=lambda s: (s["value_num"] or 0), reverse=not is_asc)
 
         # Fill missing opponents with is_placeholder=True zero entries so the UI
-        # can display "0" cells for opponents the player faced but didn't
-        # produce the measured thing against.
+        # can display every opponent the player faced, including ones that
+        # didn't produce the measured thing. Rate-style metrics (min_sample > 1)
+        # use "—" to avoid implying a 0/0 rate; count/max metrics use "0".
         if metric_key in fill_zero_keys:
             universe = opponent_universe.get((bucket["entity_id"], season_val), set())
             existing = {s["sub_key"] for s in splits}
+            is_rate = metric_min_sample.get(metric_key, 1) > 1
+            ph_value_num = None if is_rate else 0
+            ph_value_str = "—" if is_rate else "0"
             for opp_id in sorted(universe - existing):
                 info = sub_key_label_cache.get(("team", opp_id), {"label": opp_id, "abbr": None, "team_id": opp_id})
                 splits.append({
                     "sub_key": opp_id,
                     "sub_key_info": info,
-                    "value_num": 0,
-                    "value_str": "0",
+                    "value_num": ph_value_num,
+                    "value_str": ph_value_str,
                     "rank": None,
                     "total": None,
                     "is_notable": False,
