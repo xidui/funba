@@ -885,6 +885,43 @@
   .split-game-td-score {
     color: var(--text);
     font-weight: 500;
+    white-space: nowrap;
+  }
+  .split-game-trow.game-win {
+    background: color-mix(in srgb, var(--win, #4ade80) 7%, transparent);
+  }
+  .split-game-trow.game-win:hover {
+    background: color-mix(in srgb, var(--win, #4ade80) 14%, transparent);
+  }
+  .split-game-trow.game-loss {
+    background: color-mix(in srgb, var(--loss, #f87171) 7%, transparent);
+  }
+  .split-game-trow.game-loss:hover {
+    background: color-mix(in srgb, var(--loss, #f87171) 14%, transparent);
+  }
+  .split-game-wl-chip {
+    display: inline-block;
+    width: 16px;
+    padding: 1px 0;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+    margin-right: 6px;
+    font-family: 'Outfit', sans-serif;
+  }
+  .split-game-wl-chip.wl-win {
+    background: var(--win, #4ade80);
+    color: #0b2418;
+  }
+  .split-game-wl-chip.wl-loss {
+    background: var(--loss, #f87171);
+    color: #2a0b0b;
+  }
+  .split-game-score-nums {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-size: 11px;
   }
   .split-game-more {
     padding: 8px 10px;
@@ -1425,25 +1462,31 @@
                     <tr>
                       <th>{{ t('Date', '日期') }}</th>
                       <th>{{ t('Matchup', '对阵') }}</th>
-                      <th class="right">{{ t('Score', '比分') }}</th>
+                      <th class="right">{{ t('Result', '结果') }}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {% for gm in (s.games_meta or [])[:100] %}
                       {% set _gurl = game_url(gm.game_id) %}
-                      {% set _is_home = gm.home_team_id == (s.sub_key_info.team_id if s.sub_key_info else '') %}
-                      <tr class="split-game-trow" onclick="window.location.href='{{ _gurl }}'">
+                      {% set _opp_id = (s.sub_key_info.team_id if s.sub_key_info else '') %}
+                      {% set _opp_is_home = gm.home_team_id == _opp_id %}
+                      {% set _player_score = gm.road_score if _opp_is_home else gm.home_score %}
+                      {% set _opp_score = gm.home_score if _opp_is_home else gm.road_score %}
+                      {% set _has_score = _player_score is not none and _opp_score is not none %}
+                      {% set _won = _has_score and _player_score > _opp_score %}
+                      <tr class="split-game-trow{% if _has_score %} {{ 'game-win' if _won else 'game-loss' }}{% endif %}" onclick="window.location.href='{{ _gurl }}'">
                         <td class="split-game-td-date">{{ gm.date or '—' }}</td>
                         <td class="split-game-td-matchup">
-                          <span class="split-game-vs">{{ '@' if _is_home else 'vs' }}</span>
-                          {% if s.sub_key_info and s.sub_key_info.team_id %}
-                          <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+                          <span class="split-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
+                          {% if _opp_id %}
+                          <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
                           <span>{{ s.sub_key_info.abbr }}</span>
                           {% endif %}
                         </td>
                         <td class="right split-game-td-score">
-                          {% if gm.road_score and gm.home_score %}
-                          {{ gm.road_score }}–{{ gm.home_score }}
+                          {% if _has_score %}
+                          <span class="split-game-wl-chip {{ 'wl-win' if _won else 'wl-loss' }}">{{ 'W' if _won else 'L' }}</span>
+                          <span class="split-game-score-nums">{{ _player_score }}–{{ _opp_score }}</span>
                           {% else %}—{% endif %}
                         </td>
                       </tr>
