@@ -978,16 +978,27 @@ def _group_award_entries(entries: list[dict[str, object]]) -> list[dict[str, obj
     return sections
 
 
+_METRIC_SAMPLE_NOTE_RE = re.compile(r"[（(]([^)）]+)[）)]")
+
+
 def _metric_def_view(metric_def, *, status: str | None = None, source_type: str | None = None):
     """Normalize runtime and DB metric objects for template rendering."""
     name_zh = getattr(metric_def, "name_zh", "") or ""
     description_zh = getattr(metric_def, "description_zh", "") or ""
+    description = _localized_metric_description(getattr(metric_def, "description", "") or "", description_zh)
+    min_sample = int(getattr(metric_def, "min_sample", 1) or 1)
+    sample_note = ""
+    if min_sample > 1:
+        m = _METRIC_SAMPLE_NOTE_RE.search(description or "")
+        if m:
+            sample_note = m.group(1).strip()
     return SimpleNamespace(
         key=metric_def.key,
         name=_localized_metric_name(metric_def.name, name_zh),
         name_en=metric_def.name,
         name_zh=name_zh,
-        description=_localized_metric_description(getattr(metric_def, "description", "") or "", description_zh),
+        description=description,
+        sample_note=sample_note,
         description_en=getattr(metric_def, "description", "") or "",
         description_zh=description_zh,
         scope=metric_def.scope,

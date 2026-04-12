@@ -137,6 +137,16 @@
   .scope-badge.game   { background: color-mix(in srgb, #f97316 15%, transparent); color: #f97316; }
   .scope-badge.season { background: color-mix(in srgb, #a78bfa 15%, transparent); color: #a78bfa; }
 
+  .sample-note-pill {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted-2) 14%, transparent);
+    color: var(--muted-2);
+    white-space: nowrap;
+  }
+
   .ongoing-badge {
     font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
     padding: 1px 6px; border-radius: 999px; margin-left: 6px;
@@ -934,6 +944,9 @@
     <div class="detail-meta">
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
+      {% if metric_def.sample_note %}
+      <span class="sample-note-pill" title="{{ metric_def.sample_note }}">{{ metric_def.sample_note }}</span>
+      {% endif %}
       <span id="metric-status-pill" class="status-pill {{ backfill.status }}">{{ backfill.status|replace('_', ' ') }}</span>
       {% set _meta_link = "font-size:11px;font-weight:700;text-decoration:none;cursor:pointer;background:none;border:none;padding:0;" %}
       {% if can_create_metrics %}
