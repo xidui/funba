@@ -152,12 +152,14 @@ def rank_metrics(
 
     allowed_keys = {candidate["key"] for candidate in candidates}
     results = []
+    seen_keys: set[str] = set()
     for item in parsed:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key", "")).strip()
-        if not key or key not in allowed_keys:
+        if not key or key not in allowed_keys or key in seen_keys:
             continue
+        seen_keys.add(key)
         results.append({
             "key": key,
             "reason": str(item.get("reason", "")).strip() or "Relevant match.",
