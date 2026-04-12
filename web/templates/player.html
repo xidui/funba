@@ -686,6 +686,12 @@
     user-select: none;
   }
   .matchup-split-card > summary::-webkit-details-marker { display: none; }
+  .split-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
   .split-title {
     font-family: 'Outfit', sans-serif;
     font-size: 15px;
@@ -1506,10 +1512,12 @@
   {% macro render_split_wide(m, season_for_url) %}
     <details class="matchup-split-card{% if m.is_notable %} notable{% endif %}">
       <summary>
-        <div class="split-title">{{ m.metric_name }}</div>
-        {% if m.sample_note %}
-        <div class="split-sample-note">{{ m.sample_note }}</div>
-        {% endif %}
+        <div class="split-title-block">
+          <div class="split-title">{{ m.metric_name }}</div>
+          {% if m.sample_note %}
+          <div class="split-sample-note">{{ m.sample_note }}</div>
+          {% endif %}
+        </div>
         <div class="split-primary">
           <span class="split-primary-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</span>
           {% if m.primary_sub_key_info %}
