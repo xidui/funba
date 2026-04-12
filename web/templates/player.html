@@ -776,85 +776,131 @@
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
-  /* ── Multi-game dropdown ────────────────────────────────────── */
-  .split-cell-games-details {
-    position: relative;
-    display: inline-block;
-  }
-  .split-cell-games-details > summary {
-    list-style: none;
+  /* ── Multi-game inline panel ────────────────────────────────── */
+  .split-cell-trigger {
     cursor: pointer;
-    display: inline;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    border-radius: 4px;
+    font-family: inherit;
   }
-  .split-cell-games-details > summary::-webkit-details-marker { display: none; }
-  .split-cell-games-details > summary::after {
-    content: "▾";
-    font-size: 8px;
-    margin-left: 2px;
-    opacity: 0.5;
+  .split-cell-trigger:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
-  .split-cell-games-details[open] > summary::after {
-    content: "▴";
+  .split-cell.split-cell-active {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
-  .split-games-popup {
+  .split-game-panel {
+    position: relative;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+  .split-game-arrow {
     position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    min-width: 220px;
-    max-width: 300px;
-    max-height: 320px;
-    overflow-y: auto;
+    top: -1px;
+    left: 0;
+    width: 14px;
+    height: 14px;
+    transform: translate(-50%, -50%) rotate(45deg);
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px;
-    z-index: 50;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    transition: left 0.15s ease;
+  }
+  .split-game-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 8px;
+    padding: 0 2px;
+  }
+  .split-game-panel-total {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .split-game-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
   }
-  .split-game-row {
+  .split-game-table thead th {
+    text-align: left;
+    padding: 6px 10px;
+    color: var(--muted-2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+  }
+  .split-game-table thead th.right {
+    text-align: right;
+  }
+  .split-game-table tbody tr {
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .split-game-table tbody tr:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .split-game-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+  .split-game-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .split-game-td-date {
+    color: var(--muted);
+    min-width: 90px;
+  }
+  .split-game-td-matchup {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 8px;
-    border-radius: 5px;
-    font-size: 11px;
+  }
+  .split-game-td-matchup img {
+    width: 16px;
+    height: 16px;
+  }
+  .split-game-td-matchup .split-game-vs {
+    color: var(--muted-2);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+  .split-game-td-score {
     color: var(--text);
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .split-game-row:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  .split-game-row img {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-  }
-  .split-game-date {
-    color: var(--muted);
     font-weight: 500;
-    min-width: 70px;
-  }
-  .split-game-vs {
-    color: var(--muted-2);
-    font-size: 10px;
-  }
-  .split-game-opp {
-    color: var(--text);
-    font-weight: 600;
-    font-size: 11px;
-  }
-  .split-game-score {
-    margin-left: auto;
-    color: var(--muted-2);
-    font-size: 10px;
   }
   .split-game-more {
-    padding: 6px 8px;
-    font-size: 10px;
+    padding: 8px 10px;
+    font-size: 11px;
     color: var(--muted-2);
     text-align: center;
+  }
+  @media (max-width: 640px) {
+    .split-game-table thead th,
+    .split-game-table td {
+      padding: 6px 6px;
+      font-size: 11px;
+    }
+    .split-game-td-date {
+      min-width: 70px;
+    }
   }
   .split-footer {
     margin-top: 10px;
@@ -1337,7 +1383,7 @@
             {% set _is_team = s.sub_key_info and s.sub_key_info.team_id %}
             {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
             {% set _qual_total = s.context.qualifying_game_total if s.context and s.context.qualifying_game_total else _qual|length %}
-            <div class="split-cell{% if loop.first %} split-cell-top{% endif %}">
+            <div class="split-cell{% if loop.first %} split-cell-top{% endif %}" data-cell-idx="{{ loop.index0 }}">
               {% if _is_team %}
                 {% set _team_href = team_url(s.sub_key_info.team_id) %}
                 <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
@@ -1351,38 +1397,66 @@
               {% if _qual|length == 1 %}
                 <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ t('Open game', '查看比赛') }}">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</a>
               {% elif _qual|length > 1 %}
-                <details class="split-cell-games-details">
-                  <summary class="split-cell-value" title="{{ _qual_total }} {{ t('games — click to list', '场比赛 — 点击展开') }}">
-                    {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
-                  </summary>
-                  <div class="split-games-popup">
-                    {% for gm in (s.games_meta or [])[:50] %}
-                      {% set _gurl = game_url(gm.game_id) %}
-                      {% set _opp_id = gm.home_team_id if gm.home_team_id != (s.sub_key_info.team_id if s.sub_key_info else '') else gm.road_team_id %}
-                      {% set _is_home = gm.home_team_id == (s.sub_key_info.team_id if s.sub_key_info else '') %}
-                      <a href="{{ _gurl or '#' }}" class="split-game-row">
-                        <span class="split-game-date">{{ gm.date or '—' }}</span>
-                        <span class="split-game-vs">{{ '@' if _is_home else 'vs' }}</span>
-                        {% if s.sub_key_info and s.sub_key_info.team_id %}
-                        <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
-                             alt="" loading="lazy" onerror="this.style.display='none'">
-                        <span class="split-game-opp">{{ s.sub_key_info.abbr }}</span>
-                        {% endif %}
-                        {% if gm.road_score and gm.home_score %}
-                        <span class="split-game-score">{{ gm.road_score }}-{{ gm.home_score }}</span>
-                        {% endif %}
-                      </a>
-                    {% endfor %}
-                    {% if (s.games_meta or [])|length > 50 %}
-                    <div class="split-game-more">{{ t('+', '+') }}{{ (s.games_meta|length) - 50 }} {{ t('more', '更多') }}</div>
-                    {% endif %}
-                  </div>
-                </details>
+                <button type="button" class="split-cell-value split-cell-trigger" data-cell-idx="{{ loop.index0 }}" title="{{ _qual_total }} {{ t('games — click to list', '场比赛 — 点击查看') }}">
+                  {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
+                </button>
               {% else %}
                 <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
               {% endif %}
             </div>
           {% endfor %}
+        </div>
+        <div class="split-game-panel" hidden>
+          <div class="split-game-arrow"></div>
+          <div class="split-game-panel-body">
+            {% for s in m.splits %}
+              {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
+              {% if _qual|length > 1 %}
+              <div class="split-game-panel-content" data-cell-idx="{{ loop.index0 }}" hidden>
+                <div class="split-game-panel-header">
+                  {% if s.sub_key_info and s.sub_key_info.team_id %}
+                  <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg" alt="" style="width:18px;height:18px;">
+                  <strong>{{ m.metric_name }} vs {{ s.sub_key_info.abbr or s.sub_key_info.label }}</strong>
+                  <span class="split-game-panel-total">· {{ s.value_str if s.value_str else s.value_num }} · {{ (s.games_meta or [])|length }} {{ t('games', '场') }}</span>
+                  {% endif %}
+                </div>
+                <table class="split-game-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t('Date', '日期') }}</th>
+                      <th>{{ t('Matchup', '对阵') }}</th>
+                      <th class="right">{{ t('Score', '比分') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for gm in (s.games_meta or [])[:100] %}
+                      {% set _gurl = game_url(gm.game_id) %}
+                      {% set _is_home = gm.home_team_id == (s.sub_key_info.team_id if s.sub_key_info else '') %}
+                      <tr class="split-game-trow" onclick="window.location.href='{{ _gurl }}'">
+                        <td class="split-game-td-date">{{ gm.date or '—' }}</td>
+                        <td class="split-game-td-matchup">
+                          <span class="split-game-vs">{{ '@' if _is_home else 'vs' }}</span>
+                          {% if s.sub_key_info and s.sub_key_info.team_id %}
+                          <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+                          <span>{{ s.sub_key_info.abbr }}</span>
+                          {% endif %}
+                        </td>
+                        <td class="right split-game-td-score">
+                          {% if gm.road_score and gm.home_score %}
+                          {{ gm.road_score }}–{{ gm.home_score }}
+                          {% else %}—{% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% if (s.games_meta or [])|length > 100 %}
+                <div class="split-game-more">+{{ (s.games_meta|length) - 100 }} {{ t('more', '更多') }}</div>
+                {% endif %}
+              </div>
+              {% endif %}
+            {% endfor %}
+          </div>
         </div>
         <div class="split-footer">
           <a href="{{ url_for('metric_detail', metric_key=m.metric_key, season=season_for_url, expand='1', entity=m.entity_id) }}" class="split-full-link">{{ t('full leaderboard →', '完整排行 →') }}</a>
@@ -1422,6 +1496,57 @@
     {% endfor %}
     {% endif %}
   </div>
+
+  <script>
+  (function() {
+    document.querySelectorAll('.matchup-split-card').forEach(function(card) {
+      var panel = card.querySelector('.split-game-panel');
+      if (!panel) return;
+      var arrow = panel.querySelector('.split-game-arrow');
+      var contents = panel.querySelectorAll('.split-game-panel-content');
+      var grid = card.querySelector('.split-grid');
+      if (!grid) return;
+
+      function showCell(cellEl, idx) {
+        // highlight active cell
+        grid.querySelectorAll('.split-cell-active').forEach(function(c) { c.classList.remove('split-cell-active'); });
+        cellEl.classList.add('split-cell-active');
+
+        // position arrow under the clicked cell (horizontal only)
+        var gridRect = grid.getBoundingClientRect();
+        var cellRect = cellEl.getBoundingClientRect();
+        var arrowLeft = cellRect.left - gridRect.left + cellRect.width / 2;
+        arrow.style.left = arrowLeft + 'px';
+
+        // swap content
+        contents.forEach(function(c) {
+          c.hidden = c.dataset.cellIdx !== String(idx);
+        });
+        panel.hidden = false;
+      }
+
+      function hidePanel() {
+        panel.hidden = true;
+        grid.querySelectorAll('.split-cell-active').forEach(function(c) { c.classList.remove('split-cell-active'); });
+      }
+
+      grid.querySelectorAll('.split-cell-trigger').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var idx = btn.dataset.cellIdx;
+          var cellEl = btn.closest('.split-cell');
+          // toggle: if already showing this one, hide
+          if (!panel.hidden && cellEl.classList.contains('split-cell-active')) {
+            hidePanel();
+            return;
+          }
+          showCell(cellEl, idx);
+        });
+      });
+    });
+  })();
+  </script>
   {% endif %}
 </section>
 {% endif %}
