@@ -22,6 +22,7 @@ WEB_APP_DB_MODEL_NAMES = (
     "MetricRunLog",
     "PageView",
     "Player",
+    "PlayerGamePeriodStats",
     "PlayerGameStats",
     "PlayerSalary",
     "ShotRecord",

@@ -49,7 +49,23 @@ def _session_ctx(session):
 class TestGamePageFallback(unittest.TestCase):
     def setUp(self):
         self.web_app = _make_app_module()
-        self.web_app.Game = SimpleNamespace(game_id=column("game_id"))
+        self.web_app.Game = SimpleNamespace(game_id=column("game_id"), slug=column("slug"))
+
+    def test_game_page_redirects_legacy_numeric_game_id_to_slug(self):
+        session = _session_ctx(MagicMock())
+        slug_query = MagicMock()
+        legacy_query = MagicMock()
+        persisted_game = SimpleNamespace(game_id="0022501187", slug="20260412-was-cle")
+        slug_query.filter.return_value.first.return_value = None
+        legacy_query.filter.return_value.first.return_value = persisted_game
+        session.query.side_effect = [slug_query, legacy_query]
+
+        with self.web_app.app.test_request_context("/games/0022501187?tab=pbp"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session):
+                response = self.web_app.game_page("0022501187")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/games/20260412-was-cle?tab=pbp")
 
     def test_game_page_renders_live_game_from_scoreboard_when_db_row_is_missing(self):
         session = _session_ctx(MagicMock())
@@ -133,7 +149,7 @@ class TestGamePageFallback(unittest.TestCase):
         self.assertEqual(response["game_status"], "upcoming")
         self.assertEqual(response["game"].game_id, "0022501185")
         self.assertEqual(response["game"].season, "22025")
-        self.assertIsNone(response["live_refresh_interval_ms"])
+        self.assertEqual(response["live_refresh_interval_ms"], 60000)
 
     def test_game_page_renders_degraded_live_view_when_live_detail_api_is_unavailable(self):
         session = _session_ctx(MagicMock())

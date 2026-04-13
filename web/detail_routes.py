@@ -5,7 +5,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from flask import abort, jsonify, request
+from flask import abort, jsonify, redirect, request
 from sqlalchemy import case, func
 
 from db.game_status import GAME_STATUS_COMPLETED, GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
@@ -528,6 +528,15 @@ def register_detail_routes(
             from db.backfill_nba_game_line_score import has_game_line_score
 
             persisted_game = session.query(Game).filter(Game.slug == slug).first()
+            if persisted_game is None:
+                legacy_game_id = slug.removeprefix("game-") if slug.startswith("game-") else slug
+                persisted_game = session.query(Game).filter(Game.game_id == legacy_game_id).first()
+                if persisted_game is not None and getattr(persisted_game, "slug", None) and persisted_game.slug != slug:
+                    redirect_params = request.args.to_dict(flat=True)
+                    return redirect(
+                        get_localized_url_for()("game_page", slug=persisted_game.slug, **redirect_params),
+                        code=302,
+                    )
             game = persisted_game
             game_id = game.game_id if game else slug
 
