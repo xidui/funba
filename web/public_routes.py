@@ -259,6 +259,7 @@ def register_public_routes(
 
             team_record: dict[str, tuple[int, int]] = {}
             team_last10: dict[str, list[str]] = {}
+            team_last_date: dict[str, Any] = {}
             h2h_series: dict[tuple[str, str], tuple[int, int]] = {}
             current_season_for_records: str | None = None
 
@@ -312,6 +313,9 @@ def register_public_routes(
                             "W" if pg.wining_team_id == tid else "L"
                             for pg in last10_chrono
                         ]
+                        # Most recent played date for rest-day calculation.
+                        if games_for_team:
+                            team_last_date[tid] = games_for_team[0].game_date
 
                     # Head-to-head series this season between each unique pair.
                     if upcoming_pairs:
@@ -403,6 +407,23 @@ def register_public_routes(
                 road_rec = team_record.get(game.road_team_id) if status == GAME_STATUS_UPCOMING else None
                 home_l10 = team_last10.get(game.home_team_id) if status == GAME_STATUS_UPCOMING else None
                 road_l10 = team_last10.get(game.road_team_id) if status == GAME_STATUS_UPCOMING else None
+
+                def _rest_info(team_id: str | None):
+                    if not team_id or not game.game_date:
+                        return None
+                    last = team_last_date.get(team_id)
+                    if not last:
+                        return None
+                    days = (game.game_date - last).days
+                    if days <= 0:
+                        return None
+                    return {
+                        "days": days,
+                        "is_b2b": days == 1,
+                    }
+
+                home_rest = _rest_info(game.home_team_id) if status == GAME_STATUS_UPCOMING else None
+                road_rest = _rest_info(game.road_team_id) if status == GAME_STATUS_UPCOMING else None
                 h2h_display = None
                 if status == GAME_STATUS_UPCOMING and game.home_team_id and game.road_team_id:
                     pair = tuple(sorted([game.home_team_id, game.road_team_id]))
@@ -457,6 +478,8 @@ def register_public_routes(
                     "road_record": road_rec,
                     "home_last10": home_l10,
                     "road_last10": road_l10,
+                    "home_rest": home_rest,
+                    "road_rest": road_rest,
                     "h2h": h2h_display,
                     "tipoff_et": tipoff_et_display,
                 }

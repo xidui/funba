@@ -516,6 +516,23 @@
     background: color-mix(in srgb, var(--loss) 22%, transparent);
     color: var(--loss);
   }
+  .up-rest-badge {
+    display: inline-block;
+    margin-top: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 60%, transparent);
+    color: var(--muted-2);
+  }
+  .up-rest-badge.up-rest-b2b {
+    background: color-mix(in srgb, var(--loss) 22%, transparent);
+    color: var(--loss);
+  }
+
   .up-tipoff {
     font-family: 'Outfit', sans-serif;
     font-size: 20px;
@@ -930,6 +947,13 @@
             </div>
           </div>
           {% endif %}
+          {% if g.road_rest %}
+            {% if g.road_rest.is_b2b %}
+            <span class="up-rest-badge up-rest-b2b" title="{{ t('Played yesterday', '昨日刚战') }}">{{ t('B2B', '背靠背') }}</span>
+            {% else %}
+            <span class="up-rest-badge">{{ g.road_rest.days }} {{ t('days rest', '天休整') }}</span>
+            {% endif %}
+          {% endif %}
         </div>
         <div class="ts-cell ts-upcoming-middle">
           {% if g.tipoff_et %}
@@ -962,6 +986,13 @@
               {% endfor %}
             </div>
           </div>
+          {% endif %}
+          {% if g.home_rest %}
+            {% if g.home_rest.is_b2b %}
+            <span class="up-rest-badge up-rest-b2b" title="{{ t('Played yesterday', '昨日刚战') }}">{{ t('B2B', '背靠背') }}</span>
+            {% else %}
+            <span class="up-rest-badge">{{ g.home_rest.days }} {{ t('days rest', '天休整') }}</span>
+            {% endif %}
           {% endif %}
         </div>
         {% else %}
