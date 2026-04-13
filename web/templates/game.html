@@ -38,6 +38,162 @@
     padding: 32px 28px 24px;
   }
 
+  /* ── Upcoming preview card ── */
+  .upcoming-preview {
+    padding: 20px 24px 24px;
+    margin-top: 16px;
+  }
+  .up-tipoff-hero {
+    text-align: center;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+  .up-tipoff-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .up-tipoff-time {
+    font-family: 'Outfit', sans-serif;
+    font-size: 30px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 0.01em;
+  }
+  .up-preview-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  .up-preview-team {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .up-preview-team-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .up-preview-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+  }
+  .up-preview-name {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--heading);
+    text-align: center;
+  }
+  .up-preview-record {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .up-preview-record-num {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--heading);
+    line-height: 1;
+  }
+  .up-preview-record-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .up-preview-section-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  .up-preview-last10 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .up-preview-chips {
+    display: flex;
+    gap: 3px;
+  }
+  .up-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .up-chip-w { background: color-mix(in srgb, var(--win) 22%, transparent); color: var(--win); }
+  .up-chip-l { background: color-mix(in srgb, var(--loss) 22%, transparent); color: var(--loss); }
+  .up-rest-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 60%, transparent);
+    color: var(--muted-2);
+  }
+  .up-rest-badge.up-rest-b2b {
+    background: color-mix(in srgb, var(--loss) 22%, transparent);
+    color: var(--loss);
+  }
+  .up-preview-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 0 8px;
+  }
+  .up-preview-vs {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .up-preview-h2h {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .up-preview-h2h-score {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+  .up-h2h-side.up-h2h-leader { color: var(--heading); }
+  .up-h2h-dash { color: var(--muted); }
+
   .sb-team {
     display: flex;
     flex-direction: column;
@@ -918,6 +1074,101 @@
   </div>
   {% endif %}
 </div>
+
+{% if upcoming_preview %}
+<!-- ── Upcoming preview: records, last 10, H2H, rest ──────────────── -->
+<div class="card upcoming-preview">
+  {% if upcoming_preview.tipoff_et %}
+  <div class="up-tipoff-hero">
+    <div class="up-tipoff-label">{{ t('Tip-off', '开赛时间') }}</div>
+    <div class="up-tipoff-time">{{ upcoming_preview.tipoff_et }}</div>
+  </div>
+  {% endif %}
+
+  <div class="up-preview-grid">
+    {# ── Road team block ── #}
+    <div class="up-preview-team">
+      <a href="{{ team_url(game.road_team_id) }}" class="up-preview-team-link">
+        <img class="up-preview-logo"
+             src="https://cdn.nba.com/logos/nba/{{ game.road_team_id }}/global/L/logo.svg"
+             alt="" loading="lazy" onerror="this.style.display='none'">
+        <div class="up-preview-name">{{ team_name(game.road_team_id) }}</div>
+      </a>
+      <div class="up-preview-record">
+        <span class="up-preview-record-num">{{ upcoming_preview.road.wins }}-{{ upcoming_preview.road.losses }}</span>
+        <span class="up-preview-record-label">{{ t('Record', '战绩') }}</span>
+      </div>
+      {% if upcoming_preview.road.last10 %}
+      <div class="up-preview-last10">
+        <div class="up-preview-section-label">{{ t('Last 10', '近10场') }}</div>
+        <div class="up-preview-chips">
+          {% for r in upcoming_preview.road.last10 %}
+          <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if upcoming_preview.road.rest %}
+      {% if upcoming_preview.road.rest.is_b2b %}
+      <span class="up-rest-badge up-rest-b2b">{{ t('B2B', '背靠背') }}</span>
+      {% else %}
+      <span class="up-rest-badge">{{ upcoming_preview.road.rest.days }} {{ t('days rest', '天休整') }}</span>
+      {% endif %}
+      {% endif %}
+    </div>
+
+    {# ── Center: VS + H2H ── #}
+    <div class="up-preview-center">
+      <div class="up-preview-vs">VS</div>
+      {% if upcoming_preview.h2h %}
+      <div class="up-preview-h2h">
+        <div class="up-preview-section-label">{{ t('Season Series', '本季系列') }}</div>
+        <div class="up-preview-h2h-score">
+          <span class="up-h2h-side{% if upcoming_preview.h2h.road_wins > upcoming_preview.h2h.home_wins %} up-h2h-leader{% endif %}">
+            {{ team_abbr(game.road_team_id) }} {{ upcoming_preview.h2h.road_wins }}
+          </span>
+          <span class="up-h2h-dash">—</span>
+          <span class="up-h2h-side{% if upcoming_preview.h2h.home_wins > upcoming_preview.h2h.road_wins %} up-h2h-leader{% endif %}">
+            {{ upcoming_preview.h2h.home_wins }} {{ team_abbr(game.home_team_id) }}
+          </span>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Home team block ── #}
+    <div class="up-preview-team">
+      <a href="{{ team_url(game.home_team_id) }}" class="up-preview-team-link">
+        <img class="up-preview-logo"
+             src="https://cdn.nba.com/logos/nba/{{ game.home_team_id }}/global/L/logo.svg"
+             alt="" loading="lazy" onerror="this.style.display='none'">
+        <div class="up-preview-name">{{ team_name(game.home_team_id) }}</div>
+      </a>
+      <div class="up-preview-record">
+        <span class="up-preview-record-num">{{ upcoming_preview.home.wins }}-{{ upcoming_preview.home.losses }}</span>
+        <span class="up-preview-record-label">{{ t('Record', '战绩') }}</span>
+      </div>
+      {% if upcoming_preview.home.last10 %}
+      <div class="up-preview-last10">
+        <div class="up-preview-section-label">{{ t('Last 10', '近10场') }}</div>
+        <div class="up-preview-chips">
+          {% for r in upcoming_preview.home.last10 %}
+          <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if upcoming_preview.home.rest %}
+      {% if upcoming_preview.home.rest.is_b2b %}
+      <span class="up-rest-badge up-rest-b2b">{{ t('B2B', '背靠背') }}</span>
+      {% else %}
+      <span class="up-rest-badge">{{ upcoming_preview.home.rest.days }} {{ t('days rest', '天休整') }}</span>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Game Metrics (async) ──────────────────────────────────────── -->
 {% if current_status == 'completed' %}

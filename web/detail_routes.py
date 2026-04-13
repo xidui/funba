@@ -1,14 +1,120 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Callable
 
 from flask import abort, jsonify, request
 from sqlalchemy import case, func
 
-from db.game_status import GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
+from db.game_status import GAME_STATUS_COMPLETED, GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
 from web.live_game_data import build_live_game_stub, fetch_live_game_detail, fetch_live_scoreboard_map
+
+
+def _format_tipoff_et(iso_et: str | None) -> str | None:
+    if not iso_et:
+        return None
+    try:
+        text = iso_et.strip()
+        if text.endswith("Z"):
+            text = text[:-1]
+        dt = datetime.fromisoformat(text)
+        return dt.strftime("%-I:%M %p ET")
+    except Exception:
+        return None
+
+
+def _build_upcoming_preview(session, game, teams, live_summary):
+    """Pre-tipoff context for the game detail page.
+
+    Returns a dict with both teams' season W-L, last 10, head-to-head
+    series, rest days / B2B flag, and a formatted tipoff time. The
+    template renders this in place of the empty box-score panels.
+    Pure read; no caching needed (low traffic on upcoming pages).
+    """
+    from db.models import Game as GameModel
+
+    if not game.home_team_id or not game.road_team_id or not game.game_date:
+        return None
+
+    # Pick the latest in-progress regular season as the record source.
+    current_season_row = (
+        session.query(GameModel.season)
+        .filter(GameModel.wining_team_id.isnot(None))
+        .filter(GameModel.season.like("2%"))
+        .order_by(GameModel.game_date.desc())
+        .limit(1)
+        .first()
+    )
+    current_season = current_season_row[0] if current_season_row else None
+    if not current_season:
+        return None
+
+    team_ids = {game.home_team_id, game.road_team_id}
+    past_games = (
+        session.query(GameModel)
+        .filter(
+            GameModel.season == current_season,
+            GameModel.wining_team_id.isnot(None),
+            (GameModel.home_team_id.in_(team_ids)) | (GameModel.road_team_id.in_(team_ids)),
+        )
+        .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
+        .all()
+    )
+
+    team_games: dict[str, list] = defaultdict(list)
+    for pg in past_games:
+        if pg.home_team_id in team_ids:
+            team_games[pg.home_team_id].append(pg)
+        if pg.road_team_id in team_ids:
+            team_games[pg.road_team_id].append(pg)
+
+    def _team_block(team_id):
+        rows = team_games.get(team_id, [])
+        wins = sum(1 for pg in rows if pg.wining_team_id == team_id)
+        losses = len(rows) - wins
+        last10 = ["W" if pg.wining_team_id == team_id else "L" for pg in reversed(rows[:10])]
+        rest = None
+        if rows:
+            days = (game.game_date - rows[0].game_date).days
+            if days > 0:
+                rest = {"days": days, "is_b2b": days == 1}
+        return {
+            "team_id": team_id,
+            "wins": wins,
+            "losses": losses,
+            "last10": last10,
+            "rest": rest,
+        }
+
+    home_block = _team_block(game.home_team_id)
+    road_block = _team_block(game.road_team_id)
+
+    # Head-to-head series this season.
+    home_h2h = 0
+    road_h2h = 0
+    for pg in past_games:
+        if {pg.home_team_id, pg.road_team_id} != team_ids:
+            continue
+        if pg.wining_team_id == game.home_team_id:
+            home_h2h += 1
+        elif pg.wining_team_id == game.road_team_id:
+            road_h2h += 1
+    h2h = None
+    if home_h2h + road_h2h > 0:
+        h2h = {"home_wins": home_h2h, "road_wins": road_h2h}
+
+    tipoff = None
+    if live_summary:
+        tipoff = _format_tipoff_et(live_summary.get("game_time_et"))
+
+    return {
+        "home": home_block,
+        "road": road_block,
+        "h2h": h2h,
+        "tipoff_et": tipoff,
+    }
 
 
 def register_detail_routes(
@@ -505,51 +611,93 @@ def register_detail_routes(
                     quarter_scores=[],
                     home_team_id=game.home_team_id,
                     game_analysis_issues=game_analysis_issues,
+                    upcoming_preview=None,
+                )
+
+            def _render_with_live_payload(payload, *, refresh_interval_ms):
+                """Render game.html using nba_api live data instead of DB rows.
+
+                Used for in-progress games AND for completed games that haven't
+                been ingested yet (the 10-minute backfill window).
+                """
+                summary = payload["summary"]
+                return get_render_template()(
+                    "game.html",
+                    game=game,
+                    game_status=game_status,
+                    live_summary=summary,
+                    live_refresh_interval_ms=refresh_interval_ms,
+                    team_name=lambda team_id: get_team_name()(teams, team_id),
+                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    fmt_date=get_fmt_date(),
+                    team_stats=payload["team_stats"],
+                    players_by_team=payload["players_by_team"],
+                    ordered_team_ids=[team_id for team_id in payload["ordered_team_ids"] if team_id],
+                    pbp_rows=payload["pbp_rows"],
+                    shot_rows=[],
+                    shot_rows_by_team={},
+                    shot_chart_team_ids=[],
+                    shot_made_count=0,
+                    shot_miss_count=0,
+                    shot_made_count_by_team={},
+                    shot_miss_count_by_team={},
+                    shot_backfill_status=request.args.get("shot_backfill"),
+                    shot_backfill_count=request.args.get("shot_count"),
+                    score_progression_json="[]",
+                    road_abbr=get_team_abbr()(teams, game.road_team_id),
+                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    quarter_scores=payload["quarter_scores"],
+                    home_team_id=game.home_team_id,
+                    game_analysis_issues=_game_analysis_issues(),
+                    upcoming_preview=None,
                 )
 
             if game_status == GAME_STATUS_LIVE:
                 if live_payload is None:
                     live_payload = fetch_live_game_detail(game_id)
                 if live_payload is not None:
-                    live_summary = live_payload["summary"]
-                    return get_render_template()(
-                        "game.html",
-                        game=game,
-                        game_status=game_status,
-                        live_summary=live_summary,
-                        live_refresh_interval_ms=15000,
-                        team_name=lambda team_id: get_team_name()(teams, team_id),
-                        team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
-                        fmt_date=get_fmt_date(),
-                        team_stats=live_payload["team_stats"],
-                        players_by_team=live_payload["players_by_team"],
-                        ordered_team_ids=[team_id for team_id in live_payload["ordered_team_ids"] if team_id],
-                        pbp_rows=live_payload["pbp_rows"],
-                        shot_rows=[],
-                        shot_rows_by_team={},
-                        shot_chart_team_ids=[],
-                        shot_made_count=0,
-                        shot_miss_count=0,
-                        shot_made_count_by_team={},
-                        shot_miss_count_by_team={},
-                        shot_backfill_status=request.args.get("shot_backfill"),
-                        shot_backfill_count=request.args.get("shot_count"),
-                        score_progression_json="[]",
-                        road_abbr=get_team_abbr()(teams, game.road_team_id),
-                        home_abbr=get_team_abbr()(teams, game.home_team_id),
-                        quarter_scores=live_payload["quarter_scores"],
-                        home_team_id=game.home_team_id,
-                        game_analysis_issues=_game_analysis_issues(),
-                    )
+                    return _render_with_live_payload(live_payload, refresh_interval_ms=15000)
                 return _render_scoreboard_only_game(
                     refresh_interval_ms=15000,
                     game_analysis_issues=_game_analysis_issues(),
                 )
 
             if game_status == GAME_STATUS_UPCOMING:
-                return _render_scoreboard_only_game(
-                    refresh_interval_ms=None,
+                upcoming_preview = _build_upcoming_preview(
+                    session,
+                    game,
+                    teams,
+                    live_summary,
+                )
+                return get_render_template()(
+                    "game.html",
+                    game=game,
+                    game_status=game_status,
+                    live_summary=live_summary,
+                    live_refresh_interval_ms=None,
+                    team_name=lambda team_id: get_team_name()(teams, team_id),
+                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    fmt_date=get_fmt_date(),
+                    team_stats=[],
+                    players_by_team={},
+                    ordered_team_ids=[team_id for team_id in [game.road_team_id, game.home_team_id] if team_id],
+                    pbp_rows=[],
+                    shot_rows=[],
+                    shot_rows_by_team={},
+                    shot_chart_team_ids=[],
+                    shot_made_count=0,
+                    shot_miss_count=0,
+                    shot_made_count_by_team={},
+                    shot_miss_count_by_team={},
+                    shot_backfill_status=request.args.get("shot_backfill"),
+                    shot_backfill_count=request.args.get("shot_count"),
+                    score_progression_json="[]",
+                    road_abbr=get_team_abbr()(teams, game.road_team_id),
+                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    quarter_scores=[],
+                    home_team_id=game.home_team_id,
                     game_analysis_issues=[],
+                    upcoming_preview=upcoming_preview,
                 )
 
             team_stats_rows = (
@@ -559,6 +707,20 @@ def register_detail_routes(
                 .all()
             )
             team_stats = sorted(team_stats_rows, key=lambda row: 0 if row.team_id == game.home_team_id else 1)
+
+            # If the game is marked completed but ingestion hasn't run yet
+            # (the 10-min `ingest_recent_games` window), DB stats are empty
+            # but nba_api still serves the final box score. Fall back to the
+            # live endpoint and render with that payload — the page reloads
+            # itself in 60s so the eventual DB-backed view replaces it.
+            if (
+                not team_stats_rows
+                and game_status == GAME_STATUS_COMPLETED
+            ):
+                if live_payload is None:
+                    live_payload = fetch_live_game_detail(game_id)
+                if live_payload is not None and live_payload.get("team_stats"):
+                    return _render_with_live_payload(live_payload, refresh_interval_ms=60000)
 
             player_rows = (
                 session.query(PlayerGameStats, Player)
@@ -790,6 +952,7 @@ def register_detail_routes(
             quarter_scores=quarter_scores,
             home_team_id=home_team_id,
             game_analysis_issues=game_analysis_issues,
+            upcoming_preview=None,
         )
 
     def game_fragment_metrics(slug: str):
