@@ -23,7 +23,7 @@ from db.backfill_nba_player_shot_detail import (
     is_game_shot_back_filled,
 )
 from db.game_status import GAME_STATUS_COMPLETED, completed_game_clause, get_game_status, infer_game_status
-from db.models import Game, TeamGameStats, engine
+from db.models import Game, Team, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 from runtime_flags import get_runtime_flag
 
@@ -55,6 +55,30 @@ def _fetch_api_row(game_id: str) -> dict | None:
     if df.empty:
         return None
     return df.iloc[0].to_dict()
+
+
+def _build_existing_game_row(sess, game_id: str) -> dict | None:
+    """Build the minimal game row shape needed by process_and_store_game.
+
+    When schedule sync has already inserted a Game row, we can avoid a fragile
+    single-game LeagueGameFinder refresh and instead reuse the stored date/team
+    identity to fetch box score + PBP directly.
+    """
+    game = sess.query(Game).filter(Game.game_id == game_id).first()
+    if game is None or not game.game_date or not game.home_team_id or not game.road_team_id:
+        return None
+
+    home_team = sess.query(Team).filter(Team.team_id == game.home_team_id).first()
+    road_team = sess.query(Team).filter(Team.team_id == game.road_team_id).first()
+    if home_team is None or road_team is None or not home_team.abbr or not road_team.abbr:
+        return None
+
+    return {
+        "GAME_ID": game.game_id,
+        "SEASON_ID": game.season,
+        "GAME_DATE": game.game_date.strftime("%Y-%m-%d"),
+        "MATCHUP": f"{road_team.abbr} @ {home_team.abbr}",
+    }
 
 
 
@@ -156,8 +180,9 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             has_detail = status_before["has_detail"]
             has_pbp = status_before["has_pbp"]
             has_shot = status_before["has_shot"]
+            existing_game_row = _build_existing_game_row(sess, game_id) if game_exists else None
 
-        if game_exists and game_status != GAME_STATUS_COMPLETED:
+        if game_exists and game_status != GAME_STATUS_COMPLETED and not force:
             logger.info("ingest_game %s: skipping %s game already stored in DB.", game_id, game_status or "non-completed")
             return {
                 "game_id": game_id,
@@ -169,6 +194,12 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 "line_score_rows": 0,
                 "metric_tasks_enqueued": 0,
             }
+        if game_exists and game_status != GAME_STATUS_COMPLETED and force:
+            logger.info(
+                "ingest_game %s: force-refreshing %s game already stored in DB.",
+                game_id,
+                game_status or "non-completed",
+            )
 
         needs_detail_pbp = not (has_detail and has_pbp)
         needs_shot = not has_shot
@@ -187,7 +218,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         # Step 2: fetch from API if anything is missing (covers new games too)
         if needs_detail_pbp or not game_exists:
             logger.info("ingest_game %s: fetching game+detail+PBP from NBA API …", game_id)
-            row = _fetch_api_row(game_id)
+            row = existing_game_row or _fetch_api_row(game_id)
             if row is None:
                 raise RuntimeError(f"No API data for game {game_id}")
             with SessionLocal() as sess:
@@ -417,7 +448,10 @@ def ingest_recent_games(self, lookback_days: int = 3) -> dict:
         }
 
     for gid in incomplete_game_ids:
-        ingest_game.apply_async(args=[gid])
+        # These game ids come from LeagueGameFinder with non-null WL, so they
+        # are already completed according to the NBA API even if our local
+        # schedule snapshot still says upcoming/live.
+        ingest_game.apply_async(args=[gid], kwargs={"force": True})
     logger.info(
         "ingest_recent_games: discovered=%d incomplete=%d dates=%s",
         len(discovered_ids),

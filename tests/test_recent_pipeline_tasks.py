@@ -98,8 +98,8 @@ def test_ingest_recent_games_enqueues_only_incomplete_games():
         result = ingest_tasks.ingest_recent_games.run(lookback_days=2)
 
     assert apply_async_mock.call_count == 2
-    apply_async_mock.assert_any_call(args=["g2"])
-    apply_async_mock.assert_any_call(args=["g3"])
+    apply_async_mock.assert_any_call(args=["g2"], kwargs={"force": True})
+    apply_async_mock.assert_any_call(args=["g3"], kwargs={"force": True})
     assert result == {
         "lookback_days": 2,
         "discovered": 3,
@@ -491,6 +491,91 @@ def test_ingest_game_skips_existing_upcoming_game():
         "skip_reason": "upcoming",
         "new_game": False,
         "detail_pbp_refreshed": False,
+        "shot_refreshed": False,
+        "line_score_rows": 0,
+        "metric_tasks_enqueued": 0,
+    }
+
+
+def test_ingest_game_force_refreshes_existing_upcoming_game():
+    before_status = {
+        "exists_game": True,
+        "game_status": "upcoming",
+        "artifacts_supported": True,
+        "has_detail": False,
+        "has_pbp": False,
+        "has_shot": True,
+        "season": "22025",
+    }
+    after_status = {
+        "exists_game": True,
+        "game_status": "completed",
+        "artifacts_supported": True,
+        "has_detail": True,
+        "has_pbp": True,
+        "has_shot": True,
+        "season": "22025",
+    }
+
+    status_session = _ctx(MagicMock())
+    process_session = _ctx(MagicMock())
+    final_status_session = _ctx(MagicMock())
+    zero_score_session = _ctx(MagicMock())
+    zero_score_session.query.return_value.filter.return_value.first.return_value = None
+    line_score_session = _ctx(MagicMock())
+
+    ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
+    try:
+        with patch.object(
+            ingest_tasks,
+            "_session_factory",
+            return_value=MagicMock(
+                side_effect=[
+                    status_session,
+                    process_session,
+                    final_status_session,
+                    zero_score_session,
+                    line_score_session,
+                ]
+            ),
+        ), patch.object(
+            ingest_tasks,
+            "_load_game_artifact_status",
+            side_effect=[before_status, after_status],
+        ), patch.object(
+            ingest_tasks,
+            "_build_existing_game_row",
+            return_value={
+                "GAME_ID": "g1",
+                "SEASON_ID": "22025",
+                "GAME_DATE": "2026-04-12",
+                "MATCHUP": "LAL vs. BOS",
+            },
+        ), patch.object(
+            ingest_tasks,
+            "_fetch_api_row",
+        ) as fetch_row_mock, patch.object(
+            ingest_tasks,
+            "process_and_store_game",
+        ) as process_mock, patch.object(
+            ingest_tasks,
+            "has_game_line_score",
+            return_value=True,
+        ), patch(
+            "tasks.metrics.refresh_current_season_metrics.delay",
+        ) as refresh_delay_mock:
+            result = ingest_tasks.ingest_game.run("g1", force=True)
+    finally:
+        ingest_tasks.ingest_game.pop_request()
+
+    process_mock.assert_called_once()
+    fetch_row_mock.assert_not_called()
+    refresh_delay_mock.assert_called_once_with([result])
+    assert result == {
+        "game_id": "g1",
+        "status": "ok",
+        "new_game": False,
+        "detail_pbp_refreshed": True,
         "shot_refreshed": False,
         "line_score_rows": 0,
         "metric_tasks_enqueued": 0,
