@@ -17,16 +17,17 @@ _log = logging.getLogger("gunicorn.error")
 def when_ready(server):
     """Run once in the master after the app is loaded but before fork."""
     try:
-        from web.app import SessionLocal, _catalog_metrics
+        from web.app import app as flask_app, SessionLocal, _catalog_metrics
         from metrics.framework.search import _ensure_candidate_embeddings
 
-        with SessionLocal() as session:
-            catalog = _catalog_metrics(
-                session,
-                scope_filter="",
-                status_filter="",
-                include_result_counts=False,
-            )
+        with flask_app.test_request_context("/"):
+            with SessionLocal() as session:
+                catalog = _catalog_metrics(
+                    session,
+                    scope_filter="",
+                    status_filter="",
+                    include_result_counts=False,
+                )
         _ensure_candidate_embeddings(catalog)
         _log.info("funba warmup: %d catalog entries primed", len(catalog))
     except Exception as exc:
