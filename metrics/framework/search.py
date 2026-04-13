@@ -123,7 +123,7 @@ def rank_metrics(
             model=selected_model,
             max_completion_tokens=400,
             temperature=0,
-            reasoning_effort="minimal",
+            reasoning_effort="none",
             messages=[{"role": "user", "content": prompt}],
         )
         if usage_recorder:
