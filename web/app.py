@@ -11,6 +11,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import threading
 import time
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -1610,6 +1611,43 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
     return links if len(links) > 1 else []
 
 
+_METRIC_RESULT_COUNTS_TTL_SECONDS = 300
+_metric_result_counts_cache: tuple[float, dict[str, int]] | None = None
+_metric_result_counts_lock = threading.Lock()
+
+
+def _metric_result_counts(session) -> dict[str, int]:
+    """Return {metric_key: row_count} grouped over the full MetricResult table.
+
+    Uses a process-wide TTL cache because the underlying GROUP BY scans
+    ~15M rows and runs in ~4 seconds even on a covering index. Counts
+    drive UI badges only, so a few minutes of staleness is fine. The
+    full-table GROUP BY is intentional — filtering with IN(<all keys>)
+    runs ~4x slower because the optimizer falls back to per-key range
+    scans.
+    """
+    global _metric_result_counts_cache
+    now = time.monotonic()
+    cached = _metric_result_counts_cache
+    if cached is not None and now - cached[0] < _METRIC_RESULT_COUNTS_TTL_SECONDS:
+        return cached[1]
+    with _metric_result_counts_lock:
+        cached = _metric_result_counts_cache
+        if cached is not None and time.monotonic() - cached[0] < _METRIC_RESULT_COUNTS_TTL_SECONDS:
+            return cached[1]
+        counts = {
+            row.metric_key: row.count
+            for row in session.query(
+                MetricResultModel.metric_key,
+                func.count(MetricResultModel.id).label("count"),
+            )
+            .group_by(MetricResultModel.metric_key)
+            .all()
+        }
+        _metric_result_counts_cache = (time.monotonic(), counts)
+    return counts
+
+
 def _catalog_metrics(
     session,
     scope_filter: str = "",
@@ -1632,16 +1670,7 @@ def _catalog_metrics(
 
     counts = {}
     if include_result_counts and count_keys:
-        counts = {
-            row.metric_key: row.count
-            for row in session.query(
-                MetricResultModel.metric_key,
-                func.count(MetricResultModel.id).label("count"),
-            )
-            .filter(MetricResultModel.metric_key.in_(count_keys))
-            .group_by(MetricResultModel.metric_key)
-            .all()
-        }
+        counts = _metric_result_counts(session)
 
     db_metrics = []
     for m in all_defs:
