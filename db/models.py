@@ -1,7 +1,7 @@
 import os
 
-from sqlalchemy import BLOB, DATE, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import BLOB, DATE, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, create_engine
+from sqlalchemy.orm import declarative_base, deferred
 
 from db.config import get_database_url
 
@@ -446,6 +446,13 @@ class MetricDefinition(Base):
     created_by_user_id = Column(String(36), ForeignKey('User.id'), nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
+    # Search embedding: 12KB float32 blob (3072 dims × 4 bytes for
+    # text-embedding-3-large). Deferred so non-search queries do not pay the
+    # extra payload. Update via metrics.framework.search.update_metric_embedding
+    # whenever name/scope/category/description change.
+    embedding = deferred(Column(LargeBinary(length=64 * 1024), nullable=True))
+    embedding_model = deferred(Column(String(64), nullable=True))
+    embedding_text_hash = deferred(Column(String(64), nullable=True))
 
     __table_args__ = (
         Index('uq_MetricDefinition_family_variant', 'family_key', 'variant', unique=True),

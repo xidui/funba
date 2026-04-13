@@ -18,7 +18,7 @@ def when_ready(server):
     """Run once in the master after the app is loaded but before fork."""
     try:
         from web.app import app as flask_app, SessionLocal, _catalog_metrics
-        from metrics.framework.search import _ensure_candidate_embeddings
+        from metrics.framework.search import warm_embedding_cache
 
         with flask_app.test_request_context("/"):
             with SessionLocal() as session:
@@ -28,8 +28,11 @@ def when_ready(server):
                     status_filter="",
                     include_result_counts=False,
                 )
-        _ensure_candidate_embeddings(catalog)
-        _log.info("funba warmup: %d catalog entries primed", len(catalog))
+                embeddings = warm_embedding_cache(session)
+        _log.info(
+            "funba warmup: %d catalog entries / %d embeddings primed",
+            len(catalog), embeddings,
+        )
     except Exception as exc:
         _log.warning("funba warmup skipped: %s", exc)
 

@@ -1544,6 +1544,18 @@ def _sync_metric_family(
         existing_sibling.status = "archived"
         existing_sibling.updated_at = now
 
+    # Refresh search embeddings for any row whose searchable text just changed.
+    # Errors are swallowed so a missing OPENAI_API_KEY (e.g. in tests) does not
+    # block metric writes — search will fall back to its full-LLM path.
+    try:
+        from metrics.framework.search import update_metric_embedding
+
+        update_metric_embedding(session, base_row)
+        if existing_sibling is not None and existing_sibling.status != "archived":
+            update_metric_embedding(session, existing_sibling)
+    except Exception:
+        logger.exception("Failed to update metric embedding for %s", base_row.key)
+
 
 def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -> list[dict]:
     """Return related metric links for the current metric family.

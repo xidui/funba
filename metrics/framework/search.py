@@ -4,22 +4,23 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import threading
 from collections.abc import Callable
-from pathlib import Path
+
+import numpy as np
 
 from db.ai_usage import extract_provider_usage
 from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
 EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_DIM = 3072
 EMBEDDING_PRERANK_TOP_K = 40
 _EMBEDDING_BATCH = 256
-_CACHE_DIR = Path(os.environ.get("FUNBA_CACHE_DIR", str(Path.home() / ".cache" / "funba")))
-_EMBEDDINGS_PATH = _CACHE_DIR / "metric_embeddings.json"
-_embeddings_cache: dict | None = None
-_embeddings_lock = threading.Lock()
+# Per-process cache of {metric_key: float32 ndarray}. Populated lazily from the
+# DB; gunicorn preload warms this once so all workers inherit it via CoW.
+_embedding_vectors: dict[str, np.ndarray] = {}
+_embedding_lock = threading.Lock()
 
 _FIELD_ORDER = (
     "key",
@@ -87,10 +88,16 @@ def _candidate_search_document(candidate: dict) -> str:
     return _truncate_text(document, _MAX_DOCUMENT_CHARS)
 
 
-def _candidate_embedding_text(candidate: dict) -> str:
+def _candidate_embedding_text(candidate: dict | object) -> str:
+    """Build the text used to compute the embedding for a metric.
+
+    Accepts either a catalog dict or a SQLAlchemy MetricDefinition row.
+    Field set is intentionally narrow (name + descriptions + scope/category)
+    so it stays stable across catalog dict shape changes.
+    """
     parts: list[str] = []
     for k in ("name", "name_zh", "scope", "category", "description", "description_zh"):
-        v = candidate.get(k)
+        v = candidate.get(k) if isinstance(candidate, dict) else getattr(candidate, k, None)
         if v:
             parts.append(str(v).strip())
     return " | ".join(parts)
@@ -100,113 +107,141 @@ def _hash_embedding_text(text: str) -> str:
     return hashlib.sha256(f"{EMBEDDING_MODEL}::{text}".encode("utf-8")).hexdigest()[:32]
 
 
-def _load_embeddings_cache() -> dict:
-    global _embeddings_cache
-    if _embeddings_cache is not None:
-        return _embeddings_cache
-    fresh = {"model": EMBEDDING_MODEL, "entries": {}}
-    if _EMBEDDINGS_PATH.exists():
-        try:
-            data = json.loads(_EMBEDDINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("model") == EMBEDDING_MODEL and isinstance(data.get("entries"), dict):
-                fresh = data
-        except (OSError, json.JSONDecodeError):
-            pass
-    _embeddings_cache = fresh
-    return _embeddings_cache
+def _vector_to_blob(vector) -> bytes:
+    return np.asarray(vector, dtype=np.float32).tobytes()
 
 
-def _save_embeddings_cache(data: dict) -> None:
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _EMBEDDINGS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    tmp.replace(_EMBEDDINGS_PATH)
+def _blob_to_vector(blob: bytes) -> np.ndarray:
+    return np.frombuffer(blob, dtype=np.float32)
 
 
-def _ensure_candidate_embeddings(candidates: list[dict]) -> dict[str, list[float]]:
-    with _embeddings_lock:
-        cache = _load_embeddings_cache()
-        entries = cache["entries"]
-
-        result: dict[str, list[float]] = {}
-        needed: list[tuple[str, str, str]] = []
-        for cand in candidates:
-            key = cand["key"]
-            text = _candidate_embedding_text(cand)
-            if not text:
-                continue
-            h = _hash_embedding_text(text)
-            stored = entries.get(key)
-            if isinstance(stored, dict) and stored.get("hash") == h and isinstance(stored.get("vector"), list):
-                result[key] = stored["vector"]
-            else:
-                needed.append((key, text, h))
-
-        dirty = False
-        if needed:
-            import openai
-
-            client = openai.OpenAI()
-            for i in range(0, len(needed), _EMBEDDING_BATCH):
-                chunk = needed[i : i + _EMBEDDING_BATCH]
-                resp = client.embeddings.create(
-                    model=EMBEDDING_MODEL,
-                    input=[text for _, text, _ in chunk],
-                )
-                for (key, _text, h), item in zip(chunk, resp.data):
-                    vec = list(item.embedding)
-                    entries[key] = {"hash": h, "vector": vec}
-                    result[key] = vec
-            dirty = True
-
-        catalog_keys = {c["key"] for c in candidates}
-        stale_keys = [k for k in entries if k not in catalog_keys]
-        if stale_keys:
-            for k in stale_keys:
-                entries.pop(k, None)
-            dirty = True
-
-        if dirty:
-            _save_embeddings_cache(cache)
-
-    return result
-
-
-def _embed_query(query: str) -> list[float]:
+def _embed_texts(texts: list[str]) -> list[list[float]]:
     import openai
 
     client = openai.OpenAI()
-    resp = client.embeddings.create(model=EMBEDDING_MODEL, input=[query])
-    return list(resp.data[0].embedding)
+    out: list[list[float]] = []
+    for i in range(0, len(texts), _EMBEDDING_BATCH):
+        chunk = texts[i : i + _EMBEDDING_BATCH]
+        resp = client.embeddings.create(model=EMBEDDING_MODEL, input=chunk)
+        for item in resp.data:
+            out.append(list(item.embedding))
+    return out
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = 0.0
-    na = 0.0
-    nb = 0.0
-    for x, y in zip(a, b):
-        dot += x * y
-        na += x * x
-        nb += y * y
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return dot / math.sqrt(na * nb)
+def _embed_query(query: str) -> np.ndarray:
+    return np.asarray(_embed_texts([query])[0], dtype=np.float32)
 
 
-def _prerank_with_embeddings(query: str, candidates: list[dict], top_k: int) -> list[dict]:
+def update_metric_embedding(session, row) -> None:
+    """Recompute and persist the embedding for a single MetricDefinition row.
+
+    Call this from any write path that mutates name/scope/category/description
+    (sync_metric_family is the central one). The caller is responsible for
+    committing the session. No-op if the embedding text is empty.
+    """
+    text = _candidate_embedding_text(row)
+    if not text:
+        return
+    text_hash = _hash_embedding_text(text)
+    if (
+        getattr(row, "embedding_model", None) == EMBEDDING_MODEL
+        and getattr(row, "embedding_text_hash", None) == text_hash
+        and getattr(row, "embedding", None)
+    ):
+        return  # unchanged
+    vector = _embed_texts([text])[0]
+    row.embedding = _vector_to_blob(vector)
+    row.embedding_model = EMBEDDING_MODEL
+    row.embedding_text_hash = text_hash
+    # Refresh the in-memory cache for this process so the very next search
+    # sees the new vector. Other workers will pick it up via DB on their next
+    # missing-key fetch.
+    _embedding_vectors[row.key] = _blob_to_vector(row.embedding)
+
+
+def _load_embeddings_for_keys(session, keys: list[str]) -> None:
+    """Fetch any missing embeddings from DB into the in-memory cache."""
+    if not keys:
+        return
+    from db.models import MetricDefinition as _MD
+
+    missing = [k for k in keys if k not in _embedding_vectors]
+    if not missing:
+        return
+    rows = (
+        session.query(_MD.key, _MD.embedding, _MD.embedding_model)
+        .filter(_MD.key.in_(missing))
+        .filter(_MD.embedding.isnot(None))
+        .filter(_MD.embedding_model == EMBEDDING_MODEL)
+        .all()
+    )
+    for row in rows:
+        try:
+            _embedding_vectors[row.key] = _blob_to_vector(row.embedding)
+        except Exception:
+            continue
+
+
+def warm_embedding_cache(session) -> int:
+    """Bulk-load every metric's embedding into the in-memory cache.
+
+    Used by gunicorn's when_ready hook before workers fork so they all
+    inherit the populated dict via copy-on-write. Returns count loaded.
+    """
+    from db.models import MetricDefinition as _MD
+
+    rows = (
+        session.query(_MD.key, _MD.embedding)
+        .filter(_MD.embedding.isnot(None))
+        .filter(_MD.embedding_model == EMBEDDING_MODEL)
+        .all()
+    )
+    count = 0
+    for row in rows:
+        try:
+            _embedding_vectors[row.key] = _blob_to_vector(row.embedding)
+            count += 1
+        except Exception:
+            continue
+    return count
+
+
+def _prerank_with_embeddings(
+    session,
+    query: str,
+    candidates: list[dict],
+    top_k: int,
+) -> list[dict]:
     if len(candidates) <= top_k:
         return candidates
     try:
-        cand_vectors = _ensure_candidate_embeddings(candidates)
+        # Pull in any keys we haven't seen yet (new metrics created in another
+        # worker). Skip virtual career siblings — they have no DB row and
+        # fall back to the base metric's vector below.
+        missing_real = [
+            c["key"] for c in candidates
+            if c["key"] not in _embedding_vectors and not c["key"].endswith("_career")
+        ]
+        if missing_real:
+            _load_embeddings_for_keys(session, missing_real)
         q_vec = _embed_query(query)
     except Exception:
         return candidates
     scored: list[tuple[float, dict]] = []
     for cand in candidates:
-        vec = cand_vectors.get(cand["key"])
+        key = cand["key"]
+        vec = _embedding_vectors.get(key)
+        if vec is None and key.endswith("_career"):
+            # Virtual career sibling — reuse the base metric's vector.
+            # The career variant's name/description differ only by a "Career"
+            # suffix, so the semantic meaning is essentially identical.
+            vec = _embedding_vectors.get(key[: -len("_career")])
         if vec is None:
             continue
-        scored.append((_cosine(q_vec, vec), cand))
+        # both vectors are unnormalized; cosine = dot / (|a| * |b|)
+        denom = float(np.linalg.norm(q_vec)) * float(np.linalg.norm(vec))
+        score = float(np.dot(q_vec, vec)) / denom if denom else 0.0
+        scored.append((score, cand))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [cand for _, cand in scored[:top_k]]
 
@@ -217,8 +252,15 @@ def rank_metrics(
     limit: int = 8,
     model: str | None = None,
     usage_recorder: Callable[[dict], None] | None = None,
+    *,
+    session=None,
 ) -> list[dict]:
-    """Return ranked metric keys + reasons using an LLM."""
+    """Return ranked metric keys + reasons using an LLM.
+
+    `session` is optional only because some legacy tests don't pass one;
+    embedding prerank is skipped when it's missing, falling back to sending
+    the full candidate list to the LLM.
+    """
     if not query.strip():
         return []
 
@@ -226,7 +268,8 @@ def rank_metrics(
     if not selected_model:
         raise ValueError("Metric search requires OPENAI_API_KEY or ANTHROPIC_API_KEY.")
 
-    candidates = _prerank_with_embeddings(query, candidates, EMBEDDING_PRERANK_TOP_K)
+    if session is not None:
+        candidates = _prerank_with_embeddings(session, query, candidates, EMBEDDING_PRERANK_TOP_K)
 
     candidate_docs = [
         {

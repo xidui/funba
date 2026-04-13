@@ -49,7 +49,15 @@ def register_metrics_write_routes(app, deps):
                 return jsonify({"ok": False, "error": str(exc)}), 400
 
         try:
-            ranked = rank_metrics(query, catalog, limit=8, model=llm_model, usage_recorder=usage_payload.update)
+            with SessionLocal() as embed_session:
+                ranked = rank_metrics(
+                    query,
+                    catalog,
+                    limit=8,
+                    model=llm_model,
+                    usage_recorder=usage_payload.update,
+                    session=embed_session,
+                )
         except ValueError as exc:
             deps.record_ai_usage_event()(
                 feature="metric_search",
