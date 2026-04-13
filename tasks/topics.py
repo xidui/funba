@@ -195,6 +195,7 @@ def get_games_by_date(target_date: date) -> list[dict]:
 
         results = []
         for g in games:
+            game_path = g.slug or g.game_id
             results.append({
                 "game_id": g.game_id,
                 "season": g.season,
@@ -206,7 +207,7 @@ def get_games_by_date(target_date: date) -> list[dict]:
                 "road_score": g.road_team_score,
                 "winner": team_map.get(g.wining_team_id, g.wining_team_id) if g.wining_team_id else None,
                 "overtime": g.game_id in ot_game_ids,
-                "url": f"{_BASE_URL}/games/{g.game_id}",
+                "url": f"{_BASE_URL}/games/{game_path}",
             })
         return results
     finally:

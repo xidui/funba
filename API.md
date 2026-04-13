@@ -10,6 +10,10 @@ Base URL: `http://localhost:5001`
 
 Read-only endpoints for NBA game data and metrics. Used by Paperclip to gather context for content generation.
 
+Game URLs returned by the Data API are canonical public page URLs. Do not hand-compose
+`/games/<game_id>` links in generated content; use the returned URL, or rewrite it to the
+localized `/cn/...` equivalent while keeping the same slug path.
+
 ### GET /api/data/games
 
 Get all games for a date.
@@ -37,7 +41,7 @@ Get all games for a date.
       "road_score": 114,
       "winner": "LAC",
       "overtime": false,
-      "url": "https://funba.app/games/0022501066"
+      "url": "https://funba.app/games/20260327-lac-ind"
     }
   ]
 }
