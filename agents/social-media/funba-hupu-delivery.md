@@ -13,6 +13,7 @@ python3 scripts/funba_hupu_publish.py --post-id <post_id> --delivery-id <deliver
 Rules:
 
 - prefer the wrapper above for normal delivery work; it already runs `check`, posts, and writes delivery status back
+- the wrapper runs headless by default; only add `--show-browser` when debugging a failing publish and you need to watch the live browser
 - allow up to 120 seconds for a Hupu publish attempt before calling it timed out
 - if session is expired, stop and mark the delivery `failed`
 - do not silently skip failed destinations

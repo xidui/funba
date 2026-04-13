@@ -44,6 +44,7 @@ For Hupu deliveries:
 
 - use `python3 scripts/funba_hupu_publish.py --post-id <post_id> --delivery-id <delivery_id> --timeout-seconds 120`
 - this wrapper already runs `social_media.hupu.post check`, performs the publish, writes status back to Funba, and allows up to 120 seconds for the Hupu post command
+- the wrapper runs Hupu publishing headless by default; only add `--show-browser` when you are actively debugging a failing publish and need a visible browser window
 - if you must run the raw Hupu tool manually for debugging, still allow up to 120 seconds before declaring timeout
 - pass the forum value stored in Funba directly into the publish flow
 - **NEVER pre-reject any forum string** — always call `social_media.hupu.post` first and let the tool decide

@@ -3380,6 +3380,12 @@ def is_admin() -> bool:
 
     if request.remote_addr not in ("127.0.0.1", "::1"):
         return False
+    host = (request.host or "").strip().lower()
+    if "://" not in host:
+        host = f"//{host}"
+    host_name = (urlparse(host).hostname or "").strip().lower()
+    if host_name not in ("127.0.0.1", "::1", "localhost"):
+        return False
     # If Cloudflare (or any upstream proxy) added a forwarding header the
     # request came through the tunnel, not directly from the local browser.
     if request.headers.get("CF-Connecting-IP"):

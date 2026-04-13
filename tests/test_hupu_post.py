@@ -20,6 +20,7 @@ from social_media.hupu.post import (  # noqa: E402
     _extract_thread_url_from_response_body,
     _extract_thread_url_from_url_like,
     _forum_label_matches,
+    _headless_mode,
     _is_logged_in,
     _parse_image_placeholder,
     _prepare_placeholder_images,
@@ -143,6 +144,11 @@ class TestHupuPostUrlExtraction(unittest.TestCase):
         self.assertEqual(len(resolved), 1)
         self.assertEqual(len(temp_paths), 1)
         capture_mock.assert_called_once()
+
+    def test_headless_mode_defaults_to_headless(self):
+        self.assertTrue(_headless_mode())
+        self.assertTrue(_headless_mode(False))
+        self.assertFalse(_headless_mode(True))
 
 
 class _FakeResponse:

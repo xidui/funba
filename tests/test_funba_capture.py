@@ -96,6 +96,12 @@ class TestFunbaCapturePlans(unittest.TestCase):
 
     def test_metric_page_adjustments_trim_switches_search_and_rows(self):
         adjustments = _metric_page_adjustments(top_n=5)
+        self.assertIn(".detail-meta a[href*='/metrics/'][href*='/edit']", adjustments["remove_selectors"])
+        self.assertIn(".detail-meta a[href*='/auth/google']", adjustments["remove_selectors"])
+        self.assertIn("#metric-latency-panel", adjustments["remove_selectors"])
+        self.assertIn("#toggle-metric-enabled-btn", adjustments["remove_selectors"])
+        self.assertIn("#metric-deep-dive-trigger", adjustments["remove_selectors"])
+        self.assertIn("#metric-deep-dive-open", adjustments["remove_selectors"])
         self.assertIn(".metric-switch", adjustments["remove_selectors"])
         self.assertIn(".season-select", adjustments["remove_selectors"])
         self.assertIn("form[action]", adjustments["remove_selectors"])

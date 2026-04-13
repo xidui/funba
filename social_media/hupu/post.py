@@ -7,7 +7,7 @@ Usage:
     # Check login status
     python -m social_media.hupu.post check
 
-    # Post with plain text (dry run by default)
+    # Post with plain text (dry run by default, headless by default)
     python -m social_media.hupu.post post --title "xxx" --content "xxx" --forum "nba"
 
     # Post with images and links
@@ -15,6 +15,9 @@ Usage:
         --image /tmp/screenshot.png \\
         --link-text "funba.app" --link-url "https://funba.app" \\
         --submit
+
+    # Show the browser window for debugging
+    python -m social_media.hupu.post post --title "xxx" --content "xxx" --forum "nba" --show-browser
 """
 from __future__ import annotations
 
@@ -193,6 +196,10 @@ def _playwright():
     if sync_playwright is None:
         raise RuntimeError("Playwright is required for Hupu posting commands. Install it with `pip install playwright`.")
     return sync_playwright()
+
+
+def _headless_mode(show_browser: bool = False) -> bool:
+    return not bool(show_browser)
 
 
 def _load_cookies() -> list[dict]:
@@ -1041,6 +1048,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     content = args.content
     forum = args.forum
     submit = args.submit
+    headless = _headless_mode(getattr(args, "show_browser", False))
     images = args.image or []
     link_text = args.link_text
     link_url = args.link_url
@@ -1072,6 +1080,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     if link_url:
         print(f"Link: {link_text or link_url} -> {link_url}")
     print(f"Submit: {'YES' if submit else 'NO (dry run)'}")
+    print(f"Browser: {'visible' if not headless else 'headless'}")
     print(f"Artifacts: {artifact_dir}")
     print()
 
@@ -1092,7 +1101,7 @@ def cmd_post(args: argparse.Namespace) -> None:
 
     try:
         with _playwright() as pw:
-            context = _create_context(pw, headless=False)
+            context = _create_context(pw, headless=headless)
             page = context.new_page()
 
             _add_page_listener(
@@ -1257,6 +1266,7 @@ def main() -> None:
     p_post.add_argument("--link-url", help="URL for footer link")
     p_post.add_argument("--post-id", type=int, dest="post_id", help="SocialPost ID — resolve slot-based images from the image pool")
     p_post.add_argument("--artifact-dir", help="Directory for debug screenshots/logs/artifacts")
+    p_post.add_argument("--show-browser", action="store_true", help="Show the browser window instead of running headless")
     p_post.add_argument("--submit", action="store_true", help="Actually submit (default: dry run)")
 
     args = parser.parse_args()

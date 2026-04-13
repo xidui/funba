@@ -232,6 +232,7 @@ def main() -> int:
         help="Funba admin API base URL for fetching delivery payloads and updating delivery status.",
     )
     parser.add_argument("--funba-repo-root", default=str(_default_funba_repo_root()))
+    parser.add_argument("--show-browser", action="store_true", help="Show the Hupu browser window instead of running headless")
     args = parser.parse_args()
 
     base_url = args.funba_base_url.rstrip("/")
@@ -311,6 +312,8 @@ def main() -> int:
             str(artifact_dir),
             "--submit",
         ]
+        if args.show_browser:
+            post_cmd.append("--show-browser")
 
         try:
             post_proc = subprocess.run(

@@ -136,6 +136,14 @@ class TestIsAdmin(unittest.TestCase):
         with self._ctx({"REMOTE_ADDR": "::1"}):
             self.assertTrue(self.is_admin_fn())
 
+    def test_funba_host_on_local_remote_addr_is_not_admin(self):
+        with self.app.test_request_context(
+            "/",
+            environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            headers={"Host": "funba.app"},
+        ):
+            self.assertFalse(self.is_admin_fn())
+
     def test_external_ip_is_not_admin(self):
         with self._ctx({"REMOTE_ADDR": "1.2.3.4"}):
             self.assertFalse(self.is_admin_fn())

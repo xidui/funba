@@ -1058,7 +1058,7 @@
     <div style="font-size:11px;color:var(--muted);margin-top:4px;">Last updated: {{ backfill.latest_run_at }}</div>
     {% endif %}
     {% if is_admin and metric_perf_samples %}
-    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+    <div id="metric-latency-panel" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
       <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Latency</span>
       <div style="display:inline-flex;align-items:flex-end;gap:2px;height:22px;">
         {% set max_ms = metric_perf_samples|map(attribute='ms')|list|max %}

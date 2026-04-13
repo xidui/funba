@@ -17,6 +17,8 @@ python -m social_media.hupu.post post --title "标题" --content "正文" --foru
 python -m social_media.hupu.post post --title "标题" --content "正文" --forum "76人专区" --submit
 ```
 
+`post` now runs headless by default. Pass `--show-browser` when you want a visible browser for debugging.
+
 Funba screenshot capture is no longer owned by the Hupu module. Use:
 
 ```bash
