@@ -244,6 +244,120 @@ def register_public_routes(
                 except (TypeError, ValueError):
                     pass
 
+            # ── Upcoming game extras: team records, last 10, head-to-head ──
+            upcoming_team_ids: set[str] = set()
+            upcoming_pairs: set[tuple[str, str]] = set()
+            for game in games:
+                game_status = (live_map.get(game.game_id, {}) or {}).get("status") or get_game_status(game)
+                if game_status == GAME_STATUS_UPCOMING:
+                    if game.home_team_id:
+                        upcoming_team_ids.add(game.home_team_id)
+                    if game.road_team_id:
+                        upcoming_team_ids.add(game.road_team_id)
+                    if game.home_team_id and game.road_team_id:
+                        upcoming_pairs.add(tuple(sorted([game.home_team_id, game.road_team_id])))
+
+            team_record: dict[str, tuple[int, int]] = {}
+            team_last10: dict[str, list[str]] = {}
+            h2h_series: dict[tuple[str, str], tuple[int, int]] = {}
+            current_season_for_records: str | None = None
+
+            if upcoming_team_ids:
+                # Determine the "current" regular season (prefer latest season
+                # that has completed games). Playoffs/playin are not mixed in.
+                current_season_row = (
+                    session.query(Game.season)
+                    .filter(Game.wining_team_id.isnot(None))
+                    .filter(Game.season.like("2%"))
+                    .order_by(Game.game_date.desc())
+                    .limit(1)
+                    .first()
+                )
+                if current_season_row:
+                    current_season_for_records = current_season_row[0]
+
+                if current_season_for_records:
+                    # Pull every completed regular-season game for teams we care about.
+                    past_games = (
+                        session.query(Game)
+                        .filter(
+                            Game.season == current_season_for_records,
+                            Game.wining_team_id.isnot(None),
+                        )
+                        .filter(
+                            (Game.home_team_id.in_(upcoming_team_ids))
+                            | (Game.road_team_id.in_(upcoming_team_ids))
+                        )
+                        .order_by(Game.game_date.desc(), Game.game_id.desc())
+                        .all()
+                    )
+                    team_games: dict[str, list] = defaultdict(list)
+                    for pg in past_games:
+                        if pg.home_team_id in upcoming_team_ids:
+                            team_games[pg.home_team_id].append(pg)
+                        if pg.road_team_id in upcoming_team_ids:
+                            team_games[pg.road_team_id].append(pg)
+                    for tid, games_for_team in team_games.items():
+                        wins = 0
+                        losses = 0
+                        for pg in games_for_team:
+                            if pg.wining_team_id == tid:
+                                wins += 1
+                            else:
+                                losses += 1
+                        team_record[tid] = (wins, losses)
+                        # Last 10 already sorted desc by date, take first 10, reverse to chrono.
+                        last10_chrono = list(reversed(games_for_team[:10]))
+                        team_last10[tid] = [
+                            "W" if pg.wining_team_id == tid else "L"
+                            for pg in last10_chrono
+                        ]
+
+                    # Head-to-head series this season between each unique pair.
+                    if upcoming_pairs:
+                        for pg in past_games:
+                            if not pg.home_team_id or not pg.road_team_id:
+                                continue
+                            pair = tuple(sorted([pg.home_team_id, pg.road_team_id]))
+                            if pair not in upcoming_pairs:
+                                continue
+                            a_wins, b_wins = h2h_series.get(pair, (0, 0))
+                            if pg.wining_team_id == pair[0]:
+                                a_wins += 1
+                            elif pg.wining_team_id == pair[1]:
+                                b_wins += 1
+                            h2h_series[pair] = (a_wins, b_wins)
+
+            def _format_tipoff_local(iso_utc: str | None) -> str | None:
+                if not iso_utc:
+                    return None
+                try:
+                    from datetime import datetime, timezone
+                    text = iso_utc.strip()
+                    if text.endswith("Z"):
+                        text = text[:-1] + "+00:00"
+                    dt = datetime.fromisoformat(text)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    # Convert to ET for display (UTC-5 is EST; the API's gameEt
+                    # is already ET so prefer that — this is a fallback).
+                    return dt.strftime("%H:%M UTC")
+                except Exception:
+                    return None
+
+            def _format_tipoff_et(iso_et: str | None) -> str | None:
+                if not iso_et:
+                    return None
+                try:
+                    from datetime import datetime
+                    text = iso_et.strip()
+                    if text.endswith("Z"):
+                        text = text[:-1]
+                    dt = datetime.fromisoformat(text)
+                    return dt.strftime("%-I:%M %p ET")
+                except Exception:
+                    return None
+
             result = []
             for game in games:
                 home_team = team_lookup.get(game.home_team_id)
@@ -284,6 +398,33 @@ def register_public_routes(
                         "value": int(getattr(player_stats, stat, 0) or 0),
                     }
 
+                # Upcoming-only extras: records, last 10, H2H, tipoff time.
+                home_rec = team_record.get(game.home_team_id) if status == GAME_STATUS_UPCOMING else None
+                road_rec = team_record.get(game.road_team_id) if status == GAME_STATUS_UPCOMING else None
+                home_l10 = team_last10.get(game.home_team_id) if status == GAME_STATUS_UPCOMING else None
+                road_l10 = team_last10.get(game.road_team_id) if status == GAME_STATUS_UPCOMING else None
+                h2h_display = None
+                if status == GAME_STATUS_UPCOMING and game.home_team_id and game.road_team_id:
+                    pair = tuple(sorted([game.home_team_id, game.road_team_id]))
+                    series = h2h_series.get(pair)
+                    if series:
+                        a_wins, b_wins = series
+                        # Map back to home/road.
+                        if pair[0] == game.home_team_id:
+                            home_wins_h2h, road_wins_h2h = a_wins, b_wins
+                        else:
+                            home_wins_h2h, road_wins_h2h = b_wins, a_wins
+                        if home_wins_h2h + road_wins_h2h > 0:
+                            h2h_display = {
+                                "home_wins": home_wins_h2h,
+                                "road_wins": road_wins_h2h,
+                            }
+                tipoff_et_display = None
+                if status == GAME_STATUS_UPCOMING and live_snapshot:
+                    tipoff_et_display = _format_tipoff_et(live_snapshot.get("game_time_et"))
+                    if not tipoff_et_display:
+                        tipoff_et_display = _format_tipoff_local(live_snapshot.get("game_time_utc"))
+
                 entry = {
                     "game_id": game.game_id,
                     "game_date": game_date,
@@ -312,6 +453,12 @@ def register_public_routes(
                     "home_win_probability": None,
                     "road_win_probability": None,
                     "hot_player_ids": [],
+                    "home_record": home_rec,
+                    "road_record": road_rec,
+                    "home_last10": home_l10,
+                    "road_last10": road_l10,
+                    "h2h": h2h_display,
+                    "tipoff_et": tipoff_et_display,
                 }
                 # For LIVE games, override DB-sourced fields with live box-score
                 # data (DB has no rows yet during play). Leaders, shooting pct,

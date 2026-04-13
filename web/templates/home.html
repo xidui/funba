@@ -454,6 +454,114 @@
     50% { transform: scale(1.12); opacity: 1; }
   }
 
+  /* ── Upcoming game panel ── */
+  .ts-upcoming-road, .ts-upcoming-middle, .ts-upcoming-home {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 8px;
+  }
+  .up-team-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .up-record {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--heading);
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .up-last10 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .up-last10-caption {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .up-last10-chips {
+    display: flex;
+    gap: 3px;
+  }
+  .up-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .up-chip-w {
+    background: color-mix(in srgb, var(--win) 22%, transparent);
+    color: var(--win);
+  }
+  .up-chip-l {
+    background: color-mix(in srgb, var(--loss) 22%, transparent);
+    color: var(--loss);
+  }
+  .up-tipoff {
+    font-family: 'Outfit', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .up-tipoff-placeholder {
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .up-h2h {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    width: 100%;
+  }
+  .up-h2h-label {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .up-h2h-score {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+  .up-h2h-side.up-h2h-leader {
+    color: var(--heading);
+  }
+  .up-h2h-dash {
+    color: var(--muted);
+  }
+
   /* ── Score flash animation ── */
   .today-score.score-flash {
     animation: scoreFlash 1.2s ease-out;
@@ -806,10 +914,55 @@
       {# ── Stats strip ── #}
       <div class="today-stats">
         {% if g.status == 'upcoming' %}
-        <div class="ts-cell ts-middle" style="grid-column:1 / -1; border:0; padding:8px 0;">
-          <div class="ts-row ts-row-center">
-            <span class="ts-label">{{ t('Scheduled matchup', '已安排的比赛') }}</span>
+        {# Upcoming: records + last 10 + tipoff + H2H #}
+        <div class="ts-cell ts-upcoming-road">
+          <div class="up-team-label">{{ g.road_abbr }}</div>
+          {% if g.road_record %}
+          <div class="up-record">{{ g.road_record[0] }}-{{ g.road_record[1] }}</div>
+          {% endif %}
+          {% if g.road_last10 %}
+          <div class="up-last10">
+            <span class="up-last10-caption">{{ t('Last 10', '近10场') }}</span>
+            <div class="up-last10-chips">
+              {% for r in g.road_last10 %}
+              <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
+              {% endfor %}
+            </div>
           </div>
+          {% endif %}
+        </div>
+        <div class="ts-cell ts-upcoming-middle">
+          {% if g.tipoff_et %}
+          <div class="up-tipoff">{{ g.tipoff_et }}</div>
+          {% else %}
+          <div class="up-tipoff-placeholder">{{ t('Tip-off TBD', '开赛待定') }}</div>
+          {% endif %}
+          {% if g.h2h %}
+          <div class="up-h2h">
+            <span class="up-h2h-label">{{ t('Season Series', '本季系列赛') }}</span>
+            <div class="up-h2h-score">
+              <span class="up-h2h-side{% if g.h2h.road_wins > g.h2h.home_wins %} up-h2h-leader{% endif %}">{{ g.road_abbr }} {{ g.h2h.road_wins }}</span>
+              <span class="up-h2h-dash">—</span>
+              <span class="up-h2h-side{% if g.h2h.home_wins > g.h2h.road_wins %} up-h2h-leader{% endif %}">{{ g.h2h.home_wins }} {{ g.home_abbr }}</span>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        <div class="ts-cell ts-upcoming-home">
+          <div class="up-team-label">{{ g.home_abbr }}</div>
+          {% if g.home_record %}
+          <div class="up-record">{{ g.home_record[0] }}-{{ g.home_record[1] }}</div>
+          {% endif %}
+          {% if g.home_last10 %}
+          <div class="up-last10">
+            <span class="up-last10-caption">{{ t('Last 10', '近10场') }}</span>
+            <div class="up-last10-chips">
+              {% for r in g.home_last10 %}
+              <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
         </div>
         {% else %}
         {# Road leaders #}

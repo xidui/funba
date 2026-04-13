@@ -204,6 +204,8 @@ def fetch_live_scoreboard_map() -> dict[str, dict]:
             "road_team_id": str(away_team.get("teamId") or ""),
             "home_score": _safe_int(home_team.get("score")),
             "road_score": _safe_int(away_team.get("score")),
+            "game_time_et": str(game.get("gameEt") or ""),
+            "game_time_utc": str(game.get("gameTimeUTC") or ""),
         }
     return result
 
