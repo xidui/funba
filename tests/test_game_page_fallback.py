@@ -85,6 +85,27 @@ class TestGamePageFallback(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/teams/los-angeles-lakers?view=results")
 
+    def test_route_redirects_legacy_player_id_path(self):
+        client = self.web_app.app.test_client()
+        with patch.object(self.web_app, "_ensure_player_slug_cache", return_value={"2544": "lebron-james"}):
+            response = client.get("/players/2544?scope=season", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/players/lebron-james?scope=season")
+
+    def test_route_redirects_legacy_team_id_path(self):
+        client = self.web_app.app.test_client()
+        with patch.object(self.web_app, "_ensure_team_slug_cache", return_value={"1610612747": "los-angeles-lakers"}):
+            response = client.get("/teams/1610612747?view=results", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/teams/los-angeles-lakers?view=results")
+
+    def test_route_redirects_legacy_game_id_path(self):
+        client = self.web_app.app.test_client()
+        with patch.object(self.web_app, "_ensure_game_slug_cache", return_value={"0022501187": "20260412-was-cle"}):
+            response = client.get("/games/0022501187?tab=pbp", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/games/20260412-was-cle?tab=pbp")
+
     def test_game_page_redirects_legacy_numeric_game_id_to_slug(self):
         session = _session_ctx(MagicMock())
         slug_query = MagicMock()

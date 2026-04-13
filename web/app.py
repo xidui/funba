@@ -274,6 +274,11 @@ _LOCALIZED_PUBLIC_ENDPOINTS = {
     "account_page": "account_page_zh",
 }
 _ZH_TO_BASE_ENDPOINT = {zh_endpoint: endpoint for endpoint, zh_endpoint in _LOCALIZED_PUBLIC_ENDPOINTS.items()}
+_LEGACY_ENTITY_PATH_PATTERNS = {
+    "player": re.compile(r"^(/cn)?/players/([^/]+)$"),
+    "team": re.compile(r"^(/cn)?/teams/([^/]+)$"),
+    "game": re.compile(r"^(/cn)?/games/([^/]+)$"),
+}
 
 
 def _current_lang() -> str:
@@ -395,6 +400,39 @@ limiter = Limiter(
 def set_request_language():
     path = request.path or "/"
     g.lang = "zh" if path == "/cn" or path.startswith("/cn/") else "en"
+
+
+@app.before_request
+def _redirect_legacy_entity_id_paths():
+    path = (request.path or "").strip()
+    if not path or request.method != "GET":
+        return
+
+    player_match = _LEGACY_ENTITY_PATH_PATTERNS["player"].match(path)
+    if player_match:
+        raw_value = player_match.group(2)
+        legacy_player_id = raw_value.removeprefix("player-") if raw_value.startswith("player-") else raw_value
+        slug = _ensure_player_slug_cache().get(str(legacy_player_id))
+        if slug and slug != raw_value:
+            return redirect(_localized_url_for("player_page", slug=slug, **request.args.to_dict(flat=True)), code=302)
+        return
+
+    team_match = _LEGACY_ENTITY_PATH_PATTERNS["team"].match(path)
+    if team_match:
+        raw_value = team_match.group(2)
+        legacy_team_id = raw_value.removeprefix("team-") if raw_value.startswith("team-") else raw_value
+        slug = _ensure_team_slug_cache().get(str(legacy_team_id))
+        if slug and slug != raw_value:
+            return redirect(_localized_url_for("team_page", slug=slug, **request.args.to_dict(flat=True)), code=302)
+        return
+
+    game_match = _LEGACY_ENTITY_PATH_PATTERNS["game"].match(path)
+    if game_match:
+        raw_value = game_match.group(2)
+        legacy_game_id = raw_value.removeprefix("game-") if raw_value.startswith("game-") else raw_value
+        slug = _ensure_game_slug_cache().get(str(legacy_game_id))
+        if slug and slug != raw_value:
+            return redirect(_localized_url_for("game_page", slug=slug, **request.args.to_dict(flat=True)), code=302)
 
 
 @app.template_filter("pct_fmt")
