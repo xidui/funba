@@ -10,17 +10,17 @@ from db.llm_models import ensure_model_available, env_default_llm_model, provide
 
 _FIELD_ORDER = (
     "key",
+    "scope",
+    "category",
+    "career",
+    "supports_career",
+    "min_sample",
+    "career_min_sample",
+    "rank_order",
     "name",
     "name_zh",
     "description",
     "description_zh",
-    "scope",
-    "category",
-    "min_sample",
-    "career_min_sample",
-    "supports_career",
-    "career",
-    "rank_order",
 )
 _LONG_TEXT_FIELDS = {"expression", "module_doc", "definition_json", "code_python", "source_excerpt"}
 _EXCLUDED_SEARCH_FIELDS = {
@@ -31,7 +31,7 @@ _EXCLUDED_SEARCH_FIELDS = {
     "source_excerpt",
 }
 _MAX_FIELD_CHARS = 2400
-_MAX_DOCUMENT_CHARS = 8000
+_MAX_DOCUMENT_CHARS = 800
 
 
 def _truncate_text(text: str, limit: int) -> str:
@@ -46,7 +46,7 @@ def _stringify_candidate_value(key: str, value) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, (dict, list)):
-        text = json.dumps(value, ensure_ascii=True, sort_keys=True)
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
     else:
         text = str(value)
     text = text.strip()
@@ -109,7 +109,7 @@ def rank_metrics(
         "A strong match may come from the metric description, expression, rule definition, "
         "implementation details, min sample, career support, or ranking direction.\n\n"
         "Metric candidates with detailed dossiers:\n"
-        f"{json.dumps(candidate_docs, ensure_ascii=True)}"
+        f"{json.dumps(candidate_docs, ensure_ascii=False)}"
     )
 
     selected_model = ensure_model_available(selected_model)
@@ -121,8 +121,9 @@ def rank_metrics(
         client = openai.OpenAI()
         response = client.chat.completions.create(
             model=selected_model,
-            max_completion_tokens=1200,
+            max_completion_tokens=400,
             temperature=0,
+            reasoning_effort="minimal",
             messages=[{"role": "user", "content": prompt}],
         )
         if usage_recorder:
