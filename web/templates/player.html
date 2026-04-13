@@ -830,10 +830,6 @@
     font-weight: 500;
     vertical-align: super;
   }
-  .split-cell.split-cell-top {
-    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  }
   .split-cell.split-cell-placeholder {
     background: transparent;
     border-color: color-mix(in srgb, var(--border) 40%, transparent);
@@ -1543,7 +1539,7 @@
             {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
             {% set _qual_total = s.context.qualifying_game_total if s.context and s.context.qualifying_game_total else _qual|length %}
             {% set _is_placeholder = s.is_placeholder %}
-            <div class="split-cell{% if loop.first and not _is_placeholder %} split-cell-top{% endif %}{% if _is_placeholder %} split-cell-placeholder{% endif %}" data-cell-idx="{{ loop.index0 }}">
+            <div class="split-cell{% if _is_placeholder %} split-cell-placeholder{% endif %}" data-cell-idx="{{ loop.index0 }}">
               {% if _is_team %}
                 {% set _team_href = team_url(s.sub_key_info.team_id) %}
                 <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
