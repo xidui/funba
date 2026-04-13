@@ -36,7 +36,12 @@ def register_metrics_write_routes(app, deps):
 
         SessionLocal = deps.session_local()
         with SessionLocal() as session:
-            catalog = deps.catalog_metrics()(session, scope_filter=scope_filter, status_filter=status_filter)
+            catalog = deps.catalog_metrics()(
+                session,
+                scope_filter=scope_filter,
+                status_filter=status_filter,
+                include_result_counts=False,
+            )
             candidate_count = len(catalog)
             try:
                 llm_model = deps.resolve_llm_model()(session, requested_model=requested_model, purpose="search")
