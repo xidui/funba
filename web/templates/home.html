@@ -393,6 +393,82 @@
     animation: pulse 1.5s ease-in-out infinite;
   }
 
+  /* ── Win probability bar ── */
+  .wp-bar {
+    position: relative;
+    height: 10px;
+    margin: 4px 16px 10px 16px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 65%, transparent);
+    overflow: visible;
+  }
+  .wp-bar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    transition: width 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .wp-bar-road {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, #60a5fa 72%, transparent), color-mix(in srgb, #60a5fa 45%, transparent));
+    border-radius: 999px 0 0 999px;
+  }
+  .wp-bar-home {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--accent) 78%, transparent), color-mix(in srgb, var(--accent) 45%, transparent));
+    border-radius: 0 999px 999px 0;
+  }
+  .wp-bar-labels {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--muted-2);
+  }
+  .wp-label-road { color: color-mix(in srgb, #60a5fa 85%, var(--heading)); }
+  .wp-label-home { color: color-mix(in srgb, var(--accent) 85%, var(--heading)); }
+  .wp-label-caption {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+
+  /* ── Hot player flame ── */
+  .ts-leader-hot .ts-player-name { color: var(--accent); font-weight: 700; }
+  .ts-hot-flame {
+    display: inline-block;
+    font-size: 12px;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 55%, transparent));
+    animation: flamePulse 1.8s ease-in-out infinite;
+  }
+  @keyframes flamePulse {
+    0%, 100% { transform: scale(1); opacity: 0.9; }
+    50% { transform: scale(1.12); opacity: 1; }
+  }
+
+  /* ── Score flash animation ── */
+  .today-score.score-flash {
+    animation: scoreFlash 1.2s ease-out;
+  }
+  @keyframes scoreFlash {
+    0% {
+      transform: scale(1);
+      color: var(--accent);
+      text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
   .today-status {
     display: flex;
     align-items: center;
@@ -715,18 +791,24 @@
         <span>{{ t('Final', '最终') }}</span>
         {% endif %}
       </div>
+      {# ── Win probability bar (live only) ── #}
+      {% if g.status == 'live' and g.home_win_probability is not none and g.road_win_probability is not none %}
+      <div class="wp-bar" data-role="wp-bar">
+        <div class="wp-bar-fill wp-bar-road" data-role="wp-road" style="width: {{ (g.road_win_probability * 100)|round(0, 'floor')|int }}%;"></div>
+        <div class="wp-bar-fill wp-bar-home" data-role="wp-home" style="width: {{ (g.home_win_probability * 100)|round(0, 'floor')|int }}%;"></div>
+        <div class="wp-bar-labels">
+          <span class="wp-label wp-label-road" data-role="wp-label-road">{{ (g.road_win_probability * 100)|round(0)|int }}%</span>
+          <span class="wp-label-caption">{{ t('Win Probability', '胜率') }}</span>
+          <span class="wp-label wp-label-home" data-role="wp-label-home">{{ (g.home_win_probability * 100)|round(0)|int }}%</span>
+        </div>
+      </div>
+      {% endif %}
       {# ── Stats strip ── #}
       <div class="today-stats">
-        {% if g.status != 'completed' %}
+        {% if g.status == 'upcoming' %}
         <div class="ts-cell ts-middle" style="grid-column:1 / -1; border:0; padding:8px 0;">
           <div class="ts-row ts-row-center">
-            <span class="ts-label">
-              {% if g.status == 'live' %}
-              {{ t('Live game updates every 30 seconds', '比赛进行中，每30秒更新一次') }}
-              {% else %}
-              {{ t('Scheduled matchup', '已安排的比赛') }}
-              {% endif %}
-            </span>
+            <span class="ts-label">{{ t('Scheduled matchup', '已安排的比赛') }}</span>
           </div>
         </div>
         {% else %}
@@ -734,12 +816,13 @@
         <div class="ts-cell ts-leaders">
           {% for ldr in [g.road_scorer, g.road_rebounder, g.road_assister] %}
           {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
+          {% set _hot = ldr and (g.hot_player_ids or []) and (ldr.player_id|string in g.hot_player_ids) %}
           {% if ldr %}
-          <div class="ts-leader-row">
+          <div class="ts-leader-row{% if _hot %} ts-leader-hot{% endif %}" data-role="leader-row" data-leader-slot="road-{{ loop.index0 }}">
             <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
                  alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
-            <span class="ts-player-name">{{ ldr.name }}</span>
-            <span class="ts-leader-val"><span class="ts-pts">{{ ldr.value }}</span> {{ stat_label }}</span>
+            <span class="ts-player-name">{{ ldr.name }}{% if _hot %} <span class="ts-hot-flame" title="{{ t('Hot hand', '手感火热') }}">🔥</span>{% endif %}</span>
+            <span class="ts-leader-val"><span class="ts-pts" data-role="leader-val">{{ ldr.value }}</span> {{ stat_label }}</span>
           </div>
           {% endif %}
           {% endfor %}
@@ -747,15 +830,16 @@
         {# Middle stats #}
         <div class="ts-cell ts-middle">
           <div class="ts-row">
-            <span class="ts-val-side">{{ g.road_fg_pct }}%</span>
+            <span class="ts-val-side" data-role="road-fg-pct">{{ g.road_fg_pct if g.road_fg_pct is not none else '—' }}{% if g.road_fg_pct is not none %}%{% endif %}</span>
             <span class="ts-label">FG%</span>
-            <span class="ts-val-side">{{ g.home_fg_pct }}%</span>
+            <span class="ts-val-side" data-role="home-fg-pct">{{ g.home_fg_pct if g.home_fg_pct is not none else '—' }}{% if g.home_fg_pct is not none %}%{% endif %}</span>
           </div>
           <div class="ts-row">
-            <span class="ts-val-side">{{ g.road_fg3_pct }}%</span>
+            <span class="ts-val-side" data-role="road-fg3-pct">{{ g.road_fg3_pct if g.road_fg3_pct is not none else '—' }}{% if g.road_fg3_pct is not none %}%{% endif %}</span>
             <span class="ts-label">3P%</span>
-            <span class="ts-val-side">{{ g.home_fg3_pct }}%</span>
+            <span class="ts-val-side" data-role="home-fg3-pct">{{ g.home_fg3_pct if g.home_fg3_pct is not none else '—' }}{% if g.home_fg3_pct is not none %}%{% endif %}</span>
           </div>
+          {% if g.status == 'completed' %}
           <div class="ts-row">
             <span class="ts-val-side">{{ g.road_largest_lead }}</span>
             <span class="ts-label">{{ t('Lead', '最大领先') }}</span>
@@ -767,15 +851,17 @@
             <span class="ts-val-accent">{{ g.lead_changes }}</span>
           </div>
           {% endif %}
+          {% endif %}
         </div>
         {# Home leaders #}
         <div class="ts-cell ts-leaders ts-leaders-right">
           {% for ldr in [g.home_scorer, g.home_rebounder, g.home_assister] %}
           {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
+          {% set _hot = ldr and (g.hot_player_ids or []) and (ldr.player_id|string in g.hot_player_ids) %}
           {% if ldr %}
-          <div class="ts-leader-row">
-            <span class="ts-leader-val"><span class="ts-pts">{{ ldr.value }}</span> {{ stat_label }}</span>
-            <span class="ts-player-name">{{ ldr.name }}</span>
+          <div class="ts-leader-row{% if _hot %} ts-leader-hot{% endif %}" data-role="leader-row" data-leader-slot="home-{{ loop.index0 }}">
+            <span class="ts-leader-val"><span class="ts-pts" data-role="leader-val">{{ ldr.value }}</span> {{ stat_label }}</span>
+            <span class="ts-player-name">{% if _hot %}<span class="ts-hot-flame" title="{{ t('Hot hand', '手感火热') }}">🔥</span> {% endif %}{{ ldr.name }}</span>
             <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
                  alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
           </div>
@@ -792,26 +878,108 @@
 
 <script>
 (function () {
+  function animateNumber(el, from, to, duration) {
+    if (!el) return;
+    if (from === to) { el.textContent = String(to); return; }
+    const start = performance.now();
+    const delta = to - from;
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = String(Math.round(from + delta * eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function flashScore(el) {
+    if (!el) return;
+    el.classList.remove('score-flash');
+    // Force reflow so the animation restarts.
+    void el.offsetWidth;
+    el.classList.add('score-flash');
+  }
+
+  function updateScore(el, newVal) {
+    if (!el) return;
+    const prev = parseInt(el.textContent, 10);
+    const next = parseInt(newVal, 10);
+    if (!isFinite(next)) return;
+    if (!isFinite(prev) || prev === next) {
+      el.textContent = String(next);
+      return;
+    }
+    animateNumber(el, prev, next, 700);
+    flashScore(el);
+  }
+
+  function updateText(el, value, suffix) {
+    if (!el) return;
+    if (value === null || value === undefined || value === '') {
+      el.textContent = '—';
+      return;
+    }
+    el.textContent = String(value) + (suffix || '');
+  }
+
+  function updateWP(card, game) {
+    const bar = card.querySelector('[data-role="wp-bar"]');
+    if (!bar) return;
+    const roadWP = game.road_win_probability;
+    const homeWP = game.home_win_probability;
+    if (roadWP == null || homeWP == null) return;
+    const roadFill = card.querySelector('[data-role="wp-road"]');
+    const homeFill = card.querySelector('[data-role="wp-home"]');
+    const roadLbl = card.querySelector('[data-role="wp-label-road"]');
+    const homeLbl = card.querySelector('[data-role="wp-label-home"]');
+    if (roadFill) roadFill.style.width = Math.floor(roadWP * 100) + '%';
+    if (homeFill) homeFill.style.width = Math.floor(homeWP * 100) + '%';
+    if (roadLbl) roadLbl.textContent = Math.round(roadWP * 100) + '%';
+    if (homeLbl) homeLbl.textContent = Math.round(homeWP * 100) + '%';
+  }
+
+  function updateLeader(card, slot, leader, hotIds) {
+    const row = card.querySelector('[data-leader-slot="' + slot + '"]');
+    if (!row || !leader) return;
+    const val = row.querySelector('[data-role="leader-val"]');
+    if (val) val.textContent = leader.value;
+    const isHot = hotIds && hotIds.map(String).includes(String(leader.player_id));
+    row.classList.toggle('ts-leader-hot', !!isHot);
+  }
+
   async function refreshTodayGames() {
-    const response = await fetch('{{ url_for("api_games_live") }}', { headers: { 'Accept': 'application/json' } });
+    let response;
+    try {
+      response = await fetch('{{ url_for("api_games_live") }}', { headers: { 'Accept': 'application/json' } });
+    } catch (err) { return; }
     if (!response.ok) return;
     const payload = await response.json();
     for (const game of (payload.games || [])) {
       const card = document.querySelector('[data-live-game-id="' + game.game_id + '"]');
       if (!card) continue;
-      const road = card.querySelector('[data-role="road-score"]');
-      const home = card.querySelector('[data-role="home-score"]');
+      updateScore(card.querySelector('[data-role="road-score"]'), game.road_score);
+      updateScore(card.querySelector('[data-role="home-score"]'), game.home_score);
       const summary = card.querySelector('[data-role="live-summary"]');
-      if (road) road.textContent = game.road_score;
-      if (home) home.textContent = game.home_score;
       if (summary) summary.textContent = game.summary || '';
       if (game.status !== 'live') {
+        // Game just ended — reload once to pull DB-backed completed view.
         window.location.reload();
         return;
       }
+      updateText(card.querySelector('[data-role="road-fg-pct"]'), game.road_fg_pct, '%');
+      updateText(card.querySelector('[data-role="home-fg-pct"]'), game.home_fg_pct, '%');
+      updateText(card.querySelector('[data-role="road-fg3-pct"]'), game.road_fg3_pct, '%');
+      updateText(card.querySelector('[data-role="home-fg3-pct"]'), game.home_fg3_pct, '%');
+      updateWP(card, game);
+      updateLeader(card, 'road-0', game.road_scorer, game.hot_player_ids);
+      updateLeader(card, 'road-1', game.road_rebounder, game.hot_player_ids);
+      updateLeader(card, 'road-2', game.road_assister, game.hot_player_ids);
+      updateLeader(card, 'home-0', game.home_scorer, game.hot_player_ids);
+      updateLeader(card, 'home-1', game.home_rebounder, game.hot_player_ids);
+      updateLeader(card, 'home-2', game.home_assister, game.hot_player_ids);
     }
   }
-  window.setInterval(refreshTodayGames, 30000);
+  window.setInterval(refreshTodayGames, 15000);
 })();
 </script>
 

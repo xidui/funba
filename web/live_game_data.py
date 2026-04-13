@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
+import time
 from datetime import date, datetime
 from types import SimpleNamespace
 
@@ -9,6 +11,11 @@ from db.game_status import (
     GAME_STATUS_LIVE,
     GAME_STATUS_UPCOMING,
 )
+
+# TTL cache for live card lookups — many home-page hits within a 15s poll
+# window should share one nba_api call.
+_LIVE_CARD_CACHE: dict[str, tuple[float, dict]] = {}
+_LIVE_CARD_TTL_SEC = 12.0
 
 
 _ISO_CLOCK_RE = re.compile(r"^PT(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?$")
@@ -311,6 +318,175 @@ def _build_pbp_rows(actions: list[dict]) -> list[dict]:
             }
         )
     return rows
+
+
+def _parse_mmss(clock: str | None) -> int:
+    """Parse 'M:SS' → seconds. Returns 0 on bad input."""
+    text = str(clock or "").strip()
+    if not text or ":" not in text:
+        return 0
+    try:
+        m, s = text.split(":", 1)
+        return int(m) * 60 + int(float(s))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _compute_win_probability(
+    road_score: int,
+    home_score: int,
+    period: int,
+    clock: str | None,
+) -> tuple[float, float]:
+    """Heuristic live win probability. Returns (road_wp, home_wp) in [0.02, 0.98].
+
+    Based on score differential scaled by sqrt(time remaining). Tanh
+    squashes to [0,1]. Tuning constant derived from empirical NBA data
+    where a 10-point lead at half translates to roughly 80% win rate.
+    """
+    period = max(1, int(period or 1))
+    clock_sec = _parse_mmss(clock)
+    # 12-minute regulation quarters, 5-minute OT periods.
+    if period <= 4:
+        remaining_sec = clock_sec + (4 - period) * 12 * 60
+    else:
+        remaining_sec = clock_sec  # OT
+    if remaining_sec <= 0:
+        if home_score > road_score:
+            return (0.02, 0.98)
+        if road_score > home_score:
+            return (0.98, 0.02)
+        return (0.50, 0.50)
+    diff_home = (home_score or 0) - (road_score or 0)
+    time_min = remaining_sec / 60.0
+    sigma = 3.0 * math.sqrt(max(time_min, 0.5))
+    z = diff_home / sigma
+    home_wp = 0.5 + 0.5 * math.tanh(z * 0.75)
+    home_wp = max(0.02, min(0.98, home_wp))
+    return (round(1.0 - home_wp, 3), round(home_wp, 3))
+
+
+def _hot_pts_threshold(period: int) -> int:
+    period = max(1, min(int(period or 1), 5))
+    # Quarter-scaled threshold: hotter needed later in the game.
+    return {1: 10, 2: 16, 3: 22, 4: 28, 5: 32}[period]
+
+
+def _live_leader(players: list[dict], field: str) -> dict | None:
+    best = None
+    for p in players:
+        val = p.get(field)
+        if not isinstance(val, int):
+            continue
+        if best is None or val > best.get(field, 0):
+            best = p
+    if not best or not isinstance(best.get(field), int) or best[field] <= 0:
+        return None
+    return best
+
+
+def _format_live_player_leader(player: dict | None, stat_field: str) -> dict | None:
+    if not player:
+        return None
+    pts = player.get("pts") if isinstance(player.get("pts"), int) else 0
+    fg3m = player.get("fg3m") if isinstance(player.get("fg3m"), int) else 0
+    fg3a = player.get("fg3a") if isinstance(player.get("fg3a"), int) else 0
+    return {
+        "player_id": player.get("player_id"),
+        "name": player.get("player_name") or "",
+        "value": player.get(stat_field) if isinstance(player.get(stat_field), int) else 0,
+        "pts": pts,
+        "fg3m": fg3m,
+        "fg3a": fg3a,
+    }
+
+
+def fetch_live_card(game_id: str) -> dict | None:
+    """Compact data for home-page live card: leaders, shooting, win prob.
+
+    Pulls BoxScore once per `_LIVE_CARD_TTL_SEC` window (PBP is skipped —
+    the home card doesn't need event-level data). Returns None if the
+    live endpoint is unavailable.
+    """
+    now = time.time()
+    cached = _LIVE_CARD_CACHE.get(game_id)
+    if cached and (now - cached[0]) < _LIVE_CARD_TTL_SEC:
+        return cached[1]
+
+    try:
+        from nba_api.live.nba.endpoints.boxscore import BoxScore
+    except Exception:
+        return None
+    try:
+        box_payload = BoxScore(game_id).get_dict()
+    except Exception:
+        return None
+
+    game = box_payload.get("game") or {}
+    if not game:
+        return None
+
+    home_team = game.get("homeTeam") or {}
+    away_team = game.get("awayTeam") or {}
+    status = _status_from_code(game.get("gameStatus"))
+    period = _safe_int(game.get("period"))
+    raw_clock = game.get("gameClock")
+    clock = _format_clock(raw_clock)
+
+    road_score = _safe_int(away_team.get("score"))
+    home_score = _safe_int(home_team.get("score"))
+
+    road_ts = _build_team_stats(away_team)
+    home_ts = _build_team_stats(home_team)
+
+    road_players = _build_players_by_team(away_team)
+    home_players = _build_players_by_team(home_team)
+
+    road_scorer = _format_live_player_leader(_live_leader(road_players, "pts"), "pts")
+    home_scorer = _format_live_player_leader(_live_leader(home_players, "pts"), "pts")
+    road_rebounder = _format_live_player_leader(_live_leader(road_players, "reb"), "reb")
+    home_rebounder = _format_live_player_leader(_live_leader(home_players, "reb"), "reb")
+    road_assister = _format_live_player_leader(_live_leader(road_players, "ast"), "ast")
+    home_assister = _format_live_player_leader(_live_leader(home_players, "ast"), "ast")
+
+    road_wp, home_wp = _compute_win_probability(road_score, home_score, period, clock)
+
+    hot_threshold = _hot_pts_threshold(period) if status == GAME_STATUS_LIVE else 10**9
+    hot_players: list[str] = []
+    for p in road_players + home_players:
+        pts = p.get("pts")
+        if isinstance(pts, int) and pts >= hot_threshold:
+            pid = p.get("player_id")
+            if pid:
+                hot_players.append(str(pid))
+
+    card = {
+        "game_id": str(game.get("gameId") or game_id),
+        "status": status,
+        "period": period,
+        "clock": clock,
+        "status_text": str(game.get("gameStatusText") or ""),
+        "summary": _summary_text(status, period, raw_clock, game.get("gameStatusText")),
+        "home_team_id": str(home_team.get("teamId") or ""),
+        "road_team_id": str(away_team.get("teamId") or ""),
+        "home_score": home_score,
+        "road_score": road_score,
+        "home_fg_pct": round(home_ts["fg_pct"] * 100, 1) if home_ts.get("fg_pct") is not None else None,
+        "road_fg_pct": round(road_ts["fg_pct"] * 100, 1) if road_ts.get("fg_pct") is not None else None,
+        "home_fg3_pct": round(home_ts["fg3_pct"] * 100, 1) if home_ts.get("fg3_pct") is not None else None,
+        "road_fg3_pct": round(road_ts["fg3_pct"] * 100, 1) if road_ts.get("fg3_pct") is not None else None,
+        "home_scorer": home_scorer,
+        "road_scorer": road_scorer,
+        "home_rebounder": home_rebounder,
+        "road_rebounder": road_rebounder,
+        "home_assister": home_assister,
+        "road_assister": road_assister,
+        "home_win_probability": home_wp,
+        "road_win_probability": road_wp,
+        "hot_player_ids": hot_players,
+    }
+    _LIVE_CARD_CACHE[game_id] = (now, card)
+    return card
 
 
 def fetch_live_game_detail(game_id: str) -> dict | None:

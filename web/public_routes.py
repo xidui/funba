@@ -15,7 +15,12 @@ from db.game_status import (
     GAME_STATUS_UPCOMING,
     get_game_status,
 )
-from web.live_game_data import build_live_game_stub, fetch_live_game_detail, fetch_live_scoreboard_map
+from web.live_game_data import (
+    build_live_game_stub,
+    fetch_live_card,
+    fetch_live_game_detail,
+    fetch_live_scoreboard_map,
+)
 
 
 _COMPARE_EMPTY_MARK = "—"
@@ -245,6 +250,7 @@ def register_public_routes(
                 road_team = team_lookup.get(game.road_team_id)
                 live_snapshot = live_map.get(game.game_id)
                 status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
+                live_card = fetch_live_card(game.game_id) if status == GAME_STATUS_LIVE else None
                 winner_id = getattr(game, "wining_team_id", None)
                 display_home_score = live_snapshot.get("home_score") if live_snapshot else game.home_team_score
                 display_road_score = live_snapshot.get("road_score") if live_snapshot else game.road_team_score
@@ -278,34 +284,54 @@ def register_public_routes(
                         "value": int(getattr(player_stats, stat, 0) or 0),
                     }
 
-                result.append(
-                    {
-                        "game_id": game.game_id,
-                        "game_date": game_date,
-                        "home_team_id": game.home_team_id,
-                        "road_team_id": game.road_team_id,
-                        "home_abbr": home_team.abbr if home_team else "???",
-                        "road_abbr": road_team.abbr if road_team else "???",
-                        "home_score": display_home_score,
-                        "road_score": display_road_score,
-                        "home_won": home_won,
-                        "status": status,
-                        "status_summary": (live_snapshot or {}).get("summary"),
-                        "lead_changes": lead_changes_map.get(game.game_id),
-                        "home_largest_lead": max(home_lead, 0),
-                        "road_largest_lead": max(road_lead, 0),
-                        "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
-                        "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
-                        "home_fg3_pct": round(home_ts.fg3_pct * 100, 1) if home_ts and home_ts.fg3_pct else None,
-                        "road_fg3_pct": round(road_ts.fg3_pct * 100, 1) if road_ts and road_ts.fg3_pct else None,
-                        "home_scorer": _leader(top_scorer_map.get((game.game_id, game.home_team_id)), "pts"),
-                        "road_scorer": _leader(top_scorer_map.get((game.game_id, game.road_team_id)), "pts"),
-                        "home_rebounder": _leader(top_rebounder_map.get((game.game_id, game.home_team_id)), "reb"),
-                        "road_rebounder": _leader(top_rebounder_map.get((game.game_id, game.road_team_id)), "reb"),
-                        "home_assister": _leader(top_assister_map.get((game.game_id, game.home_team_id)), "ast"),
-                        "road_assister": _leader(top_assister_map.get((game.game_id, game.road_team_id)), "ast"),
-                    }
-                )
+                entry = {
+                    "game_id": game.game_id,
+                    "game_date": game_date,
+                    "home_team_id": game.home_team_id,
+                    "road_team_id": game.road_team_id,
+                    "home_abbr": home_team.abbr if home_team else "???",
+                    "road_abbr": road_team.abbr if road_team else "???",
+                    "home_score": display_home_score,
+                    "road_score": display_road_score,
+                    "home_won": home_won,
+                    "status": status,
+                    "status_summary": (live_snapshot or {}).get("summary"),
+                    "lead_changes": lead_changes_map.get(game.game_id),
+                    "home_largest_lead": max(home_lead, 0),
+                    "road_largest_lead": max(road_lead, 0),
+                    "home_fg_pct": round(home_ts.fg_pct * 100, 1) if home_ts and home_ts.fg_pct else None,
+                    "road_fg_pct": round(road_ts.fg_pct * 100, 1) if road_ts and road_ts.fg_pct else None,
+                    "home_fg3_pct": round(home_ts.fg3_pct * 100, 1) if home_ts and home_ts.fg3_pct else None,
+                    "road_fg3_pct": round(road_ts.fg3_pct * 100, 1) if road_ts and road_ts.fg3_pct else None,
+                    "home_scorer": _leader(top_scorer_map.get((game.game_id, game.home_team_id)), "pts"),
+                    "road_scorer": _leader(top_scorer_map.get((game.game_id, game.road_team_id)), "pts"),
+                    "home_rebounder": _leader(top_rebounder_map.get((game.game_id, game.home_team_id)), "reb"),
+                    "road_rebounder": _leader(top_rebounder_map.get((game.game_id, game.road_team_id)), "reb"),
+                    "home_assister": _leader(top_assister_map.get((game.game_id, game.home_team_id)), "ast"),
+                    "road_assister": _leader(top_assister_map.get((game.game_id, game.road_team_id)), "ast"),
+                    "home_win_probability": None,
+                    "road_win_probability": None,
+                    "hot_player_ids": [],
+                }
+                # For LIVE games, override DB-sourced fields with live box-score
+                # data (DB has no rows yet during play). Leaders, shooting pct,
+                # win probability, and hot-player highlights all come from the
+                # nba_api live BoxScore endpoint via the cached `fetch_live_card`.
+                if live_card:
+                    entry["home_fg_pct"] = live_card.get("home_fg_pct") or entry["home_fg_pct"]
+                    entry["road_fg_pct"] = live_card.get("road_fg_pct") or entry["road_fg_pct"]
+                    entry["home_fg3_pct"] = live_card.get("home_fg3_pct") or entry["home_fg3_pct"]
+                    entry["road_fg3_pct"] = live_card.get("road_fg3_pct") or entry["road_fg3_pct"]
+                    entry["home_scorer"] = live_card.get("home_scorer") or entry["home_scorer"]
+                    entry["road_scorer"] = live_card.get("road_scorer") or entry["road_scorer"]
+                    entry["home_rebounder"] = live_card.get("home_rebounder") or entry["home_rebounder"]
+                    entry["road_rebounder"] = live_card.get("road_rebounder") or entry["road_rebounder"]
+                    entry["home_assister"] = live_card.get("home_assister") or entry["home_assister"]
+                    entry["road_assister"] = live_card.get("road_assister") or entry["road_assister"]
+                    entry["home_win_probability"] = live_card.get("home_win_probability")
+                    entry["road_win_probability"] = live_card.get("road_win_probability")
+                    entry["hot_player_ids"] = live_card.get("hot_player_ids", [])
+                result.append(entry)
             result.sort(
                 key=lambda item: (
                     _game_status_rank(item["status"]),
@@ -1310,7 +1336,30 @@ def register_public_routes(
         )
 
     def api_games_live():
-        return jsonify({"games": list(fetch_live_scoreboard_map().values())})
+        scoreboard = fetch_live_scoreboard_map()
+        games = []
+        for game_id, snapshot in scoreboard.items():
+            entry = dict(snapshot)
+            if snapshot.get("status") == GAME_STATUS_LIVE:
+                card = fetch_live_card(game_id)
+                if card:
+                    entry.update({
+                        "home_fg_pct": card.get("home_fg_pct"),
+                        "road_fg_pct": card.get("road_fg_pct"),
+                        "home_fg3_pct": card.get("home_fg3_pct"),
+                        "road_fg3_pct": card.get("road_fg3_pct"),
+                        "home_scorer": card.get("home_scorer"),
+                        "road_scorer": card.get("road_scorer"),
+                        "home_rebounder": card.get("home_rebounder"),
+                        "road_rebounder": card.get("road_rebounder"),
+                        "home_assister": card.get("home_assister"),
+                        "road_assister": card.get("road_assister"),
+                        "home_win_probability": card.get("home_win_probability"),
+                        "road_win_probability": card.get("road_win_probability"),
+                        "hot_player_ids": card.get("hot_player_ids", []),
+                    })
+            games.append(entry)
+        return jsonify({"games": games})
 
     def api_game_live(game_id: str):
         payload = fetch_live_game_detail(game_id)
