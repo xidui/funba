@@ -1374,6 +1374,18 @@ class TestMetricPublishAuth(unittest.TestCase):
         self.assertIn("admin_metric_trigger_deep_dive_post", template)
         self.assertIn("No deep-dive post triggered yet.", template)
 
+    def test_metric_detail_template_includes_anonymous_drilldown_teaser(self):
+        template = (REPO_ROOT / "web" / "templates" / "metric_detail.html").read_text()
+        self.assertIn("drilldown-preview-shell", template)
+        self.assertIn("drilldownPreviewEnabled", template)
+        self.assertIn("Sign in or create an account to unlock the full drill-down game list.", template)
+
+    def test_player_template_includes_anonymous_matchup_drilldown_teaser(self):
+        template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
+        self.assertIn("split-game-preview-shell", template)
+        self.assertIn("splitDrilldownPreviewEnabled", template)
+        self.assertIn("Sign in or create an account to unlock the full drill-down game list.", template)
+
     def test_base_template_shows_my_metrics_link_for_all_logged_in_users(self):
         template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()
         self.assertIn("url_for('my_metrics')", template)

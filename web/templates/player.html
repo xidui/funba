@@ -926,6 +926,81 @@
   .split-game-table tbody tr:hover {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
+  .split-game-preview-shell {
+    position: relative;
+    padding-bottom: 66px;
+  }
+  .split-game-preview-content {
+    max-height: 124px;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+  .split-game-preview-fade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 66px;
+    height: 64px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 0%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 72%, transparent) 58%,
+      var(--surface) 100%
+    );
+    pointer-events: none;
+  }
+  .split-game-preview-cta {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  }
+  .split-game-preview-copy {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
+  }
+  .split-game-preview-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #0b0f19;
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .split-game-preview-button:hover {
+    filter: brightness(1.03);
+  }
+  @media (max-width: 640px) {
+    .split-game-preview-shell {
+      padding-bottom: 98px;
+    }
+    .split-game-preview-fade {
+      bottom: 98px;
+    }
+    .split-game-preview-cta {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .split-game-preview-button {
+      width: 100%;
+    }
+  }
   .split-game-table td {
     padding: 8px 10px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
@@ -1504,6 +1579,8 @@
   {% set regular_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_regular')|list %}
   {% set playoffs_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playoffs')|list %}
   {% set playin_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playin')|list %}
+  {% set _split_drilldown_preview_enabled = not current_user %}
+  {% set _split_drilldown_login_url = url_for('auth_login', next=request.url) %}
 
   {% macro render_split_wide(m, season_for_url) %}
     <details class="matchup-split-card{% if m.is_notable %} notable{% endif %}">
@@ -1571,6 +1648,10 @@
               {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
               {% if _qual|length > 1 %}
               <div class="split-game-panel-content" data-cell-idx="{{ loop.index0 }}" hidden>
+                {% if _split_drilldown_preview_enabled %}
+                <div class="split-game-preview-shell">
+                  <div class="split-game-preview-content">
+                {% endif %}
                 <div class="split-game-panel-header">
                   {% if s.sub_key_info and s.sub_key_info.team_id %}
                   <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg" alt="" style="width:18px;height:18px;">
@@ -1614,7 +1695,7 @@
                     {% endfor %}
                   </tbody>
                 </table>
-                {% if (s.games_meta or [])|length > 20 %}
+                {% if (s.games_meta or [])|length > 20 and not _split_drilldown_preview_enabled %}
                 <div class="split-game-pagination">
                   <button type="button" class="pagination-btn pagination-prev" aria-label="Previous">‹</button>
                   <span class="pagination-indicator">1</span>
@@ -1622,6 +1703,15 @@
                   <span class="pagination-total">{{ ((s.games_meta|length + 19) // 20) }}</span>
                   <button type="button" class="pagination-btn pagination-next" aria-label="Next">›</button>
                   <span class="pagination-range"></span>
+                </div>
+                {% endif %}
+                {% if _split_drilldown_preview_enabled %}
+                  </div>
+                  <div class="split-game-preview-fade"></div>
+                  <div class="split-game-preview-cta">
+                    <div class="split-game-preview-copy">{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录 / 注册后查看完整 drill-down 比赛列表。') }}</div>
+                    <a href="{{ _split_drilldown_login_url }}" class="split-game-preview-button">{{ t('Sign In / Register', '登录 / 注册') }}</a>
+                  </div>
                 </div>
                 {% endif %}
               </div>
@@ -1698,6 +1788,7 @@
 
   <script>
   (function() {
+    var splitDrilldownPreviewEnabled = {{ _split_drilldown_preview_enabled|tojson }};
     document.querySelectorAll('.matchup-split-card').forEach(function(card) {
       var panel = card.querySelector('.split-game-panel');
       if (!panel) return;
@@ -1712,6 +1803,11 @@
         var rows = Array.prototype.slice.call(content.querySelectorAll('.split-game-trow'));
         var totalRows = rows.length;
         var paginationEl = content.querySelector('.split-game-pagination');
+        if (splitDrilldownPreviewEnabled) {
+          rows.forEach(function(r) { r.hidden = false; });
+          if (paginationEl) paginationEl.hidden = true;
+          return;
+        }
         if (totalRows <= PAGE_SIZE) {
           rows.forEach(function(r) { r.hidden = false; });
           if (paginationEl) paginationEl.hidden = true;

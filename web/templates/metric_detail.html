@@ -370,6 +370,84 @@
     font-style: italic;
     padding: 8px 0;
   }
+  .drilldown-preview-shell {
+    position: relative;
+    padding-bottom: 64px;
+  }
+  .drilldown-preview-content {
+    max-height: 92px;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+  .drilldown-preview-content.drilldown-preview-content-split {
+    max-height: 132px;
+  }
+  .drilldown-preview-fade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 64px;
+    height: 64px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 0%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 72%, transparent) 58%,
+      var(--surface) 100%
+    );
+    pointer-events: none;
+  }
+  .drilldown-preview-cta {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  }
+  .drilldown-preview-copy {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
+  }
+  .drilldown-preview-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #0b0f19;
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .drilldown-preview-button:hover {
+    filter: brightness(1.03);
+  }
+  @media (max-width: 640px) {
+    .drilldown-preview-shell {
+      padding-bottom: 94px;
+    }
+    .drilldown-preview-cta {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .drilldown-preview-fade {
+      bottom: 94px;
+    }
+    .drilldown-preview-button {
+      width: 100%;
+    }
+  }
 
   .backfill-panel {
     background: var(--surface);
@@ -1173,6 +1251,8 @@
 </style>
 {% endif %}
 
+{% set _drilldown_preview_enabled = current_access_level == 'anonymous' %}
+{% set _drilldown_login_url = url_for('auth_login', next=request.url) %}
 {% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
 {% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
 
@@ -1499,6 +1579,10 @@
       <tr class="md-split-drilldown-row" id="md-split-drilldown-{{ loop.index }}" style="display:none;" data-row-idx="{{ loop.index }}">
         <td colspan="99">
           <div class="md-split-drilldown-panel">
+            {% if _drilldown_preview_enabled %}
+            <div class="drilldown-preview-shell">
+              <div class="drilldown-preview-content drilldown-preview-content-split">
+            {% endif %}
             <div class="md-split-drilldown-header">
               <strong>{{ r.entity_label }}</strong>
               {% if r.sub_key_info and r.sub_key_info.team_id %}
@@ -1544,7 +1628,7 @@
                 {% endfor %}
               </tbody>
             </table>
-            {% if _games_meta|length > 20 %}
+            {% if _games_meta|length > 20 and not _drilldown_preview_enabled %}
             <div class="md-split-pagination">
               <button type="button" class="md-split-pag-btn md-split-pag-prev" aria-label="Previous">‹</button>
               <span class="md-split-pag-indicator">1</span>
@@ -1552,6 +1636,15 @@
               <span class="md-split-pag-total">{{ ((_games_meta|length + 19) // 20) }}</span>
               <button type="button" class="md-split-pag-btn md-split-pag-next" aria-label="Next">›</button>
               <span class="md-split-pag-range"></span>
+            </div>
+            {% endif %}
+            {% if _drilldown_preview_enabled %}
+              </div>
+              <div class="drilldown-preview-fade"></div>
+              <div class="drilldown-preview-cta">
+                <div class="drilldown-preview-copy">{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录 / 注册后查看完整 drill-down 比赛列表。') }}</div>
+                <a href="{{ _drilldown_login_url }}" class="drilldown-preview-button">{{ t('Sign In / Register', '登录 / 注册') }}</a>
+              </div>
             </div>
             {% endif %}
           </div>
@@ -1909,6 +2002,10 @@ function toggleMetricEnabled(metricKey) {
 <script>
 (() => {
   const metricKey = {{ metric_def.key | tojson }};
+  const drilldownPreviewEnabled = {{ _drilldown_preview_enabled | tojson }};
+  const drilldownLoginUrl = {{ _drilldown_login_url | tojson }};
+  const drilldownPreviewCopy = {{ t('Sign in or create an account to unlock the full drill-down game list.', '登录 / 注册后查看完整 drill-down 比赛列表。') | tojson }};
+  const drilldownPreviewButton = {{ t('Sign In / Register', '登录 / 注册') | tojson }};
   const cache = {};
 
   document.querySelectorAll('.games-drilldown').forEach(el => {
@@ -1969,11 +2066,11 @@ function toggleMetricEnabled(metricKey) {
 
     const gameBase = "{{ url_for('game_page', slug='__GAME_SLUG__') }}";
     let html = `<div class="drilldown-title">{{ t('Qualifying games', '符合条件的比赛') }} (${total})</div>`;
-    html += `<table class="drilldown-table"><thead><tr>
+    let tableHtml = `<table class="drilldown-table"><thead><tr>
       <th>{{ t('Date', '日期') }}</th><th>{{ t('Matchup', '对阵') }}</th><th>{{ t('Score', '比分') }}</th><th>W/L</th>${hasStat ? '<th>{{ t("Stats", "数据") }}</th>' : ''}
     </tr></thead><tbody>`;
 
-    html += games.map(g => {
+    tableHtml += games.map(g => {
       const url = gameBase.replace('__GAME_SLUG__', g.game_slug || g.game_id);
       const score = (g.home_score != null && g.road_score != null)
         ? `${g.road_score} - ${g.home_score}` : '';
@@ -1989,9 +2086,22 @@ function toggleMetricEnabled(metricKey) {
       </tr>`;
     }).join('');
 
-    html += '</tbody></table>';
+    tableHtml += '</tbody></table>';
 
-    if (total_pages > 1) {
+    if (drilldownPreviewEnabled) {
+      html += `<div class="drilldown-preview-shell">
+        <div class="drilldown-preview-content">${tableHtml}</div>
+        <div class="drilldown-preview-fade"></div>
+        <div class="drilldown-preview-cta">
+          <div class="drilldown-preview-copy">${drilldownPreviewCopy}</div>
+          <a href="${drilldownLoginUrl}" class="drilldown-preview-button">${drilldownPreviewButton}</a>
+        </div>
+      </div>`;
+    } else {
+      html += tableHtml;
+    }
+
+    if (!drilldownPreviewEnabled && total_pages > 1) {
       html += `<div class="drilldown-pager">
         <button ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}">\u2190 {{ t('Prev', '上一页') }}</button>
         <span class="drilldown-pager-info">${page} / ${total_pages}</span>
@@ -2000,6 +2110,8 @@ function toggleMetricEnabled(metricKey) {
     }
 
     panel.innerHTML = html;
+
+    if (drilldownPreviewEnabled) return;
 
     panel.querySelectorAll('.drilldown-pager button:not([disabled])').forEach(btn => {
       btn.addEventListener('click', () => {
