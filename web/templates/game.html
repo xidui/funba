@@ -1018,11 +1018,11 @@
     <!-- Scores -->
     <div class="sb-center">
       <div class="sb-scores">
-        <span class="sb-score {{ 'winner' if road_won else ('loser' if home_won else 'neutral') }}">
+        <span class="sb-score {{ 'winner' if road_won else ('loser' if home_won else 'neutral') }}" data-role="sb-road-score">
           {{ display_road_score if display_road_score is not none else '—' }}
         </span>
         <span class="sb-dash">–</span>
-        <span class="sb-score {{ 'winner' if home_won else ('loser' if road_won else 'neutral') }}">
+        <span class="sb-score {{ 'winner' if home_won else ('loser' if road_won else 'neutral') }}" data-role="sb-home-score">
           {{ display_home_score if display_home_score is not none else '—' }}
         </span>
       </div>
@@ -1035,9 +1035,9 @@
         {{ t('Final', '最终') }}
         {% endif %}
       </div>
-      <div class="sb-meta">
+      <div class="sb-meta" data-role="sb-meta">
         {% if current_status == 'live' and live_summary %}
-        {{ live_summary.summary }}&nbsp;·&nbsp;{{ fmt_date(game.game_date) }}
+        <span data-role="sb-live-summary">{{ live_summary.summary }}</span>&nbsp;·&nbsp;{{ fmt_date(game.game_date) }}
         {% elif current_status == 'upcoming' %}
         {{ t('Game starts on', '比赛开始于') }} {{ fmt_date(game.game_date) }}&nbsp;·&nbsp;{{ season_label(game.season) }}
         {% else %}
@@ -1732,7 +1732,7 @@
   {% if current_status == 'upcoming' %}
   <p class="meta">{{ t('Play-by-play will appear once the game begins.', '比赛开始后会显示逐回合内容。') }}</p>
   {% elif pbp_rows %}
-  <div class="pbp-wrap table-wrap" data-mobile-key="game-play-by-play">
+  <div id="bs-pbp" class="pbp-wrap table-wrap" data-mobile-key="game-play-by-play">
     <table class="pbp-table">
       <thead>
         <tr>
@@ -1862,12 +1862,260 @@
   })();
 </script>
 
-{% if current_status == 'live' and live_refresh_interval_ms %}
+{% if live_refresh_interval_ms %}
 <script>
-  window.setInterval(function () {
-    window.location.reload();
-  }, {{ live_refresh_interval_ms }});
+(function () {
+  const REFRESH_MS = {{ live_refresh_interval_ms }};
+  const GAME_ID = {{ game.game_id|tojson }};
+  const HOME_TEAM_ID = {{ (home_team_id or '')|tojson }};
+  const ROAD_TEAM_ID = {{ (game.road_team_id or '')|tojson }};
+  const TEAM_NAMES = {
+    [HOME_TEAM_ID]: {{ team_name(home_team_id)|tojson }},
+    [ROAD_TEAM_ID]: {{ team_name(game.road_team_id)|tojson }},
+  };
+  const TEAM_ABBRS = {
+    [HOME_TEAM_ID]: {{ team_abbr(home_team_id)|tojson }},
+    [ROAD_TEAM_ID]: {{ team_abbr(game.road_team_id)|tojson }},
+  };
+  const ENDPOINT = {{ url_for('api_game_live', game_id=game.game_id)|tojson }};
+  const STATUS = {{ current_status|tojson }};
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function pctFmt(value) {
+    if (value === null || value === undefined) return '—';
+    const n = Number(value);
+    if (!isFinite(n)) return '—';
+    const display = n <= 1 ? n * 100 : n;
+    return display.toFixed(1) + '%';
+  }
+
+  function animateNumber(el, from, to, duration) {
+    if (!el) return;
+    const start = performance.now();
+    const delta = to - from;
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = String(Math.round(from + delta * eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function flashScore(el) {
+    if (!el) return;
+    el.classList.remove('score-flash');
+    void el.offsetWidth;
+    el.classList.add('score-flash');
+  }
+
+  function patchScore(el, newVal) {
+    if (!el) return;
+    const prev = parseInt((el.textContent || '').trim(), 10);
+    const next = parseInt(newVal, 10);
+    if (!isFinite(next)) return;
+    if (!isFinite(prev) || prev === next) {
+      el.textContent = String(next);
+      return;
+    }
+    animateNumber(el, prev, next, 700);
+    flashScore(el);
+  }
+
+  function periodLabel(period) {
+    const p = parseInt(period, 10);
+    if (!isFinite(p) || p <= 0) return String(period || '');
+    return p <= 4 ? 'Q' + p : 'OT' + (p - 4);
+  }
+
+  function renderQuarterScoresAndTeamStats(teamStats, quarterScores, container) {
+    if (!container) return;
+    const parts = [];
+    if (quarterScores && quarterScores.length) {
+      parts.push('<div class="table-wrap" style="margin-bottom:16px;"><table style="min-width:0;"><thead><tr><th>Team</th>');
+      quarterScores.forEach(qs => parts.push('<th style="text-align:center;">' + escapeHtml(periodLabel(qs.period)) + '</th>'));
+      parts.push('<th style="text-align:center;">T</th></tr></thead><tbody>');
+      teamStats.forEach(row => {
+        const isHome = row.team_id === HOME_TEAM_ID;
+        parts.push('<tr><td style="font-weight:600;">' + escapeHtml(TEAM_ABBRS[row.team_id] || row.team_id) + '</td>');
+        quarterScores.forEach(qs => {
+          parts.push('<td style="text-align:center; font-variant-numeric:tabular-nums;">' + escapeHtml(isHome ? qs.home : qs.road) + '</td>');
+        });
+        parts.push('<td style="text-align:center; font-weight:700; color:var(--heading);">' + escapeHtml(row.pts != null ? row.pts : '—') + '</td></tr>');
+      });
+      parts.push('</tbody></table></div>');
+    }
+    if (teamStats && teamStats.length) {
+      parts.push('<div class="table-wrap"><table><thead><tr><th>Team</th><th>PTS</th><th>REB</th><th>AST</th><th>FG%</th><th>3P%</th><th>FT%</th><th>Result</th></tr></thead><tbody>');
+      teamStats.forEach(row => {
+        const winClass = row.win === true ? 'row-win' : (row.win === false ? 'row-loss' : '');
+        parts.push('<tr class="' + winClass + '"><td>' + escapeHtml(TEAM_NAMES[row.team_id] || row.team_id) + '</td>');
+        parts.push('<td><strong>' + escapeHtml(row.pts != null ? row.pts : '—') + '</strong></td>');
+        parts.push('<td>' + escapeHtml(row.reb != null ? row.reb : '—') + '</td>');
+        parts.push('<td>' + escapeHtml(row.ast != null ? row.ast : '—') + '</td>');
+        parts.push('<td>' + pctFmt(row.fg_pct) + '</td>');
+        parts.push('<td>' + pctFmt(row.fg3_pct) + '</td>');
+        parts.push('<td>' + pctFmt(row.ft_pct) + '</td>');
+        let badge = '<span class="meta">—</span>';
+        if (row.win === true) badge = '<span class="badge badge-win">W</span>';
+        else if (row.win === false) badge = '<span class="badge badge-loss">L</span>';
+        parts.push('<td>' + badge + '</td></tr>');
+      });
+      parts.push('</tbody></table></div>');
+    }
+    container.innerHTML = parts.join('');
+  }
+
+  function renderPlayers(playersByTeam, orderedTeamIds, container) {
+    if (!container) return;
+    const parts = ['<div class="box-score-grid">'];
+    orderedTeamIds.forEach(teamId => {
+      const players = (playersByTeam && playersByTeam[teamId]) || [];
+      parts.push('<div class="box-score-team"><h3>' + escapeHtml(TEAM_NAMES[teamId] || teamId) + '</h3>');
+      if (players.length) {
+        parts.push('<div class="table-wrap" data-mobile-key="game-player-stats-' + escapeHtml(teamId) + '"><table><thead><tr><th>Player</th><th class="mobile-hide">Status</th><th class="mobile-hide">Min</th><th>PTS</th><th>REB</th><th>AST</th><th class="mobile-hide">STL</th><th class="mobile-hide">BLK</th><th class="mobile-hide">TOV</th><th class="mobile-hide">FG</th><th class="mobile-hide">3P</th><th class="mobile-hide">FT</th><th>+/−</th></tr></thead><tbody>');
+        let prevStarter = null;
+        players.forEach(row => {
+          if (prevStarter === true && !row.is_starter && !row.is_dnp) {
+            parts.push('<tr class="bench-separator"><td colspan="13"></td></tr>');
+          }
+          if (!row.is_dnp) prevStarter = !!row.is_starter;
+          const rowClass = row.is_dnp ? 'dnp-row' : (!row.is_starter ? 'bench-row' : '');
+          parts.push('<tr class="player-row ' + rowClass + '" data-player-id="' + escapeHtml(row.player_id) + '">');
+          parts.push('<td>' + escapeHtml(row.player_name) + '</td>');
+          parts.push('<td class="mobile-hide meta">' + escapeHtml(row.status) + '</td>');
+          parts.push('<td class="mobile-hide">' + escapeHtml(row.minutes) + '</td>');
+          parts.push('<td><strong>' + escapeHtml(row.pts) + '</strong></td>');
+          parts.push('<td>' + escapeHtml(row.reb) + '</td>');
+          parts.push('<td>' + escapeHtml(row.ast) + '</td>');
+          parts.push('<td class="mobile-hide">' + escapeHtml(row.stl) + '</td>');
+          parts.push('<td class="mobile-hide">' + escapeHtml(row.blk) + '</td>');
+          parts.push('<td class="mobile-hide">' + escapeHtml(row.tov) + '</td>');
+          parts.push('<td class="mobile-hide meta">' + escapeHtml(row.fgm) + '-' + escapeHtml(row.fga) + '</td>');
+          parts.push('<td class="mobile-hide meta">' + escapeHtml(row.fg3m) + '-' + escapeHtml(row.fg3a) + '</td>');
+          parts.push('<td class="mobile-hide meta">' + escapeHtml(row.ftm) + '-' + escapeHtml(row.fta) + '</td>');
+          let pm = '<span class="meta">—</span>';
+          if (row.plus_minus !== '-' && row.plus_minus !== null && row.plus_minus !== undefined) {
+            const v = parseInt(row.plus_minus, 10);
+            if (v > 0) pm = '<span class="pm-pos">+' + v + '</span>';
+            else if (v < 0) pm = '<span class="pm-neg">' + v + '</span>';
+            else pm = '<span class="meta">0</span>';
+          }
+          parts.push('<td>' + pm + '</td>');
+          parts.push('</tr>');
+        });
+        parts.push('</tbody></table></div>');
+      } else {
+        parts.push('<p class="meta">No player stats found.</p>');
+      }
+      parts.push('</div>');
+    });
+    parts.push('</div>');
+    container.innerHTML = parts.join('');
+  }
+
+  function renderPBP(pbpRows, container) {
+    if (!container) return;
+    const parts = ['<table class="pbp-table"><thead><tr><th class="mobile-hide">#</th><th class="mobile-hide">Period</th><th>Clock</th><th></th><th class="mobile-hide">Type</th><th>Event</th><th>Score</th><th class="mobile-hide">Margin</th></tr></thead><tbody>'];
+    let lastPeriod = null;
+    pbpRows.forEach(row => {
+      if (row.period !== lastPeriod) {
+        parts.push('<tr class="pbp-period-sep"><td colspan="8">' + escapeHtml(periodLabel(row.period)) + '</td></tr>');
+        lastPeriod = row.period;
+      }
+      const trClass = (row.event_type_code === 1 || row.event_type_code === 3) ? 'pbp-score-event' : '';
+      parts.push('<tr class="' + trClass + '">');
+      parts.push('<td class="mobile-hide meta">' + escapeHtml(row.event_num) + '</td>');
+      parts.push('<td class="mobile-hide meta">' + escapeHtml(row.period) + '</td>');
+      parts.push('<td class="nowrap meta">' + escapeHtml(row.clock) + '</td>');
+      let logoCell = '';
+      if (row.team_id) {
+        logoCell = '<img src="https://cdn.nba.com/logos/nba/' + escapeHtml(row.team_id) + '/global/L/logo.svg" alt="" width="20" height="20" loading="lazy" onerror="this.style.display=\'none\'">';
+      }
+      parts.push('<td class="pbp-logo-cell">' + logoCell + '</td>');
+      parts.push('<td class="mobile-hide meta">' + escapeHtml(row.event_type) + '</td>');
+      parts.push('<td>' + escapeHtml(row.description) + '</td>');
+      parts.push('<td class="nowrap">' + escapeHtml(row.score) + '</td>');
+      parts.push('<td class="mobile-hide meta">' + escapeHtml(row.margin) + '</td>');
+      parts.push('</tr>');
+    });
+    parts.push('</tbody></table>');
+    container.innerHTML = parts.join('');
+  }
+
+  async function refresh() {
+    let resp;
+    try {
+      resp = await fetch(ENDPOINT, { headers: { 'Accept': 'application/json' } });
+    } catch (err) { return; }
+    if (!resp.ok) return;
+    let payload;
+    try { payload = await resp.json(); } catch (err) { return; }
+    if (!payload || payload.ok === false) return;
+
+    const summary = payload.summary;
+    if (summary) {
+      patchScore(document.querySelector('[data-role="sb-road-score"]'), summary.road_score);
+      patchScore(document.querySelector('[data-role="sb-home-score"]'), summary.home_score);
+      const ls = document.querySelector('[data-role="sb-live-summary"]');
+      if (ls && summary.summary) ls.textContent = summary.summary;
+
+      // Once the live endpoint reports completed, do one full reload to
+      // pick up the DB-backed view (with shot chart, score chart, etc.).
+      if (STATUS === 'live' && summary.status === 'completed') {
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+      // When an upcoming game tips off, reload to switch into live mode.
+      if (STATUS === 'upcoming' && summary.status === 'live') {
+        window.location.reload();
+        return;
+      }
+    }
+
+    const teamContainer = document.getElementById('bs-team');
+    if (teamContainer && payload.team_stats && payload.team_stats.length) {
+      renderQuarterScoresAndTeamStats(payload.team_stats, payload.quarter_scores || [], teamContainer);
+    }
+    const playersContainer = document.getElementById('bs-players');
+    if (playersContainer && payload.players_by_team && payload.ordered_team_ids) {
+      renderPlayers(payload.players_by_team, payload.ordered_team_ids, playersContainer);
+    }
+    const pbpContainer = document.getElementById('bs-pbp');
+    if (pbpContainer && payload.pbp_rows && payload.pbp_rows.length) {
+      renderPBP(payload.pbp_rows, pbpContainer);
+    }
+  }
+
+  if (REFRESH_MS) {
+    window.setInterval(refresh, REFRESH_MS);
+    // Also do an immediate refresh on visibility regain so "tab back" looks fresh.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refresh();
+    });
+  }
+})();
 </script>
+
+<style>
+.today-score.score-flash, .sb-score.score-flash {
+  animation: scoreFlash 1.2s ease-out;
+}
+@keyframes scoreFlash {
+  0% {
+    transform: scale(1);
+    color: var(--accent);
+    text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% { transform: scale(1); }
+}
+</style>
 {% endif %}
 
 {% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}

@@ -674,7 +674,7 @@ def register_detail_routes(
                     game=game,
                     game_status=game_status,
                     live_summary=live_summary,
-                    live_refresh_interval_ms=None,
+                    live_refresh_interval_ms=60000,
                     team_name=lambda team_id: get_team_name()(teams, team_id),
                     team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
                     fmt_date=get_fmt_date(),
