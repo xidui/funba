@@ -1,12 +1,25 @@
 """Natural-language ranking for metrics catalog search."""
 from __future__ import annotations
 
+import hashlib
 import json
+import math
+import os
 import re
+import threading
 from collections.abc import Callable
+from pathlib import Path
 
 from db.ai_usage import extract_provider_usage
 from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
+
+EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_PRERANK_TOP_K = 40
+_EMBEDDING_BATCH = 256
+_CACHE_DIR = Path(os.environ.get("FUNBA_CACHE_DIR", str(Path.home() / ".cache" / "funba")))
+_EMBEDDINGS_PATH = _CACHE_DIR / "metric_embeddings.json"
+_embeddings_cache: dict | None = None
+_embeddings_lock = threading.Lock()
 
 _FIELD_ORDER = (
     "key",
@@ -74,6 +87,130 @@ def _candidate_search_document(candidate: dict) -> str:
     return _truncate_text(document, _MAX_DOCUMENT_CHARS)
 
 
+def _candidate_embedding_text(candidate: dict) -> str:
+    parts: list[str] = []
+    for k in ("name", "name_zh", "scope", "category", "description", "description_zh"):
+        v = candidate.get(k)
+        if v:
+            parts.append(str(v).strip())
+    return " | ".join(parts)
+
+
+def _hash_embedding_text(text: str) -> str:
+    return hashlib.sha256(f"{EMBEDDING_MODEL}::{text}".encode("utf-8")).hexdigest()[:32]
+
+
+def _load_embeddings_cache() -> dict:
+    global _embeddings_cache
+    if _embeddings_cache is not None:
+        return _embeddings_cache
+    fresh = {"model": EMBEDDING_MODEL, "entries": {}}
+    if _EMBEDDINGS_PATH.exists():
+        try:
+            data = json.loads(_EMBEDDINGS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("model") == EMBEDDING_MODEL and isinstance(data.get("entries"), dict):
+                fresh = data
+        except (OSError, json.JSONDecodeError):
+            pass
+    _embeddings_cache = fresh
+    return _embeddings_cache
+
+
+def _save_embeddings_cache(data: dict) -> None:
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = _EMBEDDINGS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(_EMBEDDINGS_PATH)
+
+
+def _ensure_candidate_embeddings(candidates: list[dict]) -> dict[str, list[float]]:
+    with _embeddings_lock:
+        cache = _load_embeddings_cache()
+        entries = cache["entries"]
+
+        result: dict[str, list[float]] = {}
+        needed: list[tuple[str, str, str]] = []
+        for cand in candidates:
+            key = cand["key"]
+            text = _candidate_embedding_text(cand)
+            if not text:
+                continue
+            h = _hash_embedding_text(text)
+            stored = entries.get(key)
+            if isinstance(stored, dict) and stored.get("hash") == h and isinstance(stored.get("vector"), list):
+                result[key] = stored["vector"]
+            else:
+                needed.append((key, text, h))
+
+        dirty = False
+        if needed:
+            import openai
+
+            client = openai.OpenAI()
+            for i in range(0, len(needed), _EMBEDDING_BATCH):
+                chunk = needed[i : i + _EMBEDDING_BATCH]
+                resp = client.embeddings.create(
+                    model=EMBEDDING_MODEL,
+                    input=[text for _, text, _ in chunk],
+                )
+                for (key, _text, h), item in zip(chunk, resp.data):
+                    vec = list(item.embedding)
+                    entries[key] = {"hash": h, "vector": vec}
+                    result[key] = vec
+            dirty = True
+
+        catalog_keys = {c["key"] for c in candidates}
+        stale_keys = [k for k in entries if k not in catalog_keys]
+        if stale_keys:
+            for k in stale_keys:
+                entries.pop(k, None)
+            dirty = True
+
+        if dirty:
+            _save_embeddings_cache(cache)
+
+    return result
+
+
+def _embed_query(query: str) -> list[float]:
+    import openai
+
+    client = openai.OpenAI()
+    resp = client.embeddings.create(model=EMBEDDING_MODEL, input=[query])
+    return list(resp.data[0].embedding)
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / math.sqrt(na * nb)
+
+
+def _prerank_with_embeddings(query: str, candidates: list[dict], top_k: int) -> list[dict]:
+    if len(candidates) <= top_k:
+        return candidates
+    try:
+        cand_vectors = _ensure_candidate_embeddings(candidates)
+        q_vec = _embed_query(query)
+    except Exception:
+        return candidates
+    scored: list[tuple[float, dict]] = []
+    for cand in candidates:
+        vec = cand_vectors.get(cand["key"])
+        if vec is None:
+            continue
+        scored.append((_cosine(q_vec, vec), cand))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [cand for _, cand in scored[:top_k]]
+
+
 def rank_metrics(
     query: str,
     candidates: list[dict],
@@ -88,6 +225,8 @@ def rank_metrics(
     selected_model = model or env_default_llm_model()
     if not selected_model:
         raise ValueError("Metric search requires OPENAI_API_KEY or ANTHROPIC_API_KEY.")
+
+    candidates = _prerank_with_embeddings(query, candidates, EMBEDDING_PRERANK_TOP_K)
 
     candidate_docs = [
         {
