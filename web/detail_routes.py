@@ -170,6 +170,15 @@ def register_detail_routes(
         with SessionLocal() as session:
             player = session.query(Player).filter(Player.slug == slug).first()
             if player is None:
+                legacy_player_id = slug.removeprefix("player-") if slug.startswith("player-") else slug
+                player = session.query(Player).filter(Player.player_id == legacy_player_id).first()
+                if player is not None and getattr(player, "slug", None) and player.slug != slug:
+                    redirect_params = request.args.to_dict(flat=True)
+                    return redirect(
+                        get_localized_url_for()("player_page", slug=player.slug, **redirect_params),
+                        code=302,
+                    )
+            if player is None:
                 abort(404, description=f"Player not found")
             player_id = player.player_id
 
@@ -380,6 +389,15 @@ def register_detail_routes(
 
         with SessionLocal() as session:
             team = session.query(Team).filter(Team.slug == slug).first()
+            if team is None:
+                legacy_team_id = slug.removeprefix("team-") if slug.startswith("team-") else slug
+                team = session.query(Team).filter(Team.team_id == legacy_team_id).first()
+                if team is not None and getattr(team, "slug", None) and team.slug != slug:
+                    redirect_params = request.args.to_dict(flat=True)
+                    return redirect(
+                        get_localized_url_for()("team_page", slug=team.slug, **redirect_params),
+                        code=302,
+                    )
             if team is None:
                 abort(404, description=f"Team not found")
             team_id = team.team_id

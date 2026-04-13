@@ -50,6 +50,40 @@ class TestGamePageFallback(unittest.TestCase):
     def setUp(self):
         self.web_app = _make_app_module()
         self.web_app.Game = SimpleNamespace(game_id=column("game_id"), slug=column("slug"))
+        self.web_app.Player = SimpleNamespace(player_id=column("player_id"), slug=column("slug"))
+        self.web_app.Team = SimpleNamespace(team_id=column("team_id"), slug=column("slug"))
+
+    def test_player_page_redirects_legacy_numeric_player_id_to_slug(self):
+        session = _session_ctx(MagicMock())
+        slug_query = MagicMock()
+        legacy_query = MagicMock()
+        persisted_player = SimpleNamespace(player_id="2544", slug="lebron-james")
+        slug_query.filter.return_value.first.return_value = None
+        legacy_query.filter.return_value.first.return_value = persisted_player
+        session.query.side_effect = [slug_query, legacy_query]
+
+        with self.web_app.app.test_request_context("/players/2544?scope=season"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session):
+                response = self.web_app.player_page("2544")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/players/lebron-james?scope=season")
+
+    def test_team_page_redirects_legacy_numeric_team_id_to_slug(self):
+        session = _session_ctx(MagicMock())
+        slug_query = MagicMock()
+        legacy_query = MagicMock()
+        persisted_team = SimpleNamespace(team_id="1610612747", slug="los-angeles-lakers")
+        slug_query.filter.return_value.first.return_value = None
+        legacy_query.filter.return_value.first.return_value = persisted_team
+        session.query.side_effect = [slug_query, legacy_query]
+
+        with self.web_app.app.test_request_context("/teams/1610612747?view=results"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session):
+                response = self.web_app.team_page("1610612747")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/teams/los-angeles-lakers?view=results")
 
     def test_game_page_redirects_legacy_numeric_game_id_to_slug(self):
         session = _session_ctx(MagicMock())

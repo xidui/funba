@@ -72,7 +72,7 @@ For `Game content analysis` issues:
    - `/api/data/games/{id}/boxscore`
    - `/api/data/games/{id}/pbp?period=4` when story detail matters
    - `/api/data/metrics/{key}/top?...` whenever rankings, season context, or historical framing matter
-   - when linking a game page in copy, use the canonical URL returned by Funba data/admin APIs (or its `/cn/...` localized equivalent); never hand-compose `/games/<game_id>` links
+   - when linking game/player/team pages in copy, use canonical URLs returned by Funba data/admin APIs (or their `/cn/...` localized equivalents); never hand-compose `/games/<game_id>`, `/players/<player_id>`, or `/teams/<team_id>` links
 3. Stay scoped to that single game. Pick the single strongest post angle from that game only. Avoid low-signal filler and do not spawn multiple `SocialPost` records for one game-analysis ticket.
 4. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
    Default target set inside that one post:

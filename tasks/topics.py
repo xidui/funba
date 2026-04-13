@@ -182,7 +182,8 @@ def get_games_by_date(target_date: date) -> list[dict]:
         if not games:
             return []
 
-        team_map = {t.team_id: t.abbr for t in session.query(Team.team_id, Team.abbr).all()}
+        team_rows = session.query(Team.team_id, Team.abbr, Team.slug).all()
+        team_map = {t.team_id: t.abbr for t in team_rows}
 
         # Check OT
         ot_game_ids = set()
