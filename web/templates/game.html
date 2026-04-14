@@ -1261,6 +1261,7 @@
 {% set display_home_score = live_summary.home_score if current_status == 'live' and live_summary else game.home_team_score %}
 
 <!-- ── Hero: Scoreboard + Score Progression ───────────────────────── -->
+{% if current_status != 'upcoming' %}
 <div class="card" style="padding:0; overflow:hidden;">
   <div class="scoreboard">
     <!-- Away team -->
@@ -1342,6 +1343,7 @@
   </div>
   {% endif %}
 </div>
+{% endif %}
 
 {% if upcoming_preview %}
 <!-- ── Upcoming preview: records, last 10, H2H, rest ──────────────── -->
