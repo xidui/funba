@@ -451,8 +451,8 @@ def register_public_routes(
                     "game_date": game_date,
                     "home_team_id": game.home_team_id,
                     "road_team_id": game.road_team_id,
-                    "home_abbr": home_team.abbr if home_team else "???",
-                    "road_abbr": road_team.abbr if road_team else "???",
+                    "home_abbr": home_team.abbr if home_team else "TBD",
+                    "road_abbr": road_team.abbr if road_team else "TBD",
                     "home_score": display_home_score,
                     "road_score": display_road_score,
                     "home_won": home_won,
@@ -729,7 +729,11 @@ def register_public_routes(
         top_scorers = _build_top_scorers()
 
         games_active = [g for g in today_games_data if g.get("status") in (GAME_STATUS_LIVE, GAME_STATUS_COMPLETED)]
-        upcoming_games = [g for g in today_games_data if g.get("status") == GAME_STATUS_UPCOMING]
+        upcoming_games = [
+            g for g in today_games_data
+            if g.get("status") == GAME_STATUS_UPCOMING
+            and (g.get("home_team_id") or g.get("road_team_id"))
+        ]
 
         return get_render_template()(
             "home.html",

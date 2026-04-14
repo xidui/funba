@@ -1078,10 +1078,10 @@
         {% for g in upcoming_games[:6] %}
         <a href="{{ game_url(g.game_id) }}" class="mini-upcoming">
           <div class="mini-upcoming-teams">
-            <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            {% if g.road_team_id %}<img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
             <span>{{ g.road_abbr }}</span>
             <span class="mini-upcoming-at">@</span>
-            <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            {% if g.home_team_id %}<img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
             <span>{{ g.home_abbr }}</span>
           </div>
           <div class="mini-upcoming-time">{{ g.summary or g.game_date.strftime('%b %d') }}</div>
