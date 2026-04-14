@@ -881,6 +881,94 @@
 })();
 </script>
 
+{% if news_entries %}
+<div class="card news-card">
+  <div class="news-header">
+    <h2 style="margin:0;">{{ t('Latest News', '最新资讯') }}</h2>
+    <span class="news-sub">{{ t('Updated hourly', '每小时更新') }}</span>
+  </div>
+  <div class="news-list">
+    {% for n in news_entries %}
+    <a class="news-item" href="{{ url_for('news_detail', cluster_id=n.cluster_id) }}">
+      {% if n.thumbnail_url %}
+      <img class="news-thumb" src="{{ n.thumbnail_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+      {% endif %}
+      <div class="news-body">
+        <div class="news-meta-row">
+          <span class="news-source news-source-{{ n.source }}">
+            {% if n.source == 'espn' %}ESPN{% elif n.source == 'nba' %}NBA.com{% elif n.source == 'funba' %}FUNBA{% else %}{{ n.source|upper }}{% endif %}
+          </span>
+          {% if n.article_count and n.article_count > 1 %}
+          <span class="news-count-pill">+{{ n.article_count - 1 }} {{ t('sources', '来源') }}</span>
+          {% endif %}
+          {% if n.unique_view_count and n.unique_view_count > 0 %}
+          <span class="news-views">👁 {{ n.unique_view_count }}</span>
+          {% endif %}
+          <span class="news-time">{{ n.published_at.strftime('%b %d %H:%M') }}</span>
+        </div>
+        <div class="news-title">{{ n.title }}</div>
+        {% if n.summary %}
+        <div class="news-summary">{{ (n.summary|striptags|truncate(220))|e }}</div>
+        {% endif %}
+        {% if n.players or n.teams %}
+        <div class="news-tags">
+          {% for team in n.teams %}
+          <span class="news-tag news-tag-team">{{ team.abbr or team.full_name }}</span>
+          {% endfor %}
+          {% for player in n.players %}
+          <span class="news-tag news-tag-player">{{ ((lang == 'zh') and player.full_name_zh) or player.full_name }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+<style>
+  .news-card { margin-top: 22px; }
+  .news-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .news-sub { font-size: 12px; color: var(--text-muted); }
+  .news-list { display: flex; flex-direction: column; gap: 10px; }
+  .news-item {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .news-item:hover { background: var(--surface-3); border-color: var(--accent); }
+  .news-thumb {
+    flex: 0 0 120px;
+    width: 120px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--surface-3);
+  }
+  .news-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .news-meta-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11px; color: var(--text-muted); }
+  .news-source { font-weight: 600; padding: 2px 6px; border-radius: 4px; background: var(--surface-3); color: var(--text); }
+  .news-source-funba { background: var(--accent); color: #000; }
+  .news-count-pill { background: var(--surface-3); padding: 2px 6px; border-radius: 10px; font-size: 10px; }
+  .news-views { opacity: 0.8; }
+  .news-time { margin-left: auto; }
+  .news-title { font-weight: 600; line-height: 1.3; color: var(--text); }
+  .news-summary { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+  .news-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .news-tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--surface-3); color: var(--text-muted); }
+  .news-tag-team { color: var(--accent); }
+  @media (max-width: 600px) {
+    .news-item { flex-direction: column; }
+    .news-thumb { width: 100%; height: 160px; flex: 0 0 auto; }
+  }
+</style>
+{% endif %}
+
 {% if today_games %}
 <div class="card">
   <div class="today-header">

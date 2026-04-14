@@ -724,6 +724,90 @@ class SocialPostDelivery(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# News feed: NewsCluster + NewsArticle (+ tag junctions)
+# ---------------------------------------------------------------------------
+
+class NewsCluster(Base):
+    """A group of NewsArticle rows that cover the same story across sources."""
+    __tablename__ = 'NewsCluster'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    representative_article_id = Column(
+        Integer,
+        ForeignKey('NewsArticle.id', ondelete='SET NULL', use_alter=True, name='fk_NewsCluster_rep_article'),
+        nullable=True,
+    )
+    first_seen_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=False)
+    article_count = Column(Integer, nullable=False, default=1)
+    unique_view_count = Column(Integer, nullable=False, default=0)
+    view_count_refreshed_at = Column(DateTime, nullable=True)
+    score = Column(Float, nullable=False, default=0.0)
+    score_refreshed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('ix_NewsCluster_first_seen_at', 'first_seen_at'),
+        Index('ix_NewsCluster_last_seen_at', 'last_seen_at'),
+        Index('ix_NewsCluster_score', 'score'),
+    )
+
+
+class NewsArticle(Base):
+    """One source article (ESPN / NBA.com / funba internal post)."""
+    __tablename__ = 'NewsArticle'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cluster_id = Column(Integer, ForeignKey('NewsCluster.id', ondelete='SET NULL'), nullable=True, index=True)
+    source = Column(String(32), nullable=False)                  # 'espn' | 'nba' | 'funba'
+    internal_social_post_id = Column(
+        Integer,
+        ForeignKey('SocialPost.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    source_guid = Column(String(255), nullable=False)
+    url = Column(String(1024), nullable=False)
+    title = Column(String(512), nullable=False)
+    summary = Column(Text, nullable=True)
+    thumbnail_url = Column(String(1024), nullable=True)
+    published_at = Column(DateTime, nullable=False)
+    fetched_at = Column(DateTime, nullable=False)
+    embedding = deferred(Column(LargeBinary, nullable=True))
+    embedding_model = Column(String(64), nullable=True)
+    embedding_text_hash = Column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('source', 'source_guid', name='uq_NewsArticle_source_guid'),
+        Index('ix_NewsArticle_published_at', 'published_at'),
+        Index('ix_NewsArticle_cluster_id', 'cluster_id'),
+        Index('ix_NewsArticle_source_published', 'source', 'published_at'),
+    )
+
+
+class NewsArticlePlayer(Base):
+    """Tag: NewsArticle mentions Player."""
+    __tablename__ = 'NewsArticlePlayer'
+
+    article_id = Column(Integer, ForeignKey('NewsArticle.id', ondelete='CASCADE'), primary_key=True)
+    player_id = Column(String(50), ForeignKey('Player.player_id', ondelete='CASCADE'), primary_key=True)
+
+    __table_args__ = (
+        Index('ix_NewsArticlePlayer_player_id', 'player_id'),
+    )
+
+
+class NewsArticleTeam(Base):
+    """Tag: NewsArticle mentions Team."""
+    __tablename__ = 'NewsArticleTeam'
+
+    article_id = Column(Integer, ForeignKey('NewsArticle.id', ondelete='CASCADE'), primary_key=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id', ondelete='CASCADE'), primary_key=True)
+
+    __table_args__ = (
+        Index('ix_NewsArticleTeam_team_id', 'team_id'),
+    )
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

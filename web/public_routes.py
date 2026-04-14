@@ -600,6 +600,7 @@ def register_public_routes(
                 )
 
         today_games_data = _build_today_games(team_lookup)
+        news_entries = _build_home_news(team_lookup)
         return get_render_template()(
             "home.html",
             teams=teams,
@@ -611,7 +612,165 @@ def register_public_routes(
             selected_standing_season=selected_standing_season,
             fmt_season=get_season_label(),
             today_games=today_games_data,
+            news_entries=news_entries,
         )
+
+    def _build_home_news(team_lookup: dict) -> list[dict]:
+        """Top-scored news clusters for the home feed."""
+        SessionLocal = get_session_local()
+        Player = get_player_model()
+        Team = get_team_model()
+        from db.models import (
+            NewsArticle,
+            NewsArticlePlayer,
+            NewsArticleTeam,
+            NewsCluster,
+        )
+
+        with SessionLocal() as session:
+            clusters = (
+                session.query(NewsCluster)
+                .filter(NewsCluster.representative_article_id.isnot(None))
+                .order_by(NewsCluster.score.desc())
+                .limit(15)
+                .all()
+            )
+            if not clusters:
+                return []
+
+            rep_ids = [c.representative_article_id for c in clusters if c.representative_article_id]
+            rep_rows = (
+                session.query(NewsArticle)
+                .filter(NewsArticle.id.in_(rep_ids))
+                .all()
+            )
+            rep_by_id = {a.id: a for a in rep_rows}
+
+            player_rows = (
+                session.query(NewsArticlePlayer.article_id, Player.player_id, Player.full_name, Player.full_name_zh, Player.slug)
+                .join(Player, NewsArticlePlayer.player_id == Player.player_id)
+                .filter(NewsArticlePlayer.article_id.in_(rep_ids))
+                .all()
+            )
+            players_by_article: dict[int, list[dict]] = defaultdict(list)
+            for row in player_rows:
+                players_by_article[row.article_id].append(
+                    {"player_id": row.player_id, "full_name": row.full_name, "full_name_zh": row.full_name_zh, "slug": row.slug}
+                )
+
+            team_rows = (
+                session.query(NewsArticleTeam.article_id, Team.team_id, Team.full_name, Team.full_name_zh, Team.abbr, Team.slug)
+                .join(Team, NewsArticleTeam.team_id == Team.team_id)
+                .filter(NewsArticleTeam.article_id.in_(rep_ids))
+                .all()
+            )
+            teams_by_article: dict[int, list[dict]] = defaultdict(list)
+            for row in team_rows:
+                teams_by_article[row.article_id].append(
+                    {"team_id": row.team_id, "full_name": row.full_name, "full_name_zh": row.full_name_zh, "abbr": row.abbr, "slug": row.slug}
+                )
+
+            entries: list[dict] = []
+            for cluster in clusters:
+                rep = rep_by_id.get(cluster.representative_article_id)
+                if rep is None:
+                    continue
+                entries.append(
+                    {
+                        "cluster_id": cluster.id,
+                        "article_id": rep.id,
+                        "title": rep.title,
+                        "summary": rep.summary or "",
+                        "source": rep.source,
+                        "url": rep.url,
+                        "thumbnail_url": rep.thumbnail_url,
+                        "published_at": rep.published_at,
+                        "article_count": cluster.article_count or 1,
+                        "unique_view_count": cluster.unique_view_count or 0,
+                        "players": players_by_article.get(rep.id, []),
+                        "teams": teams_by_article.get(rep.id, []),
+                    }
+                )
+            return entries
+
+    def news_detail(cluster_id: int):
+        SessionLocal = get_session_local()
+        Player = get_player_model()
+        Team = get_team_model()
+        from db.models import (
+            NewsArticle,
+            NewsArticlePlayer,
+            NewsArticleTeam,
+            NewsCluster,
+        )
+
+        with SessionLocal() as session:
+            cluster = session.get(NewsCluster, cluster_id)
+            if cluster is None:
+                abort(404)
+            rep = session.get(NewsArticle, cluster.representative_article_id) if cluster.representative_article_id else None
+            if rep is None:
+                abort(404)
+
+            siblings = (
+                session.query(NewsArticle)
+                .filter(NewsArticle.cluster_id == cluster.id, NewsArticle.id != rep.id)
+                .order_by(NewsArticle.published_at.desc())
+                .all()
+            )
+
+            cluster_article_ids = [rep.id] + [s.id for s in siblings]
+            player_rows = (
+                session.query(Player.player_id, Player.full_name, Player.full_name_zh, Player.slug)
+                .join(NewsArticlePlayer, NewsArticlePlayer.player_id == Player.player_id)
+                .filter(NewsArticlePlayer.article_id.in_(cluster_article_ids))
+                .distinct()
+                .all()
+            )
+            team_rows = (
+                session.query(Team.team_id, Team.full_name, Team.full_name_zh, Team.abbr, Team.slug)
+                .join(NewsArticleTeam, NewsArticleTeam.team_id == Team.team_id)
+                .filter(NewsArticleTeam.article_id.in_(cluster_article_ids))
+                .distinct()
+                .all()
+            )
+
+            entry = {
+                "cluster": {
+                    "id": cluster.id,
+                    "article_count": cluster.article_count or 1,
+                    "unique_view_count": cluster.unique_view_count or 0,
+                },
+                "article": {
+                    "id": rep.id,
+                    "title": rep.title,
+                    "summary": rep.summary or "",
+                    "source": rep.source,
+                    "url": rep.url,
+                    "thumbnail_url": rep.thumbnail_url,
+                    "published_at": rep.published_at,
+                },
+                "siblings": [
+                    {
+                        "id": s.id,
+                        "title": s.title,
+                        "source": s.source,
+                        "url": s.url,
+                        "published_at": s.published_at,
+                    }
+                    for s in siblings
+                ],
+                "players": [
+                    {"player_id": r.player_id, "full_name": r.full_name, "full_name_zh": r.full_name_zh, "slug": r.slug}
+                    for r in player_rows
+                ],
+                "teams": [
+                    {"team_id": r.team_id, "full_name": r.full_name, "full_name_zh": r.full_name_zh, "abbr": r.abbr, "slug": r.slug}
+                    for r in team_rows
+                ],
+            }
+
+        return get_render_template()("news_detail.html", entry=entry)
 
     def _group_by_date(entries):
         """Group a pre-sorted list of game entries by game_date."""
@@ -1539,6 +1698,8 @@ def register_public_routes(
 
     app.add_url_rule("/cn/", endpoint="home_zh", view_func=home)
     app.add_url_rule("/", endpoint="home", view_func=home)
+    app.add_url_rule("/news/<int:cluster_id>", endpoint="news_detail", view_func=news_detail)
+    app.add_url_rule("/cn/news/<int:cluster_id>", endpoint="news_detail_zh", view_func=news_detail)
     app.add_url_rule("/cn/games", endpoint="games_list_zh", view_func=games_list)
     app.add_url_rule("/games", endpoint="games_list", view_func=games_list)
     app.add_url_rule("/cn/awards", endpoint="awards_page_zh", view_func=awards_page)

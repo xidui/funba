@@ -1,7 +1,6 @@
 """Natural-language ranking for metrics catalog search."""
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -11,12 +10,18 @@ from collections.abc import Callable
 import numpy as np
 
 from db.ai_usage import extract_provider_usage
+from db.embeddings import (
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    blob_to_vector as _blob_to_vector,
+    embed_query as _embed_query,
+    embed_texts as _embed_texts,
+    hash_embedding_text as _hash_embedding_text,
+    vector_to_blob as _vector_to_blob,
+)
 from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
 
-EMBEDDING_MODEL = "text-embedding-3-large"
-EMBEDDING_DIM = 3072
 EMBEDDING_PRERANK_TOP_K = 40
-_EMBEDDING_BATCH = 256
 # Per-process cache of {metric_key: float32 ndarray}. Populated lazily from the
 # DB; gunicorn preload warms this once so all workers inherit it via CoW.
 _embedding_vectors: dict[str, np.ndarray] = {}
@@ -101,35 +106,6 @@ def _candidate_embedding_text(candidate: dict | object) -> str:
         if v:
             parts.append(str(v).strip())
     return " | ".join(parts)
-
-
-def _hash_embedding_text(text: str) -> str:
-    return hashlib.sha256(f"{EMBEDDING_MODEL}::{text}".encode("utf-8")).hexdigest()[:32]
-
-
-def _vector_to_blob(vector) -> bytes:
-    return np.asarray(vector, dtype=np.float32).tobytes()
-
-
-def _blob_to_vector(blob: bytes) -> np.ndarray:
-    return np.frombuffer(blob, dtype=np.float32)
-
-
-def _embed_texts(texts: list[str]) -> list[list[float]]:
-    import openai
-
-    client = openai.OpenAI()
-    out: list[list[float]] = []
-    for i in range(0, len(texts), _EMBEDDING_BATCH):
-        chunk = texts[i : i + _EMBEDDING_BATCH]
-        resp = client.embeddings.create(model=EMBEDDING_MODEL, input=chunk)
-        for item in resp.data:
-            out.append(list(item.embedding))
-    return out
-
-
-def _embed_query(query: str) -> np.ndarray:
-    return np.asarray(_embed_texts([query])[0], dtype=np.float32)
 
 
 def update_metric_embedding(session, row) -> None:

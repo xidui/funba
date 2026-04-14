@@ -548,3 +548,27 @@ def enqueue_metric_backfill(self, metric_key: str, force: bool = False) -> dict:
         metric_key, metric_keys, len(game_ids),
     )
     return {"metric_key": metric_key, "expanded_metric_keys": metric_keys, "enqueued_games": len(game_ids)}
+
+
+# ---------------------------------------------------------------------------
+# News feed (Queue: news)
+# ---------------------------------------------------------------------------
+
+@shared_task(name="tasks.ingest.scrape_nba_news", queue="news")
+def scrape_nba_news():
+    """Hourly scrape: ESPN NBA RSS + NBA.com content API -> NewsArticle."""
+    from db.news_ingest import scrape_all
+    return scrape_all()
+
+
+@shared_task(name="tasks.ingest.refresh_news_scores", queue="news")
+def refresh_news_scores():
+    """Every-5-min refresh of unique_view_count + ranking score for recent clusters."""
+    from sqlalchemy.orm import Session
+    from db.models import engine
+    from db.news_ingest import refresh_all_recent_scores
+
+    with Session(engine) as session:
+        count = refresh_all_recent_scores(session)
+        session.commit()
+    return {"refreshed": count}

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>CELERY_BROKER_URL</key>
+		<string>redis://localhost:6379/0</string>
+		<key>DB_MAX_OVERFLOW</key>
+		<string>0</string>
+		<key>DB_POOL_SIZE</key>
+		<string>1</string>
+		<key>NBA_DB_URL</key>
+		<string>mysql+pymysql://root@localhost/nba_data</string>
+		<key>OBJC_DISABLE_INITIALIZE_FORK_SAFETY</key>
+		<string>YES</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>app.funba.worker-news</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/yuewang/Documents/github/funba/.venv/bin/celery</string>
+		<string>-A</string>
+		<string>tasks.celery_app</string>
+		<string>worker</string>
+		<string>-n</string>
+		<string>news@%h</string>
+		<string>-Q</string>
+		<string>news</string>
+		<string>-c</string>
+		<string>1</string>
+		<string>--loglevel=info</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/yuewang/Documents/github/funba/logs/worker-news-stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/yuewang/Documents/github/funba/logs/worker-news-stdout.log</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/yuewang/Documents/github/funba/.paperclip/deploy-main</string>
+</dict>
+</plist>
