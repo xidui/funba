@@ -364,9 +364,16 @@ def register_public_routes(
 
             result = []
             for game in games:
+                live_snapshot = live_map.get(game.game_id)
+                # Stale DB rows for play-in games may have NULL team_ids before the
+                # bracket is set; prefer the live snapshot when DB is missing.
+                if live_snapshot:
+                    if not game.home_team_id and live_snapshot.get("home_team_id"):
+                        game.home_team_id = live_snapshot["home_team_id"]
+                    if not game.road_team_id and live_snapshot.get("road_team_id"):
+                        game.road_team_id = live_snapshot["road_team_id"]
                 home_team = team_lookup.get(game.home_team_id)
                 road_team = team_lookup.get(game.road_team_id)
-                live_snapshot = live_map.get(game.game_id)
                 status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
                 live_card = fetch_live_card(game.game_id) if status == GAME_STATUS_LIVE else None
                 winner_id = getattr(game, "wining_team_id", None)
