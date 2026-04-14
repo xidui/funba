@@ -502,18 +502,68 @@ def sync_schedule_window(
         )
         raise self.retry(exc=exc, countdown=300)
 
+    # Patch today's rows from the live scoreboard CDN. ScheduleLeagueV2 lags
+    # several hours behind on play-in / playoff matchup updates, while the
+    # cdn.nba.com live scoreboard reflects them within minutes. We only fill
+    # NULL fields so a real schedule value is never overwritten by live noise.
+    live_patched = 0
+    try:
+        live_patched = _patch_today_meta_from_live()
+    except Exception as exc:
+        logger.warning("sync_schedule_window: live meta patch failed: %s", exc, exc_info=True)
+
     logger.info(
-        "sync_schedule_window: synced %d game(s) for %s -> %s",
+        "sync_schedule_window: synced %d game(s) for %s -> %s, live_patched=%d",
         len(game_ids),
         date_from,
         date_to,
+        live_patched,
     )
     return {
         "date_from": date_from,
         "date_to": date_to,
         "season_types": list(season_types or []),
         "synced_games": len(game_ids),
+        "live_patched": live_patched,
     }
+
+
+def _patch_today_meta_from_live() -> int:
+    """Backfill NULL meta fields on today's Game rows from the live scoreboard.
+
+    Returns the number of rows touched. Only fields that are NULL in DB are
+    overwritten — schedule-API values always win when present.
+    """
+    from sqlalchemy import update
+    from web.live_game_data import fetch_live_scoreboard_map
+
+    snapshots = fetch_live_scoreboard_map()
+    if not snapshots:
+        return 0
+
+    SessionLocal = sessionmaker(bind=engine)
+    touched = 0
+    with SessionLocal() as session:
+        for game_id, snap in snapshots.items():
+            home_id = snap.get("home_team_id") or None
+            road_id = snap.get("road_team_id") or None
+            if not home_id and not road_id:
+                continue
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                continue
+            changed = False
+            if not game.home_team_id and home_id:
+                game.home_team_id = home_id
+                changed = True
+            if not game.road_team_id and road_id:
+                game.road_team_id = road_id
+                changed = True
+            if changed:
+                touched += 1
+        if touched:
+            session.commit()
+    return touched
 
 
 @shared_task(
