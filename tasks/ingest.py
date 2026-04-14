@@ -534,7 +534,15 @@ def _patch_today_meta_from_live() -> int:
     Returns the number of rows touched. Only fields that are NULL in DB are
     overwritten — schedule-API values always win when present.
     """
-    from sqlalchemy import update
+    # The Celery worker's sys.path doesn't always include the project root
+    # at the moment `tasks.ingest` is autodiscovered (the celery_app bootstrap
+    # runs in a different import order), so ensure it before the deferred
+    # import of a sibling package.
+    import os
+    import sys
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
     from web.live_game_data import fetch_live_scoreboard_map
 
     snapshots = fetch_live_scoreboard_map()
