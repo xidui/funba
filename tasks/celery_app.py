@@ -2,7 +2,6 @@
 import os
 
 from celery import Celery
-from celery.schedules import crontab
 from celery.worker.autoscale import Autoscaler
 from kombu import Queue
 
@@ -71,7 +70,7 @@ app.conf.update(
         },
         "sync-schedule-window": {
             "task": "tasks.ingest.sync_schedule_window",
-            "schedule": crontab(hour=6, minute=0),
+            "schedule": 3600,
             "kwargs": {
                 "lookahead_days": 365,
                 "season_types": ["Regular Season", "PlayIn", "Playoffs"],
