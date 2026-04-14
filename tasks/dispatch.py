@@ -42,7 +42,7 @@ from db.game_status import (
     completed_game_clause,
     infer_game_status,
 )
-from db.models import Game, MetricComputeRun, MetricRunLog, engine
+from db.models import Game, MetricComputeRun, MetricRunLog, Team, engine
 from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks are registered
 
 # Import so Celery knows about them before we call apply_async
@@ -480,9 +480,32 @@ def sync_schedule_games(
     if not game_rows:
         return set()
 
-    game_ids = set(game_rows.keys())
     sess = _session()
     try:
+        valid_team_ids = {row.team_id for row in sess.query(Team.team_id).all()}
+        # ScheduleLeagueV2 occasionally returns preseason / exhibition games
+        # against non-NBA teams (e.g. FIBA opponents) whose team_ids are not in
+        # our Team table. Drop those entirely — the FK constraint would
+        # otherwise fail the whole batch insert.
+        skipped_unknown_team = 0
+        filtered_rows = {}
+        for gid, row in game_rows.items():
+            home_id = row.get("home_team_id")
+            road_id = row.get("road_team_id")
+            if home_id and home_id not in valid_team_ids:
+                skipped_unknown_team += 1
+                continue
+            if road_id and road_id not in valid_team_ids:
+                skipped_unknown_team += 1
+                continue
+            filtered_rows[gid] = row
+        game_rows = filtered_rows
+        if skipped_unknown_team:
+            print(f"Skipped {skipped_unknown_team} schedule row(s) with unknown team_ids.")
+        if not game_rows:
+            return set()
+
+        game_ids = set(game_rows.keys())
         existing_ids = {
             r.game_id
             for r in sess.query(Game.game_id).filter(Game.game_id.in_(game_ids)).all()
