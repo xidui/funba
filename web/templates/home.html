@@ -28,116 +28,6 @@
 
   .home-hero h1 { margin-bottom: 4px; }
 
-  /* US Map */
-  #teams-map {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-
-  .state-path {
-    fill: var(--surface-3);
-    stroke: var(--border-2);
-    stroke-width: 0.6;
-  }
-
-  .teams-map-wrap {
-    display: block;
-  }
-
-  .map-marker {
-    cursor: pointer;
-  }
-
-  .map-hit-area {
-    fill: transparent;
-    pointer-events: all;
-  }
-
-  .map-dot {
-    fill: var(--surface-2);
-    stroke: var(--border-2);
-    stroke-width: 1.5;
-    transition: fill 0.15s, stroke 0.15s;
-  }
-
-  .map-logo-image {
-    pointer-events: none;
-  }
-
-  .map-logo-frame,
-  .map-logo-ring {
-    fill: none;
-    pointer-events: none;
-  }
-
-  .map-logo-frame {
-    stroke: var(--border-2);
-    stroke-width: 1.5;
-  }
-
-  .map-logo-ring {
-    stroke: var(--accent);
-    stroke-width: 2;
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-
-  .map-label,
-  .map-label-sub {
-    font-family: 'Outfit', sans-serif;
-    text-anchor: middle;
-    pointer-events: none;
-    transition: fill 0.15s;
-    user-select: none;
-  }
-
-  .map-label {
-    font-weight: 700;
-    font-size: 7.5px;
-    fill: var(--accent);
-    dominant-baseline: middle;
-  }
-
-  .map-label-sub {
-    font-size: 6px;
-    fill: var(--muted);
-  }
-
-  .map-logo-image,
-  .map-logo-frame,
-  .map-label-sub {
-    display: none;
-  }
-
-  .map-marker:hover .map-logo-ring {
-    opacity: 1;
-  }
-
-  .map-marker.logo-ready .map-logo-image,
-  .map-marker.logo-ready .map-logo-frame,
-  .map-marker.logo-ready .map-label-sub {
-    display: block;
-  }
-
-  .map-marker.logo-ready .map-dot,
-  .map-marker.logo-ready .map-label {
-    display: none;
-  }
-
-  .map-marker.logo-ready:hover .map-label-sub {
-    fill: var(--text);
-  }
-
-  .map-marker.logo-failed .map-label-sub {
-    display: none;
-  }
-
-  .map-marker:not(.logo-ready):hover .map-dot {
-    fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
-    stroke: var(--accent);
-  }
-
   /* Standings */
   .standings-header {
     display: flex;
@@ -243,53 +133,6 @@
     letter-spacing: 0.09em;
     color: var(--muted);
     margin-bottom: 8px;
-  }
-
-  .teams-mobile-grid {
-    display: none;
-    gap: 16px;
-  }
-
-  .teams-mobile-conf {
-    display: grid;
-    gap: 10px;
-  }
-
-  .team-chip-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .team-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 0 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--heading);
-    font-family: 'Outfit', sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    text-decoration: none;
-  }
-
-  .team-chip:hover {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
-    text-decoration: none;
-  }
-
-  @media (max-width: 640px) {
-    .teams-mobile-grid {
-      display: grid;
-    }
   }
 
   /* Today's Games */
@@ -726,205 +569,465 @@
   }
 </style>
 
+<style>
+  /* 3-col portal layout */
+  .home-grid {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr) 240px;
+    gap: 18px;
+    align-items: start;
+  }
+  .home-col-left,
+  .home-col-right {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+  .home-col-center {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+  .home-grid .card { padding: 14px; margin: 0; }
+  .home-grid .card h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 0 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-2);
+  }
+
+  /* Compact games list (left sidebar) */
+  .mini-games-list { display: flex; flex-direction: column; gap: 6px; }
+  .mini-game {
+    display: block;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .mini-game:hover { border-color: var(--accent); background: var(--surface-3); }
+  .mini-game-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .mini-game-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .mini-game-team img { width: 16px; height: 16px; object-fit: contain; }
+  .mini-game-score {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .mini-game-score.win { color: var(--win, #4ade80); }
+  .mini-game-score.loss { color: var(--muted-2); }
+  .mini-game-status {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .mini-game-status.live { color: var(--accent); }
+  .mini-game-status.live::before {
+    content: '●';
+    margin-right: 4px;
+    animation: pulse 1.2s infinite;
+  }
+
+  /* Compact standings (sidebar) */
+  .mini-standings { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mini-standings td {
+    padding: 4px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mini-standings tr:last-child td { border-bottom: none; }
+  .mini-standings tr:hover td { background: var(--surface-2); }
+  .mini-standings .rank {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--muted);
+    width: 20px;
+  }
+  .mini-standings .rank.top3 { color: var(--accent); }
+  .mini-standings .team a {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .mini-standings .team img { width: 16px; height: 16px; object-fit: contain; }
+  .mini-standings .team a:hover { color: var(--accent); }
+  .mini-standings .rec {
+    text-align: right;
+    font-size: 11px;
+    color: var(--muted-2);
+    font-family: 'Outfit', sans-serif;
+  }
+
+  /* Top scorers (right sidebar) */
+  .top-scorers-list { display: flex; flex-direction: column; gap: 6px; }
+  .top-scorer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .top-scorer-row:last-child { border-bottom: none; }
+  .top-scorer-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .top-scorer-rank {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--muted);
+    min-width: 16px;
+    font-size: 12px;
+  }
+  .top-scorer-rank.top1 { color: var(--accent); }
+  .top-scorer-name {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .top-scorer-name:hover { color: var(--accent); }
+  .top-scorer-team {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+  }
+  .top-scorer-pts {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent);
+  }
+
+  /* Upcoming games (right sidebar) */
+  .mini-upcoming-list { display: flex; flex-direction: column; gap: 6px; }
+  .mini-upcoming {
+    padding: 7px 9px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    font-size: 12px;
+  }
+  .mini-upcoming:hover { border-color: var(--accent); }
+  .mini-upcoming-teams {
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+  }
+  .mini-upcoming-time {
+    color: var(--muted);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  /* Quick nav */
+  .quick-nav { display: flex; flex-direction: column; gap: 4px; }
+  .quick-nav a {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+  }
+  .quick-nav a:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* News feed in center column - use existing news styles, add a header */
+  .home-col-center .news-card { margin-top: 0; }
+
+  /* Season select override for compact standings header */
+  .mini-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-2);
+    margin-bottom: 10px;
+  }
+  .mini-card-header h3 {
+    margin: 0;
+    padding: 0;
+    border: none;
+  }
+  .mini-card-header .season-select {
+    font-size: 11px;
+    padding: 3px 24px 3px 8px;
+  }
+
+  /* Responsive: collapse to single column on tablet/mobile */
+  @media (max-width: 1100px) {
+    .home-grid {
+      grid-template-columns: minmax(0, 1fr) 240px;
+    }
+    .home-col-left {
+      grid-column: 1 / 2;
+      grid-row: 2;
+    }
+    .home-col-center {
+      grid-column: 1 / 2;
+      grid-row: 1;
+    }
+    .home-col-right {
+      grid-column: 2 / 3;
+      grid-row: 1 / 3;
+    }
+  }
+  @media (max-width: 780px) {
+    .home-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .home-col-left,
+    .home-col-center,
+    .home-col-right {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+  }
+</style>
+
 <div class="home-hero">
   <h1>{{ t('NBA Court Vision', 'NBA 球场视野') }}</h1>
   <p class="meta">{{ t('Deep NBA analytics — shot locations, behavioral trends, and game metrics.', '深入 NBA 数据分析，覆盖投篮位置、行为趋势和比赛指标。') }}</p>
 </div>
 
-<div class="card">
-  <h2>{{ t('Teams', '球队') }}</h2>
-  <div class="teams-map-wrap">
-    <svg id="teams-map" viewBox="0 0 960 600"></svg>
-  </div>
-  <div class="teams-mobile-grid">
-    {% if east_standings or west_standings %}
-    <div class="teams-mobile-conf">
-      <div class="conf-label">{{ t('Eastern Conference', '东部') }}</div>
-      <div class="team-chip-grid">
-        {% for team in east_standings|sort(attribute='abbr') %}
-        <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
+<div class="home-grid">
+  <!-- ================================================================ -->
+  <!-- LEFT COLUMN: today's games + standings                           -->
+  <!-- ================================================================ -->
+  <aside class="home-col-left">
+    {% if games_active %}
+    <div class="card">
+      <h3>{{ t("Today's Games", '今日比赛') }}{% if today_games %} <span class="meta" style="font-weight:400;text-transform:none;letter-spacing:0;">· {{ today_games[0].game_date.strftime('%b %d') }}</span>{% endif %}</h3>
+      <div class="mini-games-list">
+        {% for g in games_active %}
+        <a href="{{ game_url(g.game_id) }}" class="mini-game" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
+          <div class="mini-game-row">
+            <span class="mini-game-team">
+              <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+              {{ g.road_abbr }}
+            </span>
+            <span class="mini-game-score {% if g.road_won %}win{% elif g.home_won %}loss{% endif %}" data-role="road-score">{{ g.road_score if g.road_score is not none else '—' }}</span>
+          </div>
+          <div class="mini-game-row">
+            <span class="mini-game-team">
+              <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+              {{ g.home_abbr }}
+            </span>
+            <span class="mini-game-score {% if g.home_won %}win{% elif g.road_won %}loss{% endif %}" data-role="home-score">{{ g.home_score if g.home_score is not none else '—' }}</span>
+          </div>
+          <div class="mini-game-status {% if g.status == 'live' %}live{% endif %}" data-role="live-summary">
+            {% if g.status == 'live' %}{{ g.summary or 'LIVE' }}
+            {% elif g.status == 'completed' %}{{ t('Final', '终场') }}
+            {% else %}{{ g.summary or '' }}
+            {% endif %}
+          </div>
+        </a>
         {% endfor %}
       </div>
     </div>
-    <div class="teams-mobile-conf">
-      <div class="conf-label">{{ t('Western Conference', '西部') }}</div>
-      <div class="team-chip-grid">
-        {% for team in west_standings|sort(attribute='abbr') %}
-        <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
+    {% endif %}
+
+    {% if east_standings %}
+    <div class="card">
+      <div class="mini-card-header">
+        <h3>{{ t('East', '东部') }}</h3>
+        <select class="season-select" onchange="location.href='{{ url_for('home') }}?season='+this.value">
+          {% for sid in standing_season_ids %}
+          <option value="{{ sid }}" {% if sid == selected_standing_season %}selected{% endif %}>
+            {{ fmt_season(sid) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <table class="mini-standings">
+        <tbody>
+          {% for tm in east_standings[:8] %}
+          <tr>
+            <td class="rank {% if loop.index <= 3 %}top3{% endif %}">{{ loop.index }}</td>
+            <td class="team">
+              <a href="{{ url_for('team_page', slug=tm.slug) }}">
+                <img src="https://cdn.nba.com/logos/nba/{{ tm.team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+                {{ tm.abbr }}
+              </a>
+            </td>
+            <td class="rec">{{ tm.wins }}-{{ tm.losses }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if west_standings %}
+    <div class="card">
+      <h3>{{ t('West', '西部') }}</h3>
+      <table class="mini-standings">
+        <tbody>
+          {% for tm in west_standings[:8] %}
+          <tr>
+            <td class="rank {% if loop.index <= 3 %}top3{% endif %}">{{ loop.index }}</td>
+            <td class="team">
+              <a href="{{ url_for('team_page', slug=tm.slug) }}">
+                <img src="https://cdn.nba.com/logos/nba/{{ tm.team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+                {{ tm.abbr }}
+              </a>
+            </td>
+            <td class="rec">{{ tm.wins }}-{{ tm.losses }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </aside>
+
+  <!-- ================================================================ -->
+  <!-- CENTER COLUMN: news feed                                         -->
+  <!-- ================================================================ -->
+  <main class="home-col-center">
+    {% if news_entries %}
+    <div class="card news-card">
+      <div class="news-header">
+        <h2 style="margin:0;">{{ t('Latest News', '最新资讯') }}</h2>
+        <span class="news-sub">{{ t('Updated hourly', '每小时更新') }}</span>
+      </div>
+      <div class="news-list">
+        {% for n in news_entries %}
+        <a class="news-item" href="{{ url_for('news_detail', cluster_id=n.cluster_id) }}">
+          {% if n.thumbnail_url %}
+          <img class="news-thumb" src="{{ n.thumbnail_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+          {% endif %}
+          <div class="news-body">
+            <div class="news-meta-row">
+              <span class="news-source news-source-{{ n.source }}">
+                {% if n.source == 'espn' %}ESPN{% elif n.source == 'nba' %}NBA.com{% elif n.source == 'funba' %}FUNBA{% else %}{{ n.source|upper }}{% endif %}
+              </span>
+              {% if n.article_count and n.article_count > 1 %}
+              <span class="news-count-pill">+{{ n.article_count - 1 }} {{ t('sources', '来源') }}</span>
+              {% endif %}
+              {% if n.unique_view_count and n.unique_view_count > 0 %}
+              <span class="news-views">👁 {{ n.unique_view_count }}</span>
+              {% endif %}
+              <span class="news-time">{{ n.published_at.strftime('%b %d %H:%M') }}</span>
+            </div>
+            <div class="news-title">{{ n.title }}</div>
+            {% if n.summary %}
+            <div class="news-summary">{{ (n.summary|striptags|truncate(220))|e }}</div>
+            {% endif %}
+            {% if n.players or n.teams %}
+            <div class="news-tags">
+              {% for team in n.teams %}
+              <span class="news-tag news-tag-team">{{ team.abbr or team.full_name }}</span>
+              {% endfor %}
+              {% for player in n.players %}
+              <span class="news-tag news-tag-player">{{ ((lang == 'zh') and player.full_name_zh) or player.full_name }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </a>
         {% endfor %}
       </div>
     </div>
     {% else %}
-    <p class="meta">{{ t('Could not load teams.', '球队加载失败。') }}</p>
-    {% endif %}
-  </div>
-
-  {% if legacy_teams %}
-  <details style="margin-top:16px;">
-    <summary style="cursor:pointer; font-family:'Outfit',sans-serif; font-size:14px; font-weight:600; color:var(--muted); user-select:none;">
-      {{ t('Historical Teams', '历史球队') }} <span class="meta" style="font-weight:400;">({{ legacy_teams|length }})</span>
-    </summary>
-    <div class="team-chip-grid" style="margin-top:10px;">
-      {% for team in legacy_teams %}
-      <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip" style="opacity:0.7; font-size:11px;" title="{{ display_team_name(team) }}{% if team.start_season and team.end_season and team.end_season|int < 2100 %} ({{ team.start_season }}–{{ team.end_season }}){% endif %}">{{ team.abbr }}</a>
-      {% endfor %}
+    <div class="card">
+      <h3>{{ t('Latest News', '最新资讯') }}</h3>
+      <p class="meta">{{ t('News is updating. Check back soon.', '新闻正在加载中，请稍后。') }}</p>
     </div>
-  </details>
-  {% endif %}
-</div>
+    {% endif %}
+  </main>
 
-<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
-<script>
-(function () {
-  const teams = {{ team_map_data | tojson }};
-  const logoUrl = teamId => `https://cdn.nba.com/logos/nba/${teamId}/global/L/logo.svg`;
-  const teamUrls = {
-    {% for t in team_map_data %}
-    "{{ t.abbr }}": "{{ url_for('team_page', slug=t.slug) }}",
-    {% endfor %}
-  };
-
-  const svg = d3.select("#teams-map");
-  const width = 960, height = 600;
-
-  const projection = d3.geoAlbersUsa()
-    .scale(1280)
-    .translate([width / 2, height / 2]);
-
-  const path = d3.geoPath().projection(projection);
-  const defs = svg.append("defs");
-
-  fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json")
-    .then(r => r.json())
-    .then(us => {
-      // Draw states
-      svg.append("g")
-        .selectAll("path")
-        .data(topojson.feature(us, us.objects.states).features)
-        .join("path")
-        .attr("class", "state-path")
-        .attr("d", path);
-
-      // Draw state borders
-      svg.append("path")
-        .datum(topojson.mesh(us, us.objects.states, (a, b) => a !== b))
-        .attr("fill", "none")
-        .attr("stroke", "var(--border)")
-        .attr("stroke-width", 0.5)
-        .attr("d", path);
-
-      // Draw team markers
-      const R = 13;
-      teams.forEach(t => {
-        const coords = projection([t.lon, t.lat]);
-        if (!coords) return;  // outside projection (shouldn't happen)
-        const [x, y] = coords;
-        const markerLogoUrl = logoUrl(t.team_id);
-        const clipId = `team-logo-clip-${t.team_id}`;
-
-        defs.append("clipPath")
-          .attr("id", clipId)
-          .append("circle")
-          .attr("cx", x)
-          .attr("cy", y)
-          .attr("r", R);
-
-        const g = svg.append("a")
-          .attr("href", teamUrls[t.abbr])
-          .attr("class", "map-marker");
-
-        g.append("title").text(t.full_name);
-
-        g.append("circle")
-          .attr("class", "map-hit-area")
-          .attr("cx", x).attr("cy", y).attr("r", R + 7);
-
-        g.append("circle")
-          .attr("class", "map-logo-ring")
-          .attr("cx", x).attr("cy", y).attr("r", R);
-
-        const logoImage = g.append("image")
-          .attr("class", "map-logo-image")
-          .attr("x", x - R).attr("y", y - R)
-          .attr("width", R * 2).attr("height", R * 2)
-          .attr("preserveAspectRatio", "xMidYMid slice")
-          .attr("clip-path", `url(#${clipId})`);
-
-        g.append("circle")
-          .attr("class", "map-logo-frame")
-          .attr("cx", x).attr("cy", y).attr("r", R);
-
-        g.append("circle")
-          .attr("class", "map-dot")
-          .attr("cx", x).attr("cy", y).attr("r", R);
-
-        g.append("text")
-          .attr("class", "map-label")
-          .attr("x", x).attr("y", y)
-          .text(t.abbr);
-
-        g.append("text")
-          .attr("class", "map-label-sub")
-          .attr("x", x).attr("y", y + 20)
-          .text(t.abbr);
-
-        const probe = new Image();
-        probe.onload = () => {
-          logoImage.attr("href", markerLogoUrl);
-          g.classed("logo-ready", true);
-        };
-        probe.onerror = () => g.classed("logo-failed", true);
-        probe.src = markerLogoUrl;
-      });
-    });
-})();
-</script>
-
-{% if news_entries %}
-<div class="card news-card">
-  <div class="news-header">
-    <h2 style="margin:0;">{{ t('Latest News', '最新资讯') }}</h2>
-    <span class="news-sub">{{ t('Updated hourly', '每小时更新') }}</span>
-  </div>
-  <div class="news-list">
-    {% for n in news_entries %}
-    <a class="news-item" href="{{ url_for('news_detail', cluster_id=n.cluster_id) }}">
-      {% if n.thumbnail_url %}
-      <img class="news-thumb" src="{{ n.thumbnail_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-      {% endif %}
-      <div class="news-body">
-        <div class="news-meta-row">
-          <span class="news-source news-source-{{ n.source }}">
-            {% if n.source == 'espn' %}ESPN{% elif n.source == 'nba' %}NBA.com{% elif n.source == 'funba' %}FUNBA{% else %}{{ n.source|upper }}{% endif %}
-          </span>
-          {% if n.article_count and n.article_count > 1 %}
-          <span class="news-count-pill">+{{ n.article_count - 1 }} {{ t('sources', '来源') }}</span>
-          {% endif %}
-          {% if n.unique_view_count and n.unique_view_count > 0 %}
-          <span class="news-views">👁 {{ n.unique_view_count }}</span>
-          {% endif %}
-          <span class="news-time">{{ n.published_at.strftime('%b %d %H:%M') }}</span>
+  <!-- ================================================================ -->
+  <!-- RIGHT COLUMN: top scorers + upcoming + quick nav                 -->
+  <!-- ================================================================ -->
+  <aside class="home-col-right">
+    {% if top_scorers.rows %}
+    <div class="card">
+      <h3>{{ t('Top Scorers', '得分榜') }}{% if top_scorers.game_date %} <span class="meta" style="font-weight:400;text-transform:none;letter-spacing:0;">· {{ top_scorers.game_date.strftime('%b %d') }}</span>{% endif %}</h3>
+      <div class="top-scorers-list">
+        {% for r in top_scorers.rows %}
+        <div class="top-scorer-row">
+          <div class="top-scorer-left">
+            <span class="top-scorer-rank {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span>
+            <a class="top-scorer-name" href="{{ player_url(r.player_id) }}">{{ r.full_name }}</a>
+            {% if r.team_abbr %}<span class="top-scorer-team">{{ r.team_abbr }}</span>{% endif %}
+          </div>
+          <span class="top-scorer-pts">{{ r.pts }}</span>
         </div>
-        <div class="news-title">{{ n.title }}</div>
-        {% if n.summary %}
-        <div class="news-summary">{{ (n.summary|striptags|truncate(220))|e }}</div>
-        {% endif %}
-        {% if n.players or n.teams %}
-        <div class="news-tags">
-          {% for team in n.teams %}
-          <span class="news-tag news-tag-team">{{ team.abbr or team.full_name }}</span>
-          {% endfor %}
-          {% for player in n.players %}
-          <span class="news-tag news-tag-player">{{ ((lang == 'zh') and player.full_name_zh) or player.full_name }}</span>
-          {% endfor %}
-        </div>
-        {% endif %}
+        {% endfor %}
       </div>
-    </a>
-    {% endfor %}
-  </div>
+    </div>
+    {% endif %}
+
+    {% if upcoming_games %}
+    <div class="card">
+      <h3>{{ t('Upcoming', '即将开赛') }}</h3>
+      <div class="mini-upcoming-list">
+        {% for g in upcoming_games[:6] %}
+        <a href="{{ game_url(g.game_id) }}" class="mini-upcoming">
+          <div class="mini-upcoming-teams">{{ g.road_abbr }} @ {{ g.home_abbr }}</div>
+          <div class="mini-upcoming-time">{{ g.summary or g.game_date.strftime('%b %d') }}</div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h3>{{ t('Browse', '浏览') }}</h3>
+      <nav class="quick-nav">
+        <a href="{{ url_for('teams_list_page') }}">{{ t('All Teams', '全部球队') }}</a>
+        <a href="{{ url_for('players_browse') }}">{{ t('All Players', '全部球员') }}</a>
+        <a href="{{ url_for('metrics_browse') }}">{{ t('Metrics', '数据指标') }}</a>
+        <a href="{{ url_for('awards_page') }}">{{ t('Awards', '奖项') }}</a>
+        <a href="{{ url_for('games_list') }}">{{ t('Schedule', '赛程') }}</a>
+      </nav>
+    </div>
+  </aside>
 </div>
+
 <style>
   .news-card { margin-top: 22px; }
   .news-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
@@ -967,186 +1070,7 @@
     .news-thumb { width: 100%; height: 160px; flex: 0 0 auto; }
   }
 </style>
-{% endif %}
 
-{% if today_games %}
-<div class="card">
-  <div class="today-header">
-    <h2 style="margin:0;">{{ t("Today's Games", '今日比赛') }}</h2>
-    <span class="today-date">{{ today_games[0].game_date.strftime('%b %d') if today_games else '' }}</span>
-  </div>
-  <div class="today-games-list">
-    {% for g in today_games %}
-    <a href="{{ game_url(g.game_id) }}" class="today-game {{ g.status }}" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
-      {# ── Scoreboard row ── #}
-      <div class="today-matchup">
-        <div class="today-team{% if g.home_won == false %} winner{% endif %}">
-          <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg"
-               alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
-          <span class="today-abbr">{{ g.road_abbr }}</span>
-          <span class="today-score{% if g.home_won == false %} win{% endif %}" data-role="road-score">{{ g.road_score if g.road_score is not none else '—' }}</span>
-        </div>
-        <span class="today-at">@</span>
-        <div class="today-team home{% if g.home_won == true %} winner{% endif %}">
-          <span class="today-score{% if g.home_won == true %} win{% endif %}" data-role="home-score">{{ g.home_score if g.home_score is not none else '—' }}</span>
-          <span class="today-abbr">{{ g.home_abbr }}</span>
-          <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg"
-               alt="" class="today-logo" loading="lazy" onerror="this.style.display='none'">
-        </div>
-      </div>
-      <div class="today-status">
-        {% if g.status == 'live' %}
-        <span class="live-badge"><span class="live-dot"></span>LIVE</span>
-        <span data-role="live-summary">{{ g.status_summary }}</span>
-        {% elif g.status == 'upcoming' %}
-        <span>{{ t('Upcoming', '未开始') }}</span>
-        {% else %}
-        <span>{{ t('Final', '最终') }}</span>
-        {% endif %}
-      </div>
-      {# ── Win probability bar (live only) ── #}
-      {% if g.status == 'live' and g.home_win_probability is not none and g.road_win_probability is not none %}
-      <div class="wp-bar" data-role="wp-bar">
-        <div class="wp-bar-fill wp-bar-road" data-role="wp-road" style="width: {{ (g.road_win_probability * 100)|round(0, 'floor')|int }}%;"></div>
-        <div class="wp-bar-fill wp-bar-home" data-role="wp-home" style="width: {{ (g.home_win_probability * 100)|round(0, 'floor')|int }}%;"></div>
-        <div class="wp-bar-labels">
-          <span class="wp-label wp-label-road" data-role="wp-label-road">{{ (g.road_win_probability * 100)|round(0)|int }}%</span>
-          <span class="wp-label-caption">{{ t('Win Probability', '胜率') }}</span>
-          <span class="wp-label wp-label-home" data-role="wp-label-home">{{ (g.home_win_probability * 100)|round(0)|int }}%</span>
-        </div>
-      </div>
-      {% endif %}
-      {# ── Stats strip ── #}
-      <div class="today-stats">
-        {% if g.status == 'upcoming' %}
-        {# Upcoming: records + last 10 + tipoff + H2H #}
-        <div class="ts-cell ts-upcoming-road">
-          <div class="up-team-label">{{ g.road_abbr }}</div>
-          {% if g.road_record %}
-          <div class="up-record">{{ g.road_record[0] }}-{{ g.road_record[1] }}</div>
-          {% endif %}
-          {% if g.road_last10 %}
-          <div class="up-last10">
-            <span class="up-last10-caption">{{ t('Last 10', '近10场') }}</span>
-            <div class="up-last10-chips">
-              {% for r in g.road_last10 %}
-              <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-          {% if g.road_rest %}
-            {% if g.road_rest.is_b2b %}
-            <span class="up-rest-badge up-rest-b2b" title="{{ t('Played yesterday', '昨日刚战') }}">{{ t('B2B', '背靠背') }}</span>
-            {% else %}
-            <span class="up-rest-badge">{{ g.road_rest.days }} {{ t('days rest', '天休整') }}</span>
-            {% endif %}
-          {% endif %}
-        </div>
-        <div class="ts-cell ts-upcoming-middle">
-          {% if g.tipoff_et %}
-          <div class="up-tipoff">{{ g.tipoff_et }}</div>
-          {% else %}
-          <div class="up-tipoff-placeholder">{{ t('Tip-off TBD', '开赛待定') }}</div>
-          {% endif %}
-          {% if g.h2h %}
-          <div class="up-h2h">
-            <span class="up-h2h-label">{{ t('Season Series', '本季系列赛') }}</span>
-            <div class="up-h2h-score">
-              <span class="up-h2h-side{% if g.h2h.road_wins > g.h2h.home_wins %} up-h2h-leader{% endif %}">{{ g.road_abbr }} {{ g.h2h.road_wins }}</span>
-              <span class="up-h2h-dash">—</span>
-              <span class="up-h2h-side{% if g.h2h.home_wins > g.h2h.road_wins %} up-h2h-leader{% endif %}">{{ g.h2h.home_wins }} {{ g.home_abbr }}</span>
-            </div>
-          </div>
-          {% endif %}
-        </div>
-        <div class="ts-cell ts-upcoming-home">
-          <div class="up-team-label">{{ g.home_abbr }}</div>
-          {% if g.home_record %}
-          <div class="up-record">{{ g.home_record[0] }}-{{ g.home_record[1] }}</div>
-          {% endif %}
-          {% if g.home_last10 %}
-          <div class="up-last10">
-            <span class="up-last10-caption">{{ t('Last 10', '近10场') }}</span>
-            <div class="up-last10-chips">
-              {% for r in g.home_last10 %}
-              <span class="up-chip up-chip-{{ r|lower }}">{{ r }}</span>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-          {% if g.home_rest %}
-            {% if g.home_rest.is_b2b %}
-            <span class="up-rest-badge up-rest-b2b" title="{{ t('Played yesterday', '昨日刚战') }}">{{ t('B2B', '背靠背') }}</span>
-            {% else %}
-            <span class="up-rest-badge">{{ g.home_rest.days }} {{ t('days rest', '天休整') }}</span>
-            {% endif %}
-          {% endif %}
-        </div>
-        {% else %}
-        {# Road leaders #}
-        <div class="ts-cell ts-leaders">
-          {% for ldr in [g.road_scorer, g.road_rebounder, g.road_assister] %}
-          {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
-          {% set _hot = ldr and (g.hot_player_ids or []) and (ldr.player_id|string in g.hot_player_ids) %}
-          {% if ldr %}
-          <div class="ts-leader-row{% if _hot %} ts-leader-hot{% endif %}" data-role="leader-row" data-leader-slot="road-{{ loop.index0 }}">
-            <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
-                 alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
-            <span class="ts-player-name">{{ ldr.name }}{% if _hot %} <span class="ts-hot-flame" title="{{ t('Hot hand', '手感火热') }}">🔥</span>{% endif %}</span>
-            <span class="ts-leader-val"><span class="ts-pts" data-role="leader-val">{{ ldr.value }}</span> {{ stat_label }}</span>
-          </div>
-          {% endif %}
-          {% endfor %}
-        </div>
-        {# Middle stats #}
-        <div class="ts-cell ts-middle">
-          <div class="ts-row">
-            <span class="ts-val-side" data-role="road-fg-pct">{{ g.road_fg_pct if g.road_fg_pct is not none else '—' }}{% if g.road_fg_pct is not none %}%{% endif %}</span>
-            <span class="ts-label">FG%</span>
-            <span class="ts-val-side" data-role="home-fg-pct">{{ g.home_fg_pct if g.home_fg_pct is not none else '—' }}{% if g.home_fg_pct is not none %}%{% endif %}</span>
-          </div>
-          <div class="ts-row">
-            <span class="ts-val-side" data-role="road-fg3-pct">{{ g.road_fg3_pct if g.road_fg3_pct is not none else '—' }}{% if g.road_fg3_pct is not none %}%{% endif %}</span>
-            <span class="ts-label">3P%</span>
-            <span class="ts-val-side" data-role="home-fg3-pct">{{ g.home_fg3_pct if g.home_fg3_pct is not none else '—' }}{% if g.home_fg3_pct is not none %}%{% endif %}</span>
-          </div>
-          {% if g.status == 'completed' %}
-          <div class="ts-row">
-            <span class="ts-val-side">{{ g.road_largest_lead }}</span>
-            <span class="ts-label">{{ t('Lead', '最大领先') }}</span>
-            <span class="ts-val-side">{{ g.home_largest_lead }}</span>
-          </div>
-          {% if g.lead_changes is not none %}
-          <div class="ts-row ts-row-center">
-            <span class="ts-label">{{ t('Lead Changes', '领先变换') }}</span>
-            <span class="ts-val-accent">{{ g.lead_changes }}</span>
-          </div>
-          {% endif %}
-          {% endif %}
-        </div>
-        {# Home leaders #}
-        <div class="ts-cell ts-leaders ts-leaders-right">
-          {% for ldr in [g.home_scorer, g.home_rebounder, g.home_assister] %}
-          {% set stat_label = ['PTS', 'REB', 'AST'][loop.index0] %}
-          {% set _hot = ldr and (g.hot_player_ids or []) and (ldr.player_id|string in g.hot_player_ids) %}
-          {% if ldr %}
-          <div class="ts-leader-row{% if _hot %} ts-leader-hot{% endif %}" data-role="leader-row" data-leader-slot="home-{{ loop.index0 }}">
-            <span class="ts-leader-val"><span class="ts-pts" data-role="leader-val">{{ ldr.value }}</span> {{ stat_label }}</span>
-            <span class="ts-player-name">{% if _hot %}<span class="ts-hot-flame" title="{{ t('Hot hand', '手感火热') }}">🔥</span> {% endif %}{{ ldr.name }}</span>
-            <img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ ldr.player_id }}.png"
-                 alt="" class="ts-headshot" loading="lazy" onerror="this.style.visibility='hidden'">
-          </div>
-          {% endif %}
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
 
 <script>
 (function () {
@@ -1255,62 +1179,5 @@
 })();
 </script>
 
-{% if east_standings or west_standings %}
-<div class="card">
-  <div class="standings-header">
-    <h2 style="margin:0;">{{ t('Standings', '排名') }}</h2>
-    <select class="season-select" onchange="location.href='{{ url_for('home') }}?season='+this.value">
-      {% for sid in standing_season_ids %}
-      <option value="{{ sid }}" {% if sid == selected_standing_season %}selected{% endif %}>
-        {{ fmt_season(sid) }}
-      </option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="standings-grid">
-    {% for conf_name, conf_teams in [(t('Eastern Conference', '东部'), east_standings), (t('Western Conference', '西部'), west_standings)] %}
-    <div>
-      <div class="conf-label">{{ conf_name }}</div>
-      <div class="table-wrap">
-        <table class="standings-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>{{ t('Team', '球队') }}</th>
-              <th class="right">W</th>
-              <th class="right">L</th>
-              <th class="right">{{ t('Win%', '胜率') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in conf_teams %}
-            <tr>
-              <td><span class="rank-num{% if loop.index <= 3 %} top3{% endif %}">{{ loop.index }}</span></td>
-              <td>
-                <a href="{{ url_for('team_page', slug=t.slug) }}" class="standings-team-link">
-                  <img
-                    src="https://cdn.nba.com/logos/nba/{{ t.team_id }}/global/L/logo.svg"
-                    alt=""
-                    width="20"
-                    height="20"
-                    class="standings-team-logo"
-                    loading="lazy"
-                    onerror="this.style.display='none'">
-                  <span class="standings-team-abbr">{{ t.abbr }}</span>{{ t.full_name }}
-                </a>
-              </td>
-              <td class="right" style="font-weight:700;color:var(--win);">{{ t.wins }}</td>
-              <td class="right" style="color:var(--muted-2);">{{ t.losses }}</td>
-              <td class="right" style="font-family:'Outfit',sans-serif;font-weight:700;">{{ "%.1f"|format(t.win_pct * 100) }}%</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
 
 {% endblock %}

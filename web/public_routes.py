@@ -511,6 +511,128 @@ def register_public_routes(
             )
             return result
 
+    def teams_list_page():
+        """/teams — SVG US map of all teams + chip grids + historical teams."""
+        SessionLocal = get_session_local()
+        Team = get_team_model()
+        Game = get_game_model()
+        TeamGameStats = get_team_game_stats_model()
+
+        east_ids = {
+            "1610612737", "1610612751", "1610612738", "1610612766", "1610612741",
+            "1610612739", "1610612765", "1610612754", "1610612748", "1610612749",
+            "1610612752", "1610612753", "1610612755", "1610612761", "1610612764",
+        }
+
+        with SessionLocal() as session:
+            teams = (
+                session.query(Team)
+                .filter(Team.is_legacy.is_(False))
+                .order_by(Team.full_name.asc())
+                .all()
+            )
+            legacy_teams = (
+                session.query(Team)
+                .filter(Team.is_legacy.is_(True))
+                .order_by(Team.full_name.asc())
+                .all()
+            )
+
+        team_map_data = []
+        team_map_positions = get_team_map_positions()
+        for team in teams:
+            pos = team_map_positions.get(team.abbr)
+            if not pos:
+                continue
+            team_map_data.append(
+                {
+                    "abbr": team.abbr,
+                    "full_name": get_display_team_name()(team),
+                    "team_id": team.team_id,
+                    "slug": team.slug,
+                    "lat": pos[0],
+                    "lon": pos[1],
+                }
+            )
+
+        east_chips = sorted(
+            [{"abbr": t.abbr, "slug": t.slug} for t in teams if t.team_id in east_ids],
+            key=lambda x: x["abbr"] or "",
+        )
+        west_chips = sorted(
+            [{"abbr": t.abbr, "slug": t.slug} for t in teams if t.team_id not in east_ids],
+            key=lambda x: x["abbr"] or "",
+        )
+
+        return get_render_template()(
+            "teams_list.html",
+            team_map_data=team_map_data,
+            east_chips=east_chips,
+            west_chips=west_chips,
+            legacy_teams=legacy_teams,
+        )
+
+    def _build_top_scorers(limit: int = 5) -> dict:
+        """Top-N pts leaders from the most recent completed game date.
+
+        Returns {'game_date': date, 'rows': [{player_id, full_name, slug, pts, team_abbr, team_slug}]}
+        or empty dict if no recent games.
+        """
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+        PlayerGameStats = get_player_game_stats_model()
+        Player = get_player_model()
+        Team = get_team_model()
+
+        with SessionLocal() as session:
+            last_game_date = (
+                session.query(func.max(Game.game_date))
+                .filter(Game.home_team_score.isnot(None))
+                .scalar()
+            )
+            if not last_game_date:
+                return {}
+            game_ids_sq = (
+                session.query(Game.game_id)
+                .filter(Game.game_date == last_game_date)
+                .subquery()
+            )
+            rows = (
+                session.query(
+                    PlayerGameStats.player_id,
+                    PlayerGameStats.pts,
+                    PlayerGameStats.team_id,
+                    Player.full_name,
+                    Player.full_name_zh,
+                    Player.slug.label("player_slug"),
+                    Team.abbr,
+                    Team.slug.label("team_slug"),
+                )
+                .join(Player, PlayerGameStats.player_id == Player.player_id)
+                .outerjoin(Team, PlayerGameStats.team_id == Team.team_id)
+                .filter(
+                    PlayerGameStats.game_id.in_(session.query(game_ids_sq.c.game_id)),
+                    PlayerGameStats.pts.isnot(None),
+                )
+                .order_by(PlayerGameStats.pts.desc())
+                .limit(limit)
+                .all()
+            )
+            return {
+                "game_date": last_game_date,
+                "rows": [
+                    {
+                        "player_id": r.player_id,
+                        "full_name": (r.full_name_zh if get_is_zh() and r.full_name_zh else r.full_name),
+                        "slug": r.player_slug,
+                        "pts": int(r.pts or 0),
+                        "team_abbr": r.abbr,
+                        "team_slug": r.team_slug,
+                    }
+                    for r in rows
+                ],
+            }
+
     def home():
         SessionLocal = get_session_local()
         Team = get_team_model()
@@ -601,6 +723,11 @@ def register_public_routes(
 
         today_games_data = _build_today_games(team_lookup)
         news_entries = _build_home_news(team_lookup)
+        top_scorers = _build_top_scorers()
+
+        games_active = [g for g in today_games_data if g.get("status") in (GAME_STATUS_LIVE, GAME_STATUS_COMPLETED)]
+        upcoming_games = [g for g in today_games_data if g.get("status") == GAME_STATUS_UPCOMING]
+
         return get_render_template()(
             "home.html",
             teams=teams,
@@ -612,7 +739,10 @@ def register_public_routes(
             selected_standing_season=selected_standing_season,
             fmt_season=get_season_label(),
             today_games=today_games_data,
+            games_active=games_active,
+            upcoming_games=upcoming_games,
             news_entries=news_entries,
+            top_scorers=top_scorers,
         )
 
     def _build_home_news(team_lookup: dict) -> list[dict]:
@@ -1698,6 +1828,8 @@ def register_public_routes(
 
     app.add_url_rule("/cn/", endpoint="home_zh", view_func=home)
     app.add_url_rule("/", endpoint="home", view_func=home)
+    app.add_url_rule("/teams", endpoint="teams_list_page", view_func=teams_list_page)
+    app.add_url_rule("/cn/teams", endpoint="teams_list_page_zh", view_func=teams_list_page)
     app.add_url_rule("/news/<int:cluster_id>", endpoint="news_detail", view_func=news_detail)
     app.add_url_rule("/cn/news/<int:cluster_id>", endpoint="news_detail_zh", view_func=news_detail)
     app.add_url_rule("/cn/games", endpoint="games_list_zh", view_func=games_list)

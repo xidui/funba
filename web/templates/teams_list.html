@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}{{ t('NBA Teams', 'NBA 球队') }} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ t('All 30 NBA teams on an interactive US map. Click any team to see their schedule, roster, and advanced metrics.', '通过互动美国地图查看全部 30 支 NBA 球队，点击即可查看球队赛程、名单与高级数据分析。') }}{% endblock %}
+{% block content %}
+<style>
+  .teams-page-hero { margin-bottom: 18px; }
+  .teams-page-hero h1 { margin-bottom: 4px; }
+
+  #teams-map {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .state-path {
+    fill: var(--surface-3);
+    stroke: var(--border-2);
+    stroke-width: 0.6;
+  }
+  .teams-map-wrap { display: block; }
+  .map-marker { cursor: pointer; }
+  .map-hit-area { fill: transparent; pointer-events: all; }
+  .map-dot {
+    fill: var(--surface-2);
+    stroke: var(--border-2);
+    stroke-width: 1.5;
+    transition: fill 0.15s, stroke 0.15s;
+  }
+  .map-logo-image { pointer-events: none; }
+  .map-logo-frame,
+  .map-logo-ring { fill: none; pointer-events: none; }
+  .map-logo-frame { stroke: var(--border-2); stroke-width: 1.5; }
+  .map-logo-ring { stroke: var(--accent); stroke-width: 2; opacity: 0; transition: opacity 0.15s; }
+  .map-label,
+  .map-label-sub {
+    font-family: 'Outfit', sans-serif;
+    text-anchor: middle;
+    pointer-events: none;
+    transition: fill 0.15s;
+    user-select: none;
+  }
+  .map-label { font-weight: 700; font-size: 7.5px; fill: var(--accent); dominant-baseline: middle; }
+  .map-label-sub { font-size: 6px; fill: var(--muted); }
+  .map-logo-image,
+  .map-logo-frame,
+  .map-label-sub { display: none; }
+  .map-marker:hover .map-logo-ring { opacity: 1; }
+  .map-marker.logo-ready .map-logo-image,
+  .map-marker.logo-ready .map-logo-frame,
+  .map-marker.logo-ready .map-label-sub { display: block; }
+  .map-marker.logo-ready .map-dot,
+  .map-marker.logo-ready .map-label { display: none; }
+  .map-marker.logo-ready:hover .map-label-sub { fill: var(--text); }
+  .map-marker.logo-failed .map-label-sub { display: none; }
+  .map-marker:not(.logo-ready):hover .map-dot {
+    fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+    stroke: var(--accent);
+  }
+
+  .conf-block { margin-top: 24px; }
+  .conf-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .team-chip-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .team-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--heading);
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+  .team-chip:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+    text-decoration: none;
+  }
+</style>
+
+<div class="teams-page-hero">
+  <h1>{{ t('NBA Teams', 'NBA 球队') }}</h1>
+  <p class="meta">{{ t('Click a marker or chip to open that team\u2019s page.', '点击地图标记或球队徽章进入该球队主页。') }}</p>
+</div>
+
+<div class="card">
+  <div class="teams-map-wrap">
+    <svg id="teams-map" viewBox="0 0 960 600"></svg>
+  </div>
+
+  {% if east_chips %}
+  <div class="conf-block">
+    <div class="conf-label">{{ t('Eastern Conference', '东部') }}</div>
+    <div class="team-chip-grid">
+      {% for team in east_chips %}
+      <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if west_chips %}
+  <div class="conf-block">
+    <div class="conf-label">{{ t('Western Conference', '西部') }}</div>
+    <div class="team-chip-grid">
+      {% for team in west_chips %}
+      <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if legacy_teams %}
+  <details class="conf-block" style="margin-top:24px;">
+    <summary style="cursor:pointer; font-family:'Outfit',sans-serif; font-size:14px; font-weight:600; color:var(--muted); user-select:none;">
+      {{ t('Historical Teams', '历史球队') }} <span class="meta" style="font-weight:400;">({{ legacy_teams|length }})</span>
+    </summary>
+    <div class="team-chip-grid" style="margin-top:10px;">
+      {% for team in legacy_teams %}
+      <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip" style="opacity:0.7; font-size:11px;" title="{{ display_team_name(team) }}{% if team.start_season and team.end_season and team.end_season|int < 2100 %} ({{ team.start_season }}–{{ team.end_season }}){% endif %}">{{ team.abbr }}</a>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script>
+(function () {
+  const teams = {{ team_map_data | tojson }};
+  const logoUrl = teamId => `https://cdn.nba.com/logos/nba/${teamId}/global/L/logo.svg`;
+  const teamUrls = {
+    {% for t in team_map_data %}
+    "{{ t.abbr }}": "{{ url_for('team_page', slug=t.slug) }}",
+    {% endfor %}
+  };
+
+  const svg = d3.select("#teams-map");
+  const width = 960, height = 600;
+  const projection = d3.geoAlbersUsa().scale(1280).translate([width / 2, height / 2]);
+  const path = d3.geoPath().projection(projection);
+  const defs = svg.append("defs");
+
+  fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json")
+    .then(r => r.json())
+    .then(us => {
+      svg.append("g")
+        .selectAll("path")
+        .data(topojson.feature(us, us.objects.states).features)
+        .join("path")
+        .attr("class", "state-path")
+        .attr("d", path);
+
+      svg.append("path")
+        .datum(topojson.mesh(us, us.objects.states, (a, b) => a !== b))
+        .attr("fill", "none")
+        .attr("stroke", "var(--border)")
+        .attr("stroke-width", 0.5)
+        .attr("d", path);
+
+      const R = 13;
+      teams.forEach(t => {
+        const coords = projection([t.lon, t.lat]);
+        if (!coords) return;
+        const [x, y] = coords;
+        const markerLogoUrl = logoUrl(t.team_id);
+        const clipId = `team-logo-clip-${t.team_id}`;
+
+        defs.append("clipPath")
+          .attr("id", clipId)
+          .append("circle")
+          .attr("cx", x).attr("cy", y).attr("r", R);
+
+        const g = svg.append("a")
+          .attr("href", teamUrls[t.abbr])
+          .attr("class", "map-marker");
+
+        g.append("title").text(t.full_name);
+        g.append("circle").attr("class", "map-hit-area").attr("cx", x).attr("cy", y).attr("r", R + 7);
+        g.append("circle").attr("class", "map-logo-ring").attr("cx", x).attr("cy", y).attr("r", R);
+        const logoImage = g.append("image")
+          .attr("class", "map-logo-image")
+          .attr("x", x - R).attr("y", y - R)
+          .attr("width", R * 2).attr("height", R * 2)
+          .attr("preserveAspectRatio", "xMidYMid slice")
+          .attr("clip-path", `url(#${clipId})`);
+        g.append("circle").attr("class", "map-logo-frame").attr("cx", x).attr("cy", y).attr("r", R);
+        g.append("circle").attr("class", "map-dot").attr("cx", x).attr("cy", y).attr("r", R);
+        g.append("text").attr("class", "map-label").attr("x", x).attr("y", y).text(t.abbr);
+        g.append("text").attr("class", "map-label-sub").attr("x", x).attr("y", y + 20).text(t.abbr);
+
+        const probe = new Image();
+        probe.onload = () => {
+          logoImage.attr("href", markerLogoUrl);
+          g.classed("logo-ready", true);
+        };
+        probe.onerror = () => g.classed("logo-failed", true);
+        probe.src = markerLogoUrl;
+      });
+    });
+})();
+</script>
+{% endblock %}

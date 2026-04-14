@@ -1308,6 +1308,7 @@
 
         <nav class="topbar-nav">
           <a href="{{ url_for('home') }}" class="nav-link {{ 'active' if active_public_endpoint == 'home' }}">{{ t('Home', '首页') }}</a>
+          <a href="{{ url_for('teams_list_page') }}" class="nav-link {{ 'active' if active_public_endpoint == 'teams_list_page' }}">{{ t('Teams', '球队') }}</a>
           <a href="{{ url_for('players_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'players_browse' }}">{{ t('Players', '球员') }}</a>
           <a href="{{ url_for('games_list') }}" class="nav-link {{ 'active' if active_public_endpoint == 'games_list' }}">{{ t('Games', '比赛') }}</a>
           <a href="{{ url_for('metrics_browse') }}" class="nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}">{{ t('Metrics', '指标') }}</a>
@@ -1393,6 +1394,7 @@
         <div class="mobile-nav-inner">
           <div class="mobile-nav-list">
             <a href="{{ url_for('home') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'home' }}" role="menuitem">{{ t('Home', '首页') }}</a>
+            <a href="{{ url_for('teams_list_page') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'teams_list_page' }}" role="menuitem">{{ t('Teams', '球队') }}</a>
             <a href="{{ url_for('players_browse') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'players_browse' }}" role="menuitem">{{ t('Players', '球员') }}</a>
             <a href="{{ url_for('games_list') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'games_list' }}" role="menuitem">{{ t('Games', '比赛') }}</a>
             <a href="{{ url_for('metrics_browse') }}" class="mobile-nav-link {{ 'active' if active_public_endpoint == 'metrics_browse' }}" role="menuitem">{{ t('Metrics', '指标') }}</a>
