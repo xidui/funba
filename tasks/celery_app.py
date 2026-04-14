@@ -1,5 +1,13 @@
 """Celery application configuration for Funba event-driven pipeline."""
 import os
+import sys
+
+# Ensure the project root is on sys.path so tasks can import sibling
+# packages (e.g. `web.live_game_data`) when the worker is launched via the
+# bare `celery` CLI from outside an explicit module path.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from celery import Celery
 from celery.worker.autoscale import Autoscaler
