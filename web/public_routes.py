@@ -618,6 +618,7 @@ def register_public_routes(
                 .limit(limit)
                 .all()
             )
+            headshot_fn = get_player_headshot_url()
             return {
                 "game_date": last_game_date,
                 "rows": [
@@ -628,6 +629,8 @@ def register_public_routes(
                         "pts": int(r.pts or 0),
                         "team_abbr": r.abbr,
                         "team_slug": r.team_slug,
+                        "team_id": r.team_id,
+                        "headshot_url": headshot_fn(r.player_id) if headshot_fn else None,
                     }
                     for r in rows
                 ],

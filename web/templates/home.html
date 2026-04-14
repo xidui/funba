@@ -686,61 +686,89 @@
   }
 
   /* Top scorers (right sidebar) */
-  .top-scorers-list { display: flex; flex-direction: column; gap: 6px; }
+  .top-scorers-list { display: flex; flex-direction: column; gap: 2px; }
   .top-scorer-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
+    padding: 6px 4px;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: background 0.15s;
   }
-  .top-scorer-row:last-child { border-bottom: none; }
-  .top-scorer-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    flex: 1;
-  }
+  .top-scorer-row:hover { background: var(--surface-2); }
   .top-scorer-rank {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
     color: var(--muted);
     min-width: 16px;
     font-size: 12px;
+    text-align: center;
   }
   .top-scorer-rank.top1 { color: var(--accent); }
+  .top-scorer-avatar {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    border-radius: 50%;
+    overflow: visible;
+    background: var(--surface-3);
+  }
+  .top-scorer-avatar > img:first-child {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center top;
+    background: var(--surface-3);
+  }
+  .top-scorer-team-logo {
+    position: absolute;
+    right: -4px;
+    bottom: -2px;
+    width: 16px;
+    height: 16px;
+    background: var(--surface);
+    border-radius: 50%;
+    padding: 1px;
+    border: 1px solid var(--border);
+  }
+  .top-scorer-meta {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.2;
+  }
   .top-scorer-name {
     color: var(--text);
-    text-decoration: none;
     font-weight: 600;
+    font-size: 13px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .top-scorer-name:hover { color: var(--accent); }
+  .top-scorer-row:hover .top-scorer-name { color: var(--accent); }
   .top-scorer-team {
     font-size: 10px;
     color: var(--muted);
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
+    margin-top: 1px;
   }
   .top-scorer-pts {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--accent);
   }
 
   /* Upcoming games (right sidebar) */
   .mini-upcoming-list { display: flex; flex-direction: column; gap: 6px; }
   .mini-upcoming {
-    padding: 7px 9px;
+    padding: 8px 10px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 7px;
+    border-radius: 8px;
     text-decoration: none;
     color: inherit;
     display: block;
@@ -748,30 +776,60 @@
   }
   .mini-upcoming:hover { border-color: var(--accent); }
   .mini-upcoming-teams {
-    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 700;
     color: var(--text);
     font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+  }
+  .mini-upcoming-teams img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+  .mini-upcoming-at {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 11px;
+    margin: 0 2px;
   }
   .mini-upcoming-time {
     color: var(--muted);
     font-size: 10px;
-    margin-top: 2px;
+    margin-top: 3px;
   }
 
   /* Quick nav */
   .quick-nav { display: flex; flex-direction: column; gap: 4px; }
   .quick-nav a {
-    display: block;
-    padding: 8px 10px;
-    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 7px;
     color: var(--text);
     text-decoration: none;
     font-size: 13px;
     font-weight: 600;
     background: var(--surface-2);
     border: 1px solid transparent;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
   }
-  .quick-nav a:hover { border-color: var(--accent); color: var(--accent); }
+  .quick-nav a svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    color: var(--muted);
+    transition: color 0.15s;
+  }
+  .quick-nav a:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--surface-3);
+  }
+  .quick-nav a:hover svg { color: var(--accent); }
 
   /* News feed in center column - use existing news styles, add a header */
   .home-col-center .news-card { margin-top: 0; }
@@ -938,6 +996,10 @@
         <a class="news-item" href="{{ url_for('news_detail', cluster_id=n.cluster_id) }}">
           {% if n.thumbnail_url %}
           <img class="news-thumb" src="{{ n.thumbnail_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+          {% else %}
+          <div class="news-thumb news-thumb-fallback news-thumb-fallback-{{ n.source }}">
+            <span>{% if n.source == 'espn' %}E{% elif n.source == 'nba' %}NBA{% elif n.source == 'funba' %}F{% else %}?{% endif %}</span>
+          </div>
           {% endif %}
           <div class="news-body">
             <div class="news-meta-row">
@@ -988,14 +1050,22 @@
       <h3>{{ t('Top Scorers', '得分榜') }}{% if top_scorers.game_date %} <span class="meta" style="font-weight:400;text-transform:none;letter-spacing:0;">· {{ top_scorers.game_date.strftime('%b %d') }}</span>{% endif %}</h3>
       <div class="top-scorers-list">
         {% for r in top_scorers.rows %}
-        <div class="top-scorer-row">
-          <div class="top-scorer-left">
-            <span class="top-scorer-rank {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span>
-            <a class="top-scorer-name" href="{{ player_url(r.player_id) }}">{{ r.full_name }}</a>
-            {% if r.team_abbr %}<span class="top-scorer-team">{{ r.team_abbr }}</span>{% endif %}
+        <a class="top-scorer-row" href="{{ player_url(r.player_id) }}">
+          <span class="top-scorer-rank {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span>
+          <div class="top-scorer-avatar">
+            {% if r.headshot_url %}
+            <img src="{{ r.headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+            {% endif %}
+            {% if r.team_id %}
+            <img class="top-scorer-team-logo" src="https://cdn.nba.com/logos/nba/{{ r.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            {% endif %}
+          </div>
+          <div class="top-scorer-meta">
+            <div class="top-scorer-name">{{ r.full_name }}</div>
+            {% if r.team_abbr %}<div class="top-scorer-team">{{ r.team_abbr }}</div>{% endif %}
           </div>
           <span class="top-scorer-pts">{{ r.pts }}</span>
-        </div>
+        </a>
         {% endfor %}
       </div>
     </div>
@@ -1007,7 +1077,13 @@
       <div class="mini-upcoming-list">
         {% for g in upcoming_games[:6] %}
         <a href="{{ game_url(g.game_id) }}" class="mini-upcoming">
-          <div class="mini-upcoming-teams">{{ g.road_abbr }} @ {{ g.home_abbr }}</div>
+          <div class="mini-upcoming-teams">
+            <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            <span>{{ g.road_abbr }}</span>
+            <span class="mini-upcoming-at">@</span>
+            <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            <span>{{ g.home_abbr }}</span>
+          </div>
           <div class="mini-upcoming-time">{{ g.summary or g.game_date.strftime('%b %d') }}</div>
         </a>
         {% endfor %}
@@ -1018,11 +1094,26 @@
     <div class="card">
       <h3>{{ t('Browse', '浏览') }}</h3>
       <nav class="quick-nav">
-        <a href="{{ url_for('teams_list_page') }}">{{ t('All Teams', '全部球队') }}</a>
-        <a href="{{ url_for('players_browse') }}">{{ t('All Players', '全部球员') }}</a>
-        <a href="{{ url_for('metrics_browse') }}">{{ t('Metrics', '数据指标') }}</a>
-        <a href="{{ url_for('awards_page') }}">{{ t('Awards', '奖项') }}</a>
-        <a href="{{ url_for('games_list') }}">{{ t('Schedule', '赛程') }}</a>
+        <a href="{{ url_for('teams_list_page') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 5.5 8 12 8 12s8-6.5 8-12a8 8 0 0 0-8-8z"/></svg>
+          {{ t('All Teams', '全部球队') }}
+        </a>
+        <a href="{{ url_for('players_browse') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          {{ t('All Players', '全部球员') }}
+        </a>
+        <a href="{{ url_for('metrics_browse') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          {{ t('Metrics', '数据指标') }}
+        </a>
+        <a href="{{ url_for('awards_page') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+          {{ t('Awards', '奖项') }}
+        </a>
+        <a href="{{ url_for('games_list') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          {{ t('Schedule', '赛程') }}
+        </a>
       </nav>
     </div>
   </aside>
@@ -1053,6 +1144,21 @@
     border-radius: 6px;
     background: var(--surface-3);
   }
+  .news-thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Outfit', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: linear-gradient(135deg, var(--surface-3), var(--surface-2));
+    border: 1px solid var(--border);
+  }
+  .news-thumb-fallback-espn { background: linear-gradient(135deg, #c81a1a, #a60f0f); }
+  .news-thumb-fallback-nba { background: linear-gradient(135deg, #1d428a, #0b2a5e); }
+  .news-thumb-fallback-funba { background: linear-gradient(135deg, #f97316, #c05400); }
   .news-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .news-meta-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11px; color: var(--text-muted); }
   .news-source { font-weight: 600; padding: 2px 6px; border-radius: 4px; background: var(--surface-3); color: var(--text); }
