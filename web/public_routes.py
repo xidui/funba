@@ -963,7 +963,41 @@ def register_public_routes(
                 key=get_season_sort_key(),
                 reverse=True,
             )
-            selected_season = request.args.get("season") or (all_season_ids[0] if all_season_ids else None)
+
+            def _pick_active_season() -> str | None:
+                """Pick the season whose phase is most relevant today.
+
+                Looks for games within a ±3 day window around today. If any are
+                play-in or playoffs, prefer those over regular season. Falls
+                back to the newest season otherwise.
+                """
+                if not all_season_ids:
+                    return None
+                window_start = today - timedelta(days=3)
+                window_end = today + timedelta(days=3)
+                recent = (
+                    session.query(Game.season)
+                    .filter(
+                        Game.game_date >= window_start,
+                        Game.game_date <= window_end,
+                        Game.season.isnot(None),
+                    )
+                    .distinct()
+                    .all()
+                )
+                recent_seasons = {row.season for row in recent}
+                if not recent_seasons:
+                    return all_season_ids[0]
+                # Prefer later phase: Playoffs > PlayIn > Regular.
+                phase_rank = {"4": 3, "5": 2, "2": 1}
+                scored = [
+                    (phase_rank.get(str(s)[:1], 0), s)
+                    for s in recent_seasons
+                ]
+                scored.sort(reverse=True)
+                return scored[0][1]
+
+            selected_season = request.args.get("season") or _pick_active_season()
             selected_team = (request.args.get("team") or "").strip() or None
             try:
                 page = max(1, int(request.args.get("page", 1)))
