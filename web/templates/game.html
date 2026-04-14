@@ -194,6 +194,274 @@
   .up-h2h-side.up-h2h-leader { color: var(--heading); }
   .up-h2h-dash { color: var(--muted); }
 
+  /* Last game top scorer (in upcoming preview) */
+  .up-last-scorer { margin-top: 12px; }
+  .up-last-scorer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    margin-top: 6px;
+  }
+  .up-last-scorer-headshot {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center top;
+    background: var(--surface-3);
+    flex: 0 0 40px;
+  }
+  .up-last-scorer-meta { flex: 1; min-width: 0; line-height: 1.25; }
+  .up-last-scorer-name {
+    font-weight: 600;
+    color: var(--heading);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .up-last-scorer-line { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .up-last-scorer-pts {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 14px;
+  }
+
+  /* Last 10 head-to-head history strip */
+  .up-h2h-history {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-2);
+  }
+  .up-h2h-history-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .up-h2h-game {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    min-width: 110px;
+    transition: border-color 0.15s;
+  }
+  .up-h2h-game:hover { border-color: var(--accent); text-decoration: none; }
+  .up-h2h-game-teams {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .up-h2h-side-label { color: var(--muted); }
+  .up-h2h-side-label.up-h2h-win { color: var(--heading); }
+  .up-h2h-side-label.up-h2h-loss { color: var(--muted); opacity: 0.55; }
+  .up-h2h-score { color: var(--muted); }
+  .up-h2h-score.up-h2h-win { color: var(--win, #4ade80); }
+  .up-h2h-game-date {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+  }
+
+  /* Live quick panel */
+  .live-quick-panel .lqp-wp-wrap { margin-bottom: 20px; }
+  .live-quick-panel .lqp-wp-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .live-quick-panel .lqp-wp-label .lqp-wp-center { color: var(--muted); }
+  .live-quick-panel .lqp-wp-bar {
+    position: relative;
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-3);
+  }
+  .live-quick-panel .lqp-wp-road {
+    background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+    transition: width 0.6s ease;
+  }
+  .live-quick-panel .lqp-wp-home {
+    background: linear-gradient(90deg, var(--accent), #c05400);
+    transition: width 0.6s ease;
+  }
+  .live-quick-panel .lqp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 640px) {
+    .live-quick-panel .lqp-grid { grid-template-columns: 1fr; }
+  }
+  .lqp-team {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .lqp-team-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--heading);
+    margin-bottom: 10px;
+  }
+  .lqp-team-header img { width: 24px; height: 24px; object-fit: contain; }
+  .lqp-team-pct {
+    display: flex;
+    gap: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+  }
+  .lqp-pct-cell {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+  }
+  .lqp-pct-cell b { color: var(--heading); font-weight: 700; font-size: 14px; margin-left: 4px; }
+  .lqp-leaders { display: flex; flex-direction: column; gap: 6px; }
+  .lqp-leader-row {
+    display: grid;
+    grid-template-columns: 42px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .lqp-leader-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: 0.06em;
+  }
+  .lqp-leader-name {
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lqp-leader-val {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 14px;
+  }
+  .lqp-leader-row.ts-leader-hot .lqp-leader-name::after {
+    content: ' 🔥';
+  }
+
+  /* Completed Game Leaders card */
+  .game-leaders-card .gl-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 640px) {
+    .game-leaders-card .gl-grid { grid-template-columns: 1fr; }
+  }
+  .gl-team {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .gl-team-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--heading);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-2);
+  }
+  .gl-team-header img { width: 24px; height: 24px; object-fit: contain; }
+  .gl-leader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s;
+  }
+  .gl-leader:hover { border-color: var(--accent); text-decoration: none; }
+  .gl-leader-head {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center top;
+    background: var(--surface-3);
+    flex: 0 0 44px;
+  }
+  .gl-leader-head-placeholder { background: var(--surface-3); }
+  .gl-leader-meta { flex: 1; min-width: 0; line-height: 1.2; }
+  .gl-leader-category {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .gl-leader-name {
+    color: var(--heading);
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gl-leader-val {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1;
+  }
+  .gl-leader-num {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--accent);
+  }
+  .gl-leader-stat {
+    font-size: 9px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+  }
+
   .sb-team {
     display: flex;
     flex-direction: column;
@@ -1115,6 +1383,24 @@
       <span class="up-rest-badge">{{ upcoming_preview.road.rest.days }} {{ t('days rest', '天休整') }}</span>
       {% endif %}
       {% endif %}
+      {% if upcoming_preview.road.last_game_scorer %}
+      <div class="up-last-scorer">
+        <div class="up-preview-section-label">{{ t('Last game top scorer', '上场得分王') }}</div>
+        <div class="up-last-scorer-row">
+          {% if upcoming_preview.road.last_game_scorer.headshot_url %}
+          <img class="up-last-scorer-headshot" src="{{ upcoming_preview.road.last_game_scorer.headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+          {% endif %}
+          <div class="up-last-scorer-meta">
+            <div class="up-last-scorer-name">{{ upcoming_preview.road.last_game_scorer.name }}</div>
+            <div class="up-last-scorer-line">
+              <span class="up-last-scorer-pts">{{ upcoming_preview.road.last_game_scorer.pts }}</span> PTS
+              {% if upcoming_preview.road.last_game_scorer.reb is not none %} · {{ upcoming_preview.road.last_game_scorer.reb }} REB{% endif %}
+              {% if upcoming_preview.road.last_game_scorer.ast is not none %} · {{ upcoming_preview.road.last_game_scorer.ast }} AST{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
 
     {# ── Center: VS + H2H ── #}
@@ -1165,7 +1451,138 @@
       <span class="up-rest-badge">{{ upcoming_preview.home.rest.days }} {{ t('days rest', '天休整') }}</span>
       {% endif %}
       {% endif %}
+      {% if upcoming_preview.home.last_game_scorer %}
+      <div class="up-last-scorer">
+        <div class="up-preview-section-label">{{ t('Last game top scorer', '上场得分王') }}</div>
+        <div class="up-last-scorer-row">
+          {% if upcoming_preview.home.last_game_scorer.headshot_url %}
+          <img class="up-last-scorer-headshot" src="{{ upcoming_preview.home.last_game_scorer.headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+          {% endif %}
+          <div class="up-last-scorer-meta">
+            <div class="up-last-scorer-name">{{ upcoming_preview.home.last_game_scorer.name }}</div>
+            <div class="up-last-scorer-line">
+              <span class="up-last-scorer-pts">{{ upcoming_preview.home.last_game_scorer.pts }}</span> PTS
+              {% if upcoming_preview.home.last_game_scorer.reb is not none %} · {{ upcoming_preview.home.last_game_scorer.reb }} REB{% endif %}
+              {% if upcoming_preview.home.last_game_scorer.ast is not none %} · {{ upcoming_preview.home.last_game_scorer.ast }} AST{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
+  </div>
+
+  {% if upcoming_preview.h2h_history %}
+  <div class="up-h2h-history">
+    <div class="up-preview-section-label">{{ t('Last 10 Head-to-Head', '近10次交锋') }}</div>
+    <div class="up-h2h-history-list">
+      {% for h in upcoming_preview.h2h_history %}
+      {% set road_won = h.winner_team_id == game.road_team_id %}
+      {% set home_won = h.winner_team_id == game.home_team_id %}
+      <a href="{{ game_url(h.game_id) }}" class="up-h2h-game" title="{{ h.game_date.strftime('%b %d, %Y') if h.game_date else '' }}">
+        <div class="up-h2h-game-teams">
+          <span class="up-h2h-side-label {% if road_won %}up-h2h-win{% else %}up-h2h-loss{% endif %}">{{ team_abbr(game.road_team_id) }}</span>
+          <span class="up-h2h-score {% if road_won %}up-h2h-win{% endif %}">{{ (h.road_score if h.home_team_id != game.road_team_id else h.home_score) or '-' }}</span>
+          <span class="up-h2h-dash">-</span>
+          <span class="up-h2h-score {% if home_won %}up-h2h-win{% endif %}">{{ (h.home_score if h.home_team_id == game.home_team_id else h.road_score) or '-' }}</span>
+          <span class="up-h2h-side-label {% if home_won %}up-h2h-win{% else %}up-h2h-loss{% endif %}">{{ team_abbr(game.home_team_id) }}</span>
+        </div>
+        <div class="up-h2h-game-date">{{ h.game_date.strftime('%b %d %Y') if h.game_date else '' }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Live quick panel: WP bar + leaders + team % ──────────────────── #}
+{% if live_quick_panel and current_status == 'live' %}
+<div class="card live-quick-panel" data-live-panel data-game-id="{{ game.game_id }}">
+  <h2 style="margin-bottom:14px;">{{ t('Live Snapshot', '实时数据') }}</h2>
+
+  {# Win probability bar #}
+  <div class="lqp-wp-wrap" data-role="wp-bar">
+    <div class="lqp-wp-label">
+      <span data-role="wp-label-road">{% if live_quick_panel.road_win_probability is not none %}{{ (live_quick_panel.road_win_probability * 100)|round|int }}%{% else %}—{% endif %}</span>
+      <span class="lqp-wp-center">{{ t('Win Probability', '胜率') }}</span>
+      <span data-role="wp-label-home">{% if live_quick_panel.home_win_probability is not none %}{{ (live_quick_panel.home_win_probability * 100)|round|int }}%{% else %}—{% endif %}</span>
+    </div>
+    <div class="lqp-wp-bar">
+      <div class="lqp-wp-road" data-role="wp-road" style="width: {% if live_quick_panel.road_win_probability is not none %}{{ (live_quick_panel.road_win_probability * 100)|int }}{% else %}50{% endif %}%;"></div>
+      <div class="lqp-wp-home" data-role="wp-home" style="width: {% if live_quick_panel.home_win_probability is not none %}{{ (live_quick_panel.home_win_probability * 100)|int }}{% else %}50{% endif %}%;"></div>
+    </div>
+  </div>
+
+  <div class="lqp-grid">
+    {% for side, tid, scorer, rebounder, assister, fg, fg3 in [
+      ('road', game.road_team_id, live_quick_panel.road_scorer, live_quick_panel.road_rebounder, live_quick_panel.road_assister, live_quick_panel.road_fg_pct, live_quick_panel.road_fg3_pct),
+      ('home', game.home_team_id, live_quick_panel.home_scorer, live_quick_panel.home_rebounder, live_quick_panel.home_assister, live_quick_panel.home_fg_pct, live_quick_panel.home_fg3_pct),
+    ] %}
+    <div class="lqp-team">
+      <div class="lqp-team-header">
+        <img src="https://cdn.nba.com/logos/nba/{{ tid }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+        <span>{{ team_name(tid) }}</span>
+      </div>
+      <div class="lqp-team-pct">
+        <span class="lqp-pct-cell">FG <b data-role="{{ side }}-fg-pct">{{ fg if fg is not none else '—' }}</b>{% if fg is not none %}%{% endif %}</span>
+        <span class="lqp-pct-cell">3P <b data-role="{{ side }}-fg3-pct">{{ fg3 if fg3 is not none else '—' }}</b>{% if fg3 is not none %}%{% endif %}</span>
+      </div>
+      <div class="lqp-leaders">
+        {% for slot, leader, label in [
+          (side + '-0', scorer, 'PTS'),
+          (side + '-1', rebounder, 'REB'),
+          (side + '-2', assister, 'AST'),
+        ] %}
+        <div class="lqp-leader-row" data-leader-slot="{{ slot }}">
+          <span class="lqp-leader-label">{{ label }}</span>
+          <span class="lqp-leader-name">{{ leader.name if leader else '—' }}</span>
+          <span class="lqp-leader-val" data-role="leader-val">{{ leader.value if leader else '—' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Game Leaders (completed) ──────────────────────────────────────── #}
+{% if game_leaders and current_status == 'completed' %}
+<div class="card game-leaders-card">
+  <h2 style="margin-bottom:14px;">{{ t('Game Leaders', '本场之最') }}</h2>
+  <div class="gl-grid">
+    {% for side, tid, block in [('road', game.road_team_id, game_leaders.road), ('home', game.home_team_id, game_leaders.home)] %}
+    <div class="gl-team">
+      <div class="gl-team-header">
+        <img src="https://cdn.nba.com/logos/nba/{{ tid }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+        <span>{{ team_name(tid) }}</span>
+      </div>
+      {% for label, stat_label, leader in [
+        (t('Points', '得分'), 'PTS', block.scorer),
+        (t('Rebounds', '篮板'), 'REB', block.rebounder),
+        (t('Assists', '助攻'), 'AST', block.assister),
+      ] %}
+      {% if leader %}
+      <a class="gl-leader" href="{{ player_url(leader.player_id) }}">
+        {% if leader.headshot_url %}
+        <img class="gl-leader-head" src="{{ leader.headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+        {% else %}
+        <div class="gl-leader-head gl-leader-head-placeholder"></div>
+        {% endif %}
+        <div class="gl-leader-meta">
+          <div class="gl-leader-category">{{ label }}</div>
+          <div class="gl-leader-name">{{ leader.name }}</div>
+        </div>
+        <div class="gl-leader-val">
+          <span class="gl-leader-num">{{ leader.value }}</span>
+          <span class="gl-leader-stat">{{ stat_label }}</span>
+        </div>
+      </a>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
   </div>
 </div>
 {% endif %}
@@ -2090,6 +2507,50 @@
     const pbpContainer = document.getElementById('bs-pbp');
     if (pbpContainer && payload.pbp_rows && payload.pbp_rows.length) {
       renderPBP(payload.pbp_rows, pbpContainer);
+    }
+
+    // ── Live quick panel: WP bar + per-team FG%/3P% + top leaders ──
+    const livePanel = document.querySelector('[data-live-panel]');
+    if (livePanel) {
+      const setTxt = (sel, val) => {
+        const el = livePanel.querySelector(sel);
+        if (el && val != null && val !== '') el.textContent = val;
+      };
+      // WP bar + labels
+      if (payload.road_win_probability != null && payload.home_win_probability != null) {
+        const roadPct = Math.round(payload.road_win_probability * 100);
+        const homePct = Math.round(payload.home_win_probability * 100);
+        const roadFill = livePanel.querySelector('[data-role="wp-road"]');
+        const homeFill = livePanel.querySelector('[data-role="wp-home"]');
+        if (roadFill) roadFill.style.width = roadPct + '%';
+        if (homeFill) homeFill.style.width = homePct + '%';
+        setTxt('[data-role="wp-label-road"]', roadPct + '%');
+        setTxt('[data-role="wp-label-home"]', homePct + '%');
+      }
+      // Team shooting percentages
+      const fgFmt = v => (v == null || v === '' ? '—' : String(v));
+      setTxt('[data-role="road-fg-pct"]', fgFmt(payload.road_fg_pct));
+      setTxt('[data-role="home-fg-pct"]', fgFmt(payload.home_fg_pct));
+      setTxt('[data-role="road-fg3-pct"]', fgFmt(payload.road_fg3_pct));
+      setTxt('[data-role="home-fg3-pct"]', fgFmt(payload.home_fg3_pct));
+      // Leaders
+      const hotIds = (payload.hot_player_ids || []).map(String);
+      const updateLeader = (slot, leader) => {
+        const row = livePanel.querySelector('[data-leader-slot="' + slot + '"]');
+        if (!row || !leader) return;
+        const nameEl = row.querySelector('.lqp-leader-name');
+        const valEl = row.querySelector('[data-role="leader-val"]');
+        if (nameEl && leader.name) nameEl.textContent = leader.name;
+        if (valEl && leader.value != null) valEl.textContent = leader.value;
+        const isHot = leader.player_id != null && hotIds.includes(String(leader.player_id));
+        row.classList.toggle('ts-leader-hot', isHot);
+      };
+      updateLeader('road-0', payload.road_scorer);
+      updateLeader('road-1', payload.road_rebounder);
+      updateLeader('road-2', payload.road_assister);
+      updateLeader('home-0', payload.home_scorer);
+      updateLeader('home-1', payload.home_rebounder);
+      updateLeader('home-2', payload.home_assister);
     }
   }
 

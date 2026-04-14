@@ -9,7 +9,7 @@ from flask import abort, jsonify, redirect, request
 from sqlalchemy import case, func
 
 from db.game_status import GAME_STATUS_COMPLETED, GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
-from web.live_game_data import build_live_game_stub, fetch_live_game_detail, fetch_live_scoreboard_map
+from web.live_game_data import build_live_game_stub, fetch_live_card, fetch_live_game_detail, fetch_live_scoreboard_map
 
 
 def _format_tipoff_et(iso_et: str | None) -> str | None:
@@ -25,15 +25,17 @@ def _format_tipoff_et(iso_et: str | None) -> str | None:
         return None
 
 
-def _build_upcoming_preview(session, game, teams, live_summary):
+def _build_upcoming_preview(session, game, teams, live_summary, *, headshot_fn=None):
     """Pre-tipoff context for the game detail page.
 
     Returns a dict with both teams' season W-L, last 10, head-to-head
-    series, rest days / B2B flag, and a formatted tipoff time. The
-    template renders this in place of the empty box-score panels.
-    Pure read; no caching needed (low traffic on upcoming pages).
+    series (plus last 10 H2H across all seasons), each team's top scorer
+    from their most recent completed game (with headshot), rest days /
+    B2B flag, and a formatted tipoff time. The template renders this in
+    place of the empty box-score panels. Pure read; no caching needed
+    (low traffic on upcoming pages).
     """
-    from db.models import Game as GameModel
+    from db.models import Game as GameModel, Player, PlayerGameStats
 
     if not game.home_team_id or not game.road_team_id or not game.game_date:
         return None
@@ -109,11 +111,168 @@ def _build_upcoming_preview(session, game, teams, live_summary):
     if live_summary:
         tipoff = _format_tipoff_et(live_summary.get("game_time_et"))
 
+    # Last-10 head-to-head across all seasons — gives a trend chip strip.
+    h2h_history_rows = (
+        session.query(GameModel)
+        .filter(
+            GameModel.wining_team_id.isnot(None),
+            GameModel.home_team_id.in_(team_ids),
+            GameModel.road_team_id.in_(team_ids),
+        )
+        .filter(GameModel.game_date < game.game_date)
+        .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
+        .limit(10)
+        .all()
+    )
+    h2h_history = []
+    for pg in reversed(h2h_history_rows):
+        if {pg.home_team_id, pg.road_team_id} != team_ids:
+            continue
+        h2h_history.append(
+            {
+                "game_id": pg.game_id,
+                "game_date": pg.game_date,
+                "home_team_id": pg.home_team_id,
+                "road_team_id": pg.road_team_id,
+                "winner_team_id": pg.wining_team_id,
+                "home_score": pg.home_team_score,
+                "road_score": pg.road_team_score,
+            }
+        )
+
+    # Top scorer from each team's previous completed game (any matchup).
+    def _last_game_scorer(team_id):
+        prev_rows = team_games.get(team_id, [])
+        if not prev_rows:
+            return None
+        prev = prev_rows[0]  # most recent past game
+        row = (
+            session.query(PlayerGameStats, Player)
+            .outerjoin(Player, Player.player_id == PlayerGameStats.player_id)
+            .filter(
+                PlayerGameStats.game_id == prev.game_id,
+                PlayerGameStats.team_id == team_id,
+                PlayerGameStats.pts.isnot(None),
+            )
+            .order_by(PlayerGameStats.pts.desc())
+            .limit(1)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        pgs, player = row
+        return {
+            "player_id": pgs.player_id,
+            "name": (player.full_name if player else pgs.player_id),
+            "slug": (player.slug if player else None),
+            "pts": int(pgs.pts or 0),
+            "reb": int(pgs.reb or 0) if pgs.reb is not None else None,
+            "ast": int(pgs.ast or 0) if pgs.ast is not None else None,
+            "headshot_url": headshot_fn(pgs.player_id) if headshot_fn else None,
+            "prev_game_id": prev.game_id,
+            "prev_game_date": prev.game_date,
+        }
+
+    home_block["last_game_scorer"] = _last_game_scorer(game.home_team_id)
+    road_block["last_game_scorer"] = _last_game_scorer(game.road_team_id)
+
     return {
         "home": home_block,
         "road": road_block,
         "h2h": h2h,
+        "h2h_history": h2h_history,
         "tipoff_et": tipoff,
+    }
+
+
+def _safe_fetch_live_card(game_id: str):
+    """Best-effort wrapper around fetch_live_card that never raises."""
+    try:
+        return fetch_live_card(game_id)
+    except Exception:
+        return None
+
+
+def _build_game_leaders(session, game, *, headshot_fn=None):
+    """Top scorer / rebounder / assister from each team for a completed game.
+
+    Returns {'home': {...}, 'road': {...}} where each side is a dict of three
+    leader rows plus the team_id. Used on the completed game page as a
+    visual summary above the full box score.
+    """
+    from db.models import PlayerGameStats, Player
+
+    if not game.home_team_id or not game.road_team_id:
+        return None
+
+    rows = (
+        session.query(PlayerGameStats, Player)
+        .outerjoin(Player, Player.player_id == PlayerGameStats.player_id)
+        .filter(PlayerGameStats.game_id == game.game_id)
+        .all()
+    )
+    if not rows:
+        return None
+
+    by_team: dict[str, list] = defaultdict(list)
+    for pgs, player in rows:
+        by_team[pgs.team_id].append((pgs, player))
+
+    def _pick(team_id, stat_name):
+        rows = by_team.get(team_id, [])
+        if not rows:
+            return None
+        best = max(rows, key=lambda pair: int(getattr(pair[0], stat_name, 0) or 0))
+        pgs, player = best
+        val = int(getattr(pgs, stat_name, 0) or 0)
+        if val <= 0:
+            return None
+        return {
+            "player_id": pgs.player_id,
+            "name": player.full_name if player else pgs.player_id,
+            "slug": player.slug if player else None,
+            "value": val,
+            "headshot_url": headshot_fn(pgs.player_id) if headshot_fn else None,
+        }
+
+    def _side(team_id):
+        return {
+            "team_id": team_id,
+            "scorer": _pick(team_id, "pts"),
+            "rebounder": _pick(team_id, "reb"),
+            "assister": _pick(team_id, "ast"),
+        }
+
+    return {
+        "home": _side(game.home_team_id),
+        "road": _side(game.road_team_id),
+    }
+
+
+def _build_live_quick_panel(game, *, live_card=None):
+    """Flatten the live_card dict from fetch_live_card() into a template-ready
+    structure for the in-progress game page. Falls back to an empty shell
+    (fields None) so the template can still render placeholder rows that
+    the JS refresh loop will fill in on the next poll."""
+    if not game.home_team_id or not game.road_team_id:
+        return None
+    card = live_card or {}
+    return {
+        "home_team_id": game.home_team_id,
+        "road_team_id": game.road_team_id,
+        "home_fg_pct": card.get("home_fg_pct"),
+        "road_fg_pct": card.get("road_fg_pct"),
+        "home_fg3_pct": card.get("home_fg3_pct"),
+        "road_fg3_pct": card.get("road_fg3_pct"),
+        "home_scorer": card.get("home_scorer"),
+        "road_scorer": card.get("road_scorer"),
+        "home_rebounder": card.get("home_rebounder"),
+        "road_rebounder": card.get("road_rebounder"),
+        "home_assister": card.get("home_assister"),
+        "road_assister": card.get("road_assister"),
+        "home_win_probability": card.get("home_win_probability"),
+        "road_win_probability": card.get("road_win_probability"),
+        "hot_player_ids": card.get("hot_player_ids") or [],
     }
 
 
@@ -639,6 +798,15 @@ def register_detail_routes(
                     home_team_id=game.home_team_id,
                     game_analysis_issues=game_analysis_issues,
                     upcoming_preview=None,
+                    game_leaders=None,
+                    live_quick_panel=(
+                        _build_live_quick_panel(
+                            game,
+                            live_card=_safe_fetch_live_card(game.game_id),
+                        )
+                        if game_status == GAME_STATUS_LIVE
+                        else None
+                    ),
                 )
 
             def _render_with_live_payload(payload, *, refresh_interval_ms):
@@ -677,6 +845,15 @@ def register_detail_routes(
                     home_team_id=game.home_team_id,
                     game_analysis_issues=_game_analysis_issues(),
                     upcoming_preview=None,
+                    game_leaders=None,
+                    live_quick_panel=(
+                        _build_live_quick_panel(
+                            game,
+                            live_card=_safe_fetch_live_card(game.game_id),
+                        )
+                        if game_status == GAME_STATUS_LIVE
+                        else None
+                    ),
                 )
 
             if game_status == GAME_STATUS_LIVE:
@@ -695,6 +872,7 @@ def register_detail_routes(
                     game,
                     teams,
                     live_summary,
+                    headshot_fn=get_player_headshot_url(),
                 )
                 return get_render_template()(
                     "game.html",
@@ -725,6 +903,8 @@ def register_detail_routes(
                     home_team_id=game.home_team_id,
                     game_analysis_issues=[],
                     upcoming_preview=upcoming_preview,
+                    game_leaders=None,
+                    live_quick_panel=None,
                 )
 
             team_stats_rows = (
@@ -950,6 +1130,16 @@ def register_detail_routes(
             home_abbr = get_team_abbr()(teams, game.home_team_id)
             home_team_id = game.home_team_id
             game_analysis_issues = _game_analysis_issues()
+            game_leaders = (
+                _build_game_leaders(session, game, headshot_fn=get_player_headshot_url())
+                if game_status == GAME_STATUS_COMPLETED
+                else None
+            )
+            live_quick_panel = (
+                _build_live_quick_panel(game, live_card=_safe_fetch_live_card(game.game_id))
+                if game_status == GAME_STATUS_LIVE
+                else None
+            )
 
         return get_render_template()(
             "game.html",
@@ -980,6 +1170,8 @@ def register_detail_routes(
             home_team_id=home_team_id,
             game_analysis_issues=game_analysis_issues,
             upcoming_preview=None,
+            game_leaders=game_leaders,
+            live_quick_panel=live_quick_panel,
         )
 
     def game_fragment_metrics(slug: str):

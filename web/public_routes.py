@@ -1827,6 +1827,24 @@ def register_public_routes(
         payload = fetch_live_game_detail(game_id)
         if payload is None:
             return jsonify({"ok": False, "game_id": game_id, "error": "live_data_unavailable"}), 503
+        # Also merge in the cached live_card (leaders, WP, hot player ids,
+        # shooting percentages) so the game-page live panel can update in
+        # the same round-trip as the scoreboard.
+        try:
+            card = fetch_live_card(game_id)
+        except Exception:
+            card = None
+        if card:
+            for key in (
+                "home_scorer", "road_scorer",
+                "home_rebounder", "road_rebounder",
+                "home_assister", "road_assister",
+                "home_fg_pct", "road_fg_pct",
+                "home_fg3_pct", "road_fg3_pct",
+                "home_win_probability", "road_win_probability",
+                "hot_player_ids",
+            ):
+                payload[key] = card.get(key)
         return jsonify({"ok": True, **payload})
 
     app.add_url_rule("/cn/", endpoint="home_zh", view_func=home)
