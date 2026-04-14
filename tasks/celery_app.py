@@ -25,6 +25,7 @@ app.conf.update(
         Queue("ingest"),
         Queue("metrics"),
         Queue("reduce"),
+        Queue("news"),
     ),
     task_default_queue="ingest",
     task_routes={
@@ -42,6 +43,8 @@ app.conf.update(
         "tasks.content.ensure_daily_content_analysis": {"queue": "ingest"},
         "tasks.content.ensure_recent_content_analysis": {"queue": "ingest"},
         "tasks.content.ensure_recent_content_analysis_for_season": {"queue": "ingest"},
+        "tasks.ingest.scrape_nba_news": {"queue": "news"},
+        "tasks.ingest.refresh_news_scores": {"queue": "news"},
     },
 
     # --- Serialization ---
@@ -73,6 +76,14 @@ app.conf.update(
                 "lookahead_days": 365,
                 "season_types": ["Regular Season", "PlayIn", "Playoffs"],
             },
+        },
+        "scrape-nba-news": {
+            "task": "tasks.ingest.scrape_nba_news",
+            "schedule": 3600,
+        },
+        "refresh-news-scores": {
+            "task": "tasks.ingest.refresh_news_scores",
+            "schedule": 300,
         },
     },
 

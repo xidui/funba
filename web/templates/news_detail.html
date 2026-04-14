@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.article.title }} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ (entry.article.summary|striptags|truncate(200))|e }}{% endblock %}
+{% block content %}
+<style>
+  .news-detail {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  .news-detail .news-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .news-detail .news-source {
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  .news-detail .news-source-funba { background: var(--accent); color: #000; }
+  .news-detail h1 {
+    font-size: 28px;
+    line-height: 1.3;
+    margin: 4px 0 14px;
+  }
+  .news-detail .hero-thumb {
+    width: 100%;
+    max-height: 420px;
+    object-fit: cover;
+    border-radius: 12px;
+    background: var(--surface-3);
+    margin-bottom: 16px;
+  }
+  .news-detail .news-summary {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+  .news-detail .cta-row {
+    display: flex;
+    gap: 10px;
+    margin: 20px 0;
+  }
+  .news-detail .cta-external {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .news-detail .cta-external:hover { opacity: 0.9; }
+  .news-detail .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 24px 0 10px;
+  }
+  .news-detail .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .news-detail .tag {
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--surface-3);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    border: 1px solid var(--border-2);
+  }
+  .news-detail .tag:hover { border-color: var(--accent); }
+  .news-detail .tag-team { color: var(--accent); }
+  .news-detail .siblings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .news-detail .sibling-item {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .news-detail .sibling-item:hover { border-color: var(--accent); }
+  .news-detail .sibling-source { font-weight: 600; color: var(--accent); font-size: 12px; min-width: 70px; }
+  .news-detail .sibling-title { flex: 1; }
+  .news-detail .sibling-time { font-size: 11px; color: var(--text-muted); align-self: center; }
+  .news-detail .view-count { opacity: 0.7; }
+</style>
+
+<div class="news-detail">
+  <div class="news-meta">
+    <span class="news-source news-source-{{ entry.article.source }}">
+      {% if entry.article.source == 'espn' %}ESPN{% elif entry.article.source == 'nba' %}NBA.com{% elif entry.article.source == 'funba' %}FUNBA{% else %}{{ entry.article.source|upper }}{% endif %}
+    </span>
+    <span>{{ entry.article.published_at.strftime('%b %d, %Y · %H:%M UTC') }}</span>
+    {% if entry.cluster.unique_view_count > 0 %}
+    <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
+    {% endif %}
+    {% if entry.cluster.article_count > 1 %}
+    <span>{{ t('Covered by', '报道来源') }} {{ entry.cluster.article_count }} {{ t('sources', '家') }}</span>
+    {% endif %}
+  </div>
+
+  <h1>{{ entry.article.title }}</h1>
+
+  {% if entry.article.thumbnail_url %}
+  <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
+  {% endif %}
+
+  {% if entry.article.summary %}
+  <div class="news-summary">{{ entry.article.summary|striptags }}</div>
+  {% endif %}
+
+  <div class="cta-row">
+    {% if entry.article.source == 'funba' %}
+    <a class="cta-external" href="{{ entry.article.url }}">{{ t('Read full post →', '查看全文 →') }}</a>
+    {% else %}
+    <a class="cta-external" href="{{ entry.article.url }}" target="_blank" rel="noopener">
+      {% if entry.article.source == 'espn' %}{{ t('Read on ESPN →', '前往 ESPN 阅读 →') }}
+      {% elif entry.article.source == 'nba' %}{{ t('Read on NBA.com →', '前往 NBA.com 阅读 →') }}
+      {% else %}{{ t('Read full article →', '阅读全文 →') }}
+      {% endif %}
+    </a>
+    {% endif %}
+  </div>
+
+  {% if entry.teams or entry.players %}
+  <div class="section-title">{{ t('Tags', '标签') }}</div>
+  <div class="tag-row">
+    {% for team in entry.teams %}
+    <a class="tag tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
+    {% endfor %}
+    {% for player in entry.players %}
+    <a class="tag tag-player" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if entry.siblings %}
+  <div class="section-title">{{ t('Other coverage', '其他报道') }}</div>
+  <div class="siblings">
+    {% for s in entry.siblings %}
+    <a class="sibling-item" href="{{ s.url }}" target="_blank" rel="noopener">
+      <span class="sibling-source">
+        {% if s.source == 'espn' %}ESPN{% elif s.source == 'nba' %}NBA.com{% elif s.source == 'funba' %}FUNBA{% else %}{{ s.source|upper }}{% endif %}
+      </span>
+      <span class="sibling-title">{{ s.title }}</span>
+      <span class="sibling-time">{{ s.published_at.strftime('%b %d %H:%M') }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

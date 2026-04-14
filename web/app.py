@@ -272,6 +272,7 @@ _LOCALIZED_PUBLIC_ENDPOINTS = {
     "metric_edit": "metric_edit_zh",
     "pricing": "pricing_zh",
     "account_page": "account_page_zh",
+    "news_detail": "news_detail_zh",
 }
 _ZH_TO_BASE_ENDPOINT = {zh_endpoint: endpoint for endpoint, zh_endpoint in _LOCALIZED_PUBLIC_ENDPOINTS.items()}
 _LEGACY_ENTITY_PATH_PATTERNS = {
@@ -3986,6 +3987,15 @@ def _record_page_view(*, is_crawler: bool, crawler_name: str | None) -> None:
     if getattr(g, "_page_view_recorded", False):
         return
     g._page_view_recorded = True
+
+    # Exclude admin traffic so ranking signals (e.g. NewsCluster.unique_view_count)
+    # reflect real readers, not our own browsing.
+    if not is_crawler:
+        try:
+            if is_admin():
+                return
+        except Exception:
+            pass
 
     pv = PageView(
         visitor_id=_page_view_visitor_id(is_crawler=is_crawler, crawler_name=crawler_name),
