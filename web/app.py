@@ -273,6 +273,7 @@ _LOCALIZED_PUBLIC_ENDPOINTS = {
     "pricing": "pricing_zh",
     "account_page": "account_page_zh",
     "news_detail": "news_detail_zh",
+    "teams_list_page": "teams_list_page_zh",
 }
 _ZH_TO_BASE_ENDPOINT = {zh_endpoint: endpoint for endpoint, zh_endpoint in _LOCALIZED_PUBLIC_ENDPOINTS.items()}
 _LEGACY_ENTITY_PATH_PATTERNS = {
