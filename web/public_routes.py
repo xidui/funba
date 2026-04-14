@@ -71,7 +71,10 @@ def _build_game_list_entry(game, live_snapshot: dict | None = None):
         home_won=status == GAME_STATUS_COMPLETED and game.wining_team_id == game.home_team_id,
         status=status,
         status_summary=(live_snapshot or {}).get("summary") or "",
-        link_enabled=status != GAME_STATUS_UPCOMING,
+        # Upcoming games land on the detail page's preview section (H2H,
+        # last 10, tipoff, previous top scorer) — make them linkable unless
+        # we don't even know the teams yet.
+        link_enabled=bool(home_team_id and road_team_id),
     )
 
 
