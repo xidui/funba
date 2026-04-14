@@ -5789,6 +5789,7 @@ _admin_misc_views = register_admin_misc_routes(
         back_fill_game_shot_record_from_api=lambda: back_fill_game_shot_record_from_api,
     ),
 )
+admin_users = _admin_misc_views.admin_users
 api_data_games = _admin_misc_views.api_data_games
 api_data_boxscore = _admin_misc_views.api_data_boxscore
 api_data_pbp = _admin_misc_views.api_data_pbp

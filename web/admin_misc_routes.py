@@ -638,6 +638,89 @@ def register_admin_misc_routes(app, deps):
                 deps.app().logger.exception("manual shotchart backfill failed for game_id=%s", game_id)
                 return jsonify({"ok": False, "error": str(exc)}), 500
 
+    def admin_users():
+        denied = deps.require_admin_page()()
+        if denied:
+            return denied
+
+        from sqlalchemy import func as _sa_func, or_
+
+        SessionLocal = deps.session_local()
+        User = deps.user_model()
+
+        page = max(1, request.args.get("page", 1, type=int))
+        page_size = 50
+        q_text = (request.args.get("q") or "").strip()
+        tier_filter = (request.args.get("tier") or "").strip() or None
+        sort = (request.args.get("sort") or "last_login").strip()
+
+        sort_map = {
+            "last_login": User.last_login_at.desc(),
+            "created_at": User.created_at.desc(),
+            "email": User.email.asc(),
+            "display_name": User.display_name.asc(),
+        }
+        order_clause = sort_map.get(sort, User.last_login_at.desc())
+
+        with SessionLocal() as db:
+            query = db.query(User)
+            if q_text:
+                like = f"%{q_text}%"
+                query = query.filter(or_(User.email.ilike(like), User.display_name.ilike(like)))
+            if tier_filter in {"free", "pro"}:
+                query = query.filter(User.subscription_tier == tier_filter)
+
+            total = query.count()
+            import math
+            total_pages = max(1, math.ceil(total / page_size)) if total else 1
+            page = min(page, total_pages)
+            rows = (
+                query.order_by(order_clause)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+
+            # Aggregate counts for the top strip.
+            total_users = db.query(_sa_func.count(User.id)).scalar() or 0
+            total_pro = db.query(_sa_func.count(User.id)).filter(User.subscription_tier == "pro").scalar() or 0
+            total_admins = db.query(_sa_func.count(User.id)).filter(User.is_admin.is_(True)).scalar() or 0
+
+            users = [
+                {
+                    "id": u.id,
+                    "email": u.email,
+                    "display_name": u.display_name,
+                    "avatar_url": u.avatar_url,
+                    "is_admin": bool(u.is_admin),
+                    "subscription_tier": u.subscription_tier,
+                    "subscription_status": u.subscription_status,
+                    "subscription_expires_at": u.subscription_expires_at,
+                    "created_at": u.created_at,
+                    "last_login_at": u.last_login_at,
+                    "google_linked": bool(u.google_id),
+                }
+                for u in rows
+            ]
+
+        return deps.render_template()(
+            "admin_users.html",
+            users=users,
+            page=page,
+            total_pages=total_pages,
+            total=total,
+            page_size=page_size,
+            q_text=q_text,
+            tier_filter=tier_filter,
+            sort=sort,
+            totals={
+                "all": total_users,
+                "pro": total_pro,
+                "admins": total_admins,
+            },
+        )
+
+    app.add_url_rule("/admin/users", endpoint="admin_users", view_func=admin_users)
     app.add_url_rule("/api/data/games", endpoint="api_data_games", view_func=api_data_games)
     app.add_url_rule("/api/data/games/<game_id>/boxscore", endpoint="api_data_boxscore", view_func=api_data_boxscore)
     app.add_url_rule("/api/data/games/<game_id>/pbp", endpoint="api_data_pbp", view_func=api_data_pbp)
@@ -661,6 +744,7 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill_api", view_func=game_shotchart_backfill_api, methods=["POST"])
 
     return SimpleNamespace(
+        admin_users=admin_users,
         api_data_games=api_data_games,
         api_data_boxscore=api_data_boxscore,
         api_data_pbp=api_data_pbp,

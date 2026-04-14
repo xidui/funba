@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% block title %}Admin — Users{% endblock %}
+
+{% block content %}
+<style>
+  .users-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .users-title h1 { margin-bottom: 4px; }
+
+  .users-stats {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .users-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    min-width: 100px;
+  }
+  .users-stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .users-stat-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--heading);
+  }
+
+  .users-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+  }
+  .users-toolbar form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    flex: 1;
+  }
+  .users-toolbar input[type="search"],
+  .users-toolbar select {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 7px 11px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .users-toolbar input[type="search"] { min-width: 240px; }
+  .users-toolbar input[type="search"]:focus,
+  .users-toolbar select:focus { border-color: var(--accent); }
+  .users-toolbar button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 7px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .users-toolbar button:hover { opacity: 0.9; }
+  .users-toolbar .total-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .users-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border-2);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  table.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.users-table thead th {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+  table.users-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: middle;
+  }
+  table.users-table tbody tr:last-child td { border-bottom: none; }
+  table.users-table tbody tr:hover td { background: var(--surface-2); }
+
+  .user-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 200px;
+  }
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--surface-3);
+    flex: 0 0 32px;
+  }
+  .user-avatar-fallback {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--text);
+    font-size: 13px;
+    flex: 0 0 32px;
+  }
+  .user-name { font-weight: 600; color: var(--heading); }
+  .user-email {
+    font-size: 12px;
+    color: var(--muted-2);
+    word-break: break-all;
+  }
+  .user-email a { color: inherit; text-decoration: none; }
+  .user-email a:hover { color: var(--accent); }
+
+  .badge-pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: var(--surface-3);
+    color: var(--muted);
+  }
+  .badge-pill.pro { background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
+  .badge-pill.admin { background: color-mix(in srgb, #c084fc 30%, transparent); color: #c084fc; }
+  .badge-pill.google { background: color-mix(in srgb, #4ade80 22%, transparent); color: #4ade80; }
+
+  .cell-date {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sort-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .sort-link.active { color: var(--accent); }
+  .sort-link:hover { color: var(--accent); }
+
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+  .pagination a,
+  .pagination span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border-2);
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pagination a:hover { border-color: var(--accent); color: var(--accent); }
+  .pagination .current {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+  }
+  .pagination .disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .pagination .ellipsis {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+</style>
+
+{% macro sort_link(label, key) -%}
+<a class="sort-link {{ 'active' if sort == key }}" href="?{% if q_text %}q={{ q_text|urlencode }}&{% endif %}{% if tier_filter %}tier={{ tier_filter }}&{% endif %}sort={{ key }}">
+  {{ label }}{% if sort == key %} ↓{% endif %}
+</a>
+{%- endmacro %}
+
+<div class="users-header">
+  <div class="users-title">
+    <h1>Users</h1>
+    <p class="meta">{{ total }} match{{ 'es' if total != 1 else '' }} · page {{ page }} of {{ total_pages }}</p>
+  </div>
+  <div class="users-stats">
+    <div class="users-stat">
+      <span class="users-stat-label">Total</span>
+      <span class="users-stat-value">{{ totals.all }}</span>
+    </div>
+    <div class="users-stat">
+      <span class="users-stat-label">Pro</span>
+      <span class="users-stat-value">{{ totals.pro }}</span>
+    </div>
+    <div class="users-stat">
+      <span class="users-stat-label">Admins</span>
+      <span class="users-stat-value">{{ totals.admins }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="users-toolbar">
+  <form method="get" action="{{ url_for('admin_users') }}">
+    <input type="search" name="q" value="{{ q_text or '' }}" placeholder="Search email or name…" autocomplete="off">
+    <select name="tier">
+      <option value="" {% if not tier_filter %}selected{% endif %}>All tiers</option>
+      <option value="free" {% if tier_filter == 'free' %}selected{% endif %}>Free</option>
+      <option value="pro" {% if tier_filter == 'pro' %}selected{% endif %}>Pro</option>
+    </select>
+    <select name="sort">
+      <option value="last_login" {% if sort == 'last_login' %}selected{% endif %}>Last login (new → old)</option>
+      <option value="created_at" {% if sort == 'created_at' %}selected{% endif %}>Signup date (new → old)</option>
+      <option value="email" {% if sort == 'email' %}selected{% endif %}>Email (A → Z)</option>
+      <option value="display_name" {% if sort == 'display_name' %}selected{% endif %}>Name (A → Z)</option>
+    </select>
+    <button type="submit">Apply</button>
+    {% if q_text or tier_filter or sort != 'last_login' %}
+    <a href="{{ url_for('admin_users') }}" style="font-size:12px;color:var(--muted);text-decoration:none;">Reset</a>
+    {% endif %}
+  </form>
+  <span class="total-count">Showing {{ users|length }} of {{ total }}</span>
+</div>
+
+{% if users %}
+<div class="users-table-wrap">
+  <table class="users-table">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Tier</th>
+        <th>Auth</th>
+        <th>Role</th>
+        <th>Signup</th>
+        <th>Last login</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>
+          <div class="user-cell">
+            {% if u.avatar_url %}
+            <img class="user-avatar" src="{{ u.avatar_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+            {% else %}
+            <div class="user-avatar-fallback">{{ (u.display_name or u.email or '?')[0]|upper }}</div>
+            {% endif %}
+            <div>
+              <div class="user-name">{{ u.display_name or '(no name)' }}</div>
+              <div class="user-email"><a href="mailto:{{ u.email }}">{{ u.email }}</a></div>
+            </div>
+          </div>
+        </td>
+        <td>
+          {% if u.subscription_tier == 'pro' %}
+          <span class="badge-pill pro">Pro</span>
+          {% if u.subscription_status and u.subscription_status not in ('active', 'trialing') %}
+          <div class="cell-date" style="margin-top:4px;">{{ u.subscription_status }}</div>
+          {% endif %}
+          {% if u.subscription_expires_at %}
+          <div class="cell-date" style="margin-top:4px;">exp {{ u.subscription_expires_at.strftime('%Y-%m-%d') }}</div>
+          {% endif %}
+          {% else %}
+          <span class="badge-pill">Free</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.google_linked %}
+          <span class="badge-pill google">Google</span>
+          {% else %}
+          <span class="badge-pill">Magic link</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.is_admin %}
+          <span class="badge-pill admin">Admin</span>
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td class="cell-date">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+        <td class="cell-date">{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if total_pages > 1 %}
+{% set qs_base = [] %}
+{% if q_text %}{% set _ = qs_base.append('q=' ~ (q_text|urlencode)) %}{% endif %}
+{% if tier_filter %}{% set _ = qs_base.append('tier=' ~ tier_filter) %}{% endif %}
+{% if sort and sort != 'last_login' %}{% set _ = qs_base.append('sort=' ~ sort) %}{% endif %}
+{% set qs_prefix = ('&' ~ qs_base|join('&')) if qs_base else '' %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{{ qs_prefix }}">← Prev</a>
+  {% else %}
+  <span class="disabled">← Prev</span>
+  {% endif %}
+
+  {% for p in range(1, total_pages + 1) %}
+  {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+  {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% else %}
+  <a href="?page={{ p }}{{ qs_prefix }}">{{ p }}</a>
+  {% endif %}
+  {% elif p == page - 3 or p == page + 3 %}
+  <span class="ellipsis">…</span>
+  {% endif %}
+  {% endfor %}
+
+  {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}{{ qs_prefix }}">Next →</a>
+  {% else %}
+  <span class="disabled">Next →</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">No users match the current filter.</div>
+{% endif %}
+
+{% endblock %}
