@@ -49,13 +49,22 @@ def _build_game_list_entry(game, live_snapshot: dict | None = None):
     status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
     road_score = live_snapshot.get("road_score") if live_snapshot else game.road_team_score
     home_score = live_snapshot.get("home_score") if live_snapshot else game.home_team_score
+    # Live scoreboard CDN reflects play-in / playoff matchups before
+    # ScheduleLeagueV2 propagates them, so prefer live IDs when DB is NULL.
+    home_team_id = game.home_team_id
+    road_team_id = game.road_team_id
+    if live_snapshot:
+        if not home_team_id and live_snapshot.get("home_team_id"):
+            home_team_id = live_snapshot["home_team_id"]
+        if not road_team_id and live_snapshot.get("road_team_id"):
+            road_team_id = live_snapshot["road_team_id"]
     return SimpleNamespace(
         game=game,
         game_id=game.game_id,
         game_date=game.game_date,
         season=game.season,
-        road_team_id=game.road_team_id,
-        home_team_id=game.home_team_id,
+        road_team_id=road_team_id,
+        home_team_id=home_team_id,
         road_score=road_score,
         home_score=home_score,
         road_won=status == GAME_STATUS_COMPLETED and game.wining_team_id == game.road_team_id,

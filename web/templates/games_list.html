@@ -341,7 +341,7 @@
           onerror="this.style.display='none'">
         {% endif %}
         <span class="game-team-main">
-          {{ road.abbr if road else (entry.road_team_id or '-') }}
+          {{ road.abbr if road else (entry.road_team_id or 'TBD') }}
           <span class="game-team-note">{{ t('Away', '客场') }}</span>
         </span>
       </span>
@@ -356,7 +356,7 @@
       </span>
       <span class="game-team right {{ 'winner' if entry.home_won else ('loser' if entry.road_won else '') }}">
         <span class="game-team-main">
-          {{ home.abbr if home else (entry.home_team_id or '-') }}
+          {{ home.abbr if home else (entry.home_team_id or 'TBD') }}
           <span class="game-team-note">{{ t('Home', '主场') }}</span>
         </span>
         {% if home and home.team_id %}
