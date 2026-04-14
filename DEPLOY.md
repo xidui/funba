@@ -1,6 +1,10 @@
 # Funba Deployment Runbook
 
-## Git Workflow (Required)
+## Git Workflow
+
+Two flows exist. Pick the one that matches who is doing the work.
+
+### Paperclip-managed tickets (human reviewers)
 
 Use the company delivery workflow:
 
@@ -10,7 +14,18 @@ Use the company delivery workflow:
 - After review approval, squash-merge the ticket PR into `origin/main` (no cherry-pick).
 - DevOps deploys only the latest `origin/main`, never a feature branch.
 
-The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed, but feature branches stay on the PR until mainline integration.
+### Agent-driven work (Claude Code, Codex, etc.)
+
+When the owner is driving an AI agent interactively — no human PR reviewers involved — the PR ceremony is pure overhead. Skip it:
+
+- Commit directly to `main` (`git commit` + `git push origin main`).
+- Immediately run the deploy steps below (update `.paperclip/deploy-main` worktree, run alembic if schema changed, restart the affected launchd services).
+- Real-time review happens in the agent conversation, not on GitHub.
+- Fall back to the feature-branch + PR flow only when the owner explicitly asks for one, the change is large enough that they want a GitHub diff view before merging, or an external reviewer (e.g. Codex review of a Claude Code PR) benefits from a reviewable URL.
+
+Agents must still: run migrations/tests before restarting services, flag destructive actions before executing them, and never force-push `main`. The rule relaxation is about process overhead, not about safety.
+
+The remote is `https://github.com/xidui/funba.git` (private repo). Every completed code change must be pushed — for ticket flow, branches stay on the PR until mainline integration; for agent flow, they land on `main` immediately.
 
 **History note:** Commit `9920d56` introduced a 2.98 GB SQL dump (`funba_nba_data_20260225_174416.sql`) that was subsequently removed in `d5e3dc0`. When the push backlog was first cleared (2026-03-15), `git filter-repo` was used to excise the blob from history before force-pushing. Future large data files (> 50 MB) must be gitignored and never committed.
 
