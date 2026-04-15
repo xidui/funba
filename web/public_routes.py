@@ -585,7 +585,11 @@ def register_public_routes(
 
         # ── Build "ghost pins" for former franchise cities ────────────────
         from collections import defaultdict
-        from web.historical_team_locations import FRANCHISE_HISTORY, get_logo_for_year
+        from web.historical_team_locations import (
+            FRANCHISE_HISTORY,
+            get_logo_for_year,
+            get_nearest_logo,
+        )
 
         team_slug_by_id = {t.team_id: t.slug for t in teams}
         current_city_by_team = {
@@ -622,6 +626,7 @@ def register_public_routes(
                 get_logo_for_year(team_id, mid)
                 or get_logo_for_year(team_id, year_end)
                 or get_logo_for_year(team_id, year_start)
+                or get_nearest_logo(team_id, mid)
             )
             logo_url = None
             if logo is not None:

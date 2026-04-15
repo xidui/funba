@@ -1921,6 +1921,27 @@ def get_logo_for_year(team_id: str, year: int) -> Optional[dict]:
     return candidates[0]
 
 
+def get_nearest_logo(team_id: str, year: int) -> Optional[dict]:
+    """Return the logo entry closest in year for `team_id`, regardless of overlap.
+
+    Falls back to this when no logo strictly covers `year`. Distance is the
+    minimum year gap to the entry's range; the entry with the smallest gap
+    wins (ties broken by preferring an earlier-starting entry).
+    """
+    entries = _logos_by_team().get(team_id, [])
+    if not entries:
+        return None
+
+    def gap(e):
+        if year < e["year_start"]:
+            return (e["year_start"] - year, 0)
+        if year > e["year_end"]:
+            return (year - e["year_end"], 1)
+        return (0, 0)
+
+    return min(entries, key=gap)
+
+
 def get_logo_url_for_year(team_id: str, year: int, *, static_prefix: str = "/") -> str:
     """Return a URL for the historical logo at `(team_id, year)`.
 
