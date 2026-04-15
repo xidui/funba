@@ -1854,3 +1854,82 @@ FRANCHISE_LOGOS = [
         "path":       "static/team_logos/historical/1610612766/2012_2013.png",
     },
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Query helpers
+# ─────────────────────────────────────────────────────────────────────────
+
+from functools import lru_cache
+from typing import Optional
+
+_CURRENT_LOGO_CDN = "https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
+
+
+@lru_cache(maxsize=1)
+def _history_by_team() -> dict:
+    out: dict[str, list] = {}
+    for era in FRANCHISE_HISTORY:
+        out.setdefault(era["team_id"], []).append(era)
+    for eras in out.values():
+        eras.sort(key=lambda e: e["year_start"])
+    return out
+
+
+@lru_cache(maxsize=1)
+def _logos_by_team() -> dict:
+    out: dict[str, list] = {}
+    for entry in FRANCHISE_LOGOS:
+        out.setdefault(entry["team_id"], []).append(entry)
+    for entries in out.values():
+        # Order by year_start ascending; when multiple entries cover the same
+        # year (overlapping ranges), the later year_start wins for a given
+        # query, so sort newest-first as secondary key.
+        entries.sort(key=lambda e: (e["year_start"], -e["year_end"]))
+    return out
+
+
+def get_era_for_year(team_id: str, year: int) -> Optional[dict]:
+    """Return the FRANCHISE_HISTORY entry covering `year` for `team_id`, or None.
+
+    `year` uses the same season-start convention as the data file (2024 = 2024-25).
+    """
+    for era in _history_by_team().get(team_id, []):
+        if era["year_start"] > year:
+            break
+        if era["year_end"] is None or era["year_end"] >= year:
+            return era
+    return None
+
+
+def get_logo_for_year(team_id: str, year: int) -> Optional[dict]:
+    """Return the best FRANCHISE_LOGOS entry covering `year` for `team_id`, or None.
+
+    When multiple entries cover the same year (alternate / primary variants),
+    the one with the latest `year_start` wins — this favors the most
+    specific / most recent alternate.
+    """
+    candidates = [
+        e for e in _logos_by_team().get(team_id, [])
+        if e["year_start"] <= year <= e["year_end"]
+    ]
+    if not candidates:
+        return None
+    # Pick the latest year_start (most specific to `year`), breaking ties by
+    # shortest span (most specific).
+    candidates.sort(key=lambda e: (-e["year_start"], e["year_end"] - e["year_start"]))
+    return candidates[0]
+
+
+def get_logo_url_for_year(team_id: str, year: int, *, static_prefix: str = "/") -> str:
+    """Return a URL for the historical logo at `(team_id, year)`.
+
+    If no historical logo is on file for that year, falls back to the current
+    NBA CDN asset. `static_prefix` is prepended to local static paths (use
+    Flask's `url_for('static', filename=...)` output or "/" if serving under
+    the default /static mount).
+    """
+    logo = get_logo_for_year(team_id, year)
+    if logo is not None:
+        return static_prefix.rstrip("/") + "/" + logo["path"]
+    return _CURRENT_LOGO_CDN.format(team_id=team_id)
