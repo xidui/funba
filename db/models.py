@@ -808,6 +808,51 @@ class NewsArticleTeam(Base):
     )
 
 
+class TeamRosterStint(Base):
+    """One row = one continuous stint of a player on a team."""
+    __tablename__ = 'TeamRosterStint'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id'), nullable=False)
+    player_id = Column(String(50), ForeignKey('Player.player_id'), nullable=False)
+    joined_at = Column(DATE, nullable=False)
+    left_at = Column(DATE, nullable=True)
+    jersey = Column(String(10), nullable=True)
+    position = Column(String(30), nullable=True)
+    how_acquired = Column(String(255), nullable=True)
+    source = Column(String(32), nullable=False, default='game_derived')
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_team_roster_stint_team_open', 'team_id', 'left_at'),
+        Index('ix_team_roster_stint_player', 'player_id', 'joined_at'),
+        Index('ix_team_roster_stint_joined', 'joined_at'),
+    )
+
+
+class TeamCoachStint(Base):
+    """One row = one continuous stint of a coach/trainer on a team."""
+    __tablename__ = 'TeamCoachStint'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    team_id = Column(String(50), ForeignKey('Team.team_id'), nullable=False)
+    coach_id = Column(String(50), nullable=False)
+    coach_name = Column(String(255), nullable=False)
+    coach_type = Column(String(64), nullable=True)
+    is_assistant = Column(Boolean, nullable=False, default=False)
+    joined_at = Column(DATE, nullable=False)
+    left_at = Column(DATE, nullable=True)
+    source = Column(String(32), nullable=False, default='roster_snapshot')
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_team_coach_stint_team_open', 'team_id', 'left_at'),
+        Index('ix_team_coach_stint_coach', 'coach_id', 'joined_at'),
+    )
+
+
 def init_db() -> None:
     """Create tables for local bootstrap/dev if they do not exist."""
     Base.metadata.create_all(engine)

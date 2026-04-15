@@ -762,6 +762,204 @@ def refresh_current_team_logos(self) -> dict:
 
 @shared_task(
     bind=True,
+    name="tasks.ingest.sync_current_team_rosters",
+    max_retries=1,
+    queue="ingest",
+)
+def sync_current_team_rosters(self) -> dict:
+    """Daily-run: diff current-season commonteamroster snapshot against
+    open TeamRosterStint / TeamCoachStint rows. Insert new stints for
+    players/coaches who just appeared; close stints (left_at = yesterday)
+    for those who disappeared.
+
+    Only syncs the 30 current-start-year rows. Historical backfill is a
+    separate one-shot via `python -m db.backfill_team_roster`.
+    """
+    import os
+    import sys
+    import time as _time
+    from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from nba_api.stats.endpoints import commonteamroster
+    from sqlalchemy import text
+
+    today = _date.today()
+    yesterday = today - _timedelta(days=1)
+    start_year = today.year if today.month >= 7 else today.year - 1
+    season_str = f"{start_year}-{str((start_year + 1) % 100).zfill(2)}"
+
+    SessionLocal = _session_factory()
+    inserted_roster = 0
+    closed_roster = 0
+    inserted_coach = 0
+    closed_coach = 0
+    api_failures = 0
+
+    with SessionLocal() as session:
+        team_ids = [
+            row[0] for row in session.execute(
+                text("SELECT team_id FROM Team WHERE COALESCE(active, 1) = 1")
+            ).fetchall()
+        ]
+
+        for team_id in team_ids:
+            try:
+                tid_int = int(team_id)
+            except (TypeError, ValueError):
+                continue
+            try:
+                r = commonteamroster.CommonTeamRoster(
+                    team_id=tid_int, season=season_str, timeout=20
+                )
+                dfs = r.get_data_frames()
+                players_df = dfs[0] if len(dfs) > 0 else None
+                coaches_df = dfs[1] if len(dfs) > 1 else None
+            except Exception as exc:
+                api_failures += 1
+                logger.warning("sync_current_team_rosters: %s %s failed: %s",
+                               team_id, season_str, exc)
+                _time.sleep(0.6)
+                continue
+
+            # ── Players ──────────────────────────────────────────────
+            api_player_ids: set[str] = set()
+            api_player_meta: dict[str, dict] = {}
+            if players_df is not None and len(players_df) > 0:
+                for _, row in players_df.iterrows():
+                    pid = str(row.get("PLAYER_ID") or "")
+                    if not pid:
+                        continue
+                    api_player_ids.add(pid)
+                    api_player_meta[pid] = {
+                        "jersey": str(row.get("NUM") or "")[:10] or None,
+                        "position": str(row.get("POSITION") or "")[:30] or None,
+                        "how_acquired": str(row.get("HOW_ACQUIRED") or "")[:255] or None,
+                    }
+
+            open_rows = session.execute(
+                text("""
+                    SELECT id, player_id FROM TeamRosterStint
+                    WHERE team_id = :tid AND left_at IS NULL
+                """),
+                {"tid": team_id},
+            ).fetchall()
+            open_player_ids = {r.player_id: r.id for r in open_rows}
+
+            # Close stints for players who disappeared
+            for pid, stint_id in open_player_ids.items():
+                if pid not in api_player_ids:
+                    session.execute(
+                        text("""
+                            UPDATE TeamRosterStint
+                            SET left_at = :y, updated_at = :now
+                            WHERE id = :id
+                        """),
+                        {"y": yesterday, "now": _datetime.utcnow(), "id": stint_id},
+                    )
+                    closed_roster += 1
+
+            # Open stints for new arrivals
+            now = _datetime.utcnow()
+            for pid in api_player_ids:
+                if pid in open_player_ids:
+                    continue
+                meta = api_player_meta[pid]
+                session.execute(
+                    text("""
+                        INSERT INTO TeamRosterStint
+                          (team_id, player_id, joined_at, left_at, jersey, position,
+                           how_acquired, source, created_at, updated_at)
+                        VALUES
+                          (:tid, :pid, :today, NULL, :jersey, :position,
+                           :how_acq, 'daily_sync', :now, :now)
+                    """),
+                    {
+                        "tid": team_id, "pid": pid, "today": today,
+                        "jersey": meta["jersey"], "position": meta["position"],
+                        "how_acq": meta["how_acquired"], "now": now,
+                    },
+                )
+                inserted_roster += 1
+
+            # ── Coaches ──────────────────────────────────────────────
+            api_coach_ids: set[str] = set()
+            api_coach_meta: dict[str, dict] = {}
+            if coaches_df is not None and len(coaches_df) > 0:
+                for _, row in coaches_df.iterrows():
+                    cid = str(row.get("COACH_ID") or "")
+                    if not cid:
+                        continue
+                    api_coach_ids.add(cid)
+                    api_coach_meta[cid] = {
+                        "coach_name": str(row.get("COACH_NAME") or "")[:255],
+                        "coach_type": str(row.get("COACH_TYPE") or "")[:64] or None,
+                        "is_assistant": bool(row.get("IS_ASSISTANT")),
+                    }
+
+            open_coach_rows = session.execute(
+                text("""
+                    SELECT id, coach_id FROM TeamCoachStint
+                    WHERE team_id = :tid AND left_at IS NULL
+                """),
+                {"tid": team_id},
+            ).fetchall()
+            open_coach_ids = {r.coach_id: r.id for r in open_coach_rows}
+
+            for cid, stint_id in open_coach_ids.items():
+                if cid not in api_coach_ids:
+                    session.execute(
+                        text("""
+                            UPDATE TeamCoachStint
+                            SET left_at = :y, updated_at = :now
+                            WHERE id = :id
+                        """),
+                        {"y": yesterday, "now": now, "id": stint_id},
+                    )
+                    closed_coach += 1
+
+            for cid in api_coach_ids:
+                if cid in open_coach_ids:
+                    continue
+                meta = api_coach_meta[cid]
+                session.execute(
+                    text("""
+                        INSERT INTO TeamCoachStint
+                          (team_id, coach_id, coach_name, coach_type, is_assistant,
+                           joined_at, left_at, source, created_at, updated_at)
+                        VALUES
+                          (:tid, :cid, :name, :ctype, :asst,
+                           :today, NULL, 'daily_sync', :now, :now)
+                    """),
+                    {
+                        "tid": team_id, "cid": cid,
+                        "name": meta["coach_name"], "ctype": meta["coach_type"],
+                        "asst": meta["is_assistant"],
+                        "today": today, "now": now,
+                    },
+                )
+                inserted_coach += 1
+
+            session.commit()
+            _time.sleep(0.6)
+
+    result = {
+        "season": season_str,
+        "inserted_roster": inserted_roster,
+        "closed_roster": closed_roster,
+        "inserted_coach": inserted_coach,
+        "closed_coach": closed_coach,
+        "api_failures": api_failures,
+    }
+    logger.info("sync_current_team_rosters: %s", result)
+    return result
+
+
+@shared_task(
+    bind=True,
     name="tasks.ingest.enqueue_metric_backfill",
     max_retries=1,
     queue="ingest",

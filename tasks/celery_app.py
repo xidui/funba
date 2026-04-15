@@ -53,6 +53,7 @@ app.conf.update(
         "tasks.ingest.scrape_nba_news": {"queue": "news"},
         "tasks.ingest.refresh_news_scores": {"queue": "news"},
         "tasks.ingest.refresh_current_team_logos": {"queue": "ingest"},
+        "tasks.ingest.sync_current_team_rosters": {"queue": "ingest"},
     },
 
     # --- Serialization ---
@@ -96,6 +97,10 @@ app.conf.update(
         "refresh-current-team-logos": {
             "task": "tasks.ingest.refresh_current_team_logos",
             "schedule": 60 * 60 * 24 * 30,  # ~monthly
+        },
+        "sync-current-team-rosters": {
+            "task": "tasks.ingest.sync_current_team_rosters",
+            "schedule": 60 * 60 * 24,  # daily
         },
     },
 
