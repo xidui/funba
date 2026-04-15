@@ -445,13 +445,26 @@ def register_detail_routes(
                     .order_by(Game.game_date.desc(), Game.game_id.desc())
                     .all()
                 )
+                from web.historical_team_locations import get_era_abbr_for_year as _era_abbr
                 for stat, game in rows:
+                    # Season start year first, so the row's matchup/abbrs can
+                    # use era-appropriate codes (SEA in 2007, not OKC).
+                    _season_str = str(game.season or "")
+                    _season_year = int(_season_str[1:]) if len(_season_str) == 5 and _season_str.isdigit() else None
+
+                    def _abbr(tid):
+                        if _season_year is not None:
+                            historic = _era_abbr(tid, _season_year)
+                            if historic:
+                                return historic
+                        return get_team_abbr()(teams, tid)
+
                     if stat.team_id == game.home_team_id:
                         opponent_id = game.road_team_id
-                        matchup = f"{get_team_abbr()(teams, stat.team_id)} vs {get_team_abbr()(teams, opponent_id)}"
+                        matchup = f"{_abbr(stat.team_id)} vs {_abbr(opponent_id)}"
                     else:
                         opponent_id = game.home_team_id
-                        matchup = f"{get_team_abbr()(teams, stat.team_id)} @ {get_team_abbr()(teams, opponent_id)}"
+                        matchup = f"{_abbr(stat.team_id)} @ {_abbr(opponent_id)}"
 
                     if game.wining_team_id:
                         result = "W" if game.wining_team_id == stat.team_id else "L"
@@ -462,9 +475,6 @@ def register_detail_routes(
                     player_team_score = game.home_team_score if is_home else game.road_team_score
                     opponent_score = game.road_team_score if is_home else game.home_team_score
 
-                    # Season start year for era-appropriate logo lookup.
-                    _season_str = str(game.season or "")
-                    _season_year = int(_season_str[1:]) if len(_season_str) == 5 and _season_str.isdigit() else None
                     game_rows.append(
                         {
                             "game_id": game.game_id,
@@ -477,10 +487,10 @@ def register_detail_routes(
                             "reb": stat.reb if stat.reb is not None else "-",
                             "ast": stat.ast if stat.ast is not None else "-",
                             "player_team_id": stat.team_id,
-                            "player_team_abbr": get_team_abbr()(teams, stat.team_id),
+                            "player_team_abbr": _abbr(stat.team_id),
                             "player_team_href": get_localized_url_for()("team_page", slug=teams[stat.team_id].slug) if stat.team_id and stat.team_id in teams and teams[stat.team_id].slug else None,
                             "opponent_id": opponent_id,
-                            "opponent_abbr": get_team_abbr()(teams, opponent_id),
+                            "opponent_abbr": _abbr(opponent_id),
                             "opponent_href": get_localized_url_for()("team_page", slug=teams[opponent_id].slug) if opponent_id and opponent_id in teams and teams[opponent_id].slug else None,
                             "is_home": is_home,
                             "player_team_score": player_team_score,
@@ -772,6 +782,30 @@ def register_detail_routes(
             game_status = get_game_status(game)
             live_summary = (live_payload or {}).get("summary") or fetch_live_scoreboard_map().get(game_id)
 
+            # Derive the season start year from the Game row so we can render
+            # era-appropriate team names and abbreviations (Seattle SuperSonics
+            # in 2007, not Oklahoma City Thunder, etc.).
+            from web.historical_team_locations import (
+                get_era_name_for_year,
+                get_era_abbr_for_year,
+            )
+            _season_str = str(game.season or "")
+            _game_season_year = int(_season_str[1:]) if len(_season_str) == 5 and _season_str.isdigit() else None
+
+            def _era_team_name(team_id):
+                if _game_season_year is not None:
+                    era_name = get_era_name_for_year(team_id, _game_season_year)
+                    if era_name:
+                        return era_name
+                return get_team_name()(teams, team_id)
+
+            def _era_team_abbr(team_id):
+                if _game_season_year is not None:
+                    era_abbr = get_era_abbr_for_year(team_id, _game_season_year)
+                    if era_abbr:
+                        return era_abbr
+                return get_team_abbr()(teams, team_id)
+
             def _render_scoreboard_only_game(*, refresh_interval_ms, game_analysis_issues):
                 return get_render_template()(
                     "game.html",
@@ -779,8 +813,8 @@ def register_detail_routes(
                     game_status=game_status,
                     live_summary=live_summary,
                     live_refresh_interval_ms=refresh_interval_ms,
-                    team_name=lambda team_id: get_team_name()(teams, team_id),
-                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    team_name=_era_team_name,
+                    team_abbr=_era_team_abbr,
                     fmt_date=get_fmt_date(),
                     team_stats=[],
                     players_by_team={},
@@ -796,8 +830,8 @@ def register_detail_routes(
                     shot_backfill_status=request.args.get("shot_backfill"),
                     shot_backfill_count=request.args.get("shot_count"),
                     score_progression_json="[]",
-                    road_abbr=get_team_abbr()(teams, game.road_team_id),
-                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    road_abbr=_era_team_abbr(game.road_team_id),
+                    home_abbr=_era_team_abbr(game.home_team_id),
                     quarter_scores=[],
                     home_team_id=game.home_team_id,
                     game_analysis_issues=game_analysis_issues,
@@ -826,8 +860,8 @@ def register_detail_routes(
                     game_status=game_status,
                     live_summary=summary,
                     live_refresh_interval_ms=refresh_interval_ms,
-                    team_name=lambda team_id: get_team_name()(teams, team_id),
-                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    team_name=_era_team_name,
+                    team_abbr=_era_team_abbr,
                     fmt_date=get_fmt_date(),
                     team_stats=payload["team_stats"],
                     players_by_team=payload["players_by_team"],
@@ -843,8 +877,8 @@ def register_detail_routes(
                     shot_backfill_status=request.args.get("shot_backfill"),
                     shot_backfill_count=request.args.get("shot_count"),
                     score_progression_json="[]",
-                    road_abbr=get_team_abbr()(teams, game.road_team_id),
-                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    road_abbr=_era_team_abbr(game.road_team_id),
+                    home_abbr=_era_team_abbr(game.home_team_id),
                     quarter_scores=payload["quarter_scores"],
                     home_team_id=game.home_team_id,
                     game_analysis_issues=_game_analysis_issues(),
@@ -884,8 +918,8 @@ def register_detail_routes(
                     game_status=game_status,
                     live_summary=live_summary,
                     live_refresh_interval_ms=60000,
-                    team_name=lambda team_id: get_team_name()(teams, team_id),
-                    team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+                    team_name=_era_team_name,
+                    team_abbr=_era_team_abbr,
                     fmt_date=get_fmt_date(),
                     team_stats=[],
                     players_by_team={},
@@ -901,8 +935,8 @@ def register_detail_routes(
                     shot_backfill_status=request.args.get("shot_backfill"),
                     shot_backfill_count=request.args.get("shot_count"),
                     score_progression_json="[]",
-                    road_abbr=get_team_abbr()(teams, game.road_team_id),
-                    home_abbr=get_team_abbr()(teams, game.home_team_id),
+                    road_abbr=_era_team_abbr(game.road_team_id),
+                    home_abbr=_era_team_abbr(game.home_team_id),
                     quarter_scores=[],
                     home_team_id=game.home_team_id,
                     game_analysis_issues=[],
@@ -1108,7 +1142,7 @@ def register_detail_routes(
                     "period_label": period_label,
                     "clock": get_fmt_minutes()(row.min, row.sec),
                     "team_id": row.team_id,
-                    "team_name": get_team_name()(teams, row.team_id),
+                    "team_name": _era_team_name(row.team_id),
                     "player_id": row.player_id,
                     "player_name": shot_player_map.get(str(row.player_id), str(row.player_id or "-")),
                     "shot_type": row.shot_type or "-",
@@ -1130,8 +1164,8 @@ def register_detail_routes(
             import json as _json
 
             score_progression_json = _json.dumps(score_progression)
-            road_abbr = get_team_abbr()(teams, game.road_team_id)
-            home_abbr = get_team_abbr()(teams, game.home_team_id)
+            road_abbr = _era_team_abbr(game.road_team_id)
+            home_abbr = _era_team_abbr(game.home_team_id)
             home_team_id = game.home_team_id
             game_analysis_issues = _game_analysis_issues()
             game_leaders = (
@@ -1151,8 +1185,8 @@ def register_detail_routes(
             game_status=game_status,
             live_summary=live_summary,
             live_refresh_interval_ms=None,
-            team_name=lambda team_id: get_team_name()(teams, team_id),
-            team_abbr=lambda team_id: get_team_abbr()(teams, team_id),
+            team_name=_era_team_name,
+            team_abbr=_era_team_abbr,
             fmt_date=get_fmt_date(),
             team_stats=team_stats,
             players_by_team=players_by_team,

@@ -4858,6 +4858,44 @@ def _season_year(season) -> int | None:
     return None
 
 
+def _team_name_for_year(team_id, year=None):
+    """Jinja helper: era-appropriate full team name for a given season year.
+    Falls back to the current DB team name when no era covers that year.
+    """
+    if not team_id:
+        return "-"
+    from web.historical_team_locations import get_era_name_for_year
+    try:
+        y = int(year) if year is not None else None
+    except (TypeError, ValueError):
+        y = None
+    era_name = get_era_name_for_year(str(team_id), y)
+    if era_name:
+        return era_name
+    with SessionLocal() as session:
+        tm = _team_map(session)
+    return _team_name(tm, str(team_id))
+
+
+def _team_abbr_for_year(team_id, year=None):
+    """Jinja helper: era-appropriate abbreviation for a given season year.
+    Falls back to the current DB team abbr when no era covers that year.
+    """
+    if not team_id:
+        return "-"
+    from web.historical_team_locations import get_era_abbr_for_year
+    try:
+        y = int(year) if year is not None else None
+    except (TypeError, ValueError):
+        y = None
+    era_abbr = get_era_abbr_for_year(str(team_id), y)
+    if era_abbr:
+        return era_abbr
+    with SessionLocal() as session:
+        tm = _team_map(session)
+    return _team_abbr(tm, str(team_id))
+
+
 def _team_logo(team_id: str | None, year: int | None = None) -> str:
     """Jinja helper: URL for a team's logo at a given season year.
 
@@ -4913,6 +4951,8 @@ def inject_template_helpers():
         "game_slug_map": _ensure_game_slug_cache(),
         "team_logo": _team_logo,
         "season_year": _season_year,
+        "team_name_for_year": _team_name_for_year,
+        "team_abbr_for_year": _team_abbr_for_year,
     }
 
 
