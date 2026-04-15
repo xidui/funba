@@ -131,7 +131,7 @@ def register_metrics_write_routes(app, deps):
         denied = deps.require_metric_creator_json()()
         if denied:
             return denied
-        from metrics.framework.generator import check_similar
+        from metrics.framework.search import rank_metrics
 
         body = request.get_json(force=True) or {}
         expression = (body.get("expression") or "").strip()
@@ -151,7 +151,28 @@ def register_metrics_write_routes(app, deps):
             catalog = deps.catalog_metrics()(session, status_filter="published")
             candidate_count = len(catalog)
         try:
-            similar = check_similar(expression, catalog, model=llm_model, usage_recorder=usage_payload.update)
+            with SessionLocal() as embed_session:
+                ranked = rank_metrics(
+                    expression,
+                    catalog,
+                    limit=3,
+                    model=llm_model,
+                    usage_recorder=usage_payload.update,
+                    session=embed_session,
+                    mode="similarity",
+                )
+            by_key = {m["key"]: m for m in catalog}
+            similar = []
+            for item in ranked:
+                m = by_key.get(item["key"])
+                if m is None:
+                    continue
+                similar.append({
+                    "key": item["key"],
+                    "name": m.get("name", ""),
+                    "description": m.get("description", ""),
+                    "reason": item.get("reason") or "Similar metric.",
+                })
             success = True
             error_code = None
         except Exception as exc:

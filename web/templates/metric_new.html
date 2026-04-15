@@ -1120,7 +1120,7 @@
     el.querySelector('.msg-thinking').innerHTML = `${dots} ${escHtml(label)}`;
   }
 
-  function addSimilarMetricsMsg(similar) {
+  function addSimilarMetricsMsg(similar, originalExpr) {
     const div = document.createElement('div');
     div.className = 'msg msg-ai';
     let html = `<div class="msg-label">AI</div><div class="msg-bubble">`;
@@ -1133,11 +1133,43 @@
       html += `<div style="font-size:11px;color:var(--accent);margin-top:4px;">${escHtml(m.reason)}</div>`;
       html += `</a>`;
     }
-    html += `<div style="margin-top:10px;font-size:13px;color:var(--muted);">If your metric is different, describe what makes it unique and I'll generate it.</div>`;
+    html += `<div style="margin-top:10px;font-size:13px;color:var(--muted);">If none of these match, you can create a new metric from your original description or refine it in the chat.</div>`;
+    html += `<button type="button" class="create-anyway-btn" style="margin-top:10px;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Create anyway</button>`;
     html += `</div>`;
     div.innerHTML = html;
+    const btn = div.querySelector('.create-anyway-btn');
+    btn.addEventListener('click', () => createAnyway(originalExpr, btn));
     chatMessages.appendChild(div);
     scrollChat();
+  }
+
+  async function createAnyway(expr, btn) {
+    if (isSubmitting || limitLocked) return;
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'default';
+    btn.textContent = 'Creating…';
+    isSubmitting = true;
+    syncChatControls();
+    setChatStatus('');
+    addThinking('Generating metric code…');
+    try {
+      await runGenerate(expr, true);
+      lockConversationIfNeeded();
+    } catch (e) {
+      removeThinking();
+      const errDiv = document.createElement('div');
+      errDiv.className = 'msg msg-ai';
+      errDiv.innerHTML = `<div class="msg-label">AI</div><div class="msg-bubble" style="color:var(--loss);">Network error: ${escHtml(e.message)}</div>`;
+      chatMessages.appendChild(errDiv);
+      setChatStatus(`Network error: ${e.message}`);
+      scrollChat();
+      lockConversationIfNeeded();
+    } finally {
+      isSubmitting = false;
+      syncChatControls();
+      if (!limitLocked) chatInput.focus();
+    }
   }
 
   function removeThinking() {
@@ -1289,7 +1321,7 @@
 
         if (checkData.ok && checkData.similar && checkData.similar.length > 0) {
           removeThinking();
-          addSimilarMetricsMsg(checkData.similar);
+          addSimilarMetricsMsg(checkData.similar, expr);
           startOverBtn.style.display = 'inline-flex';
           // Seed chat history so the next message is a followup
           const similarSummary = checkData.similar.map(s => `${s.name}: ${s.reason}`).join('; ');

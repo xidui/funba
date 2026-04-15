@@ -230,15 +230,26 @@ def rank_metrics(
     usage_recorder: Callable[[dict], None] | None = None,
     *,
     session=None,
+    mode: str = "search",
 ) -> list[dict]:
     """Return ranked metric keys + reasons using an LLM.
 
     `session` is optional only because some legacy tests don't pass one;
     embedding prerank is skipped when it's missing, falling back to sending
     the full candidate list to the LLM.
+
+    `mode`:
+    - "search": broad relevance ranking for the search page. Raises
+      ValueError if the LLM returns nothing parseable.
+    - "similarity": strict duplicate-check for the create-metric flow.
+      Empty list is a valid result (nothing is similar).
     """
     if not query.strip():
         return []
+    if not candidates:
+        return []
+    if mode not in ("search", "similarity"):
+        raise ValueError(f"Unknown rank_metrics mode: {mode}")
 
     selected_model = model or env_default_llm_model()
     if not selected_model:
@@ -255,20 +266,36 @@ def rank_metrics(
         for candidate in candidates
     ]
 
-    prompt = (
-        "You rank existing NBA metrics by relevance to a user's natural-language query.\n"
-        f"User query: {query}\n\n"
-        "Return JSON only as an array of objects: "
-        '[{"key":"metric_key","reason":"short reason"}, ...]\n'
-        f"Return at most {limit} results.\n"
-        "Each metric key must appear AT MOST ONCE in the output. Never repeat a key "
-        "even with a different reason.\n"
-        "Prefer semantic relevance over keyword overlap.\n"
-        "A strong match may come from the metric description, expression, rule definition, "
-        "implementation details, min sample, career support, or ranking direction.\n\n"
-        "Metric candidates with detailed dossiers:\n"
-        f"{json.dumps(candidate_docs, ensure_ascii=False)}"
-    )
+    if mode == "search":
+        prompt = (
+            "You rank existing NBA metrics by relevance to a user's natural-language query.\n"
+            f"User query: {query}\n\n"
+            "Return JSON only as an array of objects: "
+            '[{"key":"metric_key","reason":"short reason"}, ...]\n'
+            f"Return at most {limit} results.\n"
+            "Each metric key must appear AT MOST ONCE in the output. Never repeat a key "
+            "even with a different reason.\n"
+            "Prefer semantic relevance over keyword overlap.\n"
+            "A strong match may come from the metric description, expression, rule definition, "
+            "implementation details, min sample, career support, or ranking direction.\n\n"
+            "Metric candidates with detailed dossiers:\n"
+            f"{json.dumps(candidate_docs, ensure_ascii=False)}"
+        )
+    else:  # similarity
+        prompt = (
+            "You check whether any existing NBA metric already measures the same thing "
+            "as what the user wants to create.\n"
+            f"User's new metric description: {query}\n\n"
+            "Return JSON only as an array of objects: "
+            '[{"key":"metric_key","reason":"why it is a duplicate or near-duplicate"}, ...]\n'
+            f"Return at most {limit} results.\n"
+            "Be STRICT — only include metrics that genuinely measure the same or nearly "
+            "the same thing. Minor keyword overlap is not enough; the intent must match.\n"
+            "If nothing is similar, return an empty array: []\n"
+            "Each metric key must appear AT MOST ONCE in the output.\n\n"
+            "Existing metric candidates with detailed dossiers:\n"
+            f"{json.dumps(candidate_docs, ensure_ascii=False)}"
+        )
 
     selected_model = ensure_model_available(selected_model)
 
@@ -328,7 +355,7 @@ def rank_metrics(
         if len(results) >= limit:
             break
 
-    if not results:
+    if not results and mode == "search":
         raise ValueError("Metric search returned no valid matches.")
 
     return results
