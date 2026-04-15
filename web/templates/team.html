@@ -204,8 +204,30 @@
     background: var(--surface);
     position: sticky;
     top: 0;
+    user-select: none;
+  }
+  .roster-table thead th[data-sort] {
+    cursor: pointer;
+  }
+  .roster-table thead th[data-sort]:hover {
+    color: var(--accent);
   }
   .roster-table thead th.num { text-align: right; }
+  .roster-table thead th .sort-arrow {
+    display: inline-block;
+    width: 0;
+    opacity: 0;
+    margin-left: 3px;
+    color: var(--accent);
+    transition: opacity 0.15s, width 0.15s;
+  }
+  .roster-table thead th.sorted .sort-arrow {
+    width: auto;
+    opacity: 1;
+  }
+  .roster-table thead th.sorted {
+    color: var(--accent);
+  }
   .roster-table tbody td {
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
@@ -495,21 +517,21 @@
     <span class="roster-count-pill">{{ roster_players|length }}</span>
   </h2>
   <div class="roster-table-wrap">
-    <table class="roster-table">
+    <table class="roster-table" id="roster-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>{{ t('Player', '球员') }}</th>
-          <th>{{ t('Pos', '位置') }}</th>
-          <th>{{ t('Ht/Wt', '身高体重') }}</th>
-          <th class="num">{{ t('GP', '出场') }}</th>
-          <th class="num">{{ t('MPG', '分钟') }}</th>
-          <th class="num">{{ t('PPG', '得分') }}</th>
-          <th class="num">{{ t('RPG', '篮板') }}</th>
-          <th class="num">{{ t('APG', '助攻') }}</th>
-          <th class="num">{{ t('FG%', '投篮') }}</th>
-          <th class="num">{{ t('3P%', '三分') }}</th>
-          <th>{{ t('Acquired', '加盟') }}</th>
+          <th data-sort="num" data-col="0">#<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="1">{{ t('Player', '球员') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="2">{{ t('Pos', '位置') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="3">{{ t('Ht/Wt', '身高体重') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="4">{{ t('GP', '出场') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="5">{{ t('MPG', '分钟') }}<span class="sort-arrow">▼</span></th>
+          <th class="num sorted" data-sort="num" data-col="6" data-default-desc="true">{{ t('PPG', '得分') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="7">{{ t('RPG', '篮板') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="8">{{ t('APG', '助攻') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="9">{{ t('FG%', '投篮') }}<span class="sort-arrow">▼</span></th>
+          <th class="num" data-sort="num" data-col="10">{{ t('3P%', '三分') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="11">{{ t('Acquired', '加盟') }}<span class="sort-arrow">▼</span></th>
         </tr>
       </thead>
       <tbody>
@@ -517,8 +539,8 @@
         {% set jersey_num = (p.jersey or '').strip() %}
         {% set href = url_for('player_page', slug=p.slug) if p.slug else '#' %}
         <tr>
-          <td class="roster-jersey-cell">{{ jersey_num or '—' }}</td>
-          <td>
+          <td class="roster-jersey-cell" data-sort-value="{{ jersey_num if jersey_num.isdigit() else '999' }}">{{ jersey_num or '—' }}</td>
+          <td data-sort-value="{{ (p.full_name_zh if lang == 'zh' and p.full_name_zh else p.full_name)|lower }}">
             <div class="roster-player-cell">
               <img class="roster-headshot"
                    src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
@@ -530,18 +552,18 @@
               </a>
             </div>
           </td>
-          <td class="roster-pos-cell">{{ p.position or '—' }}</td>
-          <td style="color:var(--muted); font-size:12px; white-space:nowrap;">
+          <td class="roster-pos-cell" data-sort-value="{{ (p.position or '')|lower }}">{{ p.position or '—' }}</td>
+          <td style="color:var(--muted); font-size:12px; white-space:nowrap;" data-sort-value="{{ p.weight or 0 }}">
             {{ p.height or '—' }}{% if p.weight %} / {{ p.weight }}{% endif %}
           </td>
-          <td class="num">{{ p.gp if p.gp is not none else '—' }}</td>
-          <td class="num">{{ "%.1f"|format(p.mpg) if p.mpg is not none else '—' }}</td>
-          <td class="num ppg">{{ "%.1f"|format(p.ppg) if p.ppg is not none else '—' }}</td>
-          <td class="num">{{ "%.1f"|format(p.rpg) if p.rpg is not none else '—' }}</td>
-          <td class="num">{{ "%.1f"|format(p.apg) if p.apg is not none else '—' }}</td>
-          <td class="num">{{ "%.1f%%"|format(p.fg_pct * 100) if p.fg_pct is not none else '—' }}</td>
-          <td class="num">{{ "%.1f%%"|format(p.fg3_pct * 100) if p.fg3_pct is not none else '—' }}</td>
-          <td class="roster-acq-cell" title="{{ p.how_acquired or '' }}">{{ p.how_acquired or '' }}</td>
+          <td class="num" data-sort-value="{{ p.gp if p.gp is not none else -1 }}">{{ p.gp if p.gp is not none else '—' }}</td>
+          <td class="num" data-sort-value="{{ p.mpg if p.mpg is not none else -1 }}">{{ "%.1f"|format(p.mpg) if p.mpg is not none else '—' }}</td>
+          <td class="num ppg" data-sort-value="{{ p.ppg if p.ppg is not none else -1 }}">{{ "%.1f"|format(p.ppg) if p.ppg is not none else '—' }}</td>
+          <td class="num" data-sort-value="{{ p.rpg if p.rpg is not none else -1 }}">{{ "%.1f"|format(p.rpg) if p.rpg is not none else '—' }}</td>
+          <td class="num" data-sort-value="{{ p.apg if p.apg is not none else -1 }}">{{ "%.1f"|format(p.apg) if p.apg is not none else '—' }}</td>
+          <td class="num" data-sort-value="{{ p.fg_pct if p.fg_pct is not none else -1 }}">{{ "%.1f%%"|format(p.fg_pct * 100) if p.fg_pct is not none else '—' }}</td>
+          <td class="num" data-sort-value="{{ p.fg3_pct if p.fg3_pct is not none else -1 }}">{{ "%.1f%%"|format(p.fg3_pct * 100) if p.fg3_pct is not none else '—' }}</td>
+          <td class="roster-acq-cell" data-sort-value="{{ (p.how_acquired or '')|lower }}" title="{{ p.how_acquired or '' }}">{{ p.how_acquired or '' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -725,4 +747,61 @@
   <p class="meta">No {{ 'regular season' if season_kind == 'regular' else 'playoff' }} records found.</p>
   {% endif %}
 </div>
+
+<script>
+  // ── Roster table column sort ──
+  (function () {
+    const table = document.getElementById('roster-table');
+    if (!table) return;
+    const tbody = table.tBodies[0];
+    const ths = table.tHead.querySelectorAll('th[data-sort]');
+
+    function sortBy(colIdx, sortType, dir) {
+      const rows = Array.from(tbody.rows);
+      rows.sort((ra, rb) => {
+        const av = ra.cells[colIdx].getAttribute('data-sort-value') ?? '';
+        const bv = rb.cells[colIdx].getAttribute('data-sort-value') ?? '';
+        let cmp;
+        if (sortType === 'num') {
+          cmp = parseFloat(av) - parseFloat(bv);
+        } else {
+          cmp = av.localeCompare(bv);
+        }
+        if (cmp === 0) return 0;
+        return dir === 'asc' ? cmp : -cmp;
+      });
+      const frag = document.createDocumentFragment();
+      rows.forEach(r => frag.appendChild(r));
+      tbody.appendChild(frag);
+    }
+
+    ths.forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col, 10);
+        const type = th.dataset.sort;
+        const currentlySorted = th.classList.contains('sorted');
+        // Determine next direction: if already sorted, flip; otherwise
+        // numeric defaults to desc (stars first), text defaults to asc.
+        let dir;
+        if (currentlySorted) {
+          dir = th.dataset.dir === 'desc' ? 'asc' : 'desc';
+        } else {
+          dir = type === 'num' ? 'desc' : 'asc';
+        }
+        // Clear other headers
+        ths.forEach(other => {
+          other.classList.remove('sorted');
+          delete other.dataset.dir;
+          const arrow = other.querySelector('.sort-arrow');
+          if (arrow) arrow.textContent = '▼';
+        });
+        th.classList.add('sorted');
+        th.dataset.dir = dir;
+        const arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = dir === 'asc' ? '▲' : '▼';
+        sortBy(col, type, dir);
+      });
+    });
+  })();
+</script>
 {% endblock %}
