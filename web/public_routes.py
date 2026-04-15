@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from flask import abort, jsonify, request
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 
 from db.game_status import (
     GAME_STATUS_COMPLETED,
@@ -1605,8 +1605,11 @@ def register_public_routes(
 
         MetricResultModel = get_metric_result_model()
         asc_keys = get_asc_metric_keys()(session)
-        filters = [
+
+        # Step 1: load this player's own metric rows (indexed on entity_type+entity_id).
+        own_filters = [
             MetricResultModel.entity_type == "player",
+            MetricResultModel.entity_id == player_id,
             MetricResultModel.value_num.isnot(None),
         ]
         season_filters = []
@@ -1619,43 +1622,79 @@ def register_public_routes(
             else:
                 season_filters.append(MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
         if season_filters:
-            filters.append(or_(*season_filters))
+            own_filters.append(or_(*season_filters))
 
-        rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-        rank_value = case(
-            (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
-            else_=MetricResultModel.value_num,
-        )
-        inner = (
+        own_rows = (
             session.query(
-                MetricResultModel.metric_key.label("metric_key"),
-                MetricResultModel.entity_id.label("entity_id"),
-                MetricResultModel.season.label("season"),
-                MetricResultModel.value_num.label("value_num"),
-                MetricResultModel.value_str.label("value_str"),
-                MetricResultModel.noteworthiness.label("noteworthiness"),
-                func.rank().over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                    order_by=rank_value.desc(),
-                ).label("rank"),
-                func.count(MetricResultModel.id).over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                ).label("total"),
+                MetricResultModel.id,
+                MetricResultModel.metric_key,
+                MetricResultModel.season,
+                MetricResultModel.rank_group,
+                MetricResultModel.value_num,
+                MetricResultModel.value_str,
+                MetricResultModel.noteworthiness,
             )
-            .filter(*filters)
-            .subquery()
-        )
-        rows = (
-            session.query(inner)
-            .filter(inner.c.entity_id == player_id)
-            .order_by(
-                func.coalesce(inner.c.noteworthiness, -1).desc(),
-                inner.c.rank.asc(),
-                inner.c.metric_key.asc(),
-            )
-            .limit(limit)
+            .filter(*own_filters)
             .all()
         )
+        if not own_rows:
+            return []
+
+        # Step 2: for each of this player's rows, compute rank/total via a
+        # self-join scoped to (metric_key, season, rank_group). This stays
+        # indexed and avoids a full-table window over every player's rows.
+        MR = MetricResultModel
+        e_alias = MR.__table__.alias("e")
+        p_alias = MR.__table__.alias("p")
+
+        if asc_keys:
+            better_expr = case(
+                (e_alias.c.metric_key.in_(asc_keys), p_alias.c.value_num < e_alias.c.value_num),
+                else_=(p_alias.c.value_num > e_alias.c.value_num),
+            )
+        else:
+            better_expr = p_alias.c.value_num > e_alias.c.value_num
+
+        join_cond = and_(
+            p_alias.c.entity_type == e_alias.c.entity_type,
+            p_alias.c.metric_key == e_alias.c.metric_key,
+            p_alias.c.season == e_alias.c.season,
+            func.coalesce(p_alias.c.rank_group, "__none__") == func.coalesce(e_alias.c.rank_group, "__none__"),
+            p_alias.c.value_num.isnot(None),
+        )
+
+        own_ids = [r.id for r in own_rows]
+        rank_q = (
+            session.query(
+                e_alias.c.id,
+                func.count(p_alias.c.id).label("total"),
+                (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+            )
+            .select_from(e_alias)
+            .join(p_alias, join_cond)
+            .filter(e_alias.c.id.in_(own_ids))
+            .group_by(e_alias.c.id)
+        )
+        rank_map = {r.id: (int(r.rank), int(r.total)) for r in rank_q.all()}
+
+        ranked = []
+        for r in own_rows:
+            rank, total = rank_map.get(r.id, (1, 1))
+            ranked.append(SimpleNamespace(
+                metric_key=r.metric_key,
+                season=r.season,
+                value_num=r.value_num,
+                value_str=r.value_str,
+                noteworthiness=r.noteworthiness,
+                rank=rank,
+                total=total,
+            ))
+        ranked.sort(key=lambda x: (
+            -(float(x.noteworthiness) if x.noteworthiness is not None else -1.0),
+            x.rank,
+            x.metric_key,
+        ))
+        rows = ranked[:limit]
 
         rankings = []
         for row in rows:
