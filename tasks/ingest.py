@@ -576,6 +576,192 @@ def _patch_today_meta_from_live() -> int:
 
 @shared_task(
     bind=True,
+    name="tasks.ingest.refresh_current_team_logos",
+    max_retries=1,
+    queue="ingest",
+)
+def refresh_current_team_logos(self) -> dict:
+    """Monthly-run: re-fetch every team's current logo from NBA CDN, detect
+    rebrands by comparing bytes against the locally cached current.svg, and
+    on change preserve the old logo as a historical FRANCHISE_LOGOS entry.
+
+    Idempotent and safe to run repeatedly: if CDN bytes match local bytes,
+    no files or JSON are touched. On change, the data mutation order is:
+    copy old current -> historical file, write updated JSON atomically,
+    then atomically replace current.svg.
+    """
+    import os
+    import sys
+    import json
+    import shutil
+    import tempfile
+    import urllib.request
+    import ssl
+    from datetime import date
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    WEB_ROOT = os.path.join(project_root, "web")
+    JSON_PATH = os.path.join(WEB_ROOT, "data", "team_logos.json")
+    CDN = "https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
+
+    # NBA season year rule: if we're at or past July, the "new season" year
+    # is the current calendar year (e.g. 2027-28 season starts fall 2027).
+    # Otherwise, the logo change belongs to the in-progress season which
+    # started last fall.
+    today = date.today()
+    new_season = today.year if today.month >= 7 else today.year - 1
+
+    try:
+        with open(JSON_PATH, encoding="utf-8") as fh:
+            registry = json.load(fh)
+    except FileNotFoundError:
+        logger.error("refresh_current_team_logos: %s not found", JSON_PATH)
+        return {"error": "registry_missing"}
+
+    # Index current-era entries by team_id (those with year_end=None)
+    current_by_team: dict[str, dict] = {}
+    for entry in registry:
+        if entry.get("year_end") is None:
+            current_by_team[entry["team_id"]] = entry
+
+    ctx = ssl.create_default_context()
+    checked = 0
+    unchanged = 0
+    updated: list[dict] = []
+    errors: list[tuple[str, str]] = []
+
+    for team_id, current_entry in current_by_team.items():
+        checked += 1
+        cdn_url = CDN.format(team_id=team_id)
+        try:
+            req = urllib.request.Request(cdn_url, headers={"User-Agent": "Mozilla/5.0 funba-logo-refresh"})
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                cdn_bytes = resp.read()
+        except Exception as exc:
+            errors.append((team_id, f"fetch failed: {exc}"))
+            continue
+
+        current_path = os.path.join(WEB_ROOT, current_entry["path"])
+        try:
+            with open(current_path, "rb") as fh:
+                local_bytes = fh.read()
+        except FileNotFoundError:
+            errors.append((team_id, f"local file missing: {current_path}"))
+            continue
+
+        if cdn_bytes == local_bytes:
+            unchanged += 1
+            continue
+
+        # Rebrand detected.
+        old_year_start = current_entry["year_start"]
+        if new_season <= old_year_start:
+            errors.append((
+                team_id,
+                f"cannot split era: new_season {new_season} <= current year_start {old_year_start}",
+            ))
+            continue
+        old_year_end = new_season - 1
+
+        logger.warning(
+            "refresh_current_team_logos: REBRAND DETECTED team=%s "
+            "old_era=%d-%d new_season=%d",
+            team_id, old_year_start, old_year_end, new_season,
+        )
+
+        # 1. Copy current.svg -> historical filename (new file, non-destructive)
+        historical_name = f"{old_year_start}_{old_year_end}.svg"
+        historical_path = os.path.join(os.path.dirname(current_path), historical_name)
+        try:
+            shutil.copy2(current_path, historical_path)
+        except Exception as exc:
+            errors.append((team_id, f"historical copy failed: {exc}"))
+            continue
+
+        # 2. Mutate registry in memory: update old entry, append new entry
+        new_registry = [dict(e) for e in registry]
+        mutated = False
+        for entry in new_registry:
+            if entry["team_id"] == team_id and entry.get("year_end") is None:
+                entry["year_end"] = old_year_end
+                entry["path"] = f"static/team_logos/historical/{team_id}/{historical_name}"
+                mutated = True
+                break
+        if not mutated:
+            errors.append((team_id, "registry mutation: current entry vanished"))
+            continue
+        new_registry.append({
+            "team_id": team_id,
+            "year_start": new_season,
+            "year_end": None,
+            "path": f"static/team_logos/historical/{team_id}/current.svg",
+        })
+
+        # 3. Write registry to tempfile + atomic rename
+        try:
+            fd, tmp_json = tempfile.mkstemp(
+                prefix=".team_logos_", suffix=".json",
+                dir=os.path.dirname(JSON_PATH),
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(new_registry, fh, indent=2, ensure_ascii=False)
+                fh.write("\n")
+            os.replace(tmp_json, JSON_PATH)
+        except Exception as exc:
+            errors.append((team_id, f"json write failed: {exc}"))
+            continue
+
+        # 4. Write new CDN bytes to tempfile + atomic rename over current.svg
+        try:
+            fd, tmp_svg = tempfile.mkstemp(
+                prefix=".current_", suffix=".svg",
+                dir=os.path.dirname(current_path),
+            )
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(cdn_bytes)
+            os.replace(tmp_svg, current_path)
+        except Exception as exc:
+            errors.append((team_id, f"svg write failed: {exc}"))
+            continue
+
+        # 5. Refresh in-memory module state so any subsequent helper calls
+        # in this process see the new registry (cronjob one-shot, but hygiene).
+        try:
+            from web.historical_team_locations import (
+                FRANCHISE_LOGOS as _fl,
+                _logos_by_team,
+            )
+            _fl.clear()
+            _fl.extend(new_registry)
+            _logos_by_team.cache_clear()
+        except Exception:
+            pass
+
+        # Reload base registry for subsequent iterations of this loop
+        registry = new_registry
+        updated.append({
+            "team_id": team_id,
+            "old_era": f"{old_year_start}-{old_year_end}",
+            "new_era": f"{new_season}-present",
+        })
+
+    logger.info(
+        "refresh_current_team_logos: checked=%d unchanged=%d updated=%d errors=%d",
+        checked, unchanged, len(updated), len(errors),
+    )
+    return {
+        "checked": checked,
+        "unchanged": unchanged,
+        "updated": updated,
+        "errors": errors,
+    }
+
+
+@shared_task(
+    bind=True,
     name="tasks.ingest.enqueue_metric_backfill",
     max_retries=1,
     queue="ingest",
