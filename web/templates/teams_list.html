@@ -51,6 +51,21 @@
   .map-marker.logo-ready .map-label { display: none; }
   .map-marker.logo-ready:hover .map-label-sub { fill: var(--text); }
   .map-marker.logo-failed .map-label-sub { display: none; }
+  /* Ghost pins for historical franchise cities */
+  .map-ghost-marker { cursor: pointer; opacity: 0.45; transition: opacity 0.18s; }
+  .map-ghost-marker:hover { opacity: 0.95; }
+  .map-ghost-hit { fill: transparent; pointer-events: all; }
+  .map-ghost-ring {
+    fill: var(--surface-2);
+    stroke: var(--muted);
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+  }
+  .map-ghost-logo { pointer-events: none; }
+  .map-ghost-marker:hover .map-ghost-ring {
+    stroke: var(--accent);
+    stroke-dasharray: none;
+  }
   .map-marker:not(.logo-ready):hover .map-dot {
     fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
     stroke: var(--accent);
@@ -146,6 +161,7 @@
 <script>
 (function () {
   const teams = {{ team_map_data | tojson }};
+  const ghostPins = {{ ghost_pins | tojson }};
   const logoUrl = teamId => `https://cdn.nba.com/logos/nba/${teamId}/global/L/logo.svg`;
   const teamUrls = {
     {% for t in team_map_data %}
@@ -214,6 +230,39 @@
         };
         probe.onerror = () => g.classed("logo-failed", true);
         probe.src = markerLogoUrl;
+      });
+
+      // ── Ghost pins for historical franchise cities ─────────────────────
+      const GR = 9; // ghost pin radius (smaller than R=13)
+      ghostPins.forEach((p, i) => {
+        const coords = projection([p.lon, p.lat]);
+        if (!coords) return;  // outside US projection (e.g. Vancouver)
+        const [x, y] = coords;
+        const clipId = `ghost-clip-${p.team_id}-${p.year_start}-${p.year_end}`;
+
+        defs.append("clipPath")
+          .attr("id", clipId)
+          .append("circle")
+          .attr("cx", x).attr("cy", y).attr("r", GR);
+
+        const g = svg.append("a")
+          .attr("href", `/teams/${p.slug}`)
+          .attr("class", "map-ghost-marker");
+
+        const tooltip = `${p.era_name} (${p.year_start}-${p.year_end})`;
+        g.append("title").text(tooltip);
+        g.append("circle").attr("class", "map-ghost-hit").attr("cx", x).attr("cy", y).attr("r", GR + 6);
+        g.append("circle").attr("class", "map-ghost-ring").attr("cx", x).attr("cy", y).attr("r", GR);
+
+        if (p.logo_url) {
+          g.append("image")
+            .attr("class", "map-ghost-logo")
+            .attr("href", p.logo_url)
+            .attr("x", x - GR).attr("y", y - GR)
+            .attr("width", GR * 2).attr("height", GR * 2)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .attr("clip-path", `url(#${clipId})`);
+        }
       });
     });
 })();

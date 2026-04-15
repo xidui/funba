@@ -583,12 +583,79 @@ def register_public_routes(
             key=lambda x: x["abbr"] or "",
         )
 
+        # ── Build "ghost pins" for former franchise cities ────────────────
+        from collections import defaultdict
+        from web.historical_team_locations import FRANCHISE_HISTORY, get_logo_for_year
+
+        team_slug_by_id = {t.team_id: t.slug for t in teams}
+        current_city_by_team = {
+            era["team_id"]: era["city"]
+            for era in FRANCHISE_HISTORY
+            if era["year_end"] is None
+        }
+
+        grouped_eras: dict[tuple[str, str], list] = defaultdict(list)
+        for era in FRANCHISE_HISTORY:
+            grouped_eras[(era["team_id"], era["city"])].append(era)
+
+        ghost_pins = []
+        for (team_id, city), eras in grouped_eras.items():
+            if current_city_by_team.get(team_id) == city:
+                continue  # current city — main pin already covers it
+            if team_id not in team_slug_by_id:
+                continue  # team not in current 30 (shouldn't happen)
+            eras.sort(key=lambda e: e["year_start"])
+            year_start = eras[0]["year_start"]
+            year_ends = [e["year_end"] for e in eras if e["year_end"] is not None]
+            if not year_ends:
+                continue
+            year_end = max(year_ends)
+            # Main era = longest-span entry in the group (for label / lat-lon)
+            main_era = max(
+                eras,
+                key=lambda e: ((e["year_end"] or year_end) - e["year_start"]),
+            )
+            era_names = [e["era_name"] for e in eras]
+            # Representative logo: try midpoint, then end, then start year
+            mid = (year_start + year_end) // 2
+            logo = (
+                get_logo_for_year(team_id, mid)
+                or get_logo_for_year(team_id, year_end)
+                or get_logo_for_year(team_id, year_start)
+            )
+            logo_url = None
+            if logo is not None:
+                # logo['path'] is like 'static/team_logos/historical/1610612747/1947_1959.png'
+                # Strip the leading 'static/' so url_for('static', filename=...) works.
+                rel = logo["path"]
+                if rel.startswith("static/"):
+                    rel = rel[len("static/"):]
+                from flask import url_for
+                logo_url = url_for("static", filename=rel)
+            ghost_pins.append(
+                {
+                    "team_id": team_id,
+                    "slug": team_slug_by_id[team_id],
+                    "franchise": main_era["franchise"],
+                    "era_name": main_era["era_name"],
+                    "era_names": era_names,
+                    "city": city,
+                    "state": main_era["state"],
+                    "year_start": year_start,
+                    "year_end": year_end,
+                    "lat": main_era["lat"],
+                    "lon": main_era["lon"],
+                    "logo_url": logo_url,
+                }
+            )
+
         return get_render_template()(
             "teams_list.html",
             team_map_data=team_map_data,
             east_chips=east_chips,
             west_chips=west_chips,
             legacy_teams=legacy_teams,
+            ghost_pins=ghost_pins,
         )
 
     def _build_top_scorers(limit: int = 5) -> dict:
