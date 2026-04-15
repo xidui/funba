@@ -14,6 +14,31 @@ logger = logging.getLogger(__name__)
 NBA_API_BOX_SCORE_SOURCE = "nba_api_box_scores"
 
 
+def _compute_game_slug(sess, game_record):
+    """Pretty slug `YYYYMMDD-road-home` for a Game row, matching the format
+    the one-shot alembic backfill used. Returns None when date or teams are
+    unknown, so the caller can leave the slug NULL until the row is filled
+    out (e.g. TBD playoff matchups). Appends the game_id on collision."""
+    if not game_record.game_date or not game_record.home_team_id or not game_record.road_team_id:
+        return None
+    date_str = game_record.game_date.strftime('%Y%m%d')
+    abbr_rows = (
+        sess.query(Team.team_id, Team.abbr)
+        .filter(Team.team_id.in_([game_record.home_team_id, game_record.road_team_id]))
+        .all()
+    )
+    abbrs = {tid: (a or '').lower() for tid, a in abbr_rows}
+    home_abbr = abbrs.get(game_record.home_team_id)
+    road_abbr = abbrs.get(game_record.road_team_id)
+    if not home_abbr or not road_abbr:
+        return None
+    base = f"{date_str}-{road_abbr}-{home_abbr}"
+    existing = sess.query(Game.game_id).filter(Game.slug == base).first()
+    if not existing or existing.game_id == game_record.game_id:
+        return base
+    return f"{base}-{game_record.game_id}"
+
+
 def _to_int(value, default=0):
     if value is None or value == '':
         return default
@@ -430,6 +455,11 @@ def back_fill_game_detail(game, game_record, sess, commit):
         home_team_score=game_record.home_team_score,
         road_team_score=game_record.road_team_score,
     )
+
+    if not game_record.slug:
+        computed = _compute_game_slug(sess, game_record)
+        if computed:
+            game_record.slug = computed
 
     # Ensure parent Game row exists before inserting child stats rows.
     sess.add(game_record)
