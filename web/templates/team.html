@@ -179,6 +179,159 @@
     outline-offset: -2px;
     border-radius: 3px;
   }
+
+  /* ── Roster / Coaching Staff ─────────────────────────────────── */
+  .roster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .roster-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+    min-height: 58px;
+  }
+  .roster-card:hover {
+    border-color: var(--accent);
+    background: rgba(249, 115, 22, 0.06);
+    text-decoration: none;
+  }
+  .roster-jersey {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--accent);
+    min-width: 38px;
+    text-align: center;
+    line-height: 1;
+  }
+  .roster-jersey-empty {
+    color: var(--muted-2);
+    font-size: 22px;
+  }
+  .roster-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .roster-name {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--heading);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .roster-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .roster-pos-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(249, 115, 22, 0.12);
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .roster-acq {
+    font-size: 10.5px;
+    color: var(--muted-2);
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .roster-count-pill {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+
+  /* ── Coaching staff ─────────────────────────────────────────── */
+  .coaching-staff {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .coach-hc {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    background: linear-gradient(135deg, rgba(249,115,22,0.10) 0%, rgba(249,115,22,0.02) 100%);
+  }
+  .coach-hc-badge {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .coach-hc-name {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--heading);
+    line-height: 1.2;
+  }
+  .coach-hc-since {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .coach-staff-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+  }
+  .coach-chip {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    min-height: 44px;
+  }
+  .coach-chip-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--heading);
+    line-height: 1.2;
+  }
+  .coach-chip-role {
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 </style>
 
 <!-- ── Team header ─────────────────────────────────────────────────── -->
@@ -286,6 +439,74 @@
       <span>{{ championship.season_label }}</span>
     </a>
     {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if roster_players %}
+<div class="card">
+  <h2>
+    {{ t('Roster', '球员名单') }}
+    {% if roster_season_label %}
+    <span class="meta" style="font-weight:400; font-size:13px;">— {{ roster_season_label }}</span>
+    {% endif %}
+    <span class="roster-count-pill">{{ roster_players|length }}</span>
+  </h2>
+  <div class="roster-grid">
+    {% for p in roster_players %}
+    {% set jersey_num = (p.jersey or '').strip() %}
+    {% set href = url_for('player_page', slug=p.slug) if p.slug else '#' %}
+    <a class="roster-card" href="{{ href }}">
+      <span class="roster-jersey {% if not jersey_num %}roster-jersey-empty{% endif %}">
+        {{ '#' ~ jersey_num if jersey_num else '—' }}
+      </span>
+      <div class="roster-info">
+        <div class="roster-name">{{ p.full_name_zh if lang == 'zh' and p.full_name_zh else p.full_name }}</div>
+        <div class="roster-sub">
+          {% if p.position %}<span class="roster-pos-chip">{{ p.position }}</span>{% endif %}
+          {% if p.height %}<span>{{ p.height }}</span>{% endif %}
+          {% if p.weight %}<span>· {{ p.weight }} lb</span>{% endif %}
+        </div>
+        {% if p.how_acquired %}
+        <div class="roster-acq" title="{{ p.how_acquired }}">{{ p.how_acquired }}</div>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if roster_coaches %}
+{% set head_coaches = roster_coaches | selectattr('is_assistant', 'equalto', false) | list %}
+{% set assistants = roster_coaches | selectattr('is_assistant', 'equalto', true) | list %}
+<div class="card">
+  <h2>{{ t('Coaching Staff', '教练组') }}</h2>
+  <div class="coaching-staff">
+    {% for c in head_coaches %}
+    <div class="coach-hc">
+      <div style="font-size:32px;">🏀</div>
+      <div>
+        <div class="coach-hc-badge">{{ t('Head Coach', '主教练') }}</div>
+        <div class="coach-hc-name">{{ c.coach_name }}</div>
+        {% if c.joined_at %}
+        <div class="coach-hc-since">
+          {{ t('Since', '自') }} {{ c.joined_at.strftime('%b %Y') }}{% if c.left_at %} — {{ c.left_at.strftime('%b %Y') }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if assistants %}
+    <div class="coach-staff-grid">
+      {% for c in assistants %}
+      <div class="coach-chip">
+        <div class="coach-chip-name">{{ c.coach_name }}</div>
+        <div class="coach-chip-role">{{ c.coach_type }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endif %}

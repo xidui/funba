@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from flask import abort, jsonify, redirect, request
-from sqlalchemy import case, func
+from sqlalchemy import case, func, text
 
 from db.game_status import GAME_STATUS_COMPLETED, GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
 from web.live_game_data import build_live_game_stub, fetch_live_card, fetch_live_game_detail, fetch_live_scoreboard_map
@@ -514,6 +514,72 @@ def register_detail_routes(
             player_current_team = teams.get(player_current_team_id) if player_current_team_id else None
 
             player_metrics = get_metric_results()(session, "player", player_id, selected_season)
+
+            # ── Team stint timeline ──
+            from db.models import TeamRosterStint as _TRS
+            from web.historical_team_locations import get_era_abbr_for_year as _tl_abbr
+            from web.historical_team_locations import get_era_name_for_year as _tl_name
+            stint_rows = (
+                session.query(_TRS)
+                .filter(_TRS.player_id == player_id)
+                .order_by(_TRS.joined_at.asc())
+                .all()
+            )
+            # Merge adjacent stints on the same team (can happen if game-derived +
+            # snapshot both produced rows with a tiny overlap or touching span).
+            merged: list[dict] = []
+            from datetime import date as _today_date
+            _current_yr = _today_date.today().year
+            for s in stint_rows:
+                team_obj = teams.get(s.team_id)
+                if merged and merged[-1]["team_id"] == s.team_id:
+                    prev = merged[-1]
+                    prev_left = prev["left_at"]
+                    new_left = s.left_at
+                    if prev_left is None or new_left is None:
+                        prev["left_at"] = None
+                        prev["left_year"] = None
+                        prev["is_active"] = True
+                    elif new_left > prev_left:
+                        prev["left_at"] = new_left
+                        prev["left_year"] = new_left.year
+                    # Recompute era + abbr from the (possibly updated) end year
+                    era_year = prev["left_year"] if prev["left_year"] is not None else _current_yr
+                    prev["era_year"] = era_year
+                    era_name = _tl_name(prev["team_id"], era_year)
+                    era_abbr = _tl_abbr(prev["team_id"], era_year)
+                    team_obj = teams.get(prev["team_id"])
+                    if era_name:
+                        prev["team_name"] = era_name
+                    if era_abbr:
+                        prev["team_abbr"] = era_abbr
+                    continue
+                joined_year = s.joined_at.year if s.joined_at else None
+                left_year = s.left_at.year if s.left_at else None
+                # Era lookup year = end of stint (or current year if still active).
+                # Using the end year gives the "most recent" era label — e.g. a
+                # 2007-2016 stint labels as OKC (2016), not SEA (2007).
+                era_year = left_year if left_year is not None else _current_yr
+                era_name = None
+                era_abbr = None
+                if era_year is not None:
+                    era_name = _tl_name(s.team_id, era_year)
+                    era_abbr = _tl_abbr(s.team_id, era_year)
+                merged.append({
+                    "team_id": s.team_id,
+                    "team_slug": team_obj.slug if team_obj else None,
+                    "team_name": era_name or (team_obj.full_name if team_obj else "?"),
+                    "team_abbr": era_abbr or (team_obj.abbr if team_obj else "?"),
+                    "joined_at": s.joined_at,
+                    "left_at": s.left_at,
+                    "joined_year": joined_year,
+                    "left_year": left_year,
+                    "era_year": era_year,
+                    "is_active": s.left_at is None,
+                    "how_acquired": s.how_acquired,
+                })
+            player_stint_timeline = merged
+
             salary_records = (
                 session.query(PlayerSalary)
                 .filter(PlayerSalary.player_id == player_id)
@@ -551,6 +617,7 @@ def register_detail_routes(
             player_metrics=player_metrics,
             player_awards=player_awards,
             salary_rows=salary_rows,
+            player_stint_timeline=player_stint_timeline,
         )
 
     def team_page(slug: str):
@@ -692,6 +759,96 @@ def register_detail_routes(
 
             team_metrics = get_metric_results()(session, "team", team_id, current_season)
 
+            # ── Roster + coaching staff for the selected games season ──
+            from db.models import TeamRosterStint, TeamCoachStint, Player as _PlayerM
+            roster_players: list[dict] = []
+            roster_coaches: list[dict] = []
+            roster_season_label = None
+            _sel_year = None
+            if selected_games_season:
+                s = str(selected_games_season)
+                if len(s) == 5 and s.isdigit():
+                    _sel_year = int(s[1:])
+                roster_season_label = get_season_label()(selected_games_season) if selected_games_season else None
+
+            # Date bounds for the selected season for this team (fallback Oct-Jun).
+            if _sel_year is not None:
+                bounds_row = session.execute(text("""
+                    SELECT MIN(g.game_date) AS lo, MAX(g.game_date) AS hi
+                    FROM Game g
+                    WHERE (g.home_team_id = :tid OR g.road_team_id = :tid)
+                      AND CAST(SUBSTRING(CAST(g.season AS CHAR), 2) AS UNSIGNED) = :yr
+                """), {"tid": team_id, "yr": _sel_year}).first()
+                season_lo = bounds_row.lo if bounds_row and bounds_row.lo else None
+                season_hi = bounds_row.hi if bounds_row and bounds_row.hi else None
+                if season_lo is None or season_hi is None:
+                    from datetime import date as _date
+                    season_lo = _date(_sel_year, 10, 1)
+                    season_hi = _date(_sel_year + 1, 6, 30)
+
+                player_stint_rows = (
+                    session.query(TeamRosterStint, _PlayerM)
+                    .outerjoin(_PlayerM, _PlayerM.player_id == TeamRosterStint.player_id)
+                    .filter(
+                        TeamRosterStint.team_id == team_id,
+                        TeamRosterStint.joined_at <= season_hi,
+                        (TeamRosterStint.left_at.is_(None)) | (TeamRosterStint.left_at >= season_lo),
+                    )
+                    .order_by(TeamRosterStint.joined_at.asc())
+                    .all()
+                )
+                seen_pids: set[str] = set()
+                for stint, pl in player_stint_rows:
+                    if stint.player_id in seen_pids:
+                        continue
+                    seen_pids.add(stint.player_id)
+                    roster_players.append({
+                        "player_id": stint.player_id,
+                        "slug": pl.slug if pl else None,
+                        "full_name": pl.full_name if pl else f"#{stint.player_id}",
+                        "full_name_zh": getattr(pl, "full_name_zh", None) if pl else None,
+                        "jersey": stint.jersey or (getattr(pl, "jersey", None) if pl else None),
+                        "position": stint.position or (getattr(pl, "position", None) if pl else None),
+                        "height": getattr(pl, "height", None) if pl else None,
+                        "weight": getattr(pl, "weight", None) if pl else None,
+                        "how_acquired": stint.how_acquired,
+                        "joined_at": stint.joined_at,
+                        "left_at": stint.left_at,
+                        "is_active": stint.left_at is None,
+                    })
+
+                coach_stint_rows = (
+                    session.query(TeamCoachStint)
+                    .filter(
+                        TeamCoachStint.team_id == team_id,
+                        TeamCoachStint.joined_at <= season_hi,
+                        (TeamCoachStint.left_at.is_(None)) | (TeamCoachStint.left_at >= season_lo),
+                    )
+                    .order_by(
+                        TeamCoachStint.is_assistant.asc(),
+                        TeamCoachStint.coach_name.asc(),
+                    )
+                    .all()
+                )
+                for c in coach_stint_rows:
+                    roster_coaches.append({
+                        "coach_id": c.coach_id,
+                        "coach_name": c.coach_name,
+                        "coach_type": c.coach_type or ("Assistant Coach" if c.is_assistant else "Head Coach"),
+                        "is_assistant": bool(c.is_assistant),
+                        "joined_at": c.joined_at,
+                        "left_at": c.left_at,
+                    })
+
+            # Sort roster: active first, then by jersey number (numeric) then name.
+            def _jersey_key(p):
+                j = (p.get("jersey") or "").strip()
+                try:
+                    return (0, int(j))
+                except ValueError:
+                    return (1, 9999)
+            roster_players.sort(key=lambda p: (not p["is_active"], _jersey_key(p), p["full_name"]))
+
         return get_render_template()(
             "team.html",
             team=team,
@@ -704,6 +861,9 @@ def register_detail_routes(
             team_metrics=team_metrics,
             team_championships=team_championships,
             canonical_team=canonical_team,
+            roster_players=roster_players,
+            roster_coaches=roster_coaches,
+            roster_season_label=roster_season_label,
         )
 
     def game_page(slug: str):

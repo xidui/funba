@@ -1152,6 +1152,90 @@
       justify-self: start;
     }
   }
+
+  /* ── Team stint timeline ──────────────────────────────────────── */
+  .stint-timeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-top: 10px;
+    padding: 6px 0 2px;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+  }
+  .stint-timeline::-webkit-scrollbar { height: 6px; }
+  .stint-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .stint-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 14px 8px;
+    min-width: 130px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    text-decoration: none;
+    color: inherit;
+    position: relative;
+    flex-shrink: 0;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .stint-block:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+  .stint-block:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+  .stint-block + .stint-block { border-left: none; }
+  .stint-block:hover {
+    text-decoration: none;
+    background: rgba(249, 115, 22, 0.08);
+    border-color: var(--accent);
+    z-index: 2;
+  }
+  .stint-block.active {
+    background: linear-gradient(180deg, rgba(249,115,22,0.14) 0%, rgba(249,115,22,0.03) 100%);
+    border-color: rgba(249, 115, 22, 0.45);
+  }
+  .stint-arrow {
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--muted-2);
+    font-size: 16px;
+    padding: 0 4px;
+  }
+  .stint-logo {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    margin-bottom: 4px;
+  }
+  .stint-abbr {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 13px;
+    color: var(--heading);
+    letter-spacing: 0.05em;
+  }
+  .stint-range {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    white-space: nowrap;
+  }
+  .stint-years {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 10px;
+    color: var(--muted-2);
+    margin-top: 2px;
+    letter-spacing: 0.03em;
+  }
+  .stint-active-dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--win);
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2);
+  }
 </style>
 
 <!-- ── Player header ──────────────────────────────────────────────── -->
@@ -1291,9 +1375,48 @@
   </div>
 </div>
 
+{% if player_stint_timeline %}
+<div class="card" id="section-teams">
+  <h2>{{ t('Teams', '效力球队') }}
+    <span class="meta" style="font-weight:400; font-size:13px;">
+      — {{ player_stint_timeline|length }} {{ t('stints', '段') }}
+    </span>
+  </h2>
+  <div class="stint-timeline">
+    {% for s in player_stint_timeline %}
+    {% set href = url_for('team_page', slug=s.team_slug) if s.team_slug else '#' %}
+    <a class="stint-block {% if s.is_active %}active{% endif %}"
+       href="{{ href }}"
+       title="{{ s.team_name }}{% if s.how_acquired %} — {{ s.how_acquired }}{% endif %}">
+      {% if s.is_active %}<span class="stint-active-dot"></span>{% endif %}
+      <img class="stint-logo"
+           src="{{ team_logo(s.team_id, s.era_year) }}"
+           alt="{{ s.team_abbr }} logo"
+           onerror="this.style.display='none'">
+      <div class="stint-abbr">{{ s.team_abbr }}</div>
+      {% if s.joined_year %}
+      <div class="stint-years">
+        {{ s.joined_year }}{% if s.is_active %}—{{ t('now', '至今') }}{% elif s.left_year and s.left_year != s.joined_year %}–{{ s.left_year }}{% endif %}
+      </div>
+      {% endif %}
+      {% if s.joined_at %}
+      <div class="stint-range">
+        {{ s.joined_at.strftime('%b %Y') }}
+      </div>
+      {% endif %}
+    </a>
+    {% if not loop.last %}<div class="stint-arrow">→</div>{% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Section Nav ───────────────────────────────────────────────── -->
 <nav class="player-section-nav" id="player-section-nav">
   <div class="player-section-nav-inner">
+    {% if player_stint_timeline %}
+    <button class="player-nav-btn" data-target="section-teams">{{ t('Teams', '效力') }}</button>
+    {% endif %}
     <button class="player-nav-btn active" data-target="section-career">{{ t('Career', '生涯') }}</button>
     {% if player_metrics.season or player_metrics.alltime %}
     <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
