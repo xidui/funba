@@ -1856,6 +1856,196 @@ FRANCHISE_LOGOS = [
 ]
 
 
+
+
+# Current-era logos downloaded from cdn.nba.com/logos/nba/.../global/L/logo.svg
+# These cover each franchise from the year after their last recorded historical
+# logo (or franchise founding for teams with no historical logos on file) to now.
+# year_end=9999 is a sentinel meaning "still current".
+FRANCHISE_LOGOS += [
+    {
+        "team_id":    "1610612737",
+        "year_start": 2020,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612737/current.svg",
+    },
+    {
+        "team_id":    "1610612738",
+        "year_start": 1996,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612738/current.svg",
+    },
+    {
+        "team_id":    "1610612739",
+        "year_start": 2022,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612739/current.svg",
+    },
+    {
+        "team_id":    "1610612740",
+        "year_start": 2023,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612740/current.svg",
+    },
+    {
+        "team_id":    "1610612741",
+        "year_start": 1966,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612741/current.svg",
+    },
+    {
+        "team_id":    "1610612742",
+        "year_start": 2017,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612742/current.svg",
+    },
+    {
+        "team_id":    "1610612743",
+        "year_start": 2018,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612743/current.svg",
+    },
+    {
+        "team_id":    "1610612744",
+        "year_start": 2019,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612744/current.svg",
+    },
+    {
+        "team_id":    "1610612745",
+        "year_start": 2019,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612745/current.svg",
+    },
+    {
+        "team_id":    "1610612746",
+        "year_start": 2024,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612746/current.svg",
+    },
+    {
+        "team_id":    "1610612747",
+        "year_start": 2023,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612747/current.svg",
+    },
+    {
+        "team_id":    "1610612748",
+        "year_start": 1999,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612748/current.svg",
+    },
+    {
+        "team_id":    "1610612749",
+        "year_start": 2015,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612749/current.svg",
+    },
+    {
+        "team_id":    "1610612750",
+        "year_start": 2017,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612750/current.svg",
+    },
+    {
+        "team_id":    "1610612751",
+        "year_start": 2024,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612751/current.svg",
+    },
+    {
+        "team_id":    "1610612752",
+        "year_start": 2023,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612752/current.svg",
+    },
+    {
+        "team_id":    "1610612753",
+        "year_start": 2025,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612753/current.svg",
+    },
+    {
+        "team_id":    "1610612754",
+        "year_start": 2025,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612754/current.svg",
+    },
+    {
+        "team_id":    "1610612755",
+        "year_start": 2015,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612755/current.svg",
+    },
+    {
+        "team_id":    "1610612756",
+        "year_start": 2013,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612756/current.svg",
+    },
+    {
+        "team_id":    "1610612757",
+        "year_start": 2017,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612757/current.svg",
+    },
+    {
+        "team_id":    "1610612758",
+        "year_start": 2016,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612758/current.svg",
+    },
+    {
+        "team_id":    "1610612759",
+        "year_start": 2017,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612759/current.svg",
+    },
+    {
+        "team_id":    "1610612760",
+        "year_start": 2008,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612760/current.svg",
+    },
+    {
+        "team_id":    "1610612761",
+        "year_start": 2020,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612761/current.svg",
+    },
+    {
+        "team_id":    "1610612762",
+        "year_start": 2025,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612762/current.svg",
+    },
+    {
+        "team_id":    "1610612763",
+        "year_start": 2018,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612763/current.svg",
+    },
+    {
+        "team_id":    "1610612764",
+        "year_start": 2015,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612764/current.svg",
+    },
+    {
+        "team_id":    "1610612765",
+        "year_start": 2017,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612765/current.svg",
+    },
+    {
+        "team_id":    "1610612766",
+        "year_start": 2014,
+        "year_end":   9999,
+        "path":       "static/team_logos/historical/1610612766/current.svg",
+    },
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Query helpers
 # ─────────────────────────────────────────────────────────────────────────
@@ -1945,12 +2135,13 @@ def get_nearest_logo(team_id: str, year: int) -> Optional[dict]:
 def get_logo_url_for_year(team_id: str, year: int, *, static_prefix: str = "/") -> str:
     """Return a URL for the historical logo at `(team_id, year)`.
 
-    If no historical logo is on file for that year, falls back to the current
-    NBA CDN asset. `static_prefix` is prepended to local static paths (use
-    Flask's `url_for('static', filename=...)` output or "/" if serving under
-    the default /static mount).
+    Every current NBA team has a stable local current-era entry
+    (`year_end = 9999`), so the lookup always resolves to a local file. When
+    a strict year-range lookup fails (pre-founding year or a rare gap era),
+    fall back to the team's current-era local file. Only as a last-resort
+    defensive branch do we return the remote CDN URL.
     """
-    logo = get_logo_for_year(team_id, year)
+    logo = get_logo_for_year(team_id, year) or get_logo_for_year(team_id, 9999)
     if logo is not None:
         return static_prefix.rstrip("/") + "/" + logo["path"]
     return _CURRENT_LOGO_CDN.format(team_id=team_id)
