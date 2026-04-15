@@ -507,18 +507,20 @@ def sync_schedule_window(
     # cdn.nba.com live scoreboard reflects them within minutes. We only fill
     # NULL fields so a real schedule value is never overwritten by live noise.
     live_patched = 0
+    live_patched_ids: set[str] = set()
     try:
-        live_patched = _patch_today_meta_from_live()
+        live_patched, live_patched_ids = _patch_today_meta_from_live()
     except Exception as exc:
         logger.warning("sync_schedule_window: live meta patch failed: %s", exc, exc_info=True)
 
     # Slug-sweep: any game whose matchup is now known (teams + date set) but
-    # whose slug is still NULL gets a YYYYMMDD-road-home slug. Catches TBD
-    # playoff rows that transitioned during this sync run; the legacy
-    # `/games/game-<id>` URL keeps working via the redirect in web/app.py.
+    # whose slug is still NULL gets a YYYYMMDD-road-home slug. Scoped to
+    # game_ids this run actually touched (schedule sync + live patch), so it
+    # never scans the whole table. Legacy /games/game-<id> URLs keep
+    # working via the redirect in web/app.py.
     slug_patched = 0
     try:
-        slug_patched = _sweep_game_slugs()
+        slug_patched = _sweep_game_slugs(set(game_ids) | live_patched_ids)
     except Exception as exc:
         logger.warning("sync_schedule_window: slug sweep failed: %s", exc, exc_info=True)
 
@@ -540,9 +542,12 @@ def sync_schedule_window(
     }
 
 
-def _sweep_game_slugs() -> int:
-    """Compute slugs for every Game row whose teams are now known but whose
-    slug is still NULL. Returns the number of rows updated."""
+def _sweep_game_slugs(game_ids) -> int:
+    """Compute slugs for the given Game rows whose teams are now known but
+    whose slug is still NULL. Scoped to the caller's set of game_ids so a
+    sync run only looks at the rows it could have just affected."""
+    if not game_ids:
+        return 0
     import os
     import sys
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -556,6 +561,7 @@ def _sweep_game_slugs() -> int:
         rows = (
             session.query(Game)
             .filter(
+                Game.game_id.in_(list(game_ids)),
                 Game.slug.is_(None),
                 Game.game_date.isnot(None),
                 Game.home_team_id.isnot(None),
@@ -573,11 +579,11 @@ def _sweep_game_slugs() -> int:
     return updated
 
 
-def _patch_today_meta_from_live() -> int:
+def _patch_today_meta_from_live() -> tuple[int, set[str]]:
     """Backfill NULL meta fields on today's Game rows from the live scoreboard.
 
-    Returns the number of rows touched. Only fields that are NULL in DB are
-    overwritten — schedule-API values always win when present.
+    Returns (rows_touched, set_of_touched_game_ids). Only fields that are
+    NULL in DB are overwritten — schedule-API values always win when present.
     """
     # The Celery worker's sys.path doesn't always include the project root
     # at the moment `tasks.ingest` is autodiscovered (the celery_app bootstrap
@@ -592,10 +598,11 @@ def _patch_today_meta_from_live() -> int:
 
     snapshots = fetch_live_scoreboard_map()
     if not snapshots:
-        return 0
+        return 0, set()
 
     SessionLocal = sessionmaker(bind=engine)
     touched = 0
+    touched_ids: set[str] = set()
     with SessionLocal() as session:
         for game_id, snap in snapshots.items():
             home_id = snap.get("home_team_id") or None
@@ -614,9 +621,10 @@ def _patch_today_meta_from_live() -> int:
                 changed = True
             if changed:
                 touched += 1
+                touched_ids.add(game_id)
         if touched:
             session.commit()
-    return touched
+    return touched, touched_ids
 
 
 @shared_task(
