@@ -456,7 +456,10 @@ def back_fill_game_detail(game, game_record, sess, commit):
         road_team_score=game_record.road_team_score,
     )
 
-    if not game_record.slug:
+    # Compute or refresh the slug. Also rewrite the legacy `game-<id>`
+    # fallback that the alembic migration set for rows whose teams weren't
+    # known at migration time — those teams are now filled in.
+    if not game_record.slug or game_record.slug == f"game-{game['GAME_ID']}":
         computed = _compute_game_slug(sess, game_record)
         if computed:
             game_record.slug = computed
