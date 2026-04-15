@@ -5067,7 +5067,7 @@ _build_compare_stat_rows = _public_views.build_compare_stat_rows
 _build_compare_current_rows = _public_views.build_compare_current_rows
 _build_compare_metric_sections = _public_views.build_compare_metric_sections
 _player_compare_team_abbrs = _public_views.player_compare_team_abbrs
-_get_player_top_rankings = _public_views.get_player_top_rankings
+_derive_player_top_rankings = _public_views.derive_player_top_rankings
 
 
 _detail_views = register_detail_routes(

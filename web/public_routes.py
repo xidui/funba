@@ -1600,77 +1600,45 @@ def register_public_routes(
         )
         return load_for_season(latest_row.season if latest_row else None)
 
-    def _get_player_top_rankings(session, player_id: str, *, current_season: str | None, limit: int = 3) -> list[dict]:
-        from metrics.framework.base import CAREER_SEASON_PREFIX, SEASON_TYPE_TO_CAREER
+    def _derive_player_top_rankings(session, metric_results: dict, *, current_season: str | None, limit: int = 3) -> list[dict]:
+        """Pick top rankings out of an already-computed _get_metric_results output.
 
-        MetricResultModel = get_metric_result_model()
-        asc_keys = get_asc_metric_keys()(session)
-        filters = [
-            MetricResultModel.entity_type == "player",
-            MetricResultModel.value_num.isnot(None),
-        ]
-        season_filters = []
-        if current_season:
-            season_filters.append(MetricResultModel.season == current_season)
-            current_type = current_season[0] if len(current_season) == 5 and current_season.isdigit() else None
-            matching_career = SEASON_TYPE_TO_CAREER.get(current_type) if current_type else None
-            if matching_career:
-                season_filters.append(MetricResultModel.season == matching_career)
-            else:
-                season_filters.append(MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
-        if season_filters:
-            filters.append(or_(*season_filters))
+        Reuses the rank/total the framework already computed for the player
+        card so the compare page doesn't pay for a second full-table scan.
+        """
+        candidates: list[dict] = []
+        for entry in (metric_results.get("season") or []):
+            candidates.append({"entry": entry, "season": current_season})
+        for entry in (metric_results.get("alltime") or []):
+            candidates.append({"entry": entry, "season": entry.get("season")})
 
-        rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-        rank_value = case(
-            (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
-            else_=MetricResultModel.value_num,
-        )
-        inner = (
-            session.query(
-                MetricResultModel.metric_key.label("metric_key"),
-                MetricResultModel.entity_id.label("entity_id"),
-                MetricResultModel.season.label("season"),
-                MetricResultModel.value_num.label("value_num"),
-                MetricResultModel.value_str.label("value_str"),
-                MetricResultModel.noteworthiness.label("noteworthiness"),
-                func.rank().over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                    order_by=rank_value.desc(),
-                ).label("rank"),
-                func.count(MetricResultModel.id).over(
-                    partition_by=[MetricResultModel.metric_key, MetricResultModel.season, rank_partition],
-                ).label("total"),
-            )
-            .filter(*filters)
-            .subquery()
-        )
-        rows = (
-            session.query(inner)
-            .filter(inner.c.entity_id == player_id)
-            .order_by(
-                func.coalesce(inner.c.noteworthiness, -1).desc(),
-                inner.c.rank.asc(),
-                inner.c.metric_key.asc(),
-            )
-            .limit(limit)
-            .all()
-        )
+        def sort_key(item):
+            entry = item["entry"]
+            rank = entry.get("rank") or 10**9
+            total = entry.get("total") or 0
+            return (rank, -total, entry.get("metric_key") or "")
+
+        candidates.sort(key=sort_key)
 
         rankings = []
-        for row in rows:
-            metric_key = row.metric_key
-            label = _compare_metric_label(session, metric_key)
-            scope_label = _compare_metric_scope_label({"season": row.season})
-            badge = f"#{int(row.rank)} of {int(row.total)} · {label}" if row.rank and row.total else label
+        for item in candidates[:limit]:
+            entry = item["entry"]
+            metric_key = entry.get("metric_key")
+            if not metric_key:
+                continue
+            label = entry.get("metric_name") or _compare_metric_label(session, metric_key)
+            rank = entry.get("rank")
+            total = entry.get("total")
+            badge = f"#{int(rank)} of {int(total)} · {label}" if rank and total else label
+            season_for_link = item["season"]
             rankings.append(
                 {
                     "metric_key": metric_key,
                     "label": label,
                     "badge": badge,
-                    "scope_label": scope_label,
-                    "href": get_localized_url_for()("metric_detail", metric_key=metric_key, season=row.season)
-                    if row.season
+                    "scope_label": _compare_metric_scope_label({"season": season_for_link}),
+                    "href": get_localized_url_for()("metric_detail", metric_key=metric_key, season=season_for_link)
+                    if season_for_link
                     else get_localized_url_for()("metric_detail", metric_key=metric_key),
                 }
             )
@@ -1717,9 +1685,10 @@ def register_public_routes(
                         "career_summary": _player_stat_summary(session, player.player_id, season_prefix="2"),
                         "current_summary": _player_stat_summary(session, player.player_id, season=current_season),
                         "metrics": get_metric_results()(session, "player", player.player_id, current_season),
-                        "top_rankings": _get_player_top_rankings(session, player.player_id, current_season=current_season),
                     }
                 )
+            for card in player_cards:
+                card["top_rankings"] = _derive_player_top_rankings(session, card["metrics"], current_season=current_season)
 
             if len(player_cards) >= 2:
                 season_rows = _build_compare_stat_rows(player_cards)
@@ -2015,5 +1984,5 @@ def register_public_routes(
         build_compare_current_rows=_build_compare_current_rows,
         build_compare_metric_sections=_build_compare_metric_sections,
         player_compare_team_abbrs=_player_compare_team_abbrs,
-        get_player_top_rankings=_get_player_top_rankings,
+        derive_player_top_rankings=_derive_player_top_rankings,
     )
