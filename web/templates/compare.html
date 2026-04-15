@@ -50,6 +50,7 @@
     position: sticky;
     top: 70px;
     z-index: 15;
+    transition: padding 0.2s ease;
   }
 
   .compare-scroll {
@@ -79,12 +80,71 @@
       linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 86%, transparent), var(--surface)),
       radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    transition: min-height 0.2s ease, padding 0.2s ease;
   }
 
   .compare-player-card {
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+
+  /* Compact state: when the user scrolls the page, the sticky header shrinks
+     so player cards stop occupying half the viewport. */
+  .compare-header-card.compact {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .compare-header-card.compact .compare-player-card,
+  .compare-header-card.compact .compare-add-card {
+    min-height: 64px;
+    padding: 10px 14px 10px 68px;
+    gap: 4px;
+  }
+  .compare-header-card.compact .compare-player-headshot {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease;
+  }
+  .compare-header-card.compact .compare-player-name {
+    font-size: 15px;
+  }
+  .compare-header-card.compact .compare-player-meta,
+  .compare-header-card.compact .compare-player-state,
+  .compare-header-card.compact .compare-mini-chips,
+  .compare-header-card.compact .compare-add-copy {
+    display: none;
+  }
+  .compare-header-card.compact .compare-add-eyebrow {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .compare-header-card.compact .compare-add-card {
+    padding: 10px 14px;
+  }
+  .compare-header-card.compact .compare-picker-input {
+    min-height: 34px;
+    font-size: 12px;
+    padding: 0 12px;
+  }
+  .compare-header-card.compact .compare-remove-btn {
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+  }
+  .compare-player-card,
+  .compare-add-card,
+  .compare-player-headshot,
+  .compare-player-name,
+  .compare-add-eyebrow,
+  .compare-picker-input {
+    transition: all 0.2s ease;
   }
 
   .compare-remove-btn {
@@ -248,17 +308,19 @@
   }
 
   .compare-picker-results {
-    position: absolute;
-    top: calc(100% + 8px);
+    /* position:fixed escapes the .compare-scroll overflow clip so the
+       dropdown isn't truncated by the sticky header's scroll container. */
+    position: fixed;
+    top: 0;
     left: 0;
-    right: 0;
+    width: 240px;
     display: none;
     border-radius: 12px;
     border: 1px solid var(--border);
     background: var(--surface);
     box-shadow: var(--dropdown-shadow);
     overflow: hidden;
-    z-index: 20;
+    z-index: 200;
   }
 
   .compare-picker-results.open {
@@ -720,6 +782,21 @@
     const currentIds = {{ active_player_ids | tojson }};
     const hintsUrl = "{{ url_for('player_hints_api') }}";
 
+    const headerCard = document.querySelector('.compare-header-card');
+    if (headerCard) {
+      const COMPACT_THRESHOLD = 160;
+      let compact = false;
+      function updateCompact() {
+        const shouldCompact = window.scrollY > COMPACT_THRESHOLD;
+        if (shouldCompact !== compact) {
+          compact = shouldCompact;
+          headerCard.classList.toggle('compact', compact);
+        }
+      }
+      window.addEventListener('scroll', updateCompact, { passive: true });
+      updateCompact();
+    }
+
     function nextUrl(ids) {
       const unique = [];
       ids.forEach((id) => {
@@ -750,6 +827,27 @@
       let items = [];
       let focusIndex = -1;
 
+      function positionResults() {
+        const rect = input.getBoundingClientRect();
+        const width = Math.max(rect.width, 220);
+        const viewportH = window.innerHeight;
+        const spaceBelow = viewportH - rect.bottom;
+        let top;
+        if (spaceBelow < 220 && rect.top > spaceBelow) {
+          // Not enough room below — flip above the input.
+          top = Math.max(8, rect.top - Math.min(320, rect.top - 8) - 8);
+          results.style.maxHeight = (rect.top - 16) + 'px';
+        } else {
+          top = rect.bottom + 6;
+          results.style.maxHeight = (viewportH - rect.bottom - 16) + 'px';
+        }
+        const left = Math.min(rect.left, window.innerWidth - width - 12);
+        results.style.top = top + 'px';
+        results.style.left = Math.max(8, left) + 'px';
+        results.style.width = width + 'px';
+        results.style.overflowY = 'auto';
+      }
+
       function closeResults() {
         results.classList.remove('open');
       }
@@ -774,8 +872,16 @@
           });
           results.appendChild(button);
         });
+        positionResults();
         results.classList.add('open');
       }
+
+      window.addEventListener('scroll', () => {
+        if (results.classList.contains('open')) positionResults();
+      }, { passive: true });
+      window.addEventListener('resize', () => {
+        if (results.classList.contains('open')) positionResults();
+      });
 
       function moveFocus(delta) {
         const buttons = Array.from(results.querySelectorAll('.compare-picker-item'));
