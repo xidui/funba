@@ -822,6 +822,12 @@
       const results = root.querySelector('.compare-picker-results');
       if (!input || !results) return;
 
+      // Hoist the dropdown out to <body>. An ancestor with transform/filter/
+      // will-change/contain on this page creates a containing block that
+      // would otherwise make our position:fixed coordinates land in the wrong
+      // place. Appending to body guarantees viewport-relative coordinates.
+      document.body.appendChild(results);
+
       let timer = null;
       let controller = null;
       let items = [];
@@ -831,20 +837,29 @@
         const rect = input.getBoundingClientRect();
         const width = Math.max(rect.width, 220);
         const viewportH = window.innerHeight;
-        const spaceBelow = viewportH - rect.bottom;
+        const margin = 8;
+        const gap = 6;
+
+        const spaceBelow = viewportH - rect.bottom - margin;
+        const spaceAbove = rect.top - margin;
+        const contentH = Math.min(results.scrollHeight || 240, 320);
+
         let top;
-        if (spaceBelow < 220 && rect.top > spaceBelow) {
-          // Not enough room below — flip above the input.
-          top = Math.max(8, rect.top - Math.min(320, rect.top - 8) - 8);
-          results.style.maxHeight = (rect.top - 16) + 'px';
+        let maxH;
+        if (contentH <= spaceBelow || spaceBelow >= spaceAbove) {
+          top = rect.bottom + gap;
+          maxH = Math.max(120, spaceBelow - gap);
         } else {
-          top = rect.bottom + 6;
-          results.style.maxHeight = (viewportH - rect.bottom - 16) + 'px';
+          const boxH = Math.min(contentH, Math.max(120, spaceAbove - gap));
+          top = Math.max(margin, rect.top - boxH - gap);
+          maxH = Math.max(120, spaceAbove - gap);
         }
-        const left = Math.min(rect.left, window.innerWidth - width - 12);
+
+        const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
         results.style.top = top + 'px';
-        results.style.left = Math.max(8, left) + 'px';
+        results.style.left = left + 'px';
         results.style.width = width + 'px';
+        results.style.maxHeight = maxH + 'px';
         results.style.overflowY = 'auto';
       }
 
@@ -936,7 +951,7 @@
       });
 
       document.addEventListener('click', (event) => {
-        if (!root.contains(event.target)) closeResults();
+        if (!root.contains(event.target) && !results.contains(event.target)) closeResults();
       });
     });
   })();
