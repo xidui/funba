@@ -1,76 +1,264 @@
 {% extends "base.html" %}
 {% block title %}{{ t('NBA Teams', 'NBA 球队') }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ t('All 30 NBA teams on an interactive US map. Click any team to see their schedule, roster, and advanced metrics.', '通过互动美国地图查看全部 30 支 NBA 球队，点击即可查看球队赛程、名单与高级数据分析。') }}{% endblock %}
+{% block meta_description %}{{ t('Drag the year slider to see the NBA as it was that season: every franchise at its era city with division standings.', '拖动年份滑块，回看每一个 NBA 赛季的球队分布、城市与分区战绩。') }}{% endblock %}
 {% block content %}
 <style>
-  .teams-page-hero { margin-bottom: 18px; }
+  .teams-page-hero { margin-bottom: 14px; }
   .teams-page-hero h1 { margin-bottom: 4px; }
 
-  #teams-map {
-    display: block;
+  /* ── Year slider ────────────────────────────────────────── */
+  .timeline-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+  }
+  .timeline-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .timeline-year-big {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 34px;
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+  .timeline-year-big .yr-suffix { color: var(--muted); font-size: 22px; font-weight: 600; }
+  .timeline-info {
+    color: var(--muted);
+    font-size: 12.5px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .timeline-info b { color: var(--text); font-weight: 600; }
+  .timeline-slider {
+    -webkit-appearance: none;
+    appearance: none;
     width: 100%;
-    height: auto;
+    height: 6px;
+    background: linear-gradient(90deg, var(--border-2), var(--border));
+    border-radius: 999px;
+    outline: none;
+    margin: 4px 0 2px;
   }
-  .state-path {
-    fill: var(--surface-3);
-    stroke: var(--border-2);
-    stroke-width: 0.6;
+  .timeline-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid var(--bg);
+    cursor: pointer;
+    box-shadow: 0 0 0 1px var(--accent);
   }
-  .teams-map-wrap { display: block; }
-  .map-marker { cursor: pointer; }
-  .map-hit-area { fill: transparent; pointer-events: all; }
-  .map-dot {
+  .timeline-slider::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); border: 3px solid var(--bg);
+    cursor: pointer;
+  }
+  .timeline-ticks {
+    position: relative;
+    height: 22px;
+    margin-top: -4px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .timeline-tick {
+    position: absolute;
+    transform: translateX(-50%);
+    text-align: center;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .timeline-tick::before {
+    content: "";
+    display: block;
+    width: 1px;
+    height: 6px;
+    background: var(--border);
+    margin: 0 auto 2px;
+  }
+  .timeline-tick:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+  /* ── Map ────────────────────────────────────────────────── */
+  #teams-map { display: block; width: 100%; height: auto; }
+  .state-path { fill: var(--surface-3); stroke: var(--border-2); stroke-width: 0.6; }
+  .state-mesh { fill: none; stroke: var(--border); stroke-width: 0.5; }
+
+  .era-marker { cursor: pointer; }
+  .era-hit { fill: transparent; pointer-events: all; }
+  .era-ring {
     fill: var(--surface-2);
     stroke: var(--border-2);
     stroke-width: 1.5;
-    transition: fill 0.15s, stroke 0.15s;
+    transition: stroke 0.18s;
   }
-  .map-logo-image { pointer-events: none; }
-  .map-logo-frame,
-  .map-logo-ring { fill: none; pointer-events: none; }
-  .map-logo-frame { stroke: var(--border-2); stroke-width: 1.5; }
-  .map-logo-ring { stroke: var(--accent); stroke-width: 2; opacity: 0; transition: opacity 0.15s; }
-  .map-label,
-  .map-label-sub {
+  .era-marker.kind-defunct .era-ring {
+    stroke-dasharray: 2 2;
+    stroke: var(--muted);
+  }
+  .era-logo { pointer-events: none; }
+  .era-label {
     font-family: 'Outfit', sans-serif;
+    font-size: 8px;
+    font-weight: 700;
+    fill: var(--accent);
     text-anchor: middle;
+    dominant-baseline: middle;
     pointer-events: none;
-    transition: fill 0.15s;
     user-select: none;
   }
-  .map-label { font-weight: 700; font-size: 7.5px; fill: var(--accent); dominant-baseline: middle; }
-  .map-label-sub { font-size: 6px; fill: var(--muted); }
-  .map-logo-image,
-  .map-logo-frame,
-  .map-label-sub { display: none; }
-  .map-marker:hover .map-logo-ring { opacity: 1; }
-  .map-marker.logo-ready .map-logo-image,
-  .map-marker.logo-ready .map-logo-frame,
-  .map-marker.logo-ready .map-label-sub { display: block; }
-  .map-marker.logo-ready .map-dot,
-  .map-marker.logo-ready .map-label { display: none; }
-  .map-marker.logo-ready:hover .map-label-sub { fill: var(--text); }
-  .map-marker.logo-failed .map-label-sub { display: none; }
-  /* Ghost pins for historical franchise cities */
-  .map-ghost-marker { cursor: pointer; opacity: 0.45; transition: opacity 0.18s; }
-  .map-ghost-marker:hover { opacity: 0.95; }
-  .map-ghost-hit { fill: transparent; pointer-events: all; }
-  .map-ghost-ring {
-    fill: var(--surface-2);
-    stroke: var(--muted);
-    stroke-width: 1;
-    stroke-dasharray: 2 2;
+  .era-label-sub {
+    font-family: 'Outfit', sans-serif;
+    font-size: 7px;
+    fill: var(--muted);
+    text-anchor: middle;
+    pointer-events: none;
+    user-select: none;
   }
-  .map-ghost-logo { pointer-events: none; }
-  .map-ghost-marker:hover .map-ghost-ring {
+  .era-marker:hover .era-ring { stroke: var(--accent); stroke-width: 2.2; stroke-dasharray: none; }
+  .era-marker:hover .era-label-sub { fill: var(--text); }
+
+  .journey-trail {
+    fill: none;
     stroke: var(--accent);
-    stroke-dasharray: none;
+    stroke-width: 1.8;
+    stroke-dasharray: 3 3;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s;
   }
-  .map-marker:not(.logo-ready):hover .map-dot {
-    fill: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
-    stroke: var(--accent);
+  .journey-trail.active { opacity: 0.9; }
+  .journey-dot {
+    fill: var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s;
+  }
+  .journey-dot.active { opacity: 0.85; }
+
+  .offmap-note {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .offmap-note strong { color: var(--text); font-weight: 600; }
+
+  /* ── Standings / divisions card ─────────────────────────── */
+  .standings-card { margin-top: 16px; }
+  .standings-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .standings-head h3 { margin: 0; font-size: 16px; }
+  .standings-toggle {
+    display: inline-flex;
+    gap: 4px;
+    padding: 2px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+  }
+  .standings-toggle button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 4px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .standings-toggle button.active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .standings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  @media (max-width: 860px) { .standings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .standings-grid { grid-template-columns: minmax(0, 1fr); } }
+  .division-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .division-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .division-title .conf-tag { color: var(--muted); margin-right: 6px; }
+  .division-row {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-2);
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .division-row:last-child { border-bottom: none; }
+  .division-row:hover { color: var(--accent); }
+  .division-row img { width: 20px; height: 20px; object-fit: contain; }
+  .division-row .t-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+  }
+  .division-row .t-rec { font-family: 'Outfit', sans-serif; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .division-row .t-rec b { color: var(--text); font-weight: 700; }
+
+  .flat-standings {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 6px 12px;
+  }
+  .flat-standings .division-row { padding: 4px 0; }
+  .standings-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
   }
 
+  /* ── Bottom quick-link chip grid ────────────────────────── */
   .conf-block { margin-top: 24px; }
   .conf-label {
     font-size: 11px;
@@ -80,17 +268,13 @@
     color: var(--muted);
     margin-bottom: 10px;
   }
-  .team-chip-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
+  .team-chip-grid { display: flex; flex-wrap: wrap; gap: 8px; }
   .team-chip {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 44px;
-    min-height: 44px;
+    min-height: 40px;
     padding: 0 14px;
     border-radius: 999px;
     border: 1px solid var(--border);
@@ -112,159 +296,353 @@
 
 <div class="teams-page-hero">
   <h1>{{ t('NBA Teams', 'NBA 球队') }}</h1>
-  <p class="meta">{{ t('Click a marker or chip to open that team\u2019s page.', '点击地图标记或球队徽章进入该球队主页。') }}</p>
+  <p class="meta">{{ t('Drag the year slider to travel through franchise history — markers and logos move to match the selected season.', '拖动下方的年份滑块，地图上的每支球队会回到它那一年的城市、标志与名称。') }}</p>
+</div>
+
+<div class="timeline-wrap">
+  <div class="timeline-head">
+    <div class="timeline-year-big">
+      <span id="year-label">{{ default_year }}</span><span class="yr-suffix">–<span id="year-label-suffix">{{ (default_year + 1) % 100 }}</span></span>
+    </div>
+    <div class="timeline-info">
+      <span><b id="info-count">—</b> {{ t('franchises', '球队') }}</span>
+      <span id="info-era" style="display:none;"></span>
+    </div>
+  </div>
+  <input id="year-slider" type="range"
+         min="{{ min_year }}" max="{{ max_year }}" step="1"
+         value="{{ default_year }}" class="timeline-slider" />
+  <div class="timeline-ticks" id="timeline-ticks"></div>
 </div>
 
 <div class="card">
-  <div class="teams-map-wrap">
-    <svg id="teams-map" viewBox="0 0 960 600"></svg>
-  </div>
+  <svg id="teams-map" viewBox="0 0 960 600"></svg>
+  <div id="offmap-note" class="offmap-note" style="display:none;"></div>
+</div>
 
-  {% if east_chips %}
-  <div class="conf-block">
-    <div class="conf-label">{{ t('Eastern Conference', '东部') }}</div>
+<div class="standings-card card">
+  <div class="standings-head">
+    <h3 id="standings-title">{{ t('Standings', '常规赛战绩') }}</h3>
+    <div class="standings-toggle" id="standings-toggle" style="display:none;">
+      <button data-mode="division" class="active">{{ t('Divisions', '分区') }}</button>
+      <button data-mode="flat">{{ t('All', '全部') }}</button>
+    </div>
+  </div>
+  <div id="standings-body"></div>
+</div>
+
+<div class="card">
+  <div class="conf-block" style="margin-top:0;">
+    <div class="conf-label">{{ t('Eastern Conference', '东部 — 快速跳转') }}</div>
     <div class="team-chip-grid">
       {% for team in east_chips %}
       <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
       {% endfor %}
     </div>
   </div>
-  {% endif %}
-
-  {% if west_chips %}
   <div class="conf-block">
-    <div class="conf-label">{{ t('Western Conference', '西部') }}</div>
+    <div class="conf-label">{{ t('Western Conference', '西部 — 快速跳转') }}</div>
     <div class="team-chip-grid">
       {% for team in west_chips %}
       <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip">{{ team.abbr }}</a>
       {% endfor %}
     </div>
   </div>
-  {% endif %}
-
-  {% if legacy_teams %}
-  <details class="conf-block" style="margin-top:24px;">
-    <summary style="cursor:pointer; font-family:'Outfit',sans-serif; font-size:14px; font-weight:600; color:var(--muted); user-select:none;">
-      {{ t('Historical Teams', '历史球队') }} <span class="meta" style="font-weight:400;">({{ legacy_teams|length }})</span>
-    </summary>
-    <div class="team-chip-grid" style="margin-top:10px;">
-      {% for team in legacy_teams %}
-      <a href="{{ url_for('team_page', slug=team.slug) }}" class="team-chip" style="opacity:0.7; font-size:11px;" title="{{ display_team_name(team) }}{% if team.start_season and team.end_season and team.end_season|int < 2100 %} ({{ team.start_season }}–{{ team.end_season }}){% endif %}">{{ team.abbr }}</a>
-      {% endfor %}
-    </div>
-  </details>
-  {% endif %}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <script>
 (function () {
-  const teams = {{ team_map_data | tojson }};
-  const ghostPins = {{ ghost_pins | tojson }};
-  const logoUrl = teamId => `https://cdn.nba.com/logos/nba/${teamId}/global/L/logo.svg`;
-  const teamUrls = {
-    {% for t in team_map_data %}
-    "{{ t.abbr }}": "{{ url_for('team_page', slug=t.slug) }}",
-    {% endfor %}
-  };
+  const eras = {{ eras | tojson }};
+  const journeys = {{ journeys | tojson }};
+  const recordsByYear = {{ records_by_year | tojson }};
+  const divisionsMap = {{ divisions_map | tojson }};
+  const divisionsGroups = {{ divisions_groups | tojson }};
+  const minYear = {{ min_year }};
+  const maxYear = {{ max_year }};
+  const defaultYear = {{ default_year }};
 
+  // team URL helper — slug is trusted from backend
+  const teamUrl = slug => "{{ url_for('team_page', slug='__SLUG__') }}".replace("__SLUG__", slug);
+
+  // ── Precompute eras-per-year lookup ─────────────────────────────
+  // A team appears in a year iff year_start <= y <= year_end (or year_end === null).
+  function erasForYear(y) {
+    const out = [];
+    for (const e of eras) {
+      const ye = e.year_end === null ? 9999 : e.year_end;
+      if (e.year_start <= y && y <= ye) out.push(e);
+    }
+    return out;
+  }
+
+  // ── D3 map setup ────────────────────────────────────────────────
   const svg = d3.select("#teams-map");
   const width = 960, height = 600;
   const projection = d3.geoAlbersUsa().scale(1280).translate([width / 2, height / 2]);
   const path = d3.geoPath().projection(projection);
-  const defs = svg.append("defs");
+
+  const gStates = svg.append("g").attr("class", "states-layer");
+  const gTrails = svg.append("g").attr("class", "trails-layer");
+  const gMarkers = svg.append("g").attr("class", "markers-layer");
 
   fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json")
     .then(r => r.json())
     .then(us => {
-      svg.append("g")
-        .selectAll("path")
+      gStates.selectAll("path")
         .data(topojson.feature(us, us.objects.states).features)
         .join("path")
         .attr("class", "state-path")
         .attr("d", path);
-
-      svg.append("path")
+      gStates.append("path")
         .datum(topojson.mesh(us, us.objects.states, (a, b) => a !== b))
-        .attr("fill", "none")
-        .attr("stroke", "var(--border)")
-        .attr("stroke-width", 0.5)
+        .attr("class", "state-mesh")
         .attr("d", path);
-
-      const R = 13;
-      teams.forEach(t => {
-        const coords = projection([t.lon, t.lat]);
-        if (!coords) return;
-        const [x, y] = coords;
-        const markerLogoUrl = logoUrl(t.team_id);
-        const clipId = `team-logo-clip-${t.team_id}`;
-
-        defs.append("clipPath")
-          .attr("id", clipId)
-          .append("circle")
-          .attr("cx", x).attr("cy", y).attr("r", R);
-
-        const g = svg.append("a")
-          .attr("href", teamUrls[t.abbr])
-          .attr("class", "map-marker");
-
-        g.append("title").text(t.full_name);
-        g.append("circle").attr("class", "map-hit-area").attr("cx", x).attr("cy", y).attr("r", R + 7);
-        g.append("circle").attr("class", "map-logo-ring").attr("cx", x).attr("cy", y).attr("r", R);
-        const logoImage = g.append("image")
-          .attr("class", "map-logo-image")
-          .attr("x", x - R).attr("y", y - R)
-          .attr("width", R * 2).attr("height", R * 2)
-          .attr("preserveAspectRatio", "xMidYMid slice")
-          .attr("clip-path", `url(#${clipId})`);
-        g.append("circle").attr("class", "map-logo-frame").attr("cx", x).attr("cy", y).attr("r", R);
-        g.append("circle").attr("class", "map-dot").attr("cx", x).attr("cy", y).attr("r", R);
-        g.append("text").attr("class", "map-label").attr("x", x).attr("y", y).text(t.abbr);
-        g.append("text").attr("class", "map-label-sub").attr("x", x).attr("y", y + 20).text(t.abbr);
-
-        const probe = new Image();
-        probe.onload = () => {
-          logoImage.attr("href", markerLogoUrl);
-          g.classed("logo-ready", true);
-        };
-        probe.onerror = () => g.classed("logo-failed", true);
-        probe.src = markerLogoUrl;
-      });
-
-      // ── Ghost pins for historical franchise cities ─────────────────────
-      const GR = 9; // ghost pin radius (smaller than R=13)
-      ghostPins.forEach((p, i) => {
-        const coords = projection([p.lon, p.lat]);
-        if (!coords) return;  // outside US projection (e.g. Vancouver)
-        const [x, y] = coords;
-        const clipId = `ghost-clip-${p.team_id}-${p.year_start}-${p.year_end}`;
-
-        defs.append("clipPath")
-          .attr("id", clipId)
-          .append("circle")
-          .attr("cx", x).attr("cy", y).attr("r", GR);
-
-        const g = svg.append("a")
-          .attr("href", `/teams/${p.slug}`)
-          .attr("class", "map-ghost-marker");
-
-        const tooltip = `${p.era_name} (${p.year_start}-${p.year_end})`;
-        g.append("title").text(tooltip);
-        g.append("circle").attr("class", "map-ghost-hit").attr("cx", x).attr("cy", y).attr("r", GR + 6);
-        g.append("circle").attr("class", "map-ghost-ring").attr("cx", x).attr("cy", y).attr("r", GR);
-
-        if (p.logo_url) {
-          g.append("image")
-            .attr("class", "map-ghost-logo")
-            .attr("href", p.logo_url)
-            .attr("x", x - GR).attr("y", y - GR)
-            .attr("width", GR * 2).attr("height", GR * 2)
-            .attr("preserveAspectRatio", "xMidYMid meet")
-            .attr("clip-path", `url(#${clipId})`);
-        }
-      });
+      renderYear(defaultYear);
     });
+
+  // ── Render markers for a given year (d3 general update pattern) ──
+  function renderYear(year) {
+    const active = erasForYear(year);
+    const withCoords = [];
+    const offMap = [];
+    for (const e of active) {
+      const c = projection([e.lon, e.lat]);
+      if (c) {
+        withCoords.push({ ...e, _x: c[0], _y: c[1] });
+      } else {
+        offMap.push(e);
+      }
+    }
+
+    // Data-join keyed by team_id (unique per active year).
+    const R = 14;
+    const markers = gMarkers.selectAll("g.era-marker")
+      .data(withCoords, d => d.team_id);
+
+    // EXIT: fade out then remove
+    markers.exit()
+      .transition().duration(350)
+      .style("opacity", 0)
+      .remove();
+
+    // ENTER: build marker
+    const enter = markers.enter()
+      .append("g")
+      .attr("class", d => "era-marker kind-" + d.kind)
+      .style("opacity", 0)
+      .attr("transform", d => `translate(${d._x},${d._y})`)
+      .on("click", (ev, d) => { window.location.href = teamUrl(d.slug); })
+      .on("mouseenter", (ev, d) => showTrail(d))
+      .on("mouseleave", hideTrail);
+
+    enter.append("title").text(d => `${d.era_name} (${d.year_start}-${d.year_end ?? ''})\n${d.city}, ${d.state}`);
+    enter.append("circle").attr("class", "era-hit").attr("r", R + 8);
+    enter.append("circle").attr("class", "era-ring").attr("r", R);
+    enter.append("clipPath")
+      .attr("id", d => `clip-${d.team_id}`)
+      .append("circle").attr("r", R - 2);
+    enter.append("image")
+      .attr("class", "era-logo")
+      .attr("x", -(R - 2)).attr("y", -(R - 2))
+      .attr("width", (R - 2) * 2).attr("height", (R - 2) * 2)
+      .attr("preserveAspectRatio", "xMidYMid meet")
+      .attr("clip-path", d => `url(#clip-${d.team_id})`)
+      .attr("href", d => d.logo_url || "");
+    enter.append("text").attr("class", "era-label").attr("y", 1).text(d => d.logo_url ? "" : d.abbr);
+    enter.append("text").attr("class", "era-label-sub").attr("y", R + 9).text(d => d.abbr);
+
+    enter.transition().duration(350).style("opacity", 1);
+
+    // UPDATE: transition existing markers to new position, swap logo/label if era changed
+    markers
+      .classed("kind-current", d => d.kind === "current")
+      .classed("kind-defunct", d => d.kind === "defunct")
+      .each(function (d) {
+        const g = d3.select(this);
+        g.select(".era-logo").attr("href", d.logo_url || "");
+        g.select(".era-label").text(d.logo_url ? "" : d.abbr);
+        g.select(".era-label-sub").text(d.abbr);
+        g.select("title").text(`${d.era_name} (${d.year_start}-${d.year_end ?? ''})\n${d.city}, ${d.state}`);
+      })
+      .transition().duration(450).ease(d3.easeCubicInOut)
+      .attr("transform", d => `translate(${d._x},${d._y})`);
+
+    // ── Off-map note (Toronto, Vancouver, etc.) ────────────────
+    const noteEl = document.getElementById("offmap-note");
+    if (offMap.length === 0) {
+      noteEl.style.display = "none";
+    } else {
+      noteEl.style.display = "block";
+      noteEl.innerHTML = "{{ t('Off-map (outside U.S. projection):', '地图外（北美以外或投影裁切）：') }} " +
+        offMap.map(e => `<a href="${teamUrl(e.slug)}"><strong>${escapeHtml(e.era_name)}</strong></a> (${e.city})`).join(", ");
+    }
+
+    // ── Year label + info strip ────────────────────────────────
+    document.getElementById("year-label").textContent = year;
+    document.getElementById("year-label-suffix").textContent = String((year + 1) % 100).padStart(2, "0");
+    document.getElementById("info-count").textContent = active.length;
+
+    // ── Standings card ─────────────────────────────────────────
+    renderStandings(year, active);
+  }
+
+  // ── Journey trails ────────────────────────────────────────────
+  let trailG = null;
+  function showTrail(era) {
+    if (era.kind !== "current") return;
+    const journey = journeys[era.team_id];
+    if (!journey || journey.length < 2) return;
+    hideTrail();
+    trailG = gTrails.append("g");
+    const pts = [];
+    for (const step of journey) {
+      const c = projection([step.lon, step.lat]);
+      if (c) pts.push(c);
+    }
+    if (pts.length < 2) { trailG.remove(); trailG = null; return; }
+    const line = d3.line().curve(d3.curveCatmullRom.alpha(0.5));
+    trailG.append("path")
+      .attr("class", "journey-trail active")
+      .attr("d", line(pts));
+    trailG.selectAll("circle")
+      .data(pts)
+      .join("circle")
+      .attr("class", "journey-dot active")
+      .attr("cx", d => d[0]).attr("cy", d => d[1])
+      .attr("r", 3);
+  }
+  function hideTrail() {
+    if (trailG) { trailG.remove(); trailG = null; }
+  }
+
+  // ── Standings rendering ───────────────────────────────────────
+  let standingsMode = "division";
+  const toggleEl = document.getElementById("standings-toggle");
+  toggleEl.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      standingsMode = btn.dataset.mode;
+      toggleEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === btn));
+      renderStandings(+document.getElementById("year-slider").value, erasForYear(+document.getElementById("year-slider").value));
+    });
+  });
+
+  function renderStandings(year, active) {
+    const body = document.getElementById("standings-body");
+    const title = document.getElementById("standings-title");
+    title.textContent = `${year}–${String((year + 1) % 100).padStart(2, "0")} {{ t('Regular Season', '常规赛') }}`;
+    const records = recordsByYear[String(year)] || {};
+
+    // Decide division view availability: year >= 2004 AND we have W-L data.
+    const divisionsAvailable = year >= 2004 && Object.keys(records).length > 0;
+    toggleEl.style.display = divisionsAvailable ? "inline-flex" : "none";
+
+    if (!divisionsAvailable) {
+      renderFlatStandings(body, active, records, /*forceEmptyMsg=*/Object.keys(records).length === 0);
+      return;
+    }
+
+    if (standingsMode === "flat") {
+      renderFlatStandings(body, active, records, false);
+      return;
+    }
+
+    // 6-division grouping.
+    const byDiv = {};
+    for (const grp of divisionsGroups) byDiv[grp[1]] = [];
+    for (const e of active) {
+      const div = divisionsMap[e.team_id];
+      if (!div) continue;
+      const rec = records[e.team_id] || { w: 0, l: 0 };
+      byDiv[div[1]].push({ era: e, ...rec });
+    }
+    for (const name in byDiv) {
+      byDiv[name].sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
+    }
+
+    const frag = document.createElement("div");
+    frag.className = "standings-grid";
+    for (const [conf, name, zhName] of divisionsGroups) {
+      const rows = byDiv[name] || [];
+      if (rows.length === 0) continue;
+      const box = document.createElement("div");
+      box.className = "division-box";
+      box.innerHTML = `<div class="division-title"><span class="conf-tag">${conf}</span>${name}</div>`;
+      for (const r of rows) {
+        box.appendChild(buildStandingsRow(r));
+      }
+      frag.appendChild(box);
+    }
+    body.replaceChildren(frag);
+  }
+
+  function renderFlatStandings(body, active, records, forceEmptyMsg) {
+    if (forceEmptyMsg) {
+      body.innerHTML = `<div class="standings-empty">{{ t('No regular-season results available for this season yet.', '本赛季尚无常规赛数据。') }}</div>`;
+      return;
+    }
+    const rows = active.map(e => ({ era: e, ...(records[e.team_id] || { w: 0, l: 0 }) }));
+    rows.sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
+    const frag = document.createElement("div");
+    frag.className = "flat-standings";
+    for (const r of rows) frag.appendChild(buildStandingsRow(r));
+    body.replaceChildren(frag);
+  }
+
+  function buildStandingsRow(r) {
+    const a = document.createElement("a");
+    a.className = "division-row";
+    a.href = teamUrl(r.era.slug);
+    const pct = (r.w + r.l > 0) ? (r.w / (r.w + r.l)).toFixed(3).replace(/^0/, "") : "—";
+    a.innerHTML = `
+      ${r.era.logo_url ? `<img src="${r.era.logo_url}" alt="">` : `<span></span>`}
+      <span class="t-name">${escapeHtml(r.era.era_name)}</span>
+      <span class="t-rec"><b>${r.w}-${r.l}</b> <span>${pct}</span></span>
+    `;
+    return a;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ── Slider wire-up ───────────────────────────────────────────
+  const slider = document.getElementById("year-slider");
+  let rafId = null;
+  slider.addEventListener("input", () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      renderYear(+slider.value);
+      rafId = null;
+    });
+  });
+
+  // ── Event notches on the slider ──────────────────────────────
+  const ticks = [
+    { year: 1946, label: "BAA" },
+    { year: 1949, label: "NBA" },
+    { year: 1967, label: "ABA" },
+    { year: 1976, label: "ABA merger" },
+    { year: 1995, label: "Tor/Van" },
+    { year: 2004, label: "6 div" },
+  ];
+  const tickWrap = document.getElementById("timeline-ticks");
+  const yearSpan = maxYear - minYear;
+  for (const tk of ticks) {
+    if (tk.year < minYear || tk.year > maxYear) continue;
+    const pct = ((tk.year - minYear) / yearSpan) * 100;
+    const el = document.createElement("div");
+    el.className = "timeline-tick";
+    el.style.left = pct + "%";
+    el.textContent = tk.label;
+    el.title = tk.year;
+    el.addEventListener("click", () => {
+      slider.value = tk.year;
+      renderYear(tk.year);
+    });
+    tickWrap.appendChild(el);
+  }
 })();
 </script>
 {% endblock %}

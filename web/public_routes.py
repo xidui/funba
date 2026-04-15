@@ -531,138 +531,239 @@ def register_public_routes(
             return result
 
     def teams_list_page():
-        """/teams — SVG US map of all teams + chip grids + historical teams."""
+        """/teams — Timeline scrubber over franchise history.
+
+        Single dynamic map: drag the year slider to see the NBA as it was
+        that season (teams at their era city, era logos, era names). Below
+        the map: division standings card for any year where we have results,
+        plus East/West chip quick-links at the bottom.
+        """
         SessionLocal = get_session_local()
         Team = get_team_model()
         Game = get_game_model()
-        TeamGameStats = get_team_game_stats_model()
 
-        east_ids = {
-            "1610612737", "1610612751", "1610612738", "1610612766", "1610612741",
-            "1610612739", "1610612765", "1610612754", "1610612748", "1610612749",
-            "1610612752", "1610612753", "1610612755", "1610612761", "1610612764",
-        }
-
-        with SessionLocal() as session:
-            teams = (
-                session.query(Team)
-                .filter(Team.is_legacy.is_(False))
-                .order_by(Team.full_name.asc())
-                .all()
-            )
-            legacy_teams = (
-                session.query(Team)
-                .filter(Team.is_legacy.is_(True))
-                .order_by(Team.full_name.asc())
-                .all()
-            )
-
-        team_map_data = []
-        team_map_positions = get_team_map_positions()
-        for team in teams:
-            pos = team_map_positions.get(team.abbr)
-            if not pos:
-                continue
-            team_map_data.append(
-                {
-                    "abbr": team.abbr,
-                    "full_name": get_display_team_name()(team),
-                    "team_id": team.team_id,
-                    "slug": team.slug,
-                    "lat": pos[0],
-                    "lon": pos[1],
-                }
-            )
-
-        east_chips = sorted(
-            [{"abbr": t.abbr, "slug": t.slug} for t in teams if t.team_id in east_ids],
-            key=lambda x: x["abbr"] or "",
-        )
-        west_chips = sorted(
-            [{"abbr": t.abbr, "slug": t.slug} for t in teams if t.team_id not in east_ids],
-            key=lambda x: x["abbr"] or "",
-        )
-
-        # ── Build "ghost pins" for former franchise cities ────────────────
-        from collections import defaultdict
+        from collections import defaultdict as _dd
+        from flask import url_for
         from web.historical_team_locations import (
             FRANCHISE_HISTORY,
+            DEFUNCT_FRANCHISES,
             get_logo_for_year,
             get_current_logo,
         )
 
-        team_slug_by_id = {t.team_id: t.slug for t in teams}
-        current_city_by_team = {
-            era["team_id"]: era["city"]
-            for era in FRANCHISE_HISTORY
-            if era["year_end"] is None
+        # Current NBA 6-division layout (in effect 2004-present).
+        DIVISIONS_2004 = {
+            # Atlantic
+            "1610612738": ("E", "Atlantic"),   # BOS
+            "1610612751": ("E", "Atlantic"),   # BKN
+            "1610612752": ("E", "Atlantic"),   # NYK
+            "1610612755": ("E", "Atlantic"),   # PHI
+            "1610612761": ("E", "Atlantic"),   # TOR
+            # Central
+            "1610612741": ("E", "Central"),    # CHI
+            "1610612739": ("E", "Central"),    # CLE
+            "1610612765": ("E", "Central"),    # DET
+            "1610612754": ("E", "Central"),    # IND
+            "1610612749": ("E", "Central"),    # MIL
+            # Southeast
+            "1610612737": ("E", "Southeast"),  # ATL
+            "1610612766": ("E", "Southeast"),  # CHA
+            "1610612748": ("E", "Southeast"),  # MIA
+            "1610612753": ("E", "Southeast"),  # ORL
+            "1610612764": ("E", "Southeast"),  # WAS
+            # Northwest
+            "1610612743": ("W", "Northwest"),  # DEN
+            "1610612750": ("W", "Northwest"),  # MIN
+            "1610612760": ("W", "Northwest"),  # OKC
+            "1610612757": ("W", "Northwest"),  # POR
+            "1610612762": ("W", "Northwest"),  # UTA
+            # Pacific
+            "1610612744": ("W", "Pacific"),    # GSW
+            "1610612746": ("W", "Pacific"),    # LAC
+            "1610612747": ("W", "Pacific"),    # LAL
+            "1610612756": ("W", "Pacific"),    # PHX
+            "1610612758": ("W", "Pacific"),    # SAC
+            # Southwest
+            "1610612742": ("W", "Southwest"),  # DAL
+            "1610612745": ("W", "Southwest"),  # HOU
+            "1610612763": ("W", "Southwest"),  # MEM
+            "1610612740": ("W", "Southwest"),  # NOP
+            "1610612759": ("W", "Southwest"),  # SAS
         }
 
-        grouped_eras: dict[tuple[str, str], list] = defaultdict(list)
-        for era in FRANCHISE_HISTORY:
-            grouped_eras[(era["team_id"], era["city"])].append(era)
-
-        ghost_pins = []
-        for (team_id, city), eras in grouped_eras.items():
-            if current_city_by_team.get(team_id) == city:
-                continue  # current city — main pin already covers it
-            if team_id not in team_slug_by_id:
-                continue  # team not in current 30 (shouldn't happen)
-            eras.sort(key=lambda e: e["year_start"])
-            year_start = eras[0]["year_start"]
-            year_ends = [e["year_end"] for e in eras if e["year_end"] is not None]
-            if not year_ends:
-                continue
-            year_end = max(year_ends)
-            # Main era = longest-span entry in the group (for label / lat-lon)
-            main_era = max(
-                eras,
-                key=lambda e: ((e["year_end"] or year_end) - e["year_start"]),
-            )
-            era_names = [e["era_name"] for e in eras]
-            # Representative logo: try midpoint, then end, then start year.
-            # Fall back to the team's current-era local logo (year_end=None)
-            # so every ghost pin gets a stable local file.
-            mid = (year_start + year_end) // 2
+        def _resolve_logo_url(team_id: str, year: int) -> str | None:
             logo = (
-                get_logo_for_year(team_id, mid)
-                or get_logo_for_year(team_id, year_end)
-                or get_logo_for_year(team_id, year_start)
+                get_logo_for_year(team_id, year)
                 or get_current_logo(team_id)
             )
-            logo_url = None
-            if logo is not None:
-                # logo['path'] is like 'static/team_logos/historical/1610612747/1947_1959.png'
-                # Strip the leading 'static/' so url_for('static', filename=...) works.
-                rel = logo["path"]
-                if rel.startswith("static/"):
-                    rel = rel[len("static/"):]
-                from flask import url_for
-                logo_url = url_for("static", filename=rel)
-            ghost_pins.append(
-                {
-                    "team_id": team_id,
-                    "slug": team_slug_by_id[team_id],
-                    "franchise": main_era["franchise"],
-                    "era_name": main_era["era_name"],
-                    "era_names": era_names,
-                    "city": city,
-                    "state": main_era["state"],
-                    "year_start": year_start,
-                    "year_end": year_end,
-                    "lat": main_era["lat"],
-                    "lon": main_era["lon"],
-                    "logo_url": logo_url,
-                }
+            if logo is None:
+                return None
+            rel = logo["path"]
+            if rel.startswith("static/"):
+                rel = rel[len("static/"):]
+            return url_for("static", filename=rel)
+
+        with SessionLocal() as session:
+            # Slugs we will link to. Keyed by team_id for the 30 current
+            # franchises; defunct franchises use their legacy Team row slug.
+            current_teams = (
+                session.query(Team)
+                .filter(Team.is_legacy.is_(False))
+                .all()
             )
+            current_team_by_id = {t.team_id: t for t in current_teams}
+
+            defunct_team_ids = [d["team_id"] for d in DEFUNCT_FRANCHISES]
+            legacy_teams = (
+                session.query(Team)
+                .filter(Team.team_id.in_(defunct_team_ids))
+                .all()
+            ) if defunct_team_ids else []
+            legacy_by_id = {t.team_id: t for t in legacy_teams}
+
+            # Per-season regular-season W-L for every team that played
+            # (across ALL seasons with results). Season code "22025" = 22025
+            # regular season starting in 2025. We derive the start year from
+            # the trailing 4 digits.
+            all_games = (
+                session.query(
+                    Game.season,
+                    Game.home_team_id,
+                    Game.road_team_id,
+                    Game.wining_team_id,
+                )
+                .filter(Game.wining_team_id.isnot(None))
+                .filter(Game.season.like("2%"))  # regular season only
+                .all()
+            )
+
+        # ── Build the flat list of eras shipped to the browser ───────────
+        def _era_rows(source, slug_lookup, kind):
+            rows = []
+            for era in source:
+                team_id = era["team_id"]
+                team = slug_lookup.get(team_id)
+                if team is None or not team.slug:
+                    continue  # no navigable slug — skip
+                year_start = era["year_start"]
+                year_end = era["year_end"]  # may be None for current era
+                rep_year = year_start if year_end is None else (year_start + year_end) // 2
+                rows.append({
+                    "team_id": team_id,
+                    "slug": team.slug,
+                    "kind": kind,  # "current" or "defunct"
+                    "franchise": era.get("franchise", ""),
+                    "era_name": era["era_name"],
+                    "abbr": era.get("abbr") or team.abbr or "",
+                    "city": era["city"],
+                    "state": era.get("state", ""),
+                    "year_start": year_start,
+                    "year_end": year_end,  # None → still active
+                    "lat": era["lat"],
+                    "lon": era["lon"],
+                    "logo_url": _resolve_logo_url(team_id, rep_year),
+                })
+            return rows
+
+        eras = (
+            _era_rows(FRANCHISE_HISTORY, current_team_by_id, "current")
+            + _era_rows(DEFUNCT_FRANCHISES, legacy_by_id, "defunct")
+        )
+
+        # ── Franchise journeys (ordered era sequence per surviving team) ──
+        journeys: dict[str, list] = _dd(list)
+        for era in eras:
+            if era["kind"] != "current":
+                continue
+            journeys[era["team_id"]].append({
+                "lat": era["lat"],
+                "lon": era["lon"],
+                "year_start": era["year_start"],
+                "year_end": era["year_end"],
+                "city": era["city"],
+                "era_name": era["era_name"],
+            })
+        for seq in journeys.values():
+            seq.sort(key=lambda e: e["year_start"])
+
+        # ── Per-season W-L records keyed by start year ───────────────────
+        records_by_year: dict[int, dict[str, dict]] = _dd(lambda: _dd(lambda: {"w": 0, "l": 0}))
+        for season, home_id, road_id, winner_id in all_games:
+            if not season or len(season) < 5:
+                continue
+            try:
+                start_year = int(season[-4:])
+            except ValueError:
+                continue
+            bucket = records_by_year[start_year]
+            for tid in (home_id, road_id):
+                if not tid:
+                    continue
+                if tid == winner_id:
+                    bucket[tid]["w"] += 1
+                else:
+                    bucket[tid]["l"] += 1
+
+        # Convert defaultdicts so jinja/json serialize cleanly.
+        records_by_year_out = {
+            str(year): {tid: rec for tid, rec in teams_rec.items()}
+            for year, teams_rec in records_by_year.items()
+        }
+
+        # Year bounds for the slider. Oldest era wins start. Latest = latest
+        # season in records OR the open current-era year.
+        min_year = min((e["year_start"] for e in eras), default=1946)
+        latest_record_year = max(records_by_year.keys(), default=min_year)
+        from datetime import date as _date
+        today_year = _date.today().year
+        # Season-start convention: 2025 == 2025-26 season.
+        max_year = max(latest_record_year, today_year)
+
+        default_year = latest_record_year or today_year
+
+        # Division layout dicts used by both the timeline info strip and the
+        # standings card. Grouped east→west, atlantic→southwest.
+        divisions_groups = [
+            ("E", "Atlantic", "大西洋"),
+            ("E", "Central", "中央"),
+            ("E", "Southeast", "东南"),
+            ("W", "Northwest", "西北"),
+            ("W", "Pacific", "太平洋"),
+            ("W", "Southwest", "西南"),
+        ]
+        divisions_lookup = {tid: div for tid, div in DIVISIONS_2004.items()}
+
+        # East/West quick-link chips stay at the bottom of the page.
+        east_ids = {tid for tid, (conf, _) in DIVISIONS_2004.items() if conf == "E"}
+        east_chips = sorted(
+            (
+                {"abbr": t.abbr, "slug": t.slug}
+                for t in current_teams
+                if t.team_id in east_ids and t.slug
+            ),
+            key=lambda x: x["abbr"] or "",
+        )
+        west_chips = sorted(
+            (
+                {"abbr": t.abbr, "slug": t.slug}
+                for t in current_teams
+                if t.team_id not in east_ids and t.slug
+            ),
+            key=lambda x: x["abbr"] or "",
+        )
 
         return get_render_template()(
             "teams_list.html",
-            team_map_data=team_map_data,
+            eras=eras,
+            journeys=journeys,
+            records_by_year=records_by_year_out,
+            divisions_map=divisions_lookup,
+            divisions_groups=divisions_groups,
+            min_year=min_year,
+            max_year=max_year,
+            default_year=default_year,
             east_chips=east_chips,
             west_chips=west_chips,
-            legacy_teams=legacy_teams,
-            ghost_pins=ghost_pins,
         )
 
     def _build_top_scorers(limit: int = 5) -> dict:
