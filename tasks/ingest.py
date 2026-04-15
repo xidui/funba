@@ -512,12 +512,23 @@ def sync_schedule_window(
     except Exception as exc:
         logger.warning("sync_schedule_window: live meta patch failed: %s", exc, exc_info=True)
 
+    # Slug-sweep: any game whose matchup is now known (teams + date set) but
+    # whose slug is still NULL gets a YYYYMMDD-road-home slug. Catches TBD
+    # playoff rows that transitioned during this sync run; the legacy
+    # `/games/game-<id>` URL keeps working via the redirect in web/app.py.
+    slug_patched = 0
+    try:
+        slug_patched = _sweep_game_slugs()
+    except Exception as exc:
+        logger.warning("sync_schedule_window: slug sweep failed: %s", exc, exc_info=True)
+
     logger.info(
-        "sync_schedule_window: synced %d game(s) for %s -> %s, live_patched=%d",
+        "sync_schedule_window: synced %d game(s) for %s -> %s, live_patched=%d, slug_patched=%d",
         len(game_ids),
         date_from,
         date_to,
         live_patched,
+        slug_patched,
     )
     return {
         "date_from": date_from,
@@ -525,7 +536,41 @@ def sync_schedule_window(
         "season_types": list(season_types or []),
         "synced_games": len(game_ids),
         "live_patched": live_patched,
+        "slug_patched": slug_patched,
     }
+
+
+def _sweep_game_slugs() -> int:
+    """Compute slugs for every Game row whose teams are now known but whose
+    slug is still NULL. Returns the number of rows updated."""
+    import os
+    import sys
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from db.backfill_nba_game_detail import _compute_game_slug
+
+    SessionLocal = sessionmaker(bind=engine)
+    updated = 0
+    with SessionLocal() as session:
+        rows = (
+            session.query(Game)
+            .filter(
+                Game.slug.is_(None),
+                Game.game_date.isnot(None),
+                Game.home_team_id.isnot(None),
+                Game.road_team_id.isnot(None),
+            )
+            .all()
+        )
+        for game in rows:
+            new_slug = _compute_game_slug(session, game)
+            if new_slug:
+                game.slug = new_slug
+                updated += 1
+        if updated:
+            session.commit()
+    return updated
 
 
 def _patch_today_meta_from_live() -> int:
