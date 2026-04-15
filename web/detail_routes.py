@@ -462,6 +462,9 @@ def register_detail_routes(
                     player_team_score = game.home_team_score if is_home else game.road_team_score
                     opponent_score = game.road_team_score if is_home else game.home_team_score
 
+                    # Season start year for era-appropriate logo lookup.
+                    _season_str = str(game.season or "")
+                    _season_year = int(_season_str[1:]) if len(_season_str) == 5 and _season_str.isdigit() else None
                     game_rows.append(
                         {
                             "game_id": game.game_id,
@@ -482,6 +485,7 @@ def register_detail_routes(
                             "is_home": is_home,
                             "player_team_score": player_team_score,
                             "opponent_score": opponent_score,
+                            "season_year": _season_year,
                         }
                     )
 

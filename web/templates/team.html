@@ -185,7 +185,7 @@
 <div class="card">
   <div class="team-header-top">
     <img class="team-logo"
-         src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
+         src="{{ team_logo(team.team_id) }}"
          alt="{{ team.abbr }} logo"
          onerror="this.style.display='none'">
     <h1 style="margin:0;">{{ team_name }}</h1>

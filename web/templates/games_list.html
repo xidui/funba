@@ -335,7 +335,7 @@
         {% if road and road.team_id %}
         <img
           class="game-team-logo"
-          src="https://cdn.nba.com/logos/nba/{{ road.team_id }}/global/L/logo.svg"
+          src="{{ team_logo(road.team_id, season_year(game.season)) }}"
           alt="{{ road.full_name }} logo"
           loading="lazy"
           onerror="this.style.display='none'">
@@ -362,7 +362,7 @@
         {% if home and home.team_id %}
         <img
           class="game-team-logo"
-          src="https://cdn.nba.com/logos/nba/{{ home.team_id }}/global/L/logo.svg"
+          src="{{ team_logo(home.team_id, season_year(game.season)) }}"
           alt="{{ home.full_name }} logo"
           loading="lazy"
           onerror="this.style.display='none'">

@@ -1598,7 +1598,7 @@
           {% if m.primary_sub_key_info.team_id %}
             {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
             <a href="{{ _turl or '#' }}" class="split-primary-team">
-              <img src="https://cdn.nba.com/logos/nba/{{ m.primary_sub_key_info.team_id }}/global/L/logo.svg"
+              <img src="{{ team_logo(m.primary_sub_key_info.team_id) }}"
                    alt="" loading="lazy" onerror="this.style.display='none'">
               {{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}
             </a>
@@ -1620,7 +1620,7 @@
               {% if _is_team %}
                 {% set _team_href = team_url(s.sub_key_info.team_id) %}
                 <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
-                  <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg"
+                  <img src="{{ team_logo(s.sub_key_info.team_id) }}"
                        alt="" loading="lazy" onerror="this.style.display='none'">
                   <span class="split-cell-name">{{ s.sub_key_info.abbr or s.sub_key_info.label }}</span>
                 </a>
@@ -1654,7 +1654,7 @@
                 {% endif %}
                 <div class="split-game-panel-header">
                   {% if s.sub_key_info and s.sub_key_info.team_id %}
-                  <img src="https://cdn.nba.com/logos/nba/{{ s.sub_key_info.team_id }}/global/L/logo.svg" alt="" style="width:18px;height:18px;">
+                  <img src="{{ team_logo(s.sub_key_info.team_id) }}" alt="" style="width:18px;height:18px;">
                   <strong>{{ m.metric_name }} vs {{ s.sub_key_info.abbr or s.sub_key_info.label }}</strong>
                   <span class="split-game-panel-total">· {{ s.value_str if s.value_str else s.value_num }} · {{ (s.games_meta or [])|length }} {{ t('games', '场') }}</span>
                   {% endif %}
@@ -1681,7 +1681,7 @@
                         <td class="split-game-td-matchup">
                           <span class="split-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
                           {% if _opp_id %}
-                          <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+                          <img src="{{ team_logo(_opp_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
                           <span>{{ s.sub_key_info.abbr }}</span>
                           {% endif %}
                         </td>
@@ -1988,7 +1988,7 @@
         <!-- Team logo centered on court -->
         {% if player_current_team_id %}
         <image
-          href="https://cdn.nba.com/logos/nba/{{ player_current_team_id }}/global/L/logo.svg"
+          href="{{ team_logo(player_current_team_id) }}"
           x="-45" y="-420" width="90" height="90"
           opacity="0.10"
         />
@@ -2109,7 +2109,7 @@
           <td class="nowrap">
             {% if row.player_team_href %}
             <a href="{{ row.player_team_href }}" class="gl-team-link">
-              <img src="https://cdn.nba.com/logos/nba/{{ row.player_team_id }}/global/L/logo.svg"
+              <img src="{{ team_logo(row.player_team_id, row.season_year) }}"
                    class="gl-team-logo" alt="" onerror="this.style.display='none'">
               {{ row.player_team_abbr }}
             </a>
@@ -2121,7 +2121,7 @@
             {{ 'vs' if row.is_home else '@' }}
             {% if row.opponent_href %}
             <a href="{{ row.opponent_href }}" class="gl-team-link">
-              <img src="https://cdn.nba.com/logos/nba/{{ row.opponent_id }}/global/L/logo.svg"
+              <img src="{{ team_logo(row.opponent_id, row.season_year) }}"
                    class="gl-team-logo" alt="" onerror="this.style.display='none'">
               {{ row.opponent_abbr }}
             </a>

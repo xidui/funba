@@ -1459,7 +1459,7 @@
               {% if r.is_active %}<span class="active-dot" title="Active player"></span>{% endif %}
             {% elif r.entity_type == 'team' %}
               <img class="entity-thumb team"
-                   src="https://cdn.nba.com/logos/nba/{{ r.entity_id }}/global/L/logo.svg"
+                   src="{{ team_logo(r.entity_id, season_year(r.season_raw or current_metric_season)) }}"
                    alt="" loading="lazy"
                    onerror="this.style.display='none'">
               <a class="entity-link" href="{{ team_url(r.entity_id) }}">{{ r.entity_label }}</a>
@@ -1482,13 +1482,13 @@
               <a class="entity-link" href="{{ game_url(r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
                 {% if r.road_team_id %}
                 <img class="entity-thumb team" style="width:22px;height:22px;"
-                     src="https://cdn.nba.com/logos/nba/{{ r.road_team_id }}/global/L/logo.svg"
+                     src="{{ team_logo(r.road_team_id, season_year(r.season_raw or current_metric_season)) }}"
                      alt="" loading="lazy" onerror="this.style.display='none'">
                 {% endif %}
                 <span>{{ r.road_abbr or '' }} @ {{ r.home_abbr or '' }}</span>
                 {% if r.home_team_id %}
                 <img class="entity-thumb team" style="width:22px;height:22px;"
-                     src="https://cdn.nba.com/logos/nba/{{ r.home_team_id }}/global/L/logo.svg"
+                     src="{{ team_logo(r.home_team_id, season_year(r.season_raw or current_metric_season)) }}"
                      alt="" loading="lazy" onerror="this.style.display='none'">
                 {% endif %}
                 {% if r.game_date_str %}<span style="color:var(--muted);font-size:12px;">({{ r.game_date_str }})</span>{% endif %}
@@ -1508,7 +1508,7 @@
             {% set _turl = team_url(r.sub_key_info.team_id) %}
             <a href="{{ _turl or '#' }}"
                style="display:inline-flex;align-items:center;gap:4px;color:inherit;text-decoration:none;">
-              <img src="https://cdn.nba.com/logos/nba/{{ r.sub_key_info.team_id }}/global/L/logo.svg"
+              <img src="{{ team_logo(r.sub_key_info.team_id, season_year(r.season_raw or current_metric_season)) }}"
                    alt="" loading="lazy" style="width:18px;height:18px;" onerror="this.style.display='none'">
               <span>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</span>
             </a>
@@ -1587,7 +1587,7 @@
               <strong>{{ r.entity_label }}</strong>
               {% if r.sub_key_info and r.sub_key_info.team_id %}
                 <span class="md-split-drilldown-vs">{{ t('vs', '对位') }}</span>
-                <img src="https://cdn.nba.com/logos/nba/{{ r.sub_key_info.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'" style="width:16px;height:16px;vertical-align:middle;">
+                <img src="{{ team_logo(r.sub_key_info.team_id, season_year(r.season_raw or current_metric_season)) }}" alt="" loading="lazy" onerror="this.style.display='none'" style="width:16px;height:16px;vertical-align:middle;">
                 <span>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</span>
               {% endif %}
               <span class="md-split-drilldown-value">· {{ r.value_str or r.value_num }} · {{ r.qual_total }} {{ t('games', '场') }}</span>
@@ -1614,7 +1614,7 @@
                     <td class="md-split-game-matchup">
                       <span class="md-split-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
                       {% if _opp_id %}
-                        <img src="https://cdn.nba.com/logos/nba/{{ _opp_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+                        <img src="{{ team_logo(_opp_id, season_year(r.season_raw or current_metric_season)) }}" alt="" loading="lazy" onerror="this.style.display='none'">
                         <span>{{ r.sub_key_info.abbr if r.sub_key_info else _opp_id }}</span>
                       {% endif %}
                     </td>

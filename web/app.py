@@ -4850,6 +4850,38 @@ def _sync_social_post_from_paperclip(post_id: int, *, ensure_issue: bool = True)
     return None
 
 
+def _season_year(season) -> int | None:
+    """Extract the NBA season start year from a season code like '22023' -> 2023."""
+    s = str(season or "").strip()
+    if len(s) == 5 and s.isdigit():
+        return int(s[1:])
+    return None
+
+
+def _team_logo(team_id: str | None, year: int | None = None) -> str:
+    """Jinja helper: URL for a team's logo at a given season year.
+
+    Falls through the FRANCHISE_LOGOS registry (historical era match →
+    current-era local file) with a final defensive fallback to the NBA CDN.
+    When `year` is None, returns the current-era logo.
+    """
+    if not team_id:
+        return ""
+    from web.historical_team_locations import get_logo_url_for_year, get_current_logo
+    from datetime import date as _date
+    if year is None:
+        today = _date.today()
+        year = today.year if today.month >= 7 else today.year - 1
+    try:
+        year_int = int(year)
+    except (TypeError, ValueError):
+        current = get_current_logo(str(team_id))
+        if current is None:
+            return f"https://cdn.nba.com/logos/nba/{team_id}/global/L/logo.svg"
+        return "/" + current["path"]
+    return get_logo_url_for_year(str(team_id), year_int, static_prefix="/")
+
+
 @app.context_processor
 def inject_template_helpers():
     from datetime import date
@@ -4879,6 +4911,8 @@ def inject_template_helpers():
         "game_url": _game_url,
         "team_url": _team_url,
         "game_slug_map": _ensure_game_slug_cache(),
+        "team_logo": _team_logo,
+        "season_year": _season_year,
     }
 
 

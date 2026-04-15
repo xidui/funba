@@ -386,7 +386,7 @@
     <button class="team-pick team-pick-all active" data-team="all" title="{{ t('All Teams', '全部球队') }}">ALL</button>
     {% for team in teams_with_players %}
     <button class="team-pick" data-team="{{ team.abbr }}" title="{{ team.full_name }}">
-      <img src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg" alt="{{ team.abbr }}" loading="lazy" onerror="this.parentElement.textContent='{{ team.abbr }}'">
+      <img src="{{ team_logo(team.team_id) }}" alt="{{ team.abbr }}" loading="lazy" onerror="this.parentElement.textContent='{{ team.abbr }}'">
     </button>
     {% endfor %}
   </div>
@@ -397,7 +397,7 @@
     <div class="team-section" data-team-abbr="{{ team.abbr }}">
       <div class="team-section-header">
         <img
-          src="https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg"
+          src="{{ team_logo(team.team_id) }}"
           alt="{{ team.abbr }}"
           class="team-section-logo"
           loading="lazy"

@@ -1269,7 +1269,7 @@
       <a href="{{ team_url(game.road_team_id) }}" class="sb-team-link">
         <img
           class="sb-logo"
-          src="https://cdn.nba.com/logos/nba/{{ game.road_team_id }}/global/L/logo.svg"
+          src="{{ team_logo(game.road_team_id, season_year(game.season)) }}"
           alt="{{ team_name(game.road_team_id) }} logo"
           loading="eager"
           onerror="this.style.display='none'">
@@ -1320,7 +1320,7 @@
       <a href="{{ team_url(game.home_team_id) }}" class="sb-team-link">
         <img
           class="sb-logo"
-          src="https://cdn.nba.com/logos/nba/{{ game.home_team_id }}/global/L/logo.svg"
+          src="{{ team_logo(game.home_team_id, season_year(game.season)) }}"
           alt="{{ team_name(game.home_team_id) }} logo"
           loading="eager"
           onerror="this.style.display='none'">
@@ -1360,7 +1360,7 @@
     <div class="up-preview-team">
       <a href="{{ team_url(game.road_team_id) }}" class="up-preview-team-link">
         <img class="up-preview-logo"
-             src="https://cdn.nba.com/logos/nba/{{ game.road_team_id }}/global/L/logo.svg"
+             src="{{ team_logo(game.road_team_id, season_year(game.season)) }}"
              alt="" loading="lazy" onerror="this.style.display='none'">
         <div class="up-preview-name">{{ team_name(game.road_team_id) }}</div>
       </a>
@@ -1428,7 +1428,7 @@
     <div class="up-preview-team">
       <a href="{{ team_url(game.home_team_id) }}" class="up-preview-team-link">
         <img class="up-preview-logo"
-             src="https://cdn.nba.com/logos/nba/{{ game.home_team_id }}/global/L/logo.svg"
+             src="{{ team_logo(game.home_team_id, season_year(game.season)) }}"
              alt="" loading="lazy" onerror="this.style.display='none'">
         <div class="up-preview-name">{{ team_name(game.home_team_id) }}</div>
       </a>
@@ -1523,7 +1523,7 @@
     ] %}
     <div class="lqp-team">
       <div class="lqp-team-header">
-        <img src="https://cdn.nba.com/logos/nba/{{ tid }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+        <img src="{{ team_logo(tid, season_year(game.season)) }}" alt="" onerror="this.style.display='none'">
         <span>{{ team_name(tid) }}</span>
       </div>
       <div class="lqp-team-pct">
@@ -1557,7 +1557,7 @@
     {% for side, tid, block in [('road', game.road_team_id, game_leaders.road), ('home', game.home_team_id, game_leaders.home)] %}
     <div class="gl-team">
       <div class="gl-team-header">
-        <img src="https://cdn.nba.com/logos/nba/{{ tid }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+        <img src="{{ team_logo(tid, season_year(game.season)) }}" alt="" onerror="this.style.display='none'">
         <span>{{ team_name(tid) }}</span>
       </div>
       {% for label, stat_label, leader in [
@@ -2184,7 +2184,7 @@
           <td class="nowrap meta">{{ row.clock }}</td>
           <td class="pbp-logo-cell">
             {% if row.team_id %}
-            <img src="https://cdn.nba.com/logos/nba/{{ row.team_id }}/global/L/logo.svg"
+            <img src="{{ team_logo(row.team_id, season_year(game.season)) }}"
                  alt="" width="20" height="20" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
           </td>
@@ -2298,6 +2298,10 @@
   };
   const ENDPOINT = {{ url_for('api_game_live', game_id=game.game_id)|tojson }};
   const STATUS = {{ current_status|tojson }};
+  const PBP_TEAM_LOGOS = {
+    [HOME_TEAM_ID]: {{ team_logo(home_team_id, season_year(game.season))|tojson }},
+    [ROAD_TEAM_ID]: {{ team_logo(game.road_team_id, season_year(game.season))|tojson }},
+  };
 
   function escapeHtml(value) {
     if (value === null || value === undefined) return '';
@@ -2455,7 +2459,10 @@
       parts.push('<td class="nowrap meta">' + escapeHtml(row.clock) + '</td>');
       let logoCell = '';
       if (row.team_id) {
-        logoCell = '<img src="https://cdn.nba.com/logos/nba/' + escapeHtml(row.team_id) + '/global/L/logo.svg" alt="" width="20" height="20" loading="lazy" onerror="this.style.display=\'none\'">';
+        const logoUrl = PBP_TEAM_LOGOS[row.team_id] || '';
+        if (logoUrl) {
+          logoCell = '<img src="' + logoUrl + '" alt="" width="20" height="20" loading="lazy" onerror="this.style.display=\'none\'">';
+        }
       }
       parts.push('<td class="pbp-logo-cell">' + logoCell + '</td>');
       parts.push('<td class="mobile-hide meta">' + escapeHtml(row.event_type) + '</td>');

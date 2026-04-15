@@ -903,14 +903,14 @@
         <a href="{{ game_url(g.game_id) }}" class="mini-game" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
           <div class="mini-game-row">
             <span class="mini-game-team">
-              <img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+              <img src="{{ team_logo(g.road_team_id) }}" alt="" onerror="this.style.display='none'">
               {{ g.road_abbr }}
             </span>
             <span class="mini-game-score {% if g.road_won %}win{% elif g.home_won %}loss{% endif %}" data-role="road-score">{{ g.road_score if g.road_score is not none else '—' }}</span>
           </div>
           <div class="mini-game-row">
             <span class="mini-game-team">
-              <img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+              <img src="{{ team_logo(g.home_team_id) }}" alt="" onerror="this.style.display='none'">
               {{ g.home_abbr }}
             </span>
             <span class="mini-game-score {% if g.home_won %}win{% elif g.road_won %}loss{% endif %}" data-role="home-score">{{ g.home_score if g.home_score is not none else '—' }}</span>
@@ -946,7 +946,7 @@
             <td class="rank {% if loop.index <= 3 %}top3{% endif %}">{{ loop.index }}</td>
             <td class="team">
               <a href="{{ url_for('team_page', slug=tm.slug) }}">
-                <img src="https://cdn.nba.com/logos/nba/{{ tm.team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+                <img src="{{ team_logo(tm.team_id) }}" alt="" onerror="this.style.display='none'">
                 {{ tm.abbr }}
               </a>
             </td>
@@ -968,7 +968,7 @@
             <td class="rank {% if loop.index <= 3 %}top3{% endif %}">{{ loop.index }}</td>
             <td class="team">
               <a href="{{ url_for('team_page', slug=tm.slug) }}">
-                <img src="https://cdn.nba.com/logos/nba/{{ tm.team_id }}/global/L/logo.svg" alt="" onerror="this.style.display='none'">
+                <img src="{{ team_logo(tm.team_id) }}" alt="" onerror="this.style.display='none'">
                 {{ tm.abbr }}
               </a>
             </td>
@@ -1057,7 +1057,7 @@
             <img src="{{ r.headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
             {% if r.team_id %}
-            <img class="top-scorer-team-logo" src="https://cdn.nba.com/logos/nba/{{ r.team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">
+            <img class="top-scorer-team-logo" src="{{ team_logo(r.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
           </div>
           <div class="top-scorer-meta">
@@ -1078,10 +1078,10 @@
         {% for g in upcoming_games[:6] %}
         <a href="{{ game_url(g.game_id) }}" class="mini-upcoming">
           <div class="mini-upcoming-teams">
-            {% if g.road_team_id %}<img src="https://cdn.nba.com/logos/nba/{{ g.road_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
+            {% if g.road_team_id %}<img src="{{ team_logo(g.road_team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
             <span>{{ g.road_abbr }}</span>
             <span class="mini-upcoming-at">@</span>
-            {% if g.home_team_id %}<img src="https://cdn.nba.com/logos/nba/{{ g.home_team_id }}/global/L/logo.svg" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
+            {% if g.home_team_id %}<img src="{{ team_logo(g.home_team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
             <span>{{ g.home_abbr }}</span>
           </div>
           <div class="mini-upcoming-time">{{ g.summary or g.game_date.strftime('%b %d') }}</div>
