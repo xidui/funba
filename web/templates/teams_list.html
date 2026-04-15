@@ -356,12 +356,35 @@
 (function () {
   const eras = {{ eras | tojson }};
   const journeys = {{ journeys | tojson }};
+  const teamLogos = {{ team_logos | tojson }};
   const recordsByYear = {{ records_by_year | tojson }};
   const divisionsMap = {{ divisions_map | tojson }};
   const divisionsGroups = {{ divisions_groups | tojson }};
   const minYear = {{ min_year }};
   const maxYear = {{ max_year }};
   const defaultYear = {{ default_year }};
+
+  // Logo selection mirrors historical_team_locations.get_logo_for_year:
+  // among entries that cover `year`, prefer the latest year_start, breaking
+  // ties by shortest span. Falls back to the era's mid-era logo shipped
+  // on the era row (mostly used for defunct teams with no logo timeline).
+  function logoForYear(teamId, year, fallbackUrl) {
+    const list = teamLogos[teamId];
+    if (!list || !list.length) return fallbackUrl || null;
+    let best = null;
+    for (const e of list) {
+      if (e.year_start > year) continue;
+      if (e.year_end !== null && e.year_end < year) continue;
+      if (!best) { best = e; continue; }
+      if (e.year_start > best.year_start) { best = e; continue; }
+      if (e.year_start === best.year_start) {
+        const bestEnd = best.year_end === null ? 1e9 : best.year_end;
+        const curEnd = e.year_end === null ? 1e9 : e.year_end;
+        if ((curEnd - e.year_start) < (bestEnd - best.year_start)) best = e;
+      }
+    }
+    return (best && best.url) || fallbackUrl || null;
+  }
 
   // team URL helper — slug is trusted from backend
   const teamUrl = slug => "{{ url_for('team_page', slug='__SLUG__') }}".replace("__SLUG__", slug);
@@ -408,11 +431,12 @@
     const withCoords = [];
     const offMap = [];
     for (const e of active) {
+      const resolved = logoForYear(e.team_id, year, e.logo_url);
       const c = projection([e.lon, e.lat]);
       if (c) {
-        withCoords.push({ ...e, _x: c[0], _y: c[1] });
+        withCoords.push({ ...e, _x: c[0], _y: c[1], _logo: resolved });
       } else {
-        offMap.push(e);
+        offMap.push({ ...e, _logo: resolved });
       }
     }
 
@@ -449,8 +473,8 @@
       .attr("width", (R - 2) * 2).attr("height", (R - 2) * 2)
       .attr("preserveAspectRatio", "xMidYMid meet")
       .attr("clip-path", d => `url(#clip-${d.team_id})`)
-      .attr("href", d => d.logo_url || "");
-    enter.append("text").attr("class", "era-label").attr("y", 1).text(d => d.logo_url ? "" : d.abbr);
+      .attr("href", d => d._logo || "");
+    enter.append("text").attr("class", "era-label").attr("y", 1).text(d => d._logo ? "" : d.abbr);
     enter.append("text").attr("class", "era-label-sub").attr("y", R + 9).text(d => d.abbr);
 
     enter.transition().duration(350).style("opacity", 1);
@@ -461,8 +485,8 @@
       .classed("kind-defunct", d => d.kind === "defunct")
       .each(function (d) {
         const g = d3.select(this);
-        g.select(".era-logo").attr("href", d.logo_url || "");
-        g.select(".era-label").text(d.logo_url ? "" : d.abbr);
+        g.select(".era-logo").attr("href", d._logo || "");
+        g.select(".era-label").text(d._logo ? "" : d.abbr);
         g.select(".era-label-sub").text(d.abbr);
         g.select("title").text(`${d.era_name} (${d.year_start}-${d.year_end ?? ''})\n${d.city}, ${d.state}`);
       })
@@ -539,12 +563,12 @@
     toggleEl.style.display = divisionsAvailable ? "inline-flex" : "none";
 
     if (!divisionsAvailable) {
-      renderFlatStandings(body, active, records, /*forceEmptyMsg=*/Object.keys(records).length === 0);
+      renderFlatStandings(body, active, records, /*forceEmptyMsg=*/Object.keys(records).length === 0, year);
       return;
     }
 
     if (standingsMode === "flat") {
-      renderFlatStandings(body, active, records, false);
+      renderFlatStandings(body, active, records, false, year);
       return;
     }
 
@@ -570,14 +594,14 @@
       box.className = "division-box";
       box.innerHTML = `<div class="division-title"><span class="conf-tag">${conf}</span>${name}</div>`;
       for (const r of rows) {
-        box.appendChild(buildStandingsRow(r));
+        box.appendChild(buildStandingsRow(r, year));
       }
       frag.appendChild(box);
     }
     body.replaceChildren(frag);
   }
 
-  function renderFlatStandings(body, active, records, forceEmptyMsg) {
+  function renderFlatStandings(body, active, records, forceEmptyMsg, year) {
     if (forceEmptyMsg) {
       body.innerHTML = `<div class="standings-empty">{{ t('No regular-season results available for this season yet.', '本赛季尚无常规赛数据。') }}</div>`;
       return;
@@ -586,17 +610,18 @@
     rows.sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
     const frag = document.createElement("div");
     frag.className = "flat-standings";
-    for (const r of rows) frag.appendChild(buildStandingsRow(r));
+    for (const r of rows) frag.appendChild(buildStandingsRow(r, year));
     body.replaceChildren(frag);
   }
 
-  function buildStandingsRow(r) {
+  function buildStandingsRow(r, year) {
     const a = document.createElement("a");
     a.className = "division-row";
     a.href = teamUrl(r.era.slug);
     const pct = (r.w + r.l > 0) ? (r.w / (r.w + r.l)).toFixed(3).replace(/^0/, "") : "—";
+    const logo = logoForYear(r.era.team_id, year, r.era.logo_url);
     a.innerHTML = `
-      ${r.era.logo_url ? `<img src="${r.era.logo_url}" alt="">` : `<span></span>`}
+      ${logo ? `<img src="${logo}" alt="">` : `<span></span>`}
       <span class="t-name">${escapeHtml(r.era.era_name)}</span>
       <span class="t-rec"><b>${r.w}-${r.l}</b> <span>${pct}</span></span>
     `;

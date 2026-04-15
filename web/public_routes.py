@@ -546,6 +546,7 @@ def register_public_routes(
         from flask import url_for
         from web.historical_team_locations import (
             FRANCHISE_HISTORY,
+            FRANCHISE_LOGOS,
             DEFUNCT_FRANCHISES,
             get_logo_for_year,
             get_current_logo,
@@ -637,6 +638,26 @@ def register_public_routes(
                 .all()
             )
 
+        # ── Per-team logo timeline (frontend picks by year) ──────────────
+        # Ship every FRANCHISE_LOGOS entry grouped by team_id as
+        # {team_id: [{year_start, year_end, url}, ...]}. The frontend selects
+        # the most specific entry covering the slider year. A one-shot per-era
+        # representative logo picked on the backend can't track within-era
+        # rebrands (Lakers 1960 vs 2001 vs 2018 are all the same "LA Lakers"
+        # era), so year-accurate logo resolution has to happen client-side.
+        team_logos_out: dict[str, list] = _dd(list)
+        for entry in FRANCHISE_LOGOS:
+            rel = entry["path"]
+            if rel.startswith("static/"):
+                rel = rel[len("static/"):]
+            team_logos_out[entry["team_id"]].append({
+                "year_start": entry["year_start"],
+                "year_end": entry["year_end"],  # may be None for current
+                "url": url_for("static", filename=rel),
+            })
+        for lst in team_logos_out.values():
+            lst.sort(key=lambda e: (e["year_start"], -(e["year_end"] or 10**6)))
+
         # ── Build the flat list of eras shipped to the browser ───────────
         def _era_rows(source, slug_lookup, kind):
             rows = []
@@ -647,6 +668,9 @@ def register_public_routes(
                     continue  # no navigable slug — skip
                 year_start = era["year_start"]
                 year_end = era["year_end"]  # may be None for current era
+                # Fallback logo for defunct teams (no FRANCHISE_LOGOS entry):
+                # use the mid-era year against the lookup helpers, which will
+                # typically return None → frontend renders an abbr label.
                 rep_year = year_start if year_end is None else (year_start + year_end) // 2
                 rows.append({
                     "team_id": team_id,
@@ -756,6 +780,7 @@ def register_public_routes(
             "teams_list.html",
             eras=eras,
             journeys=journeys,
+            team_logos=dict(team_logos_out),
             records_by_year=records_by_year_out,
             divisions_map=divisions_lookup,
             divisions_groups=divisions_groups,
