@@ -82,7 +82,7 @@ def _supplement_missing_live_games(
     games: list,
     live_map: dict[str, dict],
     *,
-    selected_season: str | None = None,
+    allowed_seasons: set[str] | None = None,
     selected_team: str | None = None,
 ) -> list:
     existing_game_ids = {game.game_id for game in games}
@@ -94,7 +94,7 @@ def _supplement_missing_live_games(
         game_id = str(snapshot.get("game_id") or "")
         if not game_id or game_id in existing_game_ids:
             continue
-        if selected_season and snapshot.get("season") != selected_season:
+        if allowed_seasons and snapshot.get("season") not in allowed_seasons:
             continue
         if selected_team and selected_team not in {snapshot.get("home_team_id"), snapshot.get("road_team_id")}:
             continue
@@ -1041,14 +1041,33 @@ def register_public_routes(
                 reverse=True,
             )
 
-            def _pick_active_season() -> str | None:
-                """Pick the season whose phase is most relevant today.
+            # Group season ids by year. Each year typically has Regular,
+            # PlayIn, Playoffs (and sometimes Pre/All-Star). The games-list
+            # dropdown is year-only — the per-game phase chip on each row
+            # tells users which phase a specific game belongs to.
+            def _season_year(sid: str | None) -> str | None:
+                if not sid:
+                    return None
+                s = str(sid).strip()
+                if len(s) == 5 and s.isdigit():
+                    return s[1:]
+                return None
 
-                Looks for games within a ±3 day window around today. If any are
-                play-in or playoffs, prefer those over regular season. Falls
-                back to the newest season otherwise.
+            year_to_season_ids: dict[str, list[str]] = {}
+            for sid in all_season_ids:
+                year = _season_year(sid)
+                if year is None:
+                    continue
+                year_to_season_ids.setdefault(year, []).append(sid)
+            all_years = sorted(year_to_season_ids.keys(), reverse=True)
+
+            def _pick_active_year() -> str | None:
+                """Pick the year whose phase is most relevant today.
+
+                Looks for games within a ±3 day window around today. Prefers
+                the year that actually has games now; falls back to newest.
                 """
-                if not all_season_ids:
+                if not all_years:
                     return None
                 window_start = today - timedelta(days=3)
                 window_end = today + timedelta(days=3)
@@ -1062,19 +1081,28 @@ def register_public_routes(
                     .distinct()
                     .all()
                 )
-                recent_seasons = {row.season for row in recent}
-                if not recent_seasons:
-                    return all_season_ids[0]
-                # Prefer later phase: Playoffs > PlayIn > Regular.
-                phase_rank = {"4": 3, "5": 2, "2": 1}
-                scored = [
-                    (phase_rank.get(str(s)[:1], 0), s)
-                    for s in recent_seasons
-                ]
-                scored.sort(reverse=True)
-                return scored[0][1]
+                recent_years = {
+                    _season_year(row.season) for row in recent if _season_year(row.season)
+                }
+                if not recent_years:
+                    return all_years[0]
+                # Pick the newest year among recent ones.
+                return max(recent_years)
 
-            selected_season = request.args.get("season") or _pick_active_season()
+            # Prefer `year`; keep `season` as a legacy alias so bookmarks /
+            # external links with ?season=22025 still land on the same page.
+            selected_year = (request.args.get("year") or "").strip() or None
+            if not selected_year:
+                legacy_season = (request.args.get("season") or "").strip()
+                if legacy_season:
+                    selected_year = _season_year(legacy_season)
+            if not selected_year:
+                selected_year = _pick_active_year()
+            if selected_year and selected_year not in year_to_season_ids:
+                selected_year = _pick_active_year()
+
+            season_ids_for_filter = year_to_season_ids.get(selected_year, []) if selected_year else []
+
             selected_team = (request.args.get("team") or "").strip() or None
             try:
                 page = max(1, int(request.args.get("page", 1)))
@@ -1088,8 +1116,8 @@ def register_public_routes(
                 .all()
             )
             games_q = session.query(Game).filter(Game.game_date.isnot(None))
-            if selected_season:
-                games_q = games_q.filter(Game.season == selected_season)
+            if season_ids_for_filter:
+                games_q = games_q.filter(Game.season.in_(season_ids_for_filter))
             if selected_team:
                 games_q = games_q.filter(or_(Game.home_team_id == selected_team, Game.road_team_id == selected_team))
             games_q = games_q.order_by(Game.game_date.desc(), Game.game_id.desc())
@@ -1098,7 +1126,7 @@ def register_public_routes(
             all_games = _supplement_missing_live_games(
                 all_games,
                 live_map,
-                selected_season=selected_season,
+                allowed_seasons=set(season_ids_for_filter) if season_ids_for_filter else None,
                 selected_team=selected_team,
             )
             live_games = []
@@ -1152,6 +1180,32 @@ def register_public_routes(
             if selected_team_obj is None and selected_team:
                 selected_team_obj = team_lookup.get(selected_team)
 
+        def _year_label(year: str) -> str:
+            try:
+                next_two = str(int(year) + 1)[-2:]
+                return f"{year}-{next_two}"
+            except ValueError:
+                return year
+
+        # Map season-id prefix -> phase label (bilingual, matches the
+        # existing _season_label mapping).
+        _t = get_t()
+        phase_label_map = {
+            "1": _t("Pre Season", "季前赛"),
+            "2": _t("Regular Season", "常规赛"),
+            "3": _t("All Star", "全明星"),
+            "4": _t("Playoffs", "季后赛"),
+            "5": _t("Play-In", "附加赛"),
+        }
+
+        def phase_label_for(season_id: str | None) -> str:
+            if not season_id:
+                return ""
+            s = str(season_id).strip()
+            if len(s) == 5 and s.isdigit():
+                return phase_label_map.get(s[0], "")
+            return ""
+
         return get_render_template()(
             "games_list.html",
             view=view,
@@ -1164,8 +1218,10 @@ def register_public_routes(
             schedule_count=len(upcoming_games),
             team_lookup=team_lookup,
             all_teams=all_teams,
-            all_season_ids=all_season_ids,
-            selected_season=selected_season,
+            all_years=all_years,
+            selected_year=selected_year,
+            year_label=_year_label,
+            phase_label_for=phase_label_for,
             selected_team=selected_team,
             selected_team_obj=selected_team_obj,
             fmt_date=get_fmt_date(),
