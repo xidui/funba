@@ -815,7 +815,55 @@ def register_detail_routes(
                         "joined_at": stint.joined_at,
                         "left_at": stint.left_at,
                         "is_active": stint.left_at is None,
+                        # Per-game stats (filled in below)
+                        "gp": None, "mpg": None, "ppg": None, "rpg": None, "apg": None,
+                        "fg_pct": None, "fg3_pct": None,
                     })
+
+                # Per-player season averages for the selected season
+                if selected_games_season and roster_players:
+                    PGS = get_player_game_stats_model()
+                    stat_rows = (
+                        session.query(
+                            PGS.player_id,
+                            func.count(PGS.game_id).label("gp"),
+                            func.sum(func.coalesce(PGS.min, 0)).label("tmin"),
+                            func.sum(func.coalesce(PGS.sec, 0)).label("tsec"),
+                            func.sum(func.coalesce(PGS.pts, 0)).label("tpts"),
+                            func.sum(func.coalesce(PGS.reb, 0)).label("treb"),
+                            func.sum(func.coalesce(PGS.ast, 0)).label("tast"),
+                            func.sum(func.coalesce(PGS.fgm, 0)).label("tfgm"),
+                            func.sum(func.coalesce(PGS.fga, 0)).label("tfga"),
+                            func.sum(func.coalesce(PGS.fg3m, 0)).label("tfg3m"),
+                            func.sum(func.coalesce(PGS.fg3a, 0)).label("tfg3a"),
+                        )
+                        .join(Game, PGS.game_id == Game.game_id)
+                        .filter(
+                            PGS.team_id == team_id,
+                            Game.season == selected_games_season,
+                        )
+                        .group_by(PGS.player_id)
+                        .all()
+                    )
+                    stats_by_pid = {}
+                    for r in stat_rows:
+                        gp = int(r.gp or 0)
+                        if gp == 0:
+                            continue
+                        total_sec = (int(r.tmin or 0) * 60) + int(r.tsec or 0)
+                        stats_by_pid[r.player_id] = {
+                            "gp": gp,
+                            "mpg": (total_sec / 60) / gp,
+                            "ppg": float(r.tpts or 0) / gp,
+                            "rpg": float(r.treb or 0) / gp,
+                            "apg": float(r.tast or 0) / gp,
+                            "fg_pct": (float(r.tfgm or 0) / float(r.tfga)) if r.tfga else None,
+                            "fg3_pct": (float(r.tfg3m or 0) / float(r.tfg3a)) if r.tfg3a else None,
+                        }
+                    for p in roster_players:
+                        s = stats_by_pid.get(p["player_id"])
+                        if s:
+                            p.update(s)
 
                 coach_stint_rows = (
                     session.query(TeamCoachStint)
@@ -840,14 +888,17 @@ def register_detail_routes(
                         "left_at": c.left_at,
                     })
 
-            # Sort roster: active first, then by jersey number (numeric) then name.
-            def _jersey_key(p):
-                j = (p.get("jersey") or "").strip()
-                try:
-                    return (0, int(j))
-                except ValueError:
-                    return (1, 9999)
-            roster_players.sort(key=lambda p: (not p["is_active"], _jersey_key(p), p["full_name"]))
+            # Sort roster: players with stats first by PPG desc, then those
+            # without stats by jersey number, then by name.
+            def _sort_key(p):
+                ppg = p.get("ppg")
+                has_stats = ppg is not None
+                return (
+                    0 if has_stats else 1,
+                    -(ppg or 0.0),
+                    p["full_name"],
+                )
+            roster_players.sort(key=_sort_key)
 
         return get_render_template()(
             "team.html",
