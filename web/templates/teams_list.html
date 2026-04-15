@@ -440,14 +440,21 @@
       }
     }
 
+    // Cancel any in-flight transitions from the previous render — without
+    // this, a marker whose exit-fade gets interrupted by a re-render that
+    // re-adds it (same team_id) stays frozen at the partial opacity it had
+    // when interrupted, which looked like "the team disappeared."
+    gMarkers.selectAll("g.era-marker").interrupt();
+
     // Data-join keyed by team_id (unique per active year).
     const R = 14;
     const markers = gMarkers.selectAll("g.era-marker")
       .data(withCoords, d => d.team_id);
 
-    // EXIT: fade out then remove
+    // EXIT: fade out then remove. Safe to chain after interrupt — this
+    // schedules a new transition that owns the remove-on-end handler.
     markers.exit()
-      .transition().duration(350)
+      .transition().duration(300)
       .style("opacity", 0)
       .remove();
 
@@ -479,8 +486,11 @@
 
     enter.transition().duration(350).style("opacity", 1);
 
-    // UPDATE: transition existing markers to new position, swap logo/label if era changed
+    // UPDATE: transition existing markers to new position, swap logo/label if era changed.
+    // Hard-reset opacity in case the marker was mid-fade when the prior
+    // render was interrupted.
     markers
+      .style("opacity", 1)
       .classed("kind-current", d => d.kind === "current")
       .classed("kind-defunct", d => d.kind === "defunct")
       .each(function (d) {
