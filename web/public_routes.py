@@ -588,6 +588,7 @@ def register_public_routes(
         from web.historical_team_locations import (
             FRANCHISE_HISTORY,
             get_logo_for_year,
+            get_current_logo,
         )
 
         team_slug_by_id = {t.team_id: t.slug for t in teams}
@@ -619,17 +620,15 @@ def register_public_routes(
                 key=lambda e: ((e["year_end"] or year_end) - e["year_start"]),
             )
             era_names = [e["era_name"] for e in eras]
-            # Representative logo: try midpoint, then end, then start year
+            # Representative logo: try midpoint, then end, then start year.
+            # Fall back to the team's current-era local logo (year_end=None)
+            # so every ghost pin gets a stable local file.
             mid = (year_start + year_end) // 2
-            # Strict year lookup first; fall back to the current-era local
-            # logo entry (year 9999 is the sentinel we use for "still current").
-            # This guarantees every ghost pin gets a stable local file and
-            # never depends on a remote CDN URL that might disappear.
             logo = (
                 get_logo_for_year(team_id, mid)
                 or get_logo_for_year(team_id, year_end)
                 or get_logo_for_year(team_id, year_start)
-                or get_logo_for_year(team_id, 9999)
+                or get_current_logo(team_id)
             )
             logo_url = None
             if logo is not None:
