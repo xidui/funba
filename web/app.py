@@ -1951,12 +1951,9 @@ def _catalog_metrics_total(
         code_metadata = _safe_code_metric_metadata(row)
         search_fields = _db_metric_search_fields(row, code_metadata=code_metadata)
         total += 1
-        if _catalog_has_virtual_career_metric(
-            row,
-            search_fields=search_fields,
-            existing_keys=existing_keys,
-        ):
-            total += 1
+        for window_type in _catalog_eligible_window_types(row, search_fields=search_fields):
+            if family_window_key(row.key, window_type) not in existing_keys:
+                total += 1
     return total
 
 
