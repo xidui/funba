@@ -506,13 +506,15 @@
     color: var(--accent);
     font-family: 'Outfit', sans-serif;
     font-weight: 800;
-    font-size: 17px;
+    font-size: 16px;
     letter-spacing: 0.015em;
-    padding: 4px 24px 4px 4px;
+    padding: 4px 20px 4px 2px;
     cursor: pointer;
     line-height: 1.1;
+    width: auto;
+    min-width: 0;
     background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%);
-    background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+    background-position: calc(100% - 11px) 50%, calc(100% - 6px) 50%;
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
     transition: filter 0.15s;
@@ -708,14 +710,9 @@
         <select id="season-picker" class="sp-dropdown"
                 aria-label="{{ t('Select season', '选择赛季') }}"
                 data-kind="{{ selected_season_kind }}">
-          {% for bar in season_bars|reverse %}
-          <option value="{{ bar.season }}"
-                  data-year="{{ bar.year_start }}"
-                  data-has-playoffs="{{ '1' if bar.has_playoffs else '0' }}"
-                  {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}selected{% endif %}>
-            {{ bar.year_label }}
-          </option>
-          {% endfor %}
+          {% for bar in season_bars|reverse -%}
+          <option value="{{ bar.season }}" data-year="{{ bar.year_start }}" data-has-playoffs="{{ '1' if bar.has_playoffs else '0' }}"{% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %} selected{% endif %}>{{ bar.year_label }}</option>
+          {%- endfor %}
         </select>
       </div>
       <div class="sp-kind-tabs">
