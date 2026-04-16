@@ -359,7 +359,7 @@ def _game_boxscore_plan() -> dict[str, object]:
         "min_width": 760,
         "max_width": 1220,
         "min_height": 520,
-        "max_height": 920,
+        "max_height": 980,
         "selector_height_limits": {
             "#bs-team": 320,
             "#bs-players .box-score-grid": 420,
@@ -380,8 +380,8 @@ def _game_metrics_plan(*, cards: int = 4) -> dict[str, object]:
         "pad_bottom": 18,
         "min_width": 760,
         "max_width": 1220,
-        "min_height": 340,
-        "max_height": 760,
+        "min_height": 220,
+        "max_height": 420,
     }
 
 
@@ -407,6 +407,9 @@ def _metric_page_plan(*, top_n: int = 5) -> dict[str, object]:
 def _game_boxscore_adjustments() -> dict[str, object]:
     return {
         "remove_selectors": _COMMON_CHROME_REMOVE_SELECTORS + [
+            ".upcoming-preview",
+            ".live-quick-panel",
+            ".game-leaders-card",
             "#game-metrics-panel",
             "#bs-team .table-wrap:first-child",
             ".card:has(.game-admin-panel)",
@@ -426,7 +429,10 @@ def _game_boxscore_adjustments() -> dict[str, object]:
 
 def _game_metrics_adjustments(*, cards: int = 4) -> dict[str, object]:
     return {
-        "remove_selectors": ["#show-more-game-metrics", ".gmc-more-wrap"],
+        "remove_selectors": _COMMON_CHROME_REMOVE_SELECTORS + [
+            "#show-more-game-metrics",
+            ".gmc-more-wrap",
+        ],
         "limit_grid_cards": {
             "#game-metrics-panel .game-metrics-grid": max(1, int(cards)),
         },

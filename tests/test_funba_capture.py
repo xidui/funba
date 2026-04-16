@@ -14,6 +14,7 @@ from social_media.funba_capture import (  # noqa: E402
     _capture_page_error,
     _game_boxscore_adjustments,
     _game_boxscore_plan,
+    _game_metrics_adjustments,
     _game_metrics_plan,
     _metric_page_adjustments,
     _metric_page_plan,
@@ -75,11 +76,13 @@ class TestFunbaCapturePlans(unittest.TestCase):
         self.assertEqual(plan["selectors"], [".scoreboard", "#bs-team", "#bs-players .box-score-grid"])
         self.assertEqual(plan["selector_height_limits"]["#bs-players .box-score-grid"], 420)
         self.assertEqual(plan["max_width"], 1220)
-        self.assertEqual(plan["max_height"], 920)
+        self.assertEqual(plan["max_height"], 980)
 
     def test_game_boxscore_adjustments_remove_async_panel_and_trim_tables(self):
         adjustments = _game_boxscore_adjustments()
         self.assertIn(".topbar", adjustments["remove_selectors"])
+        self.assertIn(".game-leaders-card", adjustments["remove_selectors"])
+        self.assertIn(".live-quick-panel", adjustments["remove_selectors"])
         self.assertIn("#game-metrics-panel", adjustments["remove_selectors"])
         self.assertIn(".card:has(.game-admin-panel)", adjustments["remove_selectors"])
         self.assertEqual(adjustments["limit_table_rows"]["#bs-players tbody"], 4)
@@ -112,6 +115,14 @@ class TestFunbaCapturePlans(unittest.TestCase):
         plan = _game_metrics_plan(cards=4)
         self.assertEqual(plan["selectors"][2], "#game-metrics-panel .game-metrics-grid .gmc:nth-child(4)")
         self.assertEqual(plan["max_width"], 1220)
+        self.assertEqual(plan["min_height"], 220)
+        self.assertEqual(plan["max_height"], 420)
+
+    def test_game_metrics_adjustments_remove_site_chrome(self):
+        adjustments = _game_metrics_adjustments(cards=4)
+        self.assertIn(".topbar", adjustments["remove_selectors"])
+        self.assertIn("#mobile-nav", adjustments["remove_selectors"])
+        self.assertEqual(adjustments["limit_grid_cards"]["#game-metrics-panel .game-metrics-grid"], 4)
 
     def test_player_metrics_plan_defaults_to_four_cards(self):
         plan = _player_metrics_plan()
