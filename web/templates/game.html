@@ -2580,7 +2580,7 @@
   <div class="live-pbp-body">
     <div class="live-pbp-feed" id="live-pbp-feed">
       {% set ns = namespace(last_period=None, count=0) %}
-      {% for row in pbp_rows %}
+      {% for row in pbp_rows|reverse %}
       {% if ns.count < 80 %}
       {% if row.period != ns.last_period %}
       <div class="lpbp-period-sep">
@@ -2965,7 +2965,8 @@
     if (!feed) return;
     if (livePbpState.knownEventNums === null) seedLivePbpState();
 
-    // The payload is chronological. Find new events.
+    // The payload is newest-first (from _build_pbp_rows). Collect new events
+    // then reverse to chronological order for bottom-append chat style.
     const fresh = [];
     for (let i = 0; i < pbpRows.length; i++) {
       const row = pbpRows[i];
@@ -2973,6 +2974,7 @@
       if (!livePbpState.knownEventNums.has(key)) fresh.push(row);
     }
     if (!fresh.length) return;
+    fresh.reverse();
 
     const wasAtBottom = isAtBottom(feed);
 
