@@ -1151,6 +1151,40 @@ def get_era_for_year(team_id: str, year: int) -> Optional[dict]:
     return None
 
 
+@lru_cache(maxsize=1)
+def _defunct_by_team() -> dict:
+    out: dict[str, list] = {}
+    for era in DEFUNCT_FRANCHISES:
+        out.setdefault(era["team_id"], []).append(era)
+    for eras in out.values():
+        eras.sort(key=lambda e: e["year_start"])
+    return out
+
+
+def get_era_entry_any(team_id: str, year: int) -> Optional[dict]:
+    """Return the era entry covering `year` for `team_id`, searching both
+    FRANCHISE_HISTORY and DEFUNCT_FRANCHISES.
+
+    Current-era fallback: if no explicit era covers the requested year, but
+    the team has an open-ended current era (year_end=None), return that one
+    regardless of year_start. Returns None only if nothing plausibly matches.
+    """
+    era = get_era_for_year(team_id, year)
+    if era is not None:
+        return era
+    # Defunct franchise lookup
+    for entry in _defunct_by_team().get(team_id, []):
+        if entry["year_start"] <= year and (entry["year_end"] is None or entry["year_end"] >= year):
+            return entry
+    # Fallback: the team's current-era FRANCHISE_HISTORY entry (useful when
+    # asking about a year before the team existed — we still want SOMETHING
+    # rather than None so callers can render a sane page).
+    for era in _history_by_team().get(team_id, []):
+        if era["year_end"] is None:
+            return era
+    return None
+
+
 def _logo_covers_year(entry: dict, year: int) -> bool:
     if entry["year_start"] > year:
         return False

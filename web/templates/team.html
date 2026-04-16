@@ -1,13 +1,15 @@
 {% extends "base.html" %}
-{% set team_name = display_team_name(team) %}
-{% block title %}{{ team_name }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
-{% block og_title %}{{ team_name }} — {{ site_name }}{% endblock %}
-{% block og_description %}{{ team_name }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
-{% block tw_title %}{{ team_name }} — {{ site_name }}{% endblock %}
-{% block tw_description %}{{ team_name }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
-{% block og_image %}https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg{% endblock %}
-{% block tw_image %}https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg{% endblock %}
+{% set team_name = era.name if era and era.name else display_team_name(team) %}
+{% set team_display_abbr = era.abbr if era and era.abbr else team.abbr %}
+{% set team_header_title = team_name + (' ' + selected_year_label if selected_year_label and selected_year_label != '—' else '') %}
+{% block title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ team_header_title }} {{ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block og_title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ team_header_title }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block tw_title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
+{% block tw_description %}{{ team_header_title }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
+{% block og_image %}{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}{% endblock %}
+{% block tw_image %}{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}{% endblock %}
 {% block json_ld %}
 <script type="application/ld+json">
 {
@@ -15,7 +17,7 @@
   "@type": "SportsTeam",
   "name": "{{ team_name }}",
   "url": "https://funba.app/teams/{{ team.slug }}",
-  "logo": "https://cdn.nba.com/logos/nba/{{ team.team_id }}/global/L/logo.svg",
+  "logo": "{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}",
   "sport": "Basketball",
   "memberOf": {
     "@type": "SportsOrganization",
@@ -374,33 +376,305 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
+
+  /* ── Season picker ───────────────────────────────────────── */
+  .season-picker-card {
+    padding: 18px 20px 14px;
+  }
+  .sp-head {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    margin-bottom: 10px;
+  }
+  .sp-arrow {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    font-size: 18px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s;
+    font-family: 'Outfit', sans-serif;
+  }
+  .sp-arrow:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+    transform: scale(1.05);
+  }
+  .sp-arrow:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .sp-label {
+    text-align: center;
+    min-width: 220px;
+  }
+  .sp-year {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 38px;
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: 0.015em;
+  }
+  .sp-kind {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .sp-mid {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .sp-kind-tabs {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: 'Outfit', sans-serif;
+  }
+  .sp-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 54px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sp-tab:hover:not(.sp-tab-disabled) {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .sp-tab.sp-tab-active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .sp-tab.sp-tab-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  /* Barcode: one vertical bar per regular season this team existed,
+     height proportional to win count, current season highlighted. */
+  .sp-barcode-wrap {
+    position: relative;
+    margin-top: 6px;
+  }
+  .sp-barcode {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 44px;
+    padding: 2px 6px 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--border) 30%, transparent) 100%);
+    border-radius: 6px;
+    scrollbar-width: thin;
+  }
+  .sp-barcode::-webkit-scrollbar { height: 4px; }
+  .sp-barcode::-webkit-scrollbar-track { background: transparent; }
+  .sp-barcode::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .sp-bar {
+    display: block;
+    min-width: 9px;
+    max-width: 9px;
+    background: var(--border);
+    cursor: pointer;
+    border-radius: 2px 2px 0 0;
+    transition: background 0.15s, transform 0.15s;
+    flex-shrink: 0;
+  }
+  .sp-bar:hover {
+    background: color-mix(in srgb, var(--accent) 60%, var(--border));
+    transform: scaleY(1.08);
+    transform-origin: bottom;
+  }
+  .sp-bar-active {
+    background: var(--accent) !important;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  .sp-barcode-axis {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 6px 0;
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: 0.02em;
+  }
+  .sp-hint {
+    margin-top: 6px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: 0.04em;
+  }
+  .sp-hint kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    font-family: inherit;
+    font-size: 10px;
+    margin: 0 2px;
+    color: var(--text);
+  }
+
+  /* Era-aware header ring around logo */
+  .team-logo-ring {
+    position: relative;
+    width: 78px;
+    height: 78px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 8%, var(--surface-2)) 0%, var(--surface-2) 70%);
+    border: 1px solid var(--border-2);
+  }
+  .team-logo-ring .team-logo {
+    width: 62px;
+    height: 62px;
+  }
+  .team-header-era-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
 </style>
+
+<!-- ── Season picker ────────────────────────────────────────────────── -->
+{% if season_bars %}
+  {% set cur_year_str = (sel_year|string) if sel_year else '' %}
+  {% set regular_code = regular_year_lookup.get(cur_year_str) %}
+  {% set playoff_code = playoff_year_lookup.get(cur_year_str) %}
+  {# Neighbor seasons for arrows — use regular-season list as the spine #}
+  {% set bar_seasons = season_bars|map(attribute='season')|list %}
+  {% set cur_idx = bar_seasons.index(regular_code) if regular_code in bar_seasons else -1 %}
+  {% set prev_season = bar_seasons[cur_idx - 1] if cur_idx > 0 else None %}
+  {% set next_season = bar_seasons[cur_idx + 1] if cur_idx >= 0 and cur_idx + 1 < bar_seasons|length else None %}
+<div class="card season-picker-card">
+  <div class="sp-head">
+    <button class="sp-arrow" id="sp-prev" aria-label="{{ t('Previous season', '上一个赛季') }}"
+            {% if not prev_season %}disabled{% endif %}
+            {% if prev_season %}data-season="{{ prev_season }}"{% endif %}>&#9664;</button>
+    <div class="sp-label">
+      <div class="sp-year">{{ selected_year_label }}</div>
+      <div class="sp-kind">
+        {% if selected_season_kind == 'playoffs' %}{{ t('Playoffs', '季后赛') }}{% else %}{{ t('Regular Season', '常规赛') }}{% endif %}
+      </div>
+    </div>
+    <button class="sp-arrow" id="sp-next" aria-label="{{ t('Next season', '下一个赛季') }}"
+            {% if not next_season %}disabled{% endif %}
+            {% if next_season %}data-season="{{ next_season }}"{% endif %}>&#9654;</button>
+  </div>
+  <div class="sp-mid">
+    <div class="sp-kind-tabs">
+      <a class="sp-tab {% if selected_season_kind == 'regular' %}sp-tab-active{% endif %}{% if not regular_code %} sp-tab-disabled{% endif %}"
+         href="{% if regular_code %}?season={{ regular_code }}{% else %}#{% endif %}">R</a>
+      <a class="sp-tab {% if selected_season_kind == 'playoffs' %}sp-tab-active{% endif %}{% if not playoff_code %} sp-tab-disabled{% endif %}"
+         href="{% if playoff_code %}?season={{ playoff_code }}{% else %}#{% endif %}">P</a>
+    </div>
+  </div>
+  <div class="sp-barcode-wrap">
+    <div class="sp-barcode" id="sp-barcode">
+      {% for bar in season_bars %}
+        {% set total = bar.wins + bar.losses %}
+        {% set win_pct = (bar.wins / total) if total > 0 else 0 %}
+        {% set bar_h = (20 + (win_pct * 80))|round(0, 'floor')|int %}
+      <a class="sp-bar {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}sp-bar-active{% endif %}"
+         href="?season={{ bar.season }}"
+         title="{{ bar.year_label }} · {{ bar.wins }}-{{ bar.losses }}"
+         data-season="{{ bar.season }}"
+         style="height: {{ bar_h }}%;"></a>
+      {% endfor %}
+    </div>
+    {% if season_bars %}
+    <div class="sp-barcode-axis">
+      <span>{{ season_bars[0].year_label }}</span>
+      <span>{{ season_bars[-1].year_label }}</span>
+    </div>
+    {% endif %}
+  </div>
+  <div class="sp-hint">
+    {{ t('Use', '使用') }} <kbd>&#9664;</kbd><kbd>&#9654;</kbd> {{ t('to step seasons', '切换赛季') }}
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Team header ─────────────────────────────────────────────────── -->
 <div class="card">
   <div class="team-header-top">
-    <img class="team-logo"
-         src="{{ team_logo(team.team_id) }}"
-         alt="{{ team.abbr }} logo"
-         onerror="this.style.display='none'">
-    <h1 style="margin:0;">{{ team_name }}</h1>
+    <div class="team-logo-ring">
+      <img class="team-logo"
+           src="{{ era.logo_url if era and era.logo_url else team_logo(team.team_id) }}"
+           alt="{{ team_display_abbr }} logo"
+           onerror="this.style.display='none'">
+    </div>
+    <div>
+      <h1 style="margin:0;">{{ team_name }}</h1>
+      {% if sel_year and era and era.year_start and era.year_end and era.year_start <= sel_year and (era.year_end is none or era.year_end >= sel_year) %}
+        {% if not (era.year_end is none and era.year_start <= (sel_year - 5)) %}
+        <div style="margin-top:6px;">
+          <span class="team-header-era-tag">{{ era.year_start }}–{{ era.year_end if era.year_end else t('now', '至今') }}</span>
+        </div>
+        {% endif %}
+      {% endif %}
+    </div>
   </div>
   <div class="team-header-meta">
-    {% if season_summary %}
-    {% set total_w = season_summary | sum(attribute='wins') %}
-    {% set total_l = season_summary | sum(attribute='losses') %}
-    {% set total_g = total_w + total_l %}
+    {% if season_record.games > 0 %}
+    {% set sr_pct = season_record.wins / season_record.games %}
     <div class="team-record-badge">
-      <span class="team-record-w">{{ total_w }}W</span>
+      <span class="team-record-w">{{ season_record.wins }}W</span>
       <span class="team-record-sep">–</span>
-      <span class="team-record-l">{{ total_l }}L</span>
-      {% if total_g > 0 %}
-      <span class="team-record-pct">{{ "%.3f"|format(total_w / total_g) }}</span>
-      {% endif %}
+      <span class="team-record-l">{{ season_record.losses }}L</span>
+      <span class="team-record-pct">{{ "%.3f"|format(sr_pct) }}</span>
     </div>
     {% endif %}
     <span class="meta">
-      {% if team.city %}{{ team.city }}{% if team.state and team.state != team.city %}, {{ team.state }}{% endif %}{% endif %}
+      {% set hdr_city = (era.city if era and era.city else team.city) %}
+      {% set hdr_state = (era.state if era and era.state else team.state) %}
+      {% if hdr_city %}{{ hdr_city }}{% if hdr_state and hdr_state != hdr_city %}, {{ hdr_state }}{% endif %}{% endif %}
       {% if team.year_founded %}&nbsp;· {{ t('Est.', '建队') }} {{ team.year_founded }}{% endif %}
     </span>
   </div>
@@ -629,22 +903,6 @@
     {% endif %}
   </h2>
 
-  {% if season_options %}
-  <div class="control-row">
-    <label for="games-season-picker">{{ t('Season:', '赛季：') }}</label>
-    <select
-      id="games-season-picker"
-      onchange="updateQuery('games_season', this.value)"
-    >
-      {% for season in season_options %}
-      <option value="{{ season }}" {% if season == selected_games_season %}selected{% endif %}>
-        {{ season_label(season) }}
-      </option>
-      {% endfor %}
-    </select>
-  </div>
-  {% endif %}
-
   {% if current_games %}
   <div class="table-wrap" data-mobile-key="team-season-games">
     <table>
@@ -686,11 +944,40 @@
 </div>
 
 <script>
-  function updateQuery(key, value) {
+(function () {
+  // Season picker: prev/next arrows + keyboard ←/→ nav.
+  const prev = document.getElementById("sp-prev");
+  const next = document.getElementById("sp-next");
+  function navigate(btn) {
+    if (!btn || btn.disabled) return;
+    const code = btn.dataset.season;
+    if (!code) return;
     const u = new URL(window.location.href);
-    u.searchParams.set(key, value);
+    u.searchParams.set("season", code);
+    u.searchParams.delete("games_season");
     window.location.href = u.toString();
   }
+  if (prev) prev.addEventListener("click", () => navigate(prev));
+  if (next) next.addEventListener("click", () => navigate(next));
+  document.addEventListener("keydown", (ev) => {
+    if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    const tag = (ev.target && ev.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (ev.target && ev.target.isContentEditable) return;
+    if (ev.key === "ArrowLeft") { ev.preventDefault(); navigate(prev); }
+    else if (ev.key === "ArrowRight") { ev.preventDefault(); navigate(next); }
+  });
+
+  // Auto-scroll the barcode so the active bar is visible.
+  const bar = document.querySelector(".sp-barcode .sp-bar-active");
+  if (bar) {
+    const wrap = document.getElementById("sp-barcode");
+    if (wrap) {
+      const targetLeft = bar.offsetLeft - (wrap.clientWidth / 2) + (bar.clientWidth / 2);
+      wrap.scrollLeft = Math.max(0, targetLeft);
+    }
+  }
+})();
 </script>
 
 <!-- ── Season Win/Loss ─────────────────────────────────────────────── -->
@@ -699,11 +986,11 @@
 
   <div class="tab-bar">
     <a
-      href="?season_kind=regular&games_season={{ selected_games_season or '' }}"
+      href="?season_kind=regular&season={{ selected_season or '' }}"
       class="tab-btn {{ 'active' if season_kind == 'regular' }}"
     >{{ t('Regular Season', '常规赛') }}</a>
     <a
-      href="?season_kind=playoffs&games_season={{ selected_games_season or '' }}"
+      href="?season_kind=playoffs&season={{ selected_season or '' }}"
       class="tab-btn {{ 'active' if season_kind == 'playoffs' }}"
     >{{ t('Playoffs', '季后赛') }}</a>
   </div>

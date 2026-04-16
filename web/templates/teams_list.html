@@ -387,7 +387,15 @@
   }
 
   // team URL helper — slug is trusted from backend
-  const teamUrl = slug => "{{ url_for('team_page', slug='__SLUG__') }}".replace("__SLUG__", slug);
+  const teamUrlBase = slug => "{{ url_for('team_page', slug='__SLUG__') }}".replace("__SLUG__", slug);
+  // Append the current slider year as a regular-season code (2<YYYY>) so
+  // clicking a marker lands the team page on that exact season.
+  function teamUrl(slug, year) {
+    const base = teamUrlBase(slug);
+    if (year === undefined || year === null) return base;
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}season=2${year}`;
+  }
 
   // ── Precompute eras-per-year lookup ─────────────────────────────
   // A team appears in a year iff year_start <= y <= year_end (or year_end === null).
@@ -464,7 +472,7 @@
       .attr("class", d => "era-marker kind-" + d.kind)
       .style("opacity", 0)
       .attr("transform", d => `translate(${d._x},${d._y})`)
-      .on("click", (ev, d) => { window.location.href = teamUrl(d.slug); })
+      .on("click", (ev, d) => { window.location.href = teamUrl(d.slug, +document.getElementById("year-slider").value); })
       .on("mouseenter", (ev, d) => showTrail(d))
       .on("mouseleave", hideTrail);
 
@@ -510,7 +518,7 @@
     } else {
       noteEl.style.display = "block";
       noteEl.innerHTML = "{{ t('Off-map (outside U.S. projection):', '地图外（北美以外或投影裁切）：') }} " +
-        offMap.map(e => `<a href="${teamUrl(e.slug)}"><strong>${escapeHtml(e.era_name)}</strong></a> (${e.city})`).join(", ");
+        offMap.map(e => `<a href="${teamUrl(e.slug, year)}"><strong>${escapeHtml(e.era_name)}</strong></a> (${e.city})`).join(", ");
     }
 
     // ── Year label + info strip ────────────────────────────────
@@ -627,7 +635,7 @@
   function buildStandingsRow(r, year) {
     const a = document.createElement("a");
     a.className = "division-row";
-    a.href = teamUrl(r.era.slug);
+    a.href = teamUrl(r.era.slug, year);
     const pct = (r.w + r.l > 0) ? (r.w / (r.w + r.l)).toFixed(3).replace(/^0/, "") : "—";
     const logo = logoForYear(r.era.team_id, year, r.era.logo_url);
     a.innerHTML = `

@@ -705,9 +705,24 @@ def register_detail_routes(
 
             current_season = get_pick_current_season()([row["season"] for row in season_summary])
             season_options = [row["season"] for row in season_summary]
-            selected_games_season = request.args.get("games_season")
-            if selected_games_season not in season_options:
-                selected_games_season = current_season
+
+            # `?season=<5-digit-code>` is the canonical param; `?games_season=`
+            # is still accepted as a legacy alias from older links/bookmarks.
+            _req_season = request.args.get("season") or request.args.get("games_season")
+            if _req_season and _req_season not in season_options:
+                # If the request specified a year without a valid 5-digit code
+                # (e.g., `?season=22010` is valid but `?season=2010` is not),
+                # try to promote a 4-digit year to the regular-season code.
+                if _req_season.isdigit() and len(_req_season) == 4:
+                    promoted = f"2{_req_season}"
+                    if promoted in season_options:
+                        _req_season = promoted
+                    else:
+                        _req_season = None
+                else:
+                    _req_season = None
+            selected_season = _req_season or current_season
+            selected_games_season = selected_season  # legacy var name
 
             teams = get_team_map()(session)
             current_games = []
@@ -757,7 +772,7 @@ def register_detail_routes(
                         }
                     )
 
-            team_metrics = get_metric_results()(session, "team", team_id, current_season)
+            team_metrics = get_metric_results()(session, "team", team_id, selected_season)
 
             # ── Roster + coaching staff for the selected games season ──
             from db.models import TeamRosterStint, TeamCoachStint, Player as _PlayerM
@@ -900,6 +915,85 @@ def register_detail_routes(
                 )
             roster_players.sort(key=_sort_key)
 
+        # ── Era-aware header data ─────────────────────────────────────
+        # Resolve the franchise's name, abbreviation, city and logo as they
+        # were during the selected season. For current-era seasons this just
+        # echoes team.full_name / team.abbr; for historical seasons it
+        # swaps in the era variant (Seattle SuperSonics, St. Louis Hawks…).
+        from web.historical_team_locations import (
+            get_era_entry_any,
+            get_logo_url_for_year,
+        )
+        era = None
+        era_logo_url = None
+        if _sel_year is not None:
+            era = get_era_entry_any(team_id, _sel_year)
+            era_logo_url = get_logo_url_for_year(team_id, _sel_year, static_prefix="/")
+        if era_logo_url is None:
+            # Fall back to the team's best current logo (get_logo_url_for_year
+            # already does this when called with a valid year, but we also
+            # need a sane value when _sel_year is None).
+            era_logo_url = get_logo_url_for_year(team_id, 2025, static_prefix="/")
+        era_view = {
+            "name": (era or {}).get("era_name") or get_display_team_name()(team),
+            "abbr": (era or {}).get("abbr") or team.abbr or "",
+            "city": (era or {}).get("city") or team.city or "",
+            "state": (era or {}).get("state") or team.state or "",
+            "logo_url": era_logo_url,
+            "year_start": (era or {}).get("year_start"),
+            "year_end": (era or {}).get("year_end"),
+        }
+
+        # Selected-season record (pulled out of season_summary so we don't
+        # need a separate query). season_summary is keyed by 5-digit season
+        # code — match exact.
+        season_record = {"wins": 0, "losses": 0, "games": 0}
+        for row in season_summary:
+            if row["season"] == selected_season:
+                season_record = {
+                    "wins": row["wins"],
+                    "losses": row["losses"],
+                    "games": row["games"],
+                }
+                break
+
+        # Split season_options into regular/playoff variants so the picker
+        # can offer an R/P tab (same 4-digit year, different leading digit).
+        regular_seasons = sorted(
+            [s for s in season_options if str(s).startswith("2")],
+            key=lambda s: int(str(s)[1:]) if str(s)[1:].isdigit() else 0,
+        )
+        playoff_seasons = sorted(
+            [s for s in season_options if str(s).startswith("4")],
+            key=lambda s: int(str(s)[1:]) if str(s)[1:].isdigit() else 0,
+        )
+        playoff_year_lookup = {str(s)[1:]: s for s in playoff_seasons}
+        regular_year_lookup = {str(s)[1:]: s for s in regular_seasons}
+
+        # For the barcode/picker UI, ship a minimal row per season with
+        # W/L so users can see on hover what that bar represents.
+        season_bars = []
+        for s in regular_seasons:
+            for row in season_summary:
+                if row["season"] == s:
+                    y = str(s)[1:]
+                    season_bars.append({
+                        "season": s,
+                        "year_start": int(y) if y.isdigit() else None,
+                        "year_label": f"{y}-{(int(y) + 1) % 100:02d}" if y.isdigit() else s,
+                        "wins": row["wins"],
+                        "losses": row["losses"],
+                        "has_playoffs": y in playoff_year_lookup,
+                    })
+                    break
+
+        # What kind is the selected season? (regular / playoffs)
+        _sel_prefix = str(selected_season)[:1] if selected_season else ""
+        selected_season_kind = "playoffs" if _sel_prefix == "4" else "regular"
+        selected_year_label = (
+            f"{_sel_year}-{(_sel_year + 1) % 100:02d}" if _sel_year is not None else "—"
+        )
+
         return get_render_template()(
             "team.html",
             team=team,
@@ -907,7 +1001,16 @@ def register_detail_routes(
             season_kind=season_kind,
             current_season=current_season,
             season_options=season_options,
-            selected_games_season=selected_games_season,
+            selected_games_season=selected_games_season,  # legacy alias
+            selected_season=selected_season,
+            selected_year_label=selected_year_label,
+            selected_season_kind=selected_season_kind,
+            sel_year=_sel_year,
+            era=era_view,
+            season_record=season_record,
+            season_bars=season_bars,
+            regular_year_lookup=regular_year_lookup,
+            playoff_year_lookup=playoff_year_lookup,
             current_games=current_games,
             team_metrics=team_metrics,
             team_championships=team_championships,
