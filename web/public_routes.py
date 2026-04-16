@@ -2109,14 +2109,40 @@ def register_public_routes(
         payload = fetch_live_game_detail(game_id)
         if payload is None:
             return jsonify({"ok": False, "game_id": game_id, "error": "live_data_unavailable"}), 503
-        # Attach player URLs so the live-refresh JS can keep box-score player
-        # names clickable (the slug lookup lives in web.app).
-        from web.app import _player_url  # lazy to avoid circular import
+        from web.app import _player_url, _is_zh, _display_player_name  # lazy to avoid circular import
         for rows in (payload.get("players_by_team") or {}).values():
             for row in rows:
                 pid = row.get("player_id")
                 if pid:
                     row["player_url"] = _player_url(pid)
+        # Localize player names to Chinese when applicable.
+        if _is_zh():
+            pids = set()
+            for rows in (payload.get("players_by_team") or {}).values():
+                for row in rows:
+                    if row.get("player_id"):
+                        pids.add(str(row["player_id"]))
+            for row in payload.get("pbp_rows") or []:
+                if row.get("player_id"):
+                    pids.add(str(row["player_id"]))
+            if pids:
+                _SessionLocal = get_session_local()
+                _Player = get_player_model()
+                with _SessionLocal() as sess:
+                    db_players = sess.query(_Player).filter(_Player.player_id.in_(pids)).all()
+                    name_map = {str(p.player_id): _display_player_name(p) for p in db_players}
+                for rows in (payload.get("players_by_team") or {}).values():
+                    for row in rows:
+                        zh = name_map.get(str(row.get("player_id") or ""))
+                        if zh:
+                            row["player_name"] = zh
+                for row in payload.get("pbp_rows") or []:
+                    pid = str(row.get("player_id") or "")
+                    zh = name_map.get(pid)
+                    if zh:
+                        parts = row.get("description", "").split(None, 1)
+                        if len(parts) == 2 and parts[0]:
+                            row["description"] = zh + " " + parts[1]
         # Also merge in the cached live_card (leaders, WP, hot player ids,
         # shooting percentages) so the game-page live panel can update in
         # the same round-trip as the scoreboard.

@@ -1210,10 +1210,38 @@ def register_detail_routes(
                     ),
                 )
 
+            def _localize_live_player_names(payload):
+                display_name = get_display_player_name()
+                pids = set()
+                for rows in (payload.get("players_by_team") or {}).values():
+                    for row in rows:
+                        if row.get("player_id"):
+                            pids.add(str(row["player_id"]))
+                for row in payload.get("pbp_rows") or []:
+                    if row.get("player_id"):
+                        pids.add(str(row["player_id"]))
+                if not pids:
+                    return
+                db_players = session.query(Player).filter(Player.player_id.in_(pids)).all()
+                name_map = {str(p.player_id): display_name(p) for p in db_players}
+                for rows in (payload.get("players_by_team") or {}).values():
+                    for row in rows:
+                        zh = name_map.get(str(row.get("player_id") or ""))
+                        if zh:
+                            row["player_name"] = zh
+                for row in payload.get("pbp_rows") or []:
+                    pid = str(row.get("player_id") or "")
+                    zh = name_map.get(pid)
+                    if zh:
+                        parts = row.get("description", "").split(None, 1)
+                        if len(parts) == 2 and parts[0]:
+                            row["description"] = zh + " " + parts[1]
+
             if game_status == GAME_STATUS_LIVE:
                 if live_payload is None:
                     live_payload = fetch_live_game_detail(game_id)
                 if live_payload is not None:
+                    _localize_live_player_names(live_payload)
                     return _render_with_live_payload(live_payload, refresh_interval_ms=15000)
                 return _render_scoreboard_only_game(
                     refresh_interval_ms=15000,
@@ -1281,6 +1309,7 @@ def register_detail_routes(
                 if live_payload is None:
                     live_payload = fetch_live_game_detail(game_id)
                 if live_payload is not None and live_payload.get("team_stats"):
+                    _localize_live_player_names(live_payload)
                     return _render_with_live_payload(live_payload, refresh_interval_ms=60000)
 
             player_rows = (
