@@ -1,5 +1,83 @@
 [
   {
+    "team_id": "1610610023",
+    "year_start": 1949,
+    "year_end": 1949,
+    "path": "static/team_logos/historical/1610610023/1949_1949.png"
+  },
+  {
+    "team_id": "1610610024",
+    "year_start": 1947,
+    "year_end": 1954,
+    "path": "static/team_logos/historical/1610610024/1947_1954.gif"
+  },
+  {
+    "team_id": "1610610025",
+    "year_start": 1946,
+    "year_end": 1949,
+    "path": "static/team_logos/historical/1610610025/1946_1949.png"
+  },
+  {
+    "team_id": "1610610026",
+    "year_start": 1946,
+    "year_end": 1946,
+    "path": "static/team_logos/historical/1610610026/1946_1946.png"
+  },
+  {
+    "team_id": "1610610028",
+    "year_start": 1946,
+    "year_end": 1946,
+    "path": "static/team_logos/historical/1610610028/1946_1946.png"
+  },
+  {
+    "team_id": "1610610029",
+    "year_start": 1948,
+    "year_end": 1948,
+    "path": "static/team_logos/historical/1610610029/1948_1948.png"
+  },
+  {
+    "team_id": "1610610030",
+    "year_start": 1949,
+    "year_end": 1952,
+    "path": "static/team_logos/historical/1610610030/1949_1952.webp"
+  },
+  {
+    "team_id": "1610610031",
+    "year_start": 1946,
+    "year_end": 1946,
+    "path": "static/team_logos/historical/1610610031/1946_1946.webp"
+  },
+  {
+    "team_id": "1610610032",
+    "year_start": 1946,
+    "year_end": 1948,
+    "path": "static/team_logos/historical/1610610032/1946_1948.png"
+  },
+  {
+    "team_id": "1610610033",
+    "year_start": 1949,
+    "year_end": 1949,
+    "path": "static/team_logos/historical/1610610033/1949_1949.webp"
+  },
+  {
+    "team_id": "1610610034",
+    "year_start": 1946,
+    "year_end": 1949,
+    "path": "static/team_logos/historical/1610610034/1946_1949.gif"
+  },
+  {
+    "team_id": "1610610035",
+    "year_start": 1946,
+    "year_end": 1946,
+    "path": "static/team_logos/historical/1610610035/1946_1946.png"
+  },
+  {
+    "team_id": "1610610037",
+    "year_start": 1949,
+    "year_end": 1949,
+    "path": "static/team_logos/historical/1610610037/1949_1949.png"
+  },
+  {
     "team_id": "1610612737",
     "year_start": 1949,
     "year_end": 1950,
