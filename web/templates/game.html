@@ -1468,7 +1468,7 @@
 
   .lpbp-jump {
     position: absolute;
-    top: 6px;
+    bottom: 6px;
     left: 50%;
     transform: translateX(-50%);
     padding: 6px 14px;
@@ -1486,7 +1486,7 @@
     animation: lpbp-pop 200ms ease-out;
   }
   @keyframes lpbp-pop {
-    from { transform: translateX(-50%) translateY(-6px); opacity: 0; }
+    from { transform: translateX(-50%) translateY(6px); opacity: 0; }
     to   { transform: translateX(-50%) translateY(0); opacity: 1; }
   }
 
@@ -2536,12 +2536,12 @@
   <div class="live-pbp-body">
     <div class="live-pbp-feed" id="live-pbp-feed">
       {% set ns = namespace(last_period=None, count=0) %}
-      {% for row in pbp_rows|reverse %}
+      {% for row in pbp_rows %}
       {% if ns.count < 80 %}
-      {% if row.period != ns.last_period and ns.last_period is not none %}
+      {% if row.period != ns.last_period %}
       <div class="lpbp-period-sep">
-        {% if row.period is not string and row.period <= 4 %}Q{{ row.period }} ends
-        {% elif row.period is not string %}OT{{ row.period - 4 }} ends
+        {% if row.period is not string and row.period <= 4 %}Q{{ row.period }}
+        {% elif row.period is not string %}OT{{ row.period - 4 }}
         {% else %}{{ row.period }}{% endif %}
       </div>
       {% endif %}
@@ -2577,7 +2577,7 @@
       <div class="lpbp-empty">{{ t('Waiting for first play…', '等待第一回合…') }}</div>
       {% endif %}
     </div>
-    <button class="lpbp-jump" type="button" data-role="live-pbp-jump" hidden>↑ {{ t('New plays', '有新回合') }}</button>
+    <button class="lpbp-jump" type="button" data-role="live-pbp-jump" hidden>↓ {{ t('New plays', '有新回合') }}</button>
   </div>
 </aside>
 {% endif %}
@@ -2895,7 +2895,7 @@
     const p = parseInt(periodNum, 10);
     const label = (!isFinite(p) || p <= 0)
       ? String(periodNum || '')
-      : (p <= 4 ? ('Q' + p + ' ends') : ('OT' + (p - 4) + ' ends'));
+      : (p <= 4 ? 'Q' + p : 'OT' + (p - 4));
     return '<div class="lpbp-period-sep">' + escapeHtml(label) + '</div>';
   }
 
@@ -2908,12 +2908,20 @@
     });
   }
 
+  function isAtBottom(feed) {
+    return feed.scrollHeight - feed.scrollTop - feed.clientHeight <= 12;
+  }
+
+  function scrollToBottom(feed) {
+    feed.scrollTop = feed.scrollHeight;
+  }
+
   function updateLivePbpDock(pbpRows) {
     const feed = document.getElementById('live-pbp-feed');
     if (!feed) return;
     if (livePbpState.knownEventNums === null) seedLivePbpState();
 
-    // The payload is chronological. Find events we haven't inserted yet.
+    // The payload is chronological. Find new events.
     const fresh = [];
     for (let i = 0; i < pbpRows.length; i++) {
       const row = pbpRows[i];
@@ -2922,56 +2930,53 @@
     }
     if (!fresh.length) return;
 
-    const atTop = feed.scrollTop <= 6;
+    const wasAtBottom = isAtBottom(feed);
 
-    // Track the raw period number of the current topmost row.
-    const prevTopRow = feed.querySelector('.lpbp-row[data-period]');
-    const prevTopPeriod = prevTopRow ? parseInt(prevTopRow.getAttribute('data-period'), 10) : null;
+    // Track the period of the last row in the feed for separator logic.
+    const allRows = feed.querySelectorAll('.lpbp-row[data-period]');
+    const lastRow = allRows.length ? allRows[allRows.length - 1] : null;
+    const lastPeriod = lastRow ? parseInt(lastRow.getAttribute('data-period'), 10) : null;
 
     const emptyEl = feed.querySelector('.lpbp-empty');
     if (emptyEl) emptyEl.remove();
 
-    // Build HTML for fresh events in reverse order (newest on top). Insert
-    // period separators at quarter boundaries.
+    // Build HTML in chronological order (oldest fresh first, appended to bottom).
     let html = '';
-    let prevPeriod = null;
-    for (let i = fresh.length - 1; i >= 0; i--) {
+    let prevPeriod = lastPeriod;
+    for (let i = 0; i < fresh.length; i++) {
       const row = fresh[i];
       const rp = parseInt(row.period, 10) || 0;
-      if (prevPeriod !== null && rp !== prevPeriod) {
-        html += periodSepHtml(prevPeriod);
+      if (prevPeriod !== null && isFinite(prevPeriod) && rp !== prevPeriod) {
+        html += periodSepHtml(rp);
       }
       html += pbpRowHtml(row);
       livePbpState.knownEventNums.add(String(row.event_num));
       prevPeriod = rp;
     }
-    // Separator between the oldest fresh event and the previous top of feed.
-    const oldestFreshPeriod = parseInt(fresh[0].period, 10) || 0;
-    if (prevTopPeriod !== null && isFinite(prevTopPeriod) && oldestFreshPeriod !== prevTopPeriod) {
-      html += periodSepHtml(prevTopPeriod);
-    }
 
-    feed.insertAdjacentHTML('afterbegin', html);
+    feed.insertAdjacentHTML('beforeend', html);
 
-    // Trim the tail so the DOM doesn't balloon over a long game.
+    // Trim the head so the DOM doesn't balloon over a long game.
     const rows = feed.querySelectorAll('.lpbp-row');
     if (rows.length > LIVE_PBP_MAX_ROWS) {
-      for (let i = LIVE_PBP_MAX_ROWS; i < rows.length; i++) rows[i].remove();
+      const excess = rows.length - LIVE_PBP_MAX_ROWS;
+      for (let i = 0; i < excess; i++) rows[i].remove();
     }
 
     // Flash the new rows.
-    const newEls = feed.querySelectorAll('.lpbp-row');
-    for (let i = 0; i < fresh.length && i < newEls.length; i++) {
-      newEls[i].classList.add('lpbp-new');
+    const allAfter = feed.querySelectorAll('.lpbp-row');
+    const startIdx = allAfter.length - fresh.length;
+    for (let i = Math.max(0, startIdx); i < allAfter.length; i++) {
+      allAfter[i].classList.add('lpbp-new');
     }
     setTimeout(function () {
       feed.querySelectorAll('.lpbp-new').forEach(function (el) { el.classList.remove('lpbp-new'); });
     }, 2000);
 
-    // Auto-follow or show the "new plays" jump button.
+    // Auto-follow (scroll to bottom) or show the jump button.
     const jumpBtn = document.querySelector('[data-role="live-pbp-jump"]');
-    if (atTop && !livePbpState.userPinned) {
-      feed.scrollTop = 0;
+    if (wasAtBottom && !livePbpState.userPinned) {
+      scrollToBottom(feed);
       if (jumpBtn) jumpBtn.hidden = true;
     } else if (jumpBtn) {
       jumpBtn.hidden = false;
@@ -3019,16 +3024,19 @@
 
     if (feed) {
       feed.addEventListener('scroll', function () {
-        const atTop = feed.scrollTop <= 6;
-        livePbpState.userPinned = !atTop;
-        if (atTop && jumpBtn) jumpBtn.hidden = true;
+        const atBottom = isAtBottom(feed);
+        livePbpState.userPinned = !atBottom;
+        if (atBottom && jumpBtn) jumpBtn.hidden = true;
       }, { passive: true });
+
+      // Auto-scroll to bottom on initial load.
+      scrollToBottom(feed);
     }
 
     if (jumpBtn) {
       jumpBtn.addEventListener('click', function () {
         if (!feed) return;
-        feed.scrollTo({ top: 0, behavior: 'smooth' });
+        feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         livePbpState.userPinned = false;
         jumpBtn.hidden = true;
       });
