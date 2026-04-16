@@ -78,6 +78,9 @@ def _safe_external_url(url: str | None) -> str | None:
 
 ESPN_RSS_URL = "https://www.espn.com/espn/rss/nba/news"
 NBA_CONTENT_API_URL = "https://content-api-prod.nba.com/public/1/content/layout/nba/news/en"
+YAHOO_RSS_URL = "https://sports.yahoo.com/nba/rss/"
+CBS_RSS_URL = "https://www.cbssports.com/rss/headlines/nba/"
+REDDIT_NBA_URL = "https://www.reddit.com/r/nba/hot.json?limit=25"
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +257,140 @@ def fetch_nba_official() -> list[FetchedItem]:
     return items
 
 
+def _fetch_rss_generic(url: str, source: str) -> list[FetchedItem]:
+    """Generic RSS/Atom fetcher reusable across Yahoo, CBS, etc."""
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml,text/xml,*/*"},
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("%s RSS fetch failed: %s", source, exc)
+        return []
+
+    try:
+        root = ET.fromstring(resp.content)
+    except ET.ParseError as exc:
+        logger.warning("%s RSS parse failed: %s", source, exc)
+        return []
+
+    items: list[FetchedItem] = []
+    # Handle both RSS 2.0 (<channel><item>) and Atom (<entry>)
+    channel = root.find("channel")
+    raw_items = channel.findall("item") if channel is not None else root.findall("{http://www.w3.org/2005/Atom}entry")
+    for item in raw_items:
+        # RSS 2.0 fields
+        guid = (item.findtext("guid") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        # Atom fallback
+        if not link:
+            link_el = item.find("{http://www.w3.org/2005/Atom}link")
+            link = (link_el.get("href") or "").strip() if link_el is not None else ""
+        if not guid:
+            guid = link
+        safe_link = _safe_external_url(link)
+        if not guid or not safe_link:
+            continue
+        title = _strip_html((item.findtext("title") or item.findtext("{http://www.w3.org/2005/Atom}title") or "").strip())
+        description = _strip_html((item.findtext("description") or item.findtext("{http://www.w3.org/2005/Atom}summary") or "").strip())
+        pub_text = item.findtext("pubDate") or item.findtext("{http://www.w3.org/2005/Atom}updated")
+        pub = _parse_rfc822(pub_text)
+        if not pub and pub_text:
+            try:
+                pub = datetime.fromisoformat(pub_text.replace("Z", "+00:00"))
+                if pub.tzinfo is not None:
+                    pub = pub.astimezone(timezone.utc).replace(tzinfo=None)
+            except ValueError:
+                pass
+        if not pub or not title:
+            continue
+        thumb = None
+        for child in item:
+            if child.tag.endswith("}thumbnail") and child.get("url"):
+                thumb = child.get("url")
+                break
+            if child.tag.endswith("}content") and child.get("url") and (child.get("medium") == "image" or child.get("type", "").startswith("image")):
+                thumb = child.get("url")
+                break
+        if not thumb:
+            enc = item.find("enclosure")
+            if enc is not None and enc.get("url") and (enc.get("type") or "").startswith("image"):
+                thumb = enc.get("url")
+        thumb = _safe_external_url(thumb) if thumb else None
+        items.append(
+            FetchedItem(
+                source=source,
+                source_guid=guid[:255],
+                url=safe_link[:1024],
+                title=title[:512],
+                summary=description,
+                thumbnail_url=(thumb[:1024] if thumb else None),
+                published_at=pub,
+            )
+        )
+    return items
+
+
+def fetch_yahoo_rss() -> list[FetchedItem]:
+    return _fetch_rss_generic(YAHOO_RSS_URL, "yahoo")
+
+
+def fetch_cbs_rss() -> list[FetchedItem]:
+    return _fetch_rss_generic(CBS_RSS_URL, "cbs")
+
+
+def fetch_reddit_nba() -> list[FetchedItem]:
+    """Fetch hot posts from r/nba. Only includes link posts (external articles)
+    and text posts with substantial body text, skipping game threads etc."""
+    try:
+        resp = requests.get(
+            REDDIT_NBA_URL,
+            headers={"User-Agent": USER_AGENT},
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Reddit r/nba fetch failed: %s", exc)
+        return []
+
+    items: list[FetchedItem] = []
+    for child in payload.get("data", {}).get("children", []):
+        post = child.get("data", {})
+        post_id = post.get("id") or ""
+        title = (post.get("title") or "").strip()
+        if not post_id or not title:
+            continue
+        # Skip stickied/pinned (game threads, daily discussion)
+        if post.get("stickied"):
+            continue
+        url = post.get("url") or ""
+        safe_url = _safe_external_url(url)
+        if not safe_url:
+            continue
+        # Use selftext as summary for text posts, empty for link posts
+        selftext = (post.get("selftext") or "")[:500].strip()
+        created_utc = post.get("created_utc")
+        if not created_utc:
+            continue
+        pub = datetime.utcfromtimestamp(float(created_utc))
+        thumb = _safe_external_url(post.get("thumbnail")) if post.get("thumbnail") not in ("self", "default", "nsfw", "spoiler", "", None) else None
+        items.append(
+            FetchedItem(
+                source="reddit",
+                source_guid=post_id[:255],
+                url=safe_url[:1024],
+                title=title[:512],
+                summary=selftext,
+                thumbnail_url=(thumb[:1024] if thumb else None),
+                published_at=pub,
+            )
+        )
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Tagging (player/team alias matching)
 # ---------------------------------------------------------------------------
@@ -420,6 +557,9 @@ def _should_replace_representative(existing: NewsArticle | None, new: NewsArticl
 class RunStats:
     espn: int = 0
     nba: int = 0
+    yahoo: int = 0
+    cbs: int = 0
+    reddit: int = 0
     new_clusters: int = 0
     attached: int = 0
     skipped_seen: int = 0
@@ -531,10 +671,8 @@ def _process_source_items(
             else:
                 stats.attached += 1
             inserted += 1
-            if source_label == "espn":
-                stats.espn += 1
-            elif source_label == "nba":
-                stats.nba += 1
+            if hasattr(stats, source_label):
+                setattr(stats, source_label, getattr(stats, source_label) + 1)
             session.commit()
         except IntegrityError:
             # Concurrent scraper run raced us to (source, source_guid). Safe to skip.
@@ -550,7 +688,46 @@ def _process_source_items(
 # Public entry points
 # ---------------------------------------------------------------------------
 
+_SOURCE_FETCHERS: dict[str, callable] = {
+    "espn": fetch_espn_rss,
+    "nba": fetch_nba_official,
+    "yahoo": fetch_yahoo_rss,
+    "cbs": fetch_cbs_rss,
+    "reddit": fetch_reddit_nba,
+}
+
+
+def scrape_single_source(source: str) -> dict:
+    """Scrape one source. Designed to be called in parallel per-source."""
+    from db.models import engine
+    from sqlalchemy.orm import Session
+
+    fetcher = _SOURCE_FETCHERS.get(source)
+    if not fetcher:
+        return {"error": f"unknown source: {source}"}
+
+    stats = RunStats()
+    with Session(engine) as session:
+        alias_index = build_alias_index(session)
+        items = fetcher()
+        _process_source_items(session, items, alias_index, stats, source)
+        refresh_all_recent_scores(session)
+        session.commit()
+
+    result = {
+        "source": source,
+        "inserted": getattr(stats, source, 0),
+        "new_clusters": stats.new_clusters,
+        "attached": stats.attached,
+        "skipped_seen": stats.skipped_seen,
+        "errors": stats.errors,
+    }
+    logger.info("scrape_single_source(%s): %s", source, result)
+    return result
+
+
 def scrape_all() -> dict:
+    """Scrape all sources sequentially (legacy entry point)."""
     from db.models import engine
     from sqlalchemy.orm import Session
 
@@ -558,17 +735,18 @@ def scrape_all() -> dict:
     with Session(engine) as session:
         alias_index = build_alias_index(session)
 
-        _process_source_items(session, fetch_espn_rss(), alias_index, stats, "espn")
-        _process_source_items(session, fetch_nba_official(), alias_index, stats, "nba")
+        for source, fetcher in _SOURCE_FETCHERS.items():
+            _process_source_items(session, fetcher(), alias_index, stats, source)
 
-        # Final score refresh for any cluster touched in the last 48h so
-        # brand-new articles outrank stale ones immediately.
         refresh_all_recent_scores(session)
         session.commit()
 
     result = {
         "espn": stats.espn,
         "nba": stats.nba,
+        "yahoo": stats.yahoo,
+        "cbs": stats.cbs,
+        "reddit": stats.reddit,
         "new_clusters": stats.new_clusters,
         "attached": stats.attached,
         "skipped_seen": stats.skipped_seen,

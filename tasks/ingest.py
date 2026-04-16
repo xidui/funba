@@ -1081,11 +1081,20 @@ def enqueue_metric_backfill(self, metric_key: str, force: bool = False) -> dict:
 # News feed (Queue: news)
 # ---------------------------------------------------------------------------
 
+@shared_task(name="tasks.ingest.scrape_news_source", queue="news")
+def scrape_news_source(source: str) -> dict:
+    """Scrape a single news source. Called in parallel by scrape_nba_news."""
+    from db.news_ingest import scrape_single_source
+    return scrape_single_source(source)
+
+
 @shared_task(name="tasks.ingest.scrape_nba_news", queue="news")
 def scrape_nba_news():
-    """Hourly scrape: ESPN NBA RSS + NBA.com content API -> NewsArticle."""
-    from db.news_ingest import scrape_all
-    return scrape_all()
+    """Hourly: fan out scraping to all sources in parallel."""
+    sources = ["espn", "nba", "yahoo", "cbs", "reddit"]
+    for src in sources:
+        scrape_news_source.delay(src)
+    return {"enqueued": sources}
 
 
 @shared_task(name="tasks.ingest.refresh_news_scores", queue="news")

@@ -51,6 +51,7 @@ app.conf.update(
         "tasks.content.ensure_recent_content_analysis": {"queue": "ingest"},
         "tasks.content.ensure_recent_content_analysis_for_season": {"queue": "ingest"},
         "tasks.ingest.scrape_nba_news": {"queue": "news"},
+        "tasks.ingest.scrape_news_source": {"queue": "news"},
         "tasks.ingest.refresh_news_scores": {"queue": "news"},
         "tasks.ingest.refresh_current_team_logos": {"queue": "ingest"},
         "tasks.ingest.sync_current_team_rosters": {"queue": "ingest"},
