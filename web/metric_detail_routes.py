@@ -135,33 +135,43 @@ def register_metric_detail_routes(app, deps):
             related_metrics = deps.related_metric_links()(session, metric_key, runtime_metric, db_metric)
             current_metric_season = None
 
-            current_window_type = window_type_from_key(metric_key) if is_career_metric else None
+            current_window_type = window_type_from_key(metric_key)
             window_tabs: list[dict] = []
-            if is_career_metric:
-                available_window_keys = {base_metric_key, metric_key}
-                for candidate_window in ("career", "last5", "last3"):
-                    candidate_key = family_window_key(base_metric_key, candidate_window)
-                    has_results = (
-                        session.query(MetricResultModel.metric_key)
-                        .filter(MetricResultModel.metric_key == candidate_key)
-                        .limit(1)
-                        .first()
-                    )
-                    if not has_results:
-                        continue
-                    available_window_keys.add(candidate_key)
-                    window_tabs.append(
-                        {
-                            "window_type": candidate_window,
-                            "metric_key": candidate_key,
-                            "label": {
-                                "career": deps.t()("Career", "生涯"),
-                                "last5": deps.t()("Last 5 Seasons", "近 5 季"),
-                                "last3": deps.t()("Last 3 Seasons", "近 3 季"),
-                            }[candidate_window],
-                            "is_current": candidate_key == metric_key,
-                        }
-                    )
+
+            def _has_results_for(key: str) -> bool:
+                return (
+                    session.query(MetricResultModel.metric_key)
+                    .filter(MetricResultModel.metric_key == key)
+                    .limit(1)
+                    .first()
+                    is not None
+                )
+
+            if _has_results_for(base_metric_key):
+                window_tabs.append(
+                    {
+                        "window_type": "season",
+                        "metric_key": base_metric_key,
+                        "label": deps.t()("Season", "赛季"),
+                        "is_current": base_metric_key == metric_key,
+                    }
+                )
+            for candidate_window in ("career", "last5", "last3"):
+                candidate_key = family_window_key(base_metric_key, candidate_window)
+                if not _has_results_for(candidate_key):
+                    continue
+                window_tabs.append(
+                    {
+                        "window_type": candidate_window,
+                        "metric_key": candidate_key,
+                        "label": {
+                            "career": deps.t()("Career", "生涯"),
+                            "last5": deps.t()("Last 5 Seasons", "近 5 季"),
+                            "last3": deps.t()("Last 3 Seasons", "近 3 季"),
+                        }[candidate_window],
+                        "is_current": candidate_key == metric_key,
+                    }
+                )
 
             season_rows = (
                 session.query(MetricResultModel.season)
