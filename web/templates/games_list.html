@@ -360,6 +360,183 @@
   </div>
 </div>
 
+{# ── Playoff Bracket ── #}
+{% if bracket and selected_phase == '4' %}
+<style>
+  .playoff-bracket{display:flex;align-items:stretch;overflow-x:auto;margin:0 0 20px;min-height:460px;gap:0;padding:8px 0;}
+  .bk-half{display:flex;flex:1;min-width:0;}
+  .bk-half.west{flex-direction:row-reverse;}
+  .bk-round{display:flex;flex-direction:column;justify-content:space-around;min-width:130px;padding:0 3px;flex-shrink:0;}
+  .bk-round .rl{text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:2px 0;white-space:nowrap;}
+  .bk-finals{display:flex;flex-direction:column;justify-content:center;min-width:140px;padding:0 3px;flex-shrink:0;}
+  .bk-conf{font-size:11px;color:var(--accent);text-align:center;font-weight:600;padding:0 0 2px;}
+  /* series card */
+  .sc{background:var(--surface);border-radius:6px;border:1px solid var(--border,#1a2a3a);overflow:hidden;margin:4px 0;position:relative;}
+  .sc .tr{display:flex;align-items:center;padding:4px 8px;gap:5px;font-size:12px;line-height:1.3;}
+  .sc .tr+.tr{border-top:1px solid var(--border,#1a2a3a);}
+  .sc .tr.w{font-weight:700;}
+  .sc .tr.l{opacity:.38;}
+  .sc .sd{color:var(--muted);font-size:10px;min-width:12px;text-align:center;}
+  .sc .bl{width:18px;height:18px;border-radius:2px;}
+  .sc .ab{flex:1;white-space:nowrap;}
+  .sc .wn{font-weight:700;min-width:10px;text-align:right;}
+  .sc.tbd{opacity:.35;}.sc.tbd .tr{justify-content:center;color:var(--muted);}
+  /* connectors */
+  .bk-conn{display:flex;flex-direction:column;width:16px;min-width:16px;flex-shrink:0;}
+  .bk-cp{flex:1;display:flex;flex-direction:column;}
+  .bk-cp .ct{flex:1;border-bottom:2px solid var(--border,#1a2a3a);}
+  .bk-cp .cb{flex:1;border-top:2px solid var(--border,#1a2a3a);}
+  .east .bk-cp .ct,.east .bk-cp .cb{border-right:2px solid var(--border,#1a2a3a);}
+  .west .bk-cp .ct,.west .bk-cp .cb{border-left:2px solid var(--border,#1a2a3a);}
+  /* horizontal stub from series card */
+  .east .sc::after{content:'';position:absolute;right:-4px;top:50%;width:4px;height:2px;background:var(--border,#1a2a3a);}
+  .west .sc::after{content:'';position:absolute;left:-4px;top:50%;width:4px;height:2px;background:var(--border,#1a2a3a);}
+  .bk-finals .sc::after{display:none;}
+  /* champion badge */
+  .bk-champ{text-align:center;margin-top:6px;font-size:11px;color:var(--accent);font-weight:700;}
+  @media(max-width:900px){.playoff-bracket{min-height:400px;}.bk-round,.bk-finals{min-width:110px;}}
+</style>
+
+{% macro sc(s) %}
+{% if s %}
+<div class="sc">
+  <div class="tr {{ 'w' if s.winner and s.winner == s.top else '' }} {{ 'l' if s.winner and s.winner != s.top else '' }}">
+    {% if s.ts %}<span class="sd">{{ s.ts }}</span>{% endif %}
+    <img class="bl" src="{{ team_logo(s.top, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(s.top, selected_year) if s.top else 'TBD' }}</span>
+    <span class="wn">{{ s.tw }}</span>
+  </div>
+  <div class="tr {{ 'w' if s.winner and s.winner == s.bot else '' }} {{ 'l' if s.winner and s.winner != s.bot else '' }}">
+    {% if s.bs %}<span class="sd">{{ s.bs }}</span>{% endif %}
+    <img class="bl" src="{{ team_logo(s.bot, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(s.bot, selected_year) if s.bot else 'TBD' }}</span>
+    <span class="wn">{{ s.bw }}</span>
+  </div>
+</div>
+{% else %}
+<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
+{% endif %}
+{% endmacro %}
+
+{% macro conn(n) %}
+<div class="bk-conn">
+  {% for _ in range(n) %}
+  <div class="bk-cp"><div class="ct"></div><div class="cb"></div></div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+<div class="playoff-bracket">
+  {# ── East (left to right: R1 → R2 → CF) ── #}
+  <div class="bk-half east">
+    <div class="bk-round">
+      <div class="rl">{{ t('First Round', '首轮') }}</div>
+      {% for s in bracket.er1 %}{{ sc(s) }}{% endfor %}
+    </div>
+    {{ conn(2) }}
+    <div class="bk-round">
+      <div class="rl">{{ t('Semifinals', '半决赛') }}</div>
+      {% for s in bracket.er2 %}{{ sc(s) }}{% endfor %}
+    </div>
+    {{ conn(1) }}
+    <div class="bk-round">
+      <div class="rl">{{ t('Conf. Finals', '分区决赛') }}</div>
+      {{ sc(bracket.ecf) }}
+    </div>
+  </div>
+
+  {# ── Finals (center) ── #}
+  <div class="bk-finals">
+    <div class="rl">{{ t('NBA Finals', '总决赛') }}</div>
+    {{ sc(bracket.finals) }}
+    {% if bracket.finals and bracket.finals.winner %}
+    <div class="bk-champ">🏆 {{ team_abbr_for_year(bracket.finals.winner, selected_year) }}</div>
+    {% endif %}
+  </div>
+
+  {# ── West (right to left: CF ← R2 ← R1) ── #}
+  <div class="bk-half west">
+    <div class="bk-round">
+      <div class="rl">{{ t('First Round', '首轮') }}</div>
+      {% for s in bracket.wr1 %}{{ sc(s) }}{% endfor %}
+    </div>
+    {{ conn(2) }}
+    <div class="bk-round">
+      <div class="rl">{{ t('Semifinals', '半决赛') }}</div>
+      {% for s in bracket.wr2 %}{{ sc(s) }}{% endfor %}
+    </div>
+    {{ conn(1) }}
+    <div class="bk-round">
+      <div class="rl">{{ t('Conf. Finals', '分区决赛') }}</div>
+      {{ sc(bracket.wcf) }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Play-In Bracket ── #}
+{% if bracket and selected_phase == '5' %}
+<style>
+  .playin-bracket{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 20px;padding:8px 0;}
+  .playin-conf{flex:1;min-width:280px;}
+  .playin-conf h3{font-size:13px;color:var(--accent);margin:0 0 8px;font-weight:600;}
+  .playin-row{display:flex;gap:12px;align-items:stretch;margin-bottom:8px;}
+  .playin-row .pi-label{font-size:10px;color:var(--muted);min-width:48px;display:flex;align-items:center;}
+  .pi-card{background:var(--surface);border-radius:6px;border:1px solid var(--border,#1a2a3a);overflow:hidden;flex:1;font-size:12px;}
+  .pi-card .pi-team{display:flex;align-items:center;padding:4px 8px;gap:5px;}
+  .pi-card .pi-team+.pi-team{border-top:1px solid var(--border,#1a2a3a);}
+  .pi-card .pi-team.w{font-weight:700;}
+  .pi-card .pi-team.l{opacity:.38;}
+  .pi-card .pi-logo{width:18px;height:18px;border-radius:2px;}
+  .pi-card .pi-abbr{flex:1;}
+  .pi-card .pi-score{font-weight:700;min-width:20px;text-align:right;}
+  .pi-arrow{font-size:10px;color:var(--muted);margin:2px 0 2px 60px;}
+</style>
+
+{% macro pi_card(g) %}
+{% if g %}
+<div class="pi-card">
+  <div class="pi-team {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
+    <img class="pi-logo" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
+    <span class="pi-abbr">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
+    <span class="pi-score">{{ g.top_score if g.top_score is not none else '' }}</span>
+  </div>
+  <div class="pi-team {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
+    <img class="pi-logo" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
+    <span class="pi-abbr">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
+    <span class="pi-score">{{ g.bot_score if g.bot_score is not none else '' }}</span>
+  </div>
+</div>
+{% else %}
+<div class="pi-card"><div class="pi-team" style="justify-content:center;color:var(--muted);">TBD</div></div>
+{% endif %}
+{% endmacro %}
+
+{% macro playin_conf(label, g78, g910, gfinal) %}
+<div class="playin-conf">
+  <h3>{{ label }}</h3>
+  <div class="playin-row">
+    <span class="pi-label">7 vs 8</span>
+    {{ pi_card(g78) }}
+  </div>
+  <div class="playin-row">
+    <span class="pi-label">9 vs 10</span>
+    {{ pi_card(g910) }}
+  </div>
+  <div class="pi-arrow">↳ {{ t('Winner → 8th seed', '胜者→第8顺位') }}</div>
+  <div class="playin-row">
+    <span class="pi-label">{{ t('Final', '决定战') }}</span>
+    {{ pi_card(gfinal) }}
+  </div>
+</div>
+{% endmacro %}
+
+<div class="playin-bracket">
+  {{ playin_conf(t('Eastern Conference', '东部'), bracket.east_78, bracket.east_910, bracket.east_final) }}
+  {{ playin_conf(t('Western Conference', '西部'), bracket.west_78, bracket.west_910, bracket.west_final) }}
+</div>
+{% endif %}
+
 {# ── Game row macro ── #}
 {% macro render_row(entry) %}
   {% set game = entry.game %}

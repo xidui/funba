@@ -45,6 +45,82 @@ def _game_status_rank(status: str | None) -> int:
     return 3
 
 
+def _build_bracket_series(games):
+    """Build a single series summary from a list of games in that series."""
+    if not games:
+        return None
+    games.sort(key=lambda g: str(g.game_id))
+    top = games[0].home_team_id  # higher seed has home court in game 1
+    bot = games[0].road_team_id
+    tw = sum(1 for g in games if str(getattr(g, "wining_team_id", "") or "") == str(top))
+    bw = sum(1 for g in games if str(getattr(g, "wining_team_id", "") or "") == str(bot))
+    winner = top if tw >= 4 else (bot if bw >= 4 else None)
+    return dict(top=top, bot=bot, tw=tw, bw=bw, winner=winner, ts=None, bs=None)
+
+
+def _build_playoff_bracket(games):
+    """Parse playoff game list into bracket structure keyed by round/series."""
+    _R1_SEEDS = {
+        0: (1, 8), 1: (4, 5), 2: (3, 6), 3: (2, 7),
+        4: (1, 8), 5: (4, 5), 6: (3, 6), 7: (2, 7),
+    }
+    series_map: dict[tuple[int, int], list] = {}
+    for g in games:
+        gid = str(g.game_id)
+        if len(gid) < 10:
+            continue
+        rnd, sidx = int(gid[7]), int(gid[8])
+        series_map.setdefault((rnd, sidx), []).append(g)
+
+    def _s(rnd, idx):
+        s = _build_bracket_series(series_map.get((rnd, idx), []))
+        if s and rnd == 1:
+            seeds = _R1_SEEDS.get(idx)
+            if seeds:
+                s["ts"], s["bs"] = seeds
+        return s
+
+    return dict(
+        er1=[_s(1, i) for i in range(4)],
+        er2=[_s(2, i) for i in range(2)],
+        ecf=_s(3, 0),
+        wr1=[_s(1, i + 4) for i in range(4)],
+        wr2=[_s(2, i + 2) for i in range(2)],
+        wcf=_s(3, 1),
+        finals=_s(4, 0),
+    )
+
+
+def _build_playin_bracket(games):
+    """Parse play-in games into bracket structure."""
+    series_map: dict[tuple[int, int], list] = {}
+    for g in games:
+        gid = str(g.game_id)
+        if len(gid) < 10:
+            continue
+        rnd, sidx = int(gid[7]), int(gid[8])
+        series_map.setdefault((rnd, sidx), []).append(g)
+
+    def _g(rnd, idx):
+        """Build a single-game 'series' for play-in."""
+        gs = series_map.get((rnd, idx), [])
+        if not gs:
+            return None
+        g = gs[0]
+        winner = getattr(g, "wining_team_id", None)
+        return dict(
+            top=g.home_team_id, bot=g.road_team_id,
+            top_score=g.home_team_score, bot_score=g.road_team_score,
+            winner=str(winner) if winner else None,
+            game_date=g.game_date,
+        )
+
+    return dict(
+        east_78=_g(1, 0), east_910=_g(1, 1), east_final=_g(2, 0),
+        west_78=_g(1, 2), west_910=_g(1, 3), west_final=_g(2, 1),
+    )
+
+
 def _build_game_list_entry(game, live_snapshot: dict | None = None):
     status = live_snapshot.get("status") if live_snapshot else get_game_status(game)
     road_score = live_snapshot.get("road_score") if live_snapshot else game.road_team_score
@@ -1236,6 +1312,19 @@ def register_public_routes(
                     sid for sid in season_ids_for_filter if str(sid).startswith(selected_phase)
                 ]
 
+            # Build bracket (before team filter so it shows full tournament)
+            bracket = None
+            if selected_phase in ("4", "5") and season_ids_for_filter:
+                bracket_games = (
+                    session.query(Game)
+                    .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
+                    .all()
+                )
+                if selected_phase == "4":
+                    bracket = _build_playoff_bracket(bracket_games)
+                else:
+                    bracket = _build_playin_bracket(bracket_games)
+
             selected_team = (request.args.get("team") or "").strip() or None
             try:
                 page = max(1, int(request.args.get("page", 1)))
@@ -1370,6 +1459,7 @@ def register_public_routes(
             phase_label_for=phase_label_for,
             available_phases=available_phases,
             selected_phase=selected_phase,
+            bracket=bracket,
             selected_team=selected_team,
             selected_team_obj=selected_team_obj,
             fmt_date=get_fmt_date(),
