@@ -132,7 +132,7 @@ def register_metric_detail_routes(app, deps):
             metric_def = deps.metric_def_view()(runtime_metric or db_metric, source_type=getattr(db_metric, "source_type", None))
             is_career_metric = bool(getattr(runtime_metric, "career", False))
             is_season_scope = metric_def.scope == "season"
-            related_metrics = deps.related_metric_links()(session, metric_key, runtime_metric, db_metric)
+            related_metrics_all = deps.related_metric_links()(session, metric_key, runtime_metric, db_metric)
             current_metric_season = None
 
             current_window_type = window_type_from_key(metric_key)
@@ -172,6 +172,9 @@ def register_metric_detail_routes(app, deps):
                         "is_current": candidate_key == metric_key,
                     }
                 )
+
+            window_tab_keys = {tab["metric_key"] for tab in window_tabs}
+            related_metrics = [r for r in related_metrics_all if r["metric_key"] not in window_tab_keys]
 
             season_rows = (
                 session.query(MetricResultModel.season)
