@@ -397,7 +397,33 @@
   /* play-in annotations */
   .pi-note{font-size:9px;color:var(--muted);text-align:center;margin:-2px 0 2px;line-height:1.2;}
   .bk-round.pi-round .sc::after{display:none;}
-  @media(max-width:900px){.playoff-bracket{min-height:400px;}.bk-round,.bk-finals{min-width:110px;}}
+
+  /* Conference labels — hidden on desktop, shown on mobile */
+  .bk-conf-label{display:none;font-size:12px;color:var(--accent);font-weight:600;padding:0 0 4px;}
+
+  /* ── Mobile: stack conferences vertically, each scrolls horizontally ── */
+  @media(max-width:700px){
+    .playoff-bracket{flex-direction:column;min-height:auto;gap:16px;align-items:stretch;}
+    .bk-half{flex-wrap:wrap;}
+    .bk-half,.bk-half.west{flex-direction:row!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;}
+    .bk-conf-label{display:block;width:100%;flex-shrink:0;}
+    .bk-finals{flex-direction:row;justify-content:center;align-items:center;gap:8px;min-width:auto;padding:0;order:-1;}
+    .bk-finals .rl{margin:0;padding:0 8px 0 0;white-space:nowrap;}
+    .bk-finals .sc{margin:0;min-width:130px;}
+    .bk-champ{margin:0 0 0 8px;}
+    .bk-round{min-width:105px;}
+    .bk-conn{width:12px;min-width:12px;}
+    .sc .tr{padding:3px 6px;gap:4px;font-size:11px;}
+    .sc .bl{width:16px;height:16px;}
+    .sc .sd{font-size:9px;min-width:10px;}
+  }
+  @media(max-width:400px){
+    .bk-round{min-width:88px;}
+    .sc .tr{padding:2px 4px;font-size:10px;gap:3px;}
+    .sc .bl{width:14px;height:14px;}
+    .bk-conn{width:8px;min-width:8px;}
+    .pi-note{font-size:8px;}
+  }
 </style>
 
 {% macro sc(s) %}
@@ -451,6 +477,7 @@
 <div class="playoff-bracket">
   {# ── East (left to right: PI → R1 → R2 → CF) ── #}
   <div class="bk-half east">
+    <div class="bk-conf-label">{{ t('Eastern Conference', '东部联盟') }}</div>
     {% if bracket.playin is defined and bracket.playin %}
     <div class="bk-round pi-round">
       <div class="rl">{{ t('Play-In', '附加赛') }}</div>
@@ -489,6 +516,7 @@
 
   {# ── West (right to left: CF ← R2 ← R1 ← PI) ── #}
   <div class="bk-half west">
+    <div class="bk-conf-label">{{ t('Western Conference', '西部联盟') }}</div>
     {% if bracket.playin is defined and bracket.playin %}
     <div class="bk-round pi-round">
       <div class="rl">{{ t('Play-In', '附加赛') }}</div>
