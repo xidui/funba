@@ -562,6 +562,48 @@
     position: relative;
     height: 210px;
   }
+  .margin-chart { cursor: crosshair; }
+  .margin-chart canvas { width: 100% !important; height: 100% !important; }
+
+  .mc-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    z-index: 10;
+    white-space: nowrap;
+    transition: opacity 100ms ease;
+  }
+  .mc-tooltip[hidden] { display: block; opacity: 0; pointer-events: none; }
+  .mc-tooltip .mc-tt-header { font-weight: 700; font-size: 11px; color: var(--muted-2); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 2px; }
+  .mc-tooltip .mc-tt-score { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .mc-tooltip .mc-tt-lead { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .mc-tooltip .mc-tt-play { font-size: 11px; color: var(--muted); margin-top: 4px; border-top: 1px solid var(--border); padding-top: 4px; }
+
+  .mc-lead-badge {
+    position: absolute;
+    right: 28px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 12px;
+    border-radius: 8px;
+    z-index: 5;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
 
   @media (max-width: 560px) {
     .scoreboard { grid-template-columns: 1fr auto 1fr; gap: 10px; padding: 22px 16px 18px; }
@@ -1652,8 +1694,10 @@
 
 {% if score_progression_json and score_progression_json not in ('[]', '[{"t": 0.0, "road": 0, "home": 0}]') %}
   <hr class="sb-chart-divider">
-  <div class="sb-chart-wrap">
-    <canvas id="score-chart"></canvas>
+  <div class="sb-chart-wrap margin-chart">
+    <canvas id="margin-chart"></canvas>
+    <div class="mc-tooltip" id="mc-tooltip" hidden></div>
+    <div class="mc-lead-badge" id="mc-lead-badge"></div>
   </div>
   {% endif %}
 </div>
@@ -3094,6 +3138,10 @@
       updateLivePbpDock(payload.pbp_rows);
     }
     updateLivePbpHeader(payload.summary);
+    // Update the margin chart with fresh score_progression data.
+    if (payload.score_progression && window._updateMarginChart) {
+      window._updateMarginChart(payload.score_progression);
+    }
 
     // ── Live quick panel: WP bar + per-team FG%/3P% + top leaders ──
     const livePanel = document.querySelector('[data-live-panel]');
@@ -3166,206 +3214,298 @@
 {% endif %}
 
 {% if score_progression_json and score_progression_json not in ('[]', '[{"t": 0.0, "road": 0, "home": 0}]') %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 (function () {
-  const pts      = {{ score_progression_json | safe }};
+  let pts        = {{ score_progression_json | safe }};
   const roadAbbr = {{ road_abbr | tojson }};
   const homeAbbr = {{ home_abbr | tojson }};
-  const root = document.documentElement;
+  const isLive   = {{ (current_status == 'live')|tojson }};
+  const root     = document.documentElement;
+  const canvas   = document.getElementById('margin-chart');
+  const tooltip  = document.getElementById('mc-tooltip');
+  const badge    = document.getElementById('mc-lead-badge');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
 
-  const maxT = pts.length ? pts[pts.length - 1].t : 48;
-  const axisMax = maxT <= 48 ? 48 : Math.ceil((maxT - 48) / 5) * 5 + 48;
+  const HOME_CLR = '#f97316';
+  const ROAD_CLR = '#60a5fa';
+  const PAD = { top: 28, right: 52, bottom: 32, left: 42 };
 
-  function themeVar(name) {
-    return getComputedStyle(root).getPropertyValue(name).trim();
+  function tv(name) { return getComputedStyle(root).getPropertyValue(name).trim(); }
+
+  function computeLayout() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: rect.width, h: rect.height };
   }
 
-  const periodLinesPlugin = {
-    id: 'periodLines',
-    afterDraw(chart) {
-      const ctx   = chart.ctx;
-      const xAxis = chart.scales.x;
-      const yAxis = chart.scales.y;
-      const boundaries = [];
-      for (let q = 1; q <= 4; q++) boundaries.push({ t: q * 12, label: q === 4 ? 'OT' : `Q${q + 1}` });
-      for (let ot = 1; ot <= 10; ot++) {
-        const t = 48 + ot * 5;
-        if (t < axisMax) boundaries.push({ t, label: `OT${ot + 1}` });
-      }
-      ctx.save();
-      ctx.setLineDash([3, 5]);
-      ctx.strokeStyle = themeVar('--chart-period-line');
-      ctx.lineWidth = 1;
-      ctx.fillStyle  = themeVar('--chart-period-label');
-      ctx.font       = '10px Inter, sans-serif';
-      ctx.textAlign  = 'center';
-      boundaries.forEach(({ t, label }) => {
-        if (t > axisMax) return;
-        const x = xAxis.getPixelForValue(t);
-        ctx.beginPath();
-        ctx.moveTo(x, yAxis.top);
-        ctx.lineTo(x, yAxis.bottom);
-        ctx.stroke();
-        ctx.fillText(label, x, yAxis.top - 5);
-      });
-      ctx.restore();
-    }
-  };
+  function axisMax() {
+    const maxT = pts.length ? pts[pts.length - 1].t : 48;
+    return maxT <= 48 ? 48 : Math.ceil((maxT - 48) / 5) * 5 + 48;
+  }
 
-  const scoreChart = new Chart(document.getElementById('score-chart'), {
-    type: 'line',
-    plugins: [periodLinesPlugin],
-    data: {
-      datasets: [
-        {
-          label: roadAbbr + ' (Away)',
-          data: pts.map(d => ({ x: d.t, y: d.road })),
-          borderColor: '#60a5fa',
-          backgroundColor: 'rgba(96,165,250,0.07)',
-          borderWidth: 2,
-          stepped: 'before',
-          pointRadius: 0,
-          pointHoverRadius: 5,
-          pointHoverBackgroundColor: '#60a5fa',
-          fill: true,
-          tension: 0,
-        },
-        {
-          label: homeAbbr + ' (Home)',
-          data: pts.map(d => ({ x: d.t, y: d.home })),
-          borderColor: themeVar('--accent'),
-          backgroundColor: themeVar('--accent-dim'),
-          borderWidth: 2,
-          stepped: 'before',
-          pointRadius: 0,
-          pointHoverRadius: 5,
-          pointHoverBackgroundColor: themeVar('--accent'),
-          fill: true,
-          tension: 0,
-        },
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      interaction: { mode: 'index', intersect: false },
-      layout: { padding: { top: 18 } },
-      scales: {
-        x: {
-          type: 'linear',
-          min: 0,
-          max: axisMax,
-          grid: { color: themeVar('--chart-grid'), drawBorder: false },
-          border: { color: themeVar('--chart-border') },
-          ticks: {
-            color: themeVar('--chart-tick'),
-            font: { size: 11 },
-            callback(v) {
-              if (v === 0)  return 'Tip-off';
-              if (v === 12) return 'Q2';
-              if (v === 24) return 'Q3';
-              if (v === 36) return 'Q4';
-              if (v === 48) return 'End';
-              if (v > 48 && (v - 48) % 5 === 0) return `OT${(v - 48) / 5}`;
-              return '';
-            },
-            maxTicksLimit: 14,
-          },
-        },
-        y: {
-          min: 0,
-          grid: { color: themeVar('--chart-grid'), drawBorder: false },
-          border: { color: themeVar('--chart-border') },
-          ticks: {
-            color: themeVar('--chart-tick'),
-            font: { size: 11 },
-            maxTicksLimit: 8,
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          position: 'top',
-          align: 'end',
-          labels: {
-            color: themeVar('--chart-legend'),
-            font: { size: 12, weight: '600' },
-            padding: 16,
-            usePointStyle: true,
-            pointStyleWidth: 16,
-          },
-        },
-        tooltip: {
-          backgroundColor: themeVar('--chart-tooltip-bg'),
-          titleColor: themeVar('--chart-tooltip-title'),
-          bodyColor: themeVar('--chart-tooltip-body'),
-          borderColor: themeVar('--chart-tooltip-border'),
-          borderWidth: 1,
-          padding: 10,
-          callbacks: {
-            title(items) {
-              const t = items[0].parsed.x;
-              if (t <= 48) {
-                const q   = Math.min(4, Math.floor(t / 12) + 1);
-                const rem = Math.max(0, q * 12 - t);
-                const rm  = Math.floor(rem);
-                const rs  = Math.round((rem - rm) * 60).toString().padStart(2, '0');
-                return `Q${q}  —  ${rm}:${rs} remaining`;
-              }
-              const ot  = Math.floor((t - 48) / 5) + 1;
-              const rem = Math.max(0, (48 + ot * 5) - t);
-              const rm  = Math.floor(rem);
-              const rs  = Math.round((rem - rm) * 60).toString().padStart(2, '0');
-              return `OT${ot}  —  ${rm}:${rs} remaining`;
-            },
-            label(item) {
-              return `  ${item.dataset.label.split(' ')[0]}: ${item.parsed.y}`;
-            },
-            afterBody(items) {
-              if (!items.length) return [];
-              const pt    = pts[items[0].dataIndex];
-              const lines = [];
-              if (pt && pt.scorer) {
-                const play = pt.desc ? `${pt.scorer} — ${pt.desc}` : pt.scorer;
-                lines.push('', `  ▸ ${play}`);
-              }
-              if (items.length >= 2) {
-                const diff = items[0].parsed.y - items[1].parsed.y;
-                if (diff === 0) lines.push('  Tied');
-                else {
-                  const leader = diff > 0 ? items[0].dataset.label.split(' ')[0] : items[1].dataset.label.split(' ')[0];
-                  lines.push(`  ${leader} +${Math.abs(diff)}`);
-                }
-              }
-              return lines;
-            }
-          }
-        }
+  function marginData() {
+    return pts.map(d => ({ t: d.t, m: d.home - d.road, home: d.home, road: d.road, scorer: d.scorer, desc: d.desc }));
+  }
+
+  function draw(animPct) {
+    animPct = animPct == null ? 1 : animPct;
+    const { w, h } = computeLayout();
+    const plotW = w - PAD.left - PAD.right;
+    const plotH = h - PAD.top - PAD.bottom;
+    const aMax = axisMax();
+    const data = marginData();
+    const maxMargin = Math.max(8, ...data.map(d => Math.abs(d.m)));
+    const yRange = Math.ceil(maxMargin / 5) * 5;
+
+    function tx(t) { return PAD.left + (t / aMax) * plotW; }
+    function ty(m) { return PAD.top + plotH / 2 - (m / yRange) * (plotH / 2); }
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Grid lines
+    ctx.strokeStyle = tv('--chart-grid') || 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 0.5;
+    const gridSteps = yRange <= 10 ? 5 : (yRange <= 20 ? 5 : 10);
+    for (let m = -yRange; m <= yRange; m += gridSteps) {
+      const y = ty(m);
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(w - PAD.right, y); ctx.stroke();
+    }
+
+    // Zero line
+    const zeroY = ty(0);
+    ctx.strokeStyle = tv('--chart-tick') || 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, zeroY); ctx.lineTo(w - PAD.right, zeroY); ctx.stroke();
+
+    // Period boundaries
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = tv('--chart-period-line') || 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 0.8;
+    ctx.fillStyle = tv('--chart-period-label') || 'rgba(255,255,255,0.35)';
+    ctx.font = '600 10px Outfit, Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const bounds = [{t:12,l:'Q2'},{t:24,l:'Q3'},{t:36,l:'Q4'}];
+    for (let ot = 1; ot <= 6; ot++) { const t = 48 + ot * 5; if (t < aMax) bounds.push({t, l:'OT'+(ot+1)}); }
+    bounds.forEach(({t, l}) => {
+      if (t > aMax) return;
+      const x = tx(t);
+      ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, h - PAD.bottom); ctx.stroke();
+      ctx.fillText(l, x, PAD.top - 6);
+    });
+    ctx.restore();
+
+    // Clamp draw to animation progress
+    const drawMax = aMax * animPct;
+
+    // Build stepped path
+    if (data.length < 2) return;
+    const pathPts = [];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].t > drawMax) break;
+      if (i > 0) pathPts.push({ x: tx(data[i].t), y: ty(data[i - 1].m) });
+      pathPts.push({ x: tx(data[i].t), y: ty(data[i].m) });
+    }
+    if (!pathPts.length) return;
+
+    // Upper fill (home leads, m > 0): clip above zero
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.left, PAD.top, plotW, plotH / 2);
+    ctx.clip();
+    const homeFill = ctx.createLinearGradient(0, PAD.top, 0, zeroY);
+    homeFill.addColorStop(0, HOME_CLR + '30');
+    homeFill.addColorStop(1, HOME_CLR + '05');
+    ctx.fillStyle = homeFill;
+    ctx.beginPath();
+    ctx.moveTo(pathPts[0].x, zeroY);
+    pathPts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(pathPts[pathPts.length - 1].x, zeroY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Lower fill (road leads, m < 0): clip below zero
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.left, zeroY, plotW, plotH / 2);
+    ctx.clip();
+    const roadFill = ctx.createLinearGradient(0, zeroY, 0, h - PAD.bottom);
+    roadFill.addColorStop(0, ROAD_CLR + '05');
+    roadFill.addColorStop(1, ROAD_CLR + '30');
+    ctx.fillStyle = roadFill;
+    ctx.beginPath();
+    ctx.moveTo(pathPts[0].x, zeroY);
+    pathPts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(pathPts[pathPts.length - 1].x, zeroY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Main line — gradient colored by margin
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = 'round';
+    for (let i = 1; i < pathPts.length; i++) {
+      const prevM = (pathPts[i - 1].y < zeroY) ? 1 : (pathPts[i - 1].y > zeroY ? -1 : 0);
+      const curM  = (pathPts[i].y < zeroY) ? 1 : (pathPts[i].y > zeroY ? -1 : 0);
+      const dominant = curM || prevM;
+      ctx.strokeStyle = dominant > 0 ? HOME_CLR : (dominant < 0 ? ROAD_CLR : tv('--muted') || '#888');
+      ctx.beginPath();
+      ctx.moveTo(pathPts[i - 1].x, pathPts[i - 1].y);
+      ctx.lineTo(pathPts[i].x, pathPts[i].y);
+      ctx.stroke();
+    }
+
+    // Live pulsing glow at the last point
+    if (isLive && animPct >= 1 && pathPts.length) {
+      const last = pathPts[pathPts.length - 1];
+      const lastM = data[Math.min(data.length - 1, pathPts.length - 1)].m;
+      const clr = lastM > 0 ? HOME_CLR : (lastM < 0 ? ROAD_CLR : '#fff');
+      const pulse = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() / 600));
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = clr;
+      ctx.globalAlpha = pulse * 0.5;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = clr;
+      ctx.fill();
+    }
+
+    // Y-axis labels
+    ctx.fillStyle = tv('--chart-tick') || 'rgba(255,255,255,0.45)';
+    ctx.font = '600 10px Outfit, Inter, sans-serif';
+    ctx.textAlign = 'right';
+    for (let m = -yRange; m <= yRange; m += gridSteps) {
+      if (m === 0) continue;
+      ctx.fillText((m > 0 ? '+' : '') + m, PAD.left - 6, ty(m) + 3.5);
+    }
+    ctx.fillStyle = tv('--muted-2') || 'rgba(255,255,255,0.3)';
+    ctx.fillText('TIE', PAD.left - 6, zeroY + 3.5);
+
+    // X-axis labels
+    ctx.textAlign = 'center';
+    ctx.fillStyle = tv('--chart-tick') || 'rgba(255,255,255,0.45)';
+    ctx.font = '600 10px Outfit, Inter, sans-serif';
+    const xLabels = [{t:0,l:'Q1'},{t:12,l:'Q2'},{t:24,l:'Q3'},{t:36,l:'Q4'}];
+    if (aMax > 48) {
+      for (let ot = 1; ot <= 6; ot++) { const t = 48 + (ot-1)*5; if (t < aMax) xLabels.push({t,l:'OT'+ot}); }
+    }
+    xLabels.push({t: Math.min(aMax, 48), l: aMax <= 48 ? 'END' : ''});
+    xLabels.forEach(({t, l}) => { if (l) ctx.fillText(l, tx(t), h - PAD.bottom + 16); });
+
+    // Team abbr labels on y-axis edges
+    ctx.font = '700 11px Outfit, Inter, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = HOME_CLR;
+    ctx.fillText('▲ ' + homeAbbr, PAD.left + 4, PAD.top - 6);
+    ctx.fillStyle = ROAD_CLR;
+    ctx.fillText('▼ ' + roadAbbr, PAD.left + 4, h - PAD.bottom + 16);
+
+    // Lead badge
+    if (badge && animPct >= 1 && data.length > 1) {
+      const last = data[data.length - 1];
+      const m = last.m;
+      if (m === 0) {
+        badge.textContent = 'TIED';
+        badge.style.background = 'rgba(255,255,255,0.1)';
+        badge.style.color = tv('--text');
+      } else {
+        badge.textContent = (m > 0 ? homeAbbr : roadAbbr) + ' +' + Math.abs(m);
+        badge.style.background = (m > 0 ? HOME_CLR : ROAD_CLR) + '28';
+        badge.style.color = m > 0 ? HOME_CLR : ROAD_CLR;
       }
     }
+  }
+
+  // Animate draw-in
+  let animStart = null;
+  const ANIM_MS = 900;
+  function animFrame(ts) {
+    if (!animStart) animStart = ts;
+    const pct = Math.min(1, (ts - animStart) / ANIM_MS);
+    const eased = 1 - Math.pow(1 - pct, 3);
+    draw(eased);
+    if (pct < 1) requestAnimationFrame(animFrame);
+  }
+  requestAnimationFrame(animFrame);
+
+  // Live pulsing loop
+  if (isLive) {
+    let pulseRAF;
+    function pulseLoop() { draw(1); pulseRAF = requestAnimationFrame(pulseLoop); }
+    setTimeout(function () { pulseRAF = requestAnimationFrame(pulseLoop); }, ANIM_MS + 100);
+  }
+
+  // Resize handler
+  let resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { draw(1); }, 80);
   });
 
-  function applyChartTheme() {
-    scoreChart.data.datasets[1].borderColor = themeVar('--accent');
-    scoreChart.data.datasets[1].backgroundColor = themeVar('--accent-dim');
-    scoreChart.data.datasets[1].pointHoverBackgroundColor = themeVar('--accent');
-    scoreChart.options.scales.x.grid.color = themeVar('--chart-grid');
-    scoreChart.options.scales.x.border.color = themeVar('--chart-border');
-    scoreChart.options.scales.x.ticks.color = themeVar('--chart-tick');
-    scoreChart.options.scales.y.grid.color = themeVar('--chart-grid');
-    scoreChart.options.scales.y.border.color = themeVar('--chart-border');
-    scoreChart.options.scales.y.ticks.color = themeVar('--chart-tick');
-    scoreChart.options.plugins.legend.labels.color = themeVar('--chart-legend');
-    scoreChart.options.plugins.tooltip.backgroundColor = themeVar('--chart-tooltip-bg');
-    scoreChart.options.plugins.tooltip.titleColor = themeVar('--chart-tooltip-title');
-    scoreChart.options.plugins.tooltip.bodyColor = themeVar('--chart-tooltip-body');
-    scoreChart.options.plugins.tooltip.borderColor = themeVar('--chart-tooltip-border');
-    scoreChart.update('none');
-  }
+  // Hover tooltip
+  canvas.addEventListener('mousemove', function (e) {
+    if (!tooltip) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const plotW = rect.width - PAD.left - PAD.right;
+    const aMax_ = axisMax();
+    const t = ((mx - PAD.left) / plotW) * aMax_;
+    if (t < 0 || t > aMax_) { tooltip.hidden = true; return; }
+    // Find closest point
+    let closest = pts[0], minDist = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const d = Math.abs(pts[i].t - t);
+      if (d < minDist) { minDist = d; closest = pts[i]; }
+    }
+    const m = closest.home - closest.road;
+    // Period label
+    let pLabel;
+    if (closest.t <= 48) {
+      const q = Math.min(4, Math.floor(closest.t / 12) + 1);
+      const rem = Math.max(0, q * 12 - closest.t);
+      pLabel = 'Q' + q + ' · ' + Math.floor(rem) + ':' + String(Math.round((rem % 1) * 60)).padStart(2, '0');
+    } else {
+      const ot = Math.floor((closest.t - 48) / 5) + 1;
+      const rem = Math.max(0, (48 + ot * 5) - closest.t);
+      pLabel = 'OT' + ot + ' · ' + Math.floor(rem) + ':' + String(Math.round((rem % 1) * 60)).padStart(2, '0');
+    }
+    let html = '<div class="mc-tt-header">' + pLabel + '</div>';
+    html += '<div class="mc-tt-score">' + roadAbbr + ' ' + closest.road + ' – ' + closest.home + ' ' + homeAbbr + '</div>';
+    if (m === 0) html += '<div class="mc-tt-lead">Tied</div>';
+    else html += '<div class="mc-tt-lead" style="color:' + (m > 0 ? HOME_CLR : ROAD_CLR) + '">' + (m > 0 ? homeAbbr : roadAbbr) + ' +' + Math.abs(m) + '</div>';
+    if (closest.scorer) {
+      const play = closest.desc ? closest.scorer + ' — ' + closest.desc : closest.scorer;
+      html += '<div class="mc-tt-play">▸ ' + play + '</div>';
+    }
+    tooltip.innerHTML = html;
+    tooltip.hidden = false;
+    // Position
+    const ttW = tooltip.offsetWidth;
+    let left = mx + 14;
+    if (left + ttW > rect.width - 8) left = mx - ttW - 14;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = (e.clientY - rect.top - tooltip.offsetHeight / 2) + 'px';
+  });
+  canvas.addEventListener('mouseleave', function () { if (tooltip) tooltip.hidden = true; });
 
-  document.addEventListener('funba:themechange', applyChartTheme);
+  // Expose update function for live refresh
+  window._updateMarginChart = function (newPts) {
+    if (!newPts || newPts.length <= 1) return;
+    pts = newPts;
+    draw(1);
+  };
+
+  document.addEventListener('funba:themechange', function () { draw(1); });
 })();
 </script>
 {% endif %}
