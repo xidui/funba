@@ -2122,9 +2122,6 @@ def register_public_routes(
                 for row in rows:
                     if row.get("player_id"):
                         pids.add(str(row["player_id"]))
-            for row in payload.get("pbp_rows") or []:
-                if row.get("player_id"):
-                    pids.add(str(row["player_id"]))
             if pids:
                 _SessionLocal = get_session_local()
                 _Player = get_player_model()
@@ -2136,13 +2133,6 @@ def register_public_routes(
                         zh = name_map.get(str(row.get("player_id") or ""))
                         if zh:
                             row["player_name"] = zh
-                for row in payload.get("pbp_rows") or []:
-                    pid = str(row.get("player_id") or "")
-                    zh = name_map.get(pid)
-                    if zh:
-                        parts = row.get("description", "").split(None, 1)
-                        if len(parts) == 2 and parts[0]:
-                            row["description"] = zh + " " + parts[1]
         # Also merge in the cached live_card (leaders, WP, hot player ids,
         # shooting percentages) so the game-page live panel can update in
         # the same round-trip as the scoreboard.
