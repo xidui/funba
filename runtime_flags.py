@@ -9,6 +9,8 @@ from typing import Any
 
 DEFAULT_RUNTIME_FLAGS: dict[str, bool] = {
     "legacy_game_metric_fanout": False,
+    "ingest_block_shot": False,
+    "ingest_block_line_score": False,
     "platform_hupu": True,
     "platform_xiaohongshu": True,
     "platform_reddit": True,

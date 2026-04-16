@@ -224,12 +224,26 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             with SessionLocal() as sess:
                 process_and_store_game(sess, row)
 
-        # Verify detail+PBP are ready (shot records are backfilled later,
-        # after metrics are triggered, so they don't block metric computation).
+        # Which artifacts block metrics is controlled by runtime flags
+        # (configurable in admin settings). Non-blocking artifacts are
+        # backfilled after metrics are triggered.
+        shot_blocks = get_runtime_flag("ingest_block_shot")
+        if shot_blocks and needs_shot:
+            logger.info("ingest_game %s: backfilling shot records (blocking mode) …", game_id)
+            with SessionLocal() as sess:
+                back_fill_game_shot_record(sess, game_id, False)
+                sess.commit()
+            needs_shot = False  # already done
+
+        non_blocking = set()
+        if not shot_blocks:
+            non_blocking.add("shot")
+        if not get_runtime_flag("ingest_block_line_score"):
+            non_blocking.add("line_score")
         with SessionLocal() as sess:
             status_after = _load_game_artifact_status(sess, game_id)
         missing_core = [
-            a for a in _missing_artifacts(status_after) if a != "shot"
+            a for a in _missing_artifacts(status_after) if a not in non_blocking
         ]
         if missing_core:
             raise RuntimeError(
