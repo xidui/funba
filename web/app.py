@@ -4790,6 +4790,16 @@ def _handoff_social_post(post_id: int, *, action: str, local_comment_timestamp: 
                 ),
             }
             issue = client.update_issue(post.paperclip_issue_id, payload)
+            if desired_state.assignee_agent_id:
+                try:
+                    client.wake_agent(
+                        desired_state.assignee_agent_id,
+                        reason=action,
+                        payload={"issueId": post.paperclip_issue_id},
+                        force_fresh_session=True,
+                    )
+                except Exception as wake_exc:
+                    logger.warning("wake_agent failed for SocialPost %s: %s", post_id, wake_exc)
             comments = _social_post_comments(post)
             idx = _find_comment_index(
                 comments,
