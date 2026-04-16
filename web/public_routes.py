@@ -2109,6 +2109,14 @@ def register_public_routes(
         payload = fetch_live_game_detail(game_id)
         if payload is None:
             return jsonify({"ok": False, "game_id": game_id, "error": "live_data_unavailable"}), 503
+        # Attach player URLs so the live-refresh JS can keep box-score player
+        # names clickable (the slug lookup lives in web.app).
+        from web.app import _player_url  # lazy to avoid circular import
+        for rows in (payload.get("players_by_team") or {}).values():
+            for row in rows:
+                pid = row.get("player_id")
+                if pid:
+                    row["player_url"] = _player_url(pid)
         # Also merge in the cached live_card (leaders, WP, hot player ids,
         # shooting percentages) so the game-page live panel can update in
         # the same round-trip as the scoreboard.

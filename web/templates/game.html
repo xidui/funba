@@ -2410,8 +2410,11 @@
           }
           if (!row.is_dnp) prevStarter = !!row.is_starter;
           const rowClass = row.is_dnp ? 'dnp-row' : (!row.is_starter ? 'bench-row' : '');
-          parts.push('<tr class="player-row ' + rowClass + '" data-player-id="' + escapeHtml(row.player_id) + '">');
-          parts.push('<td>' + escapeHtml(row.player_name) + '</td>');
+          parts.push('<tr class="player-row ' + rowClass + '" data-player-id="' + escapeHtml(row.player_id) + '" onclick="togglePeriodStats(this, event)">');
+          const nameCell = row.player_url
+            ? '<a href="' + escapeHtml(row.player_url) + '">' + escapeHtml(row.player_name) + '</a>'
+            : escapeHtml(row.player_name);
+          parts.push('<td>' + nameCell + '</td>');
           parts.push('<td class="mobile-hide meta">' + escapeHtml(row.status) + '</td>');
           parts.push('<td class="mobile-hide">' + escapeHtml(row.minutes) + '</td>');
           parts.push('<td><strong>' + escapeHtml(row.pts) + '</strong></td>');
