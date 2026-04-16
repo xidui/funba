@@ -546,66 +546,82 @@
 </div>
 {% endif %}
 
-{# ── Play-In Bracket ── #}
+{# ── Play-In Bracket (standalone, same style as playoff bracket) ── #}
 {% if bracket and selected_phase == '5' %}
 <style>
-  .playin-bracket{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 20px;padding:8px 0;}
-  .playin-conf{flex:1;min-width:280px;}
-  .playin-conf h3{font-size:13px;color:var(--accent);margin:0 0 8px;font-weight:600;}
-  .playin-row{display:flex;gap:12px;align-items:stretch;margin-bottom:8px;}
-  .playin-row .pi-label{font-size:10px;color:var(--muted);min-width:48px;display:flex;align-items:center;}
-  .pi-card{background:var(--surface);border-radius:6px;border:1px solid var(--border,#1a2a3a);overflow:hidden;flex:1;font-size:12px;}
-  .pi-card .pi-team{display:flex;align-items:center;padding:4px 8px;gap:5px;}
-  .pi-card .pi-team+.pi-team{border-top:1px solid var(--border,#1a2a3a);}
-  .pi-card .pi-team.w{font-weight:700;}
-  .pi-card .pi-team.l{opacity:.38;}
-  .pi-card .pi-logo{width:18px;height:18px;border-radius:2px;}
-  .pi-card .pi-abbr{flex:1;}
-  .pi-card .pi-score{font-weight:700;min-width:20px;text-align:right;}
-  .pi-arrow{font-size:10px;color:var(--muted);margin:2px 0 2px 60px;}
+  .playin-standalone{display:flex;gap:24px;flex-wrap:wrap;margin:0 0 20px;padding:8px 0;}
+  .playin-standalone .pis-conf{flex:1;min-width:260px;}
+  .playin-standalone .pis-conf-label{font-size:12px;color:var(--accent);font-weight:600;margin:0 0 8px;}
+  .playin-standalone .pis-body{display:flex;align-items:stretch;min-height:200px;}
+  .playin-standalone .bk-round{display:flex;flex-direction:column;justify-content:space-around;min-width:130px;padding:0 3px;}
+  .playin-standalone .bk-round .rl{text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:2px 0;white-space:nowrap;}
+  .playin-standalone .sc{background:var(--surface);border-radius:6px;border:1px solid var(--border,#1a2a3a);overflow:hidden;margin:4px 0;}
+  .playin-standalone .sc .tr{display:flex;align-items:center;padding:4px 8px;gap:5px;font-size:12px;line-height:1.3;}
+  .playin-standalone .sc .tr+.tr{border-top:1px solid var(--border,#1a2a3a);}
+  .playin-standalone .sc .tr.w{font-weight:700;}
+  .playin-standalone .sc .tr.l{opacity:.38;}
+  .playin-standalone .sc .bl{width:18px;height:18px;border-radius:2px;}
+  .playin-standalone .sc .ab{flex:1;white-space:nowrap;}
+  .playin-standalone .sc .wn{font-weight:700;min-width:10px;text-align:right;}
+  .playin-standalone .sc.tbd{opacity:.35;}
+  .playin-standalone .sc.tbd .tr{justify-content:center;color:var(--muted);}
+  .playin-standalone .pi-note{font-size:9px;color:var(--muted);text-align:center;margin:-2px 0 2px;line-height:1.2;}
+  .playin-standalone .bk-conn{display:flex;flex-direction:column;width:16px;min-width:16px;}
+  .playin-standalone .bk-cp{flex:1;display:flex;flex-direction:column;}
+  .playin-standalone .bk-cp .ct{flex:1;border-bottom:2px solid var(--border,#1a2a3a);border-right:2px solid var(--border,#1a2a3a);}
+  .playin-standalone .bk-cp .cb{flex:1;border-top:2px solid var(--border,#1a2a3a);border-right:2px solid var(--border,#1a2a3a);}
+  @media(max-width:400px){
+    .playin-standalone .bk-round{min-width:105px;}
+    .playin-standalone .sc .tr{padding:3px 6px;font-size:11px;gap:4px;}
+    .playin-standalone .sc .bl{width:16px;height:16px;}
+  }
 </style>
 
-{% macro pi_card(g) %}
+{% macro pi_gc(g) %}
 {% if g %}
-<div class="pi-card">
-  <div class="pi-team {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
-    <img class="pi-logo" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
-    <span class="pi-abbr">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
-    <span class="pi-score">{{ g.top_score if g.top_score is not none else '' }}</span>
+<div class="sc">
+  <div class="tr {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
+    <img class="bl" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
+    <span class="wn">{{ g.top_score if g.top_score is not none else '' }}</span>
   </div>
-  <div class="pi-team {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
-    <img class="pi-logo" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
-    <span class="pi-abbr">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
-    <span class="pi-score">{{ g.bot_score if g.bot_score is not none else '' }}</span>
+  <div class="tr {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
+    <img class="bl" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
+    <span class="wn">{{ g.bot_score if g.bot_score is not none else '' }}</span>
   </div>
 </div>
 {% else %}
-<div class="pi-card"><div class="pi-team" style="justify-content:center;color:var(--muted);">TBD</div></div>
+<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
 {% endif %}
 {% endmacro %}
 
-{% macro playin_conf(label, g78, g910, gfinal) %}
-<div class="playin-conf">
-  <h3>{{ label }}</h3>
-  <div class="playin-row">
-    <span class="pi-label">7 vs 8</span>
-    {{ pi_card(g78) }}
-  </div>
-  <div class="playin-row">
-    <span class="pi-label">9 vs 10</span>
-    {{ pi_card(g910) }}
-  </div>
-  <div class="pi-arrow">↳ {{ t('Winner → 8th seed', '胜者→第8顺位') }}</div>
-  <div class="playin-row">
-    <span class="pi-label">{{ t('Final', '决定战') }}</span>
-    {{ pi_card(gfinal) }}
+{% macro pi_conf(label, g78, g910, gfinal) %}
+<div class="pis-conf">
+  <div class="pis-conf-label">{{ label }}</div>
+  <div class="pis-body">
+    <div class="bk-round">
+      <div class="rl">{{ t('7v8 / 9v10', '7v8 / 9v10') }}</div>
+      {{ pi_gc(g78) }}
+      <div class="pi-note">{{ t('W→7th', '胜→7') }}</div>
+      {{ pi_gc(g910) }}
+      <div class="pi-note">{{ t('L out', '败者淘汰') }}</div>
+    </div>
+    <div class="bk-conn">
+      <div class="bk-cp"><div class="ct"></div><div class="cb"></div></div>
+    </div>
+    <div class="bk-round">
+      <div class="rl">{{ t('8th Seed', '第8顺位') }}</div>
+      {{ pi_gc(gfinal) }}
+      <div class="pi-note">{{ t('W→8th', '胜→8') }}</div>
+    </div>
   </div>
 </div>
 {% endmacro %}
 
-<div class="playin-bracket">
-  {{ playin_conf(t('Eastern Conference', '东部'), bracket.east_78, bracket.east_910, bracket.east_final) }}
-  {{ playin_conf(t('Western Conference', '西部'), bracket.west_78, bracket.west_910, bracket.west_final) }}
+<div class="playin-standalone">
+  {{ pi_conf(t('Eastern Conference', '东部联盟'), bracket.east_78, bracket.east_910, bracket.east_final) }}
+  {{ pi_conf(t('Western Conference', '西部联盟'), bracket.west_78, bracket.west_910, bracket.west_final) }}
 </div>
 {% endif %}
 
