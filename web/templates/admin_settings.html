@@ -411,6 +411,19 @@
         <span id="ingest-block-line-score-label">Off</span>
       </label>
     </div>
+    <div class="runtime-flag-row">
+      <div class="runtime-flag-copy">
+        <div class="runtime-flag-label">Period Stats</div>
+        <div class="runtime-flag-help">
+          When ON, per-quarter player stats must finish before metrics fire.
+          When OFF (default), period stats are fetched after metrics.
+        </div>
+      </div>
+      <label class="runtime-flag-switch" for="ingest-block-period-stats-toggle">
+        <input id="ingest-block-period-stats-toggle" type="checkbox">
+        <span id="ingest-block-period-stats-label">Off</span>
+      </label>
+    </div>
     <div id="ingest-block-status" class="runtime-flag-status" role="status"></div>
   </div>
 
@@ -912,6 +925,7 @@
     const flags = [
       {key: 'ingest_block_shot', toggle: 'ingest-block-shot-toggle', label: 'ingest-block-shot-label'},
       {key: 'ingest_block_line_score', toggle: 'ingest-block-line-score-toggle', label: 'ingest-block-line-score-label'},
+      {key: 'ingest_block_period_stats', toggle: 'ingest-block-period-stats-toggle', label: 'ingest-block-period-stats-label'},
     ];
     const status = document.getElementById('ingest-block-status');
     if (!status) return;
