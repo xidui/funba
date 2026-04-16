@@ -34,12 +34,16 @@ def fetch_game_line_score_payload(game_id: str) -> dict:
 
 
 def has_game_line_score(session: Session, game_id: str) -> bool:
-    count = (
+    rows = (
         session.query(GameLineScore)
         .filter(GameLineScore.game_id == game_id)
-        .count()
+        .all()
     )
-    return count >= 2
+    if len(rows) < 2:
+        return False
+    # Rows exist but are incomplete (e.g. only Q1 from a live sync) —
+    # treat as not backfilled so they get refreshed.
+    return all(row.q4_pts is not None for row in rows)
 
 
 def _period_score_map(periods: list[dict]) -> tuple[dict[int, int], list[int]]:

@@ -402,7 +402,9 @@ def _quarter_scores_from_line_score(session: Session, game_id: str) -> list[dict
     home_periods = _line_score_period_map(home_row)
     road_periods = _line_score_period_map(road_row)
     periods = sorted(set(home_periods) | set(road_periods))
-    if not periods:
+    # A completed game has at least 4 periods (Q1-Q4). Partial line scores
+    # (e.g. only Q1 from a live sync) should fall back to PBP-derived scores.
+    if len(periods) < 4:
         return []
 
     return [
