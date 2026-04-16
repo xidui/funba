@@ -1605,6 +1605,10 @@ def register_public_routes(
             func.sum(func.coalesce(PlayerGameStats.fg3a, 0)).label("fg3a"),
             func.sum(func.coalesce(PlayerGameStats.ftm, 0)).label("ftm"),
             func.sum(func.coalesce(PlayerGameStats.fta, 0)).label("fta"),
+            func.sum(func.coalesce(PlayerGameStats.oreb, 0)).label("oreb"),
+            func.sum(func.coalesce(PlayerGameStats.dreb, 0)).label("dreb"),
+            func.sum(func.coalesce(PlayerGameStats.pf, 0)).label("pf"),
+            func.sum(func.coalesce(PlayerGameStats.plus, 0)).label("plus_minus"),
         ]
 
     def _player_summary_from_row(raw_row) -> dict[str, str | int]:
@@ -1629,6 +1633,10 @@ def register_public_routes(
             "fg3a": int(raw_row.fg3a or 0),
             "ftm": int(raw_row.ftm or 0),
             "fta": int(raw_row.fta or 0),
+            "oreb": int(raw_row.oreb or 0),
+            "dreb": int(raw_row.dreb or 0),
+            "pf": int(raw_row.pf or 0),
+            "plus_minus": int(raw_row.plus_minus or 0),
         }
         summary["fg_pct"] = get_pct_text()(summary["fgm"], summary["fga"])
         summary["fg3_pct"] = get_pct_text()(summary["fg3m"], summary["fg3a"])
@@ -1642,6 +1650,9 @@ def register_public_routes(
             summary["spg"] = f"{summary['stl'] / games_played:.1f}"
             summary["bpg"] = f"{summary['blk'] / games_played:.1f}"
             summary["tpg"] = f"{summary['tov'] / games_played:.1f}"
+            summary["orpg"] = f"{summary['oreb'] / games_played:.1f}"
+            summary["drpg"] = f"{summary['dreb'] / games_played:.1f}"
+            summary["fpg"] = f"{summary['pf'] / games_played:.1f}"
         else:
             summary["mpg"] = "-"
             summary["ppg"] = "-"
@@ -1650,6 +1661,9 @@ def register_public_routes(
             summary["spg"] = "-"
             summary["bpg"] = "-"
             summary["tpg"] = "-"
+            summary["orpg"] = "-"
+            summary["drpg"] = "-"
+            summary["fpg"] = "-"
         return summary
 
     def _player_stat_summary(session, player_id: str, *, season: str | None = None, season_prefix: str | None = None) -> dict[str, str | int]:

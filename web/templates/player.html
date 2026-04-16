@@ -1468,10 +1468,14 @@
             <th class="mobile-hide">MIN</th>
             <th>PTS</th>
             <th>REB</th>
+            <th class="mobile-hide">OREB</th>
+            <th class="mobile-hide">DREB</th>
             <th>AST</th>
             <th class="mobile-hide">STL</th>
             <th class="mobile-hide">BLK</th>
             <th class="mobile-hide">TOV</th>
+            <th class="mobile-hide">PF</th>
+            <th class="mobile-hide">+/-</th>
             <th>FG</th>
             <th class="mobile-hide">3PT</th>
             <th class="mobile-hide">FT</th>
@@ -1487,10 +1491,14 @@
             <td class="mobile-hide">{{ s.minutes }}</td>
             <td>{{ s.pts }}</td>
             <td>{{ s.reb }}</td>
+            <td class="mobile-hide">{{ s.oreb }}</td>
+            <td class="mobile-hide">{{ s.dreb }}</td>
             <td>{{ s.ast }}</td>
             <td class="mobile-hide">{{ s.stl }}</td>
             <td class="mobile-hide">{{ s.blk }}</td>
             <td class="mobile-hide">{{ s.tov }}</td>
+            <td class="mobile-hide">{{ s.pf }}</td>
+            <td class="mobile-hide">{{ s.plus_minus }}</td>
             <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
@@ -1505,10 +1513,14 @@
             <td class="mobile-hide">{{ s.minutes }}</td>
             <td>{{ s.pts }}</td>
             <td>{{ s.reb }}</td>
+            <td class="mobile-hide">{{ s.oreb }}</td>
+            <td class="mobile-hide">{{ s.dreb }}</td>
             <td>{{ s.ast }}</td>
             <td class="mobile-hide">{{ s.stl }}</td>
             <td class="mobile-hide">{{ s.blk }}</td>
             <td class="mobile-hide">{{ s.tov }}</td>
+            <td class="mobile-hide">{{ s.pf }}</td>
+            <td class="mobile-hide">{{ s.plus_minus }}</td>
             <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
@@ -1530,10 +1542,16 @@
             <th class="mobile-hide">MPG</th>
             <th>PPG</th>
             <th>RPG</th>
+            <th class="mobile-hide">ORPG</th>
+            <th class="mobile-hide">DRPG</th>
             <th>APG</th>
             <th class="mobile-hide">SPG</th>
             <th class="mobile-hide">BPG</th>
             <th class="mobile-hide">TPG</th>
+            <th class="mobile-hide">FPG</th>
+            <th>FG%</th>
+            <th class="mobile-hide">3P%</th>
+            <th class="mobile-hide">FT%</th>
           </tr>
         </thead>
         <tbody>
@@ -1544,10 +1562,16 @@
             <td class="mobile-hide">{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>
+            <td class="mobile-hide">{{ s.orpg }}</td>
+            <td class="mobile-hide">{{ s.drpg }}</td>
             <td>{{ s.apg }}</td>
             <td class="mobile-hide">{{ s.spg }}</td>
             <td class="mobile-hide">{{ s.bpg }}</td>
             <td class="mobile-hide">{{ s.tpg }}</td>
+            <td class="mobile-hide">{{ s.fpg }}</td>
+            <td>{{ s.fg_pct|pct_fmt }}</td>
+            <td class="mobile-hide">{{ s.fg3_pct|pct_fmt }}</td>
+            <td class="mobile-hide">{{ s.ft_pct|pct_fmt }}</td>
           </tr>
           {% for row in career_season_rows %}
           {% set s = row.stats %}
@@ -1557,10 +1581,16 @@
             <td class="mobile-hide">{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
             <td>{{ s.rpg }}</td>
+            <td class="mobile-hide">{{ s.orpg }}</td>
+            <td class="mobile-hide">{{ s.drpg }}</td>
             <td>{{ s.apg }}</td>
             <td class="mobile-hide">{{ s.spg }}</td>
             <td class="mobile-hide">{{ s.bpg }}</td>
             <td class="mobile-hide">{{ s.tpg }}</td>
+            <td class="mobile-hide">{{ s.fpg }}</td>
+            <td>{{ s.fg_pct|pct_fmt }}</td>
+            <td class="mobile-hide">{{ s.fg3_pct|pct_fmt }}</td>
+            <td class="mobile-hide">{{ s.ft_pct|pct_fmt }}</td>
           </tr>
           {% endfor %}
         </tbody>
