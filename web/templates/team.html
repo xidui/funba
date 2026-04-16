@@ -390,30 +390,25 @@
   @media (max-width: 540px) {
     .team-hero { top: 64px; }
   }
-  .team-hero-inner {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: center;
-    gap: 20px;
-  }
-  @media (max-width: 820px) {
-    .team-hero-inner {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 14px;
-    }
-  }
 
-  /* Left column: logo + name + city + season record */
-  .team-hero-left {
+  /* Top row: identity on the left, season controls on the right */
+  .team-hero-top {
     display: flex;
     align-items: center;
     gap: 16px;
+    flex-wrap: wrap;
+  }
+  .team-hero-identity {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .team-logo-ring {
     position: relative;
-    width: 84px;
-    height: 84px;
+    width: 72px;
+    height: 72px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -424,8 +419,8 @@
     transition: width 0.2s ease, height 0.2s ease;
   }
   .team-logo-ring .team-logo {
-    width: 66px;
-    height: 66px;
+    width: 56px;
+    height: 56px;
     object-fit: contain;
     transition: width 0.2s ease, height 0.2s ease;
   }
@@ -437,22 +432,23 @@
   }
   .team-hero-text h1 {
     margin: 0;
-    font-size: 1.8rem;
+    font-size: 1.6rem;
     line-height: 1.05;
     transition: font-size 0.2s ease;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .team-hero-sub {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px 12px;
     flex-wrap: wrap;
     font-size: 12.5px;
     color: var(--muted);
   }
   .team-hero-sub .team-record-badge {
-    padding: 5px 11px;
+    padding: 4px 10px;
     font-size: 13px;
   }
   .team-hero-era-tag {
@@ -471,65 +467,59 @@
     white-space: nowrap;
   }
 
-  /* Right column: season picker */
-  .team-hero-right {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 0;
-  }
-  .sp-head {
+  /* Right-side season controls: dropdown + kind tabs, stacked */
+  .team-hero-controls {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 14px;
+    gap: 10px;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
-  .sp-arrow {
-    appearance: none;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--muted);
-    width: 36px;
-    height: 36px;
-    border-radius: 999px;
-    font-size: 15px;
-    cursor: pointer;
+  .sp-dropdown-wrap {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s, width 0.2s, height 0.2s;
-    font-family: 'Outfit', sans-serif;
-    flex-shrink: 0;
+    gap: 6px;
+    padding: 4px 4px 4px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: border-color 0.15s;
   }
-  .sp-arrow:hover:not(:disabled) {
-    color: var(--accent);
+  .sp-dropdown-wrap:hover,
+  .sp-dropdown-wrap:focus-within {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
-    transform: scale(1.05);
   }
-  .sp-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
-  .sp-label {
-    text-align: center;
-    min-width: 150px;
-  }
-  .sp-year {
-    font-family: 'Outfit', sans-serif;
-    font-weight: 800;
-    font-size: 30px;
-    line-height: 1;
-    color: var(--accent);
-    letter-spacing: 0.015em;
-    transition: font-size 0.2s ease;
-  }
-  .sp-kind {
+  .sp-dropdown-icon {
     font-family: 'Outfit', sans-serif;
     font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     color: var(--muted);
-    margin-top: 3px;
+    text-transform: uppercase;
   }
+  .sp-dropdown {
+    appearance: none;
+    -webkit-appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: 0.015em;
+    padding: 4px 24px 4px 4px;
+    cursor: pointer;
+    line-height: 1.1;
+    background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+    background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    transition: filter 0.15s;
+  }
+  .sp-dropdown:hover { filter: brightness(1.15); }
+  .sp-dropdown:focus { outline: none; }
+  .sp-dropdown option { background: var(--surface-2); color: var(--text); }
   .sp-kind-tabs {
     display: inline-flex;
     gap: 2px;
@@ -538,13 +528,11 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     font-family: 'Outfit', sans-serif;
-    align-self: center;
   }
   .sp-tab {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 46px;
     padding: 4px 12px;
     border-radius: 999px;
     font-size: 10px;
@@ -554,14 +542,16 @@
     color: var(--muted);
     text-decoration: none;
     transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
   }
   .sp-tab:hover:not(.sp-tab-disabled) { color: var(--text); text-decoration: none; }
   .sp-tab.sp-tab-active { background: var(--accent); color: var(--bg); }
   .sp-tab.sp-tab-disabled { opacity: 0.35; pointer-events: none; }
 
-  /* Season-by-season win% bar chart */
+  /* Bottom row: full-width barcode */
   .sp-barcode-wrap {
     position: relative;
+    margin-top: 14px;
   }
   .sp-barcode-label {
     display: flex;
@@ -580,7 +570,7 @@
     display: flex;
     align-items: flex-end;
     gap: 1px;
-    height: 36px;
+    height: 40px;
     padding: 2px 6px 4px;
     background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--border) 30%, transparent) 100%);
     border-radius: 6px;
@@ -590,12 +580,11 @@
     transition: height 0.2s ease;
   }
   .sp-barcode::before {
-    /* .500 reference line */
     content: "";
     position: absolute;
     left: 6px;
     right: 6px;
-    bottom: calc(4px + 50% * 0.8);  /* 50% × (1 - 20% min) */
+    bottom: calc(4px + 50% * 0.8);
     height: 1px;
     background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--muted) 35%, transparent) 0 3px, transparent 3px 6px);
     pointer-events: none;
@@ -605,13 +594,12 @@
   .sp-barcode::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   .sp-bar {
     display: block;
-    min-width: 7px;
-    max-width: 7px;
+    flex: 1 1 0;
+    min-width: 5px;
     background: var(--border);
     cursor: pointer;
     border-radius: 2px 2px 0 0;
     transition: background 0.15s, transform 0.15s;
-    flex-shrink: 0;
   }
   .sp-bar:hover {
     background: color-mix(in srgb, var(--accent) 60%, var(--border));
@@ -632,59 +620,56 @@
     letter-spacing: 0.02em;
   }
 
-  /* Compact "stuck" state — triggered by JS when the hero pins */
+  /* Compact "stuck" state */
   .team-hero.is-stuck {
-    padding: 10px 20px;
+    padding: 8px 20px;
     background: color-mix(in srgb, var(--surface) 93%, transparent);
     border-radius: 0 0 12px 12px;
     border-top: none;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   }
-  .team-hero.is-stuck .team-hero-inner {
-    gap: 16px;
-    align-items: center;
+  .team-hero.is-stuck .team-hero-top {
+    gap: 12px;
+    flex-wrap: nowrap;
   }
   .team-hero.is-stuck .team-logo-ring {
-    width: 48px;
-    height: 48px;
+    width: 42px;
+    height: 42px;
   }
   .team-hero.is-stuck .team-logo-ring .team-logo {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
   }
   .team-hero.is-stuck .team-hero-text h1 {
-    font-size: 1.15rem;
+    font-size: 1.05rem;
   }
   .team-hero.is-stuck .team-hero-era-tag { display: none; }
   .team-hero.is-stuck .team-legacy-banner { display: none; }
   .team-hero.is-stuck .team-hero-sub {
     font-size: 11px;
-    gap: 6px;
+    gap: 4px 8px;
   }
-  .team-hero.is-stuck .team-hero-sub .meta-divider,
-  .team-hero.is-stuck .team-hero-sub .team-hero-city { display: none; }
-  .team-hero.is-stuck .sp-arrow {
-    width: 28px;
-    height: 28px;
-    font-size: 12px;
+  .team-hero.is-stuck .team-hero-city { display: none; }
+  .team-hero.is-stuck .sp-dropdown {
+    font-size: 14px;
+    padding: 2px 22px 2px 2px;
   }
-  .team-hero.is-stuck .sp-label { min-width: 96px; }
-  .team-hero.is-stuck .sp-year { font-size: 20px; }
-  .team-hero.is-stuck .sp-kind { display: none; }
+  .team-hero.is-stuck .sp-dropdown-wrap {
+    padding: 2px 4px 2px 10px;
+  }
+  .team-hero.is-stuck .sp-dropdown-icon { display: none; }
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
-  .team-hero.is-stuck .sp-head { gap: 8px; }
-  .team-hero.is-stuck .team-hero-right { gap: 4px; }
+  .team-hero.is-stuck .sp-barcode-wrap {
+    margin-top: 6px;
+  }
   .team-hero.is-stuck .sp-barcode-label { display: none; }
   .team-hero.is-stuck .sp-barcode {
     height: 22px;
     padding: 1px 4px 2px;
   }
   .team-hero.is-stuck .sp-barcode-axis { display: none; }
-  @media (max-width: 820px) {
-    .team-hero.is-stuck .team-hero-inner {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-    .team-hero.is-stuck .team-hero-right { display: none; }
+  @media (max-width: 540px) {
+    .team-hero.is-stuck .sp-barcode-wrap { display: none; }
   }
 </style>
 
@@ -692,15 +677,11 @@
 {% set cur_year_str = (sel_year|string) if sel_year else '' %}
 {% set regular_code = regular_year_lookup.get(cur_year_str) if regular_year_lookup else None %}
 {% set playoff_code = playoff_year_lookup.get(cur_year_str) if playoff_year_lookup else None %}
-{% set bar_seasons = season_bars|map(attribute='season')|list if season_bars else [] %}
-{% set cur_idx = bar_seasons.index(regular_code) if regular_code in bar_seasons else -1 %}
-{% set prev_season = bar_seasons[cur_idx - 1] if cur_idx > 0 else None %}
-{% set next_season = bar_seasons[cur_idx + 1] if cur_idx >= 0 and cur_idx + 1 < bar_seasons|length else None %}
 <div id="team-hero-sentinel" style="height:1px;"></div>
 <div class="card team-hero" id="team-hero">
-  <div class="team-hero-inner">
-    <!-- Left column: identity + record -->
-    <div class="team-hero-left">
+  <!-- Top row: identity (left) + season controls (right) -->
+  <div class="team-hero-top">
+    <div class="team-hero-identity">
       <div class="team-logo-ring">
         <img class="team-logo"
              src="{{ era.logo_url if era and era.logo_url else team_logo(team.team_id) }}"
@@ -722,9 +703,7 @@
           {% set hdr_city = (era.city if era and era.city else team.city) %}
           {% set hdr_state = (era.state if era and era.state else team.state) %}
           {% if hdr_city %}
-          <span class="team-hero-city">
-            {{ hdr_city }}{% if hdr_state and hdr_state != hdr_city %}, {{ hdr_state }}{% endif %}
-          </span>
+          <span class="team-hero-city">{{ hdr_city }}{% if hdr_state and hdr_state != hdr_city %}, {{ hdr_state }}{% endif %}</span>
           {% endif %}
           {% if era and era.year_start and (era.year_end or sel_year) %}
           <span class="team-hero-era-tag">{{ era.year_start }}–{{ era.year_end if era.year_end else t('now', '至今') }}</span>
@@ -733,22 +712,22 @@
       </div>
     </div>
 
-    <!-- Right column: season picker -->
     {% if season_bars %}
-    <div class="team-hero-right">
-      <div class="sp-head">
-        <button class="sp-arrow" id="sp-prev" aria-label="{{ t('Previous season', '上一个赛季') }}"
-                {% if not prev_season %}disabled{% endif %}
-                {% if prev_season %}data-season="{{ prev_season }}"{% endif %}>&#9664;</button>
-        <div class="sp-label">
-          <div class="sp-year">{{ selected_year_label }}</div>
-          <div class="sp-kind">
-            {% if selected_season_kind == 'playoffs' %}{{ t('Playoffs', '季后赛') }}{% else %}{{ t('Regular Season', '常规赛') }}{% endif %}
-          </div>
-        </div>
-        <button class="sp-arrow" id="sp-next" aria-label="{{ t('Next season', '下一个赛季') }}"
-                {% if not next_season %}disabled{% endif %}
-                {% if next_season %}data-season="{{ next_season }}"{% endif %}>&#9654;</button>
+    <div class="team-hero-controls">
+      <div class="sp-dropdown-wrap">
+        <span class="sp-dropdown-icon">{{ t('Season', '赛季') }}</span>
+        <select id="season-picker" class="sp-dropdown"
+                aria-label="{{ t('Select season', '选择赛季') }}"
+                data-kind="{{ selected_season_kind }}">
+          {% for bar in season_bars|reverse %}
+          <option value="{{ bar.season }}"
+                  data-year="{{ bar.year_start }}"
+                  data-has-playoffs="{{ '1' if bar.has_playoffs else '0' }}"
+                  {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}selected{% endif %}>
+            {{ bar.year_label }}{% if bar.wins + bar.losses > 0 %} · {{ bar.wins }}-{{ bar.losses }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
       </div>
       <div class="sp-kind-tabs">
         <a class="sp-tab {% if selected_season_kind == 'regular' %}sp-tab-active{% endif %}{% if not regular_code %} sp-tab-disabled{% endif %}"
@@ -756,31 +735,35 @@
         <a class="sp-tab {% if selected_season_kind == 'playoffs' %}sp-tab-active{% endif %}{% if not playoff_code %} sp-tab-disabled{% endif %}"
            href="{% if playoff_code %}?season={{ playoff_code }}{% else %}#{% endif %}">{{ t('Playoffs', '季后赛') }}</a>
       </div>
-      <div class="sp-barcode-wrap">
-        <div class="sp-barcode-label">
-          <span>{{ t('Win % by season', '各赛季胜率') }}</span>
-          <span>{{ t('.500 dashed', '.500 虚线') }}</span>
-        </div>
-        <div class="sp-barcode" id="sp-barcode">
-          {% for bar in season_bars %}
-            {% set total = bar.wins + bar.losses %}
-            {% set win_pct = (bar.wins / total) if total > 0 else 0 %}
-            {% set bar_h = (20 + (win_pct * 80))|round(0, 'floor')|int %}
-          <a class="sp-bar {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}sp-bar-active{% endif %}"
-             href="?season={{ bar.season }}"
-             title="{{ bar.year_label }} · {{ bar.wins }}-{{ bar.losses }}"
-             data-season="{{ bar.season }}"
-             style="height: {{ bar_h }}%;"></a>
-          {% endfor %}
-        </div>
-        <div class="sp-barcode-axis">
-          <span>{{ season_bars[0].year_label }}</span>
-          <span>{{ season_bars[-1].year_label }}</span>
-        </div>
-      </div>
     </div>
     {% endif %}
   </div>
+
+  <!-- Bottom row: full-width win% barcode -->
+  {% if season_bars %}
+  <div class="sp-barcode-wrap">
+    <div class="sp-barcode-label">
+      <span>{{ t('Win % by season · click a bar to jump', '各赛季胜率 · 点击跳转') }}</span>
+      <span>{{ t('.500 dashed', '.500 虚线参考') }}</span>
+    </div>
+    <div class="sp-barcode" id="sp-barcode">
+      {% for bar in season_bars %}
+        {% set total = bar.wins + bar.losses %}
+        {% set win_pct = (bar.wins / total) if total > 0 else 0 %}
+        {% set bar_h = (20 + (win_pct * 80))|round(0, 'floor')|int %}
+      <a class="sp-bar {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}sp-bar-active{% endif %}"
+         href="?season={{ bar.season }}"
+         title="{{ bar.year_label }} · {{ bar.wins }}-{{ bar.losses }}"
+         data-season="{{ bar.season }}"
+         style="height: {{ bar_h }}%;"></a>
+      {% endfor %}
+    </div>
+    <div class="sp-barcode-axis">
+      <span>{{ season_bars[0].year_label }}</span>
+      <span>{{ season_bars[-1].year_label }}</span>
+    </div>
+  </div>
+  {% endif %}
 
   {% if team.is_legacy %}
   <div class="team-legacy-banner">
@@ -1049,27 +1032,56 @@
 
 <script>
 (function () {
-  // Season picker: prev/next arrows + keyboard ←/→ nav.
-  const prev = document.getElementById("sp-prev");
-  const next = document.getElementById("sp-next");
-  function navigate(btn) {
-    if (!btn || btn.disabled) return;
-    const code = btn.dataset.season;
-    if (!code) return;
+  // Season picker: dropdown + keyboard ←/→ nav.
+  // The dropdown holds regular-season codes ordered newest→oldest. Changing
+  // it navigates directly; keyboard arrows step through the option list
+  // (respecting the current kind — if the user is viewing playoffs and
+  // steps, they stay on playoffs when possible).
+  const picker = document.getElementById("season-picker");
+  function jumpTo(seasonCode) {
+    if (!seasonCode) return;
     const u = new URL(window.location.href);
-    u.searchParams.set("season", code);
+    u.searchParams.set("season", seasonCode);
     u.searchParams.delete("games_season");
     window.location.href = u.toString();
   }
-  if (prev) prev.addEventListener("click", () => navigate(prev));
-  if (next) next.addEventListener("click", () => navigate(next));
+  function kindPrefix() {
+    return (picker && picker.dataset.kind === "playoffs") ? "4" : "2";
+  }
+  function jumpToYear(yearStr) {
+    // When stepping via keyboard, preserve kind if the destination supports it.
+    // Option value is a regular-season code (2YYYY); we may swap the leading
+    // digit to 4 if the user is on playoffs AND that year had playoffs.
+    const opt = Array.from(picker.options).find(o => o.dataset.year === yearStr);
+    if (!opt) return;
+    const prefix = kindPrefix();
+    if (prefix === "4" && opt.dataset.hasPlayoffs === "1") {
+      jumpTo("4" + yearStr);
+    } else {
+      jumpTo(opt.value);
+    }
+  }
+  if (picker) {
+    picker.addEventListener("change", () => {
+      // Same logic as keyboard stepping: respect kind if possible.
+      const opt = picker.selectedOptions[0];
+      if (!opt) return;
+      jumpToYear(opt.dataset.year);
+    });
+  }
   document.addEventListener("keydown", (ev) => {
+    if (!picker) return;
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const tag = (ev.target && ev.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (ev.target && ev.target.isContentEditable) return;
-    if (ev.key === "ArrowLeft") { ev.preventDefault(); navigate(prev); }
-    else if (ev.key === "ArrowRight") { ev.preventDefault(); navigate(next); }
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    ev.preventDefault();
+    const idx = picker.selectedIndex;
+    // Options are newest→oldest, so "Left = older season" feels more intuitive.
+    const newIdx = ev.key === "ArrowLeft" ? idx + 1 : idx - 1;
+    if (newIdx < 0 || newIdx >= picker.options.length) return;
+    jumpToYear(picker.options[newIdx].dataset.year);
   });
 
   // Auto-scroll the barcode so the active bar is visible.
