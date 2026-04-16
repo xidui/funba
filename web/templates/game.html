@@ -2220,62 +2220,45 @@
     {% if current_status == 'live' %}<span class="badge badge-neutral">{{ t('In Progress', '进行中') }}</span>{% endif %}
   </h2>
   <div id="bs-team">
-    {% if quarter_scores %}
-    <div class="table-wrap" style="margin-bottom:16px;">
+    {% if team_stats %}
+    <div class="table-wrap" data-mobile-key="game-team-stats">
       <table style="min-width:0;">
         <thead>
           <tr>
             <th>{{ t('Team', '球队') }}</th>
+            {% if quarter_scores %}
             {% for qs in quarter_scores %}
-            <th style="text-align:center;">{{ 'Q' ~ qs.period if qs.period <= 4 else 'OT' ~ (qs.period - 4) }}</th>
+            <th class="mobile-hide" style="text-align:center;">{{ 'Q' ~ qs.period if qs.period <= 4 else 'OT' ~ (qs.period - 4) }}</th>
             {% endfor %}
-            <th style="text-align:center;">T</th>
+            {% endif %}
+            <th style="text-align:center;">PTS</th>
+            <th style="text-align:center;">REB</th>
+            <th style="text-align:center;">AST</th>
+            <th class="mobile-hide" style="text-align:center;">FG%</th>
+            <th class="mobile-hide" style="text-align:center;">3P%</th>
+            <th class="mobile-hide" style="text-align:center;">FT%</th>
+            <th style="text-align:center;">{{ t('W/L', '胜负') }}</th>
           </tr>
         </thead>
         <tbody>
           {% for row in team_stats %}
           {% set is_home = row.team_id == home_team_id %}
-          <tr>
-            <td style="font-weight:600;">{{ team_abbr(row.team_id) }}</td>
-            {% for qs in quarter_scores %}
-            <td style="text-align:center; font-variant-numeric:tabular-nums;">{{ qs.home if is_home else qs.road }}</td>
-            {% endfor %}
-            <td style="text-align:center; font-weight:700; color:var(--heading);">{{ row.pts if row.pts is not none else '—' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-
-    {% if team_stats %}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>{{ t('Team', '球队') }}</th>
-            <th>PTS</th>
-            <th>REB</th>
-            <th>AST</th>
-            <th>FG%</th>
-            <th>3P%</th>
-            <th>FT%</th>
-            <th>{{ t('Result', '结果') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in team_stats %}
           <tr class="{% if row.win %}row-win{% elif row.win is not none %}row-loss{% endif %}">
-            <td>
-              <a href="{{ team_url(row.team_id) }}">{{ team_name(row.team_id) }}</a>
+            <td style="font-weight:600;">
+              <a href="{{ team_url(row.team_id) }}" style="color:inherit; text-decoration:none;">{{ team_abbr(row.team_id) }}</a>
             </td>
-            <td><strong>{{ row.pts if row.pts is not none else '—' }}</strong></td>
-            <td>{{ row.reb if row.reb is not none else '—' }}</td>
-            <td>{{ row.ast if row.ast is not none else '—' }}</td>
-            <td>{{ row.fg_pct|pct_fmt }}</td>
-            <td>{{ row.fg3_pct|pct_fmt }}</td>
-            <td>{{ row.ft_pct|pct_fmt }}</td>
-            <td>
+            {% if quarter_scores %}
+            {% for qs in quarter_scores %}
+            <td class="mobile-hide" style="text-align:center; font-variant-numeric:tabular-nums;">{{ qs.home if is_home else qs.road }}</td>
+            {% endfor %}
+            {% endif %}
+            <td style="text-align:center; font-weight:700; color:var(--heading);">{{ row.pts if row.pts is not none else '—' }}</td>
+            <td style="text-align:center;">{{ row.reb if row.reb is not none else '—' }}</td>
+            <td style="text-align:center;">{{ row.ast if row.ast is not none else '—' }}</td>
+            <td class="mobile-hide" style="text-align:center;">{{ row.fg_pct|pct_fmt }}</td>
+            <td class="mobile-hide" style="text-align:center;">{{ row.fg3_pct|pct_fmt }}</td>
+            <td class="mobile-hide" style="text-align:center;">{{ row.ft_pct|pct_fmt }}</td>
+            <td style="text-align:center;">
               {% if row.win is none %}
               <span class="meta">—</span>
               {% elif row.win %}
@@ -2783,39 +2766,40 @@
 
   function renderQuarterScoresAndTeamStats(teamStats, quarterScores, container) {
     if (!container) return;
+    if (!teamStats || !teamStats.length) {
+      container.innerHTML = '<p class="meta">No team stats found.</p>';
+      return;
+    }
+    const hasQS = quarterScores && quarterScores.length;
     const parts = [];
-    if (quarterScores && quarterScores.length) {
-      parts.push('<div class="table-wrap" style="margin-bottom:16px;"><table style="min-width:0;"><thead><tr><th>Team</th>');
-      quarterScores.forEach(qs => parts.push('<th style="text-align:center;">' + escapeHtml(periodLabel(qs.period)) + '</th>'));
-      parts.push('<th style="text-align:center;">T</th></tr></thead><tbody>');
-      teamStats.forEach(row => {
-        const isHome = row.team_id === HOME_TEAM_ID;
-        parts.push('<tr><td style="font-weight:600;">' + escapeHtml(TEAM_ABBRS[row.team_id] || row.team_id) + '</td>');
+    parts.push('<div class="table-wrap" data-mobile-key="game-team-stats"><table style="min-width:0;"><thead><tr><th>Team</th>');
+    if (hasQS) {
+      quarterScores.forEach(qs => parts.push('<th class="mobile-hide" style="text-align:center;">' + escapeHtml(periodLabel(qs.period)) + '</th>'));
+    }
+    parts.push('<th style="text-align:center;">PTS</th><th style="text-align:center;">REB</th><th style="text-align:center;">AST</th>');
+    parts.push('<th class="mobile-hide" style="text-align:center;">FG%</th><th class="mobile-hide" style="text-align:center;">3P%</th><th class="mobile-hide" style="text-align:center;">FT%</th>');
+    parts.push('<th style="text-align:center;">W/L</th></tr></thead><tbody>');
+    teamStats.forEach(row => {
+      const isHome = row.team_id === HOME_TEAM_ID;
+      const winClass = row.win === true ? 'row-win' : (row.win === false ? 'row-loss' : '');
+      parts.push('<tr class="' + winClass + '"><td style="font-weight:600;">' + escapeHtml(TEAM_ABBRS[row.team_id] || row.team_id) + '</td>');
+      if (hasQS) {
         quarterScores.forEach(qs => {
-          parts.push('<td style="text-align:center; font-variant-numeric:tabular-nums;">' + escapeHtml(isHome ? qs.home : qs.road) + '</td>');
+          parts.push('<td class="mobile-hide" style="text-align:center; font-variant-numeric:tabular-nums;">' + escapeHtml(isHome ? qs.home : qs.road) + '</td>');
         });
-        parts.push('<td style="text-align:center; font-weight:700; color:var(--heading);">' + escapeHtml(row.pts != null ? row.pts : '—') + '</td></tr>');
-      });
-      parts.push('</tbody></table></div>');
-    }
-    if (teamStats && teamStats.length) {
-      parts.push('<div class="table-wrap"><table><thead><tr><th>Team</th><th>PTS</th><th>REB</th><th>AST</th><th>FG%</th><th>3P%</th><th>FT%</th><th>Result</th></tr></thead><tbody>');
-      teamStats.forEach(row => {
-        const winClass = row.win === true ? 'row-win' : (row.win === false ? 'row-loss' : '');
-        parts.push('<tr class="' + winClass + '"><td>' + escapeHtml(TEAM_NAMES[row.team_id] || row.team_id) + '</td>');
-        parts.push('<td><strong>' + escapeHtml(row.pts != null ? row.pts : '—') + '</strong></td>');
-        parts.push('<td>' + escapeHtml(row.reb != null ? row.reb : '—') + '</td>');
-        parts.push('<td>' + escapeHtml(row.ast != null ? row.ast : '—') + '</td>');
-        parts.push('<td>' + pctFmt(row.fg_pct) + '</td>');
-        parts.push('<td>' + pctFmt(row.fg3_pct) + '</td>');
-        parts.push('<td>' + pctFmt(row.ft_pct) + '</td>');
-        let badge = '<span class="meta">—</span>';
-        if (row.win === true) badge = '<span class="badge badge-win">W</span>';
-        else if (row.win === false) badge = '<span class="badge badge-loss">L</span>';
-        parts.push('<td>' + badge + '</td></tr>');
-      });
-      parts.push('</tbody></table></div>');
-    }
+      }
+      parts.push('<td style="text-align:center; font-weight:700; color:var(--heading);">' + escapeHtml(row.pts != null ? row.pts : '—') + '</td>');
+      parts.push('<td style="text-align:center;">' + escapeHtml(row.reb != null ? row.reb : '—') + '</td>');
+      parts.push('<td style="text-align:center;">' + escapeHtml(row.ast != null ? row.ast : '—') + '</td>');
+      parts.push('<td class="mobile-hide" style="text-align:center;">' + pctFmt(row.fg_pct) + '</td>');
+      parts.push('<td class="mobile-hide" style="text-align:center;">' + pctFmt(row.fg3_pct) + '</td>');
+      parts.push('<td class="mobile-hide" style="text-align:center;">' + pctFmt(row.ft_pct) + '</td>');
+      let badge = '<span class="meta">—</span>';
+      if (row.win === true) badge = '<span class="badge badge-win">W</span>';
+      else if (row.win === false) badge = '<span class="badge badge-loss">L</span>';
+      parts.push('<td style="text-align:center;">' + badge + '</td></tr>');
+    });
+    parts.push('</tbody></table></div>');
     container.innerHTML = parts.join('');
   }
 
