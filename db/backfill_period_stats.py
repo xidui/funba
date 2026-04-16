@@ -48,8 +48,13 @@ def main():
         games_q = games_q.order_by(Game.season.desc(), Game.game_date.desc())
         all_games = games_q.all()
 
-        # Already done
-        done_q = session.query(func.distinct(PlayerGamePeriodStats.game_id))
+        # Already done: games that have period stats for at least 4 periods (Q1-Q4).
+        from sqlalchemy import func as sqla_func
+        done_q = (
+            session.query(PlayerGamePeriodStats.game_id)
+            .group_by(PlayerGamePeriodStats.game_id)
+            .having(sqla_func.count(sqla_func.distinct(PlayerGamePeriodStats.period)) >= 4)
+        )
         if args.season:
             done_q = done_q.join(Game, Game.game_id == PlayerGamePeriodStats.game_id).filter(Game.season == args.season)
         done_ids = {row[0] for row in done_q.all()}
@@ -78,6 +83,10 @@ def main():
                 continue
 
             with SessionLocal() as session:
+                # Delete any partial data from previous attempts, then insert fresh.
+                session.query(PlayerGamePeriodStats).filter(
+                    PlayerGamePeriodStats.game_id == game_id,
+                ).delete(synchronize_session=False)
                 for period, rows in periods.items():
                     for ps in rows:
                         create_player_period_stats(session, game_id, period, ps)

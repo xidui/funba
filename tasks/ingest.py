@@ -145,6 +145,8 @@ def _missing_artifacts(status: dict) -> list[str]:
             missing.append("PBP")
         if not status.get("has_shot"):
             missing.append("shot")
+        if not status.get("has_period"):
+            missing.append("period_stats")
     return missing
 
 
@@ -237,6 +239,8 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         # (configurable in admin settings). Non-blocking artifacts are
         # backfilled after metrics are triggered.
         shot_blocks = get_runtime_flag("ingest_block_shot")
+        period_blocks = get_runtime_flag("ingest_block_period_stats")
+
         if shot_blocks and needs_shot:
             logger.info("ingest_game %s: backfilling shot records (blocking mode) …", game_id)
             with SessionLocal() as sess:
@@ -244,11 +248,23 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 sess.commit()
             needs_shot = False  # already done
 
+        if period_blocks:
+            with SessionLocal() as sess:
+                if not has_game_period_stats(sess, game_id):
+                    logger.info("ingest_game %s: backfilling period stats (blocking mode) …", game_id)
+                    period_data = fetch_all_period_stats(game_id)
+                    for period, period_rows in period_data.items():
+                        for ps in period_rows:
+                            create_player_period_stats(sess, game_id, period, ps)
+                    sess.commit()
+
         non_blocking = set()
         if not shot_blocks:
             non_blocking.add("shot")
         if not get_runtime_flag("ingest_block_line_score"):
             non_blocking.add("line_score")
+        if not period_blocks:
+            non_blocking.add("period_stats")
         with SessionLocal() as sess:
             status_after = _load_game_artifact_status(sess, game_id)
         missing_core = [
