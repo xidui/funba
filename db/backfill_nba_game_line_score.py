@@ -41,9 +41,20 @@ def has_game_line_score(session: Session, game_id: str) -> bool:
     )
     if len(rows) < 2:
         return False
-    # Rows exist but are incomplete (e.g. only Q1 from a live sync) —
-    # treat as not backfilled so they get refreshed.
-    return all(row.q4_pts is not None for row in rows)
+    # Q4 must be present (game finished regulation).
+    if not all(row.q4_pts is not None for row in rows):
+        return False
+    # Cross-check total_pts against Game final score. If they don't match,
+    # the line score is stale (e.g. fetched before OT finished).
+    game = session.query(Game).filter(Game.game_id == game_id).first()
+    if game and game.home_team_score and game.road_team_score:
+        score_map = {str(game.home_team_id): int(game.home_team_score),
+                     str(game.road_team_id): int(game.road_team_score)}
+        for row in rows:
+            expected = score_map.get(str(row.team_id))
+            if expected and row.total_pts != expected:
+                return False
+    return True
 
 
 def _period_score_map(periods: list[dict]) -> tuple[dict[int, int], list[int]]:
