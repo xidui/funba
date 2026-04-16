@@ -295,6 +295,59 @@ def _build_quarter_scores(home_team: dict, away_team: dict) -> list[dict]:
     ]
 
 
+def _build_score_progression(actions: list[dict]) -> list[dict]:
+    """Build the score-chart progression from nba_api live actions.
+
+    Matches the shape that `web/detail_routes.py` produces for completed
+    games, so the same template chart works for both. Actions arrive in
+    chronological order; we append a point for every score change.
+    """
+    progression: list[dict] = [{"t": 0.0, "road": 0, "home": 0, "scorer": None, "desc": None}]
+    prev_home = prev_road = 0
+    for action in actions:
+        score_home = action.get("scoreHome")
+        score_away = action.get("scoreAway")
+        if score_home in (None, "") or score_away in (None, ""):
+            continue
+        try:
+            home_score = int(score_home)
+            road_score = int(score_away)
+        except (TypeError, ValueError):
+            continue
+        if home_score == prev_home and road_score == prev_road:
+            continue
+        period = _safe_int(action.get("period"))
+        if period <= 0:
+            continue
+        clock_text = _format_clock(action.get("clock"))
+        try:
+            mins, secs = clock_text.split(":")
+            remaining = int(mins) * 60 + int(secs)
+        except Exception:
+            remaining = 0
+        if period <= 4:
+            offset = (period - 1) * 12 * 60
+            dur = 12 * 60
+        else:
+            offset = 48 * 60 + (period - 5) * 5 * 60
+            dur = 5 * 60
+        elapsed = round((offset + dur - remaining) / 60, 3)
+        raw_desc = str(action.get("description") or "").strip()
+        scorer = raw_desc.split()[0] if raw_desc else None
+        desc = raw_desc.split("(")[0].strip() or None
+        progression.append(
+            {
+                "t": elapsed,
+                "road": road_score,
+                "home": home_score,
+                "scorer": scorer,
+                "desc": desc,
+            }
+        )
+        prev_home, prev_road = home_score, road_score
+    return progression
+
+
 def _build_pbp_rows(actions: list[dict]) -> list[dict]:
     rows: list[dict] = []
     for action in reversed(actions):
@@ -547,4 +600,5 @@ def fetch_live_game_detail(game_id: str) -> dict | None:
         ],
         "quarter_scores": _build_quarter_scores(home_team, away_team),
         "pbp_rows": _build_pbp_rows(actions),
+        "score_progression": _build_score_progression(actions),
     }

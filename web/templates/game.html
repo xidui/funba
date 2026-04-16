@@ -1336,7 +1336,7 @@
     </div>
   </div>
 
-{% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
+{% if score_progression_json and score_progression_json not in ('[]', '[{"t": 0.0, "road": 0, "home": 0}]') %}
   <hr class="sb-chart-divider">
   <div class="sb-chart-wrap">
     <canvas id="score-chart"></canvas>
@@ -1621,7 +1621,7 @@
 </script>
 {% endif %}
 
-{% if is_admin %}
+{% if is_admin and current_status != 'live' %}
 <div class="card">
   <div class="game-admin-panel">
     <div class="game-admin-top">
@@ -2591,7 +2591,7 @@
 </style>
 {% endif %}
 
-{% if score_progression_json and score_progression_json != '[{"t": 0.0, "road": 0, "home": 0}]' %}
+{% if score_progression_json and score_progression_json not in ('[]', '[{"t": 0.0, "road": 0, "home": 0}]') %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 (function () {

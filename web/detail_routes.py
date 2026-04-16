@@ -1167,7 +1167,9 @@ def register_detail_routes(
                 Used for in-progress games AND for completed games that haven't
                 been ingested yet (the 10-minute backfill window).
                 """
+                import json as _json_live
                 summary = payload["summary"]
+                live_score_progression = payload.get("score_progression") or []
                 return get_render_template()(
                     "game.html",
                     game=game,
@@ -1190,7 +1192,7 @@ def register_detail_routes(
                     shot_miss_count_by_team={},
                     shot_backfill_status=request.args.get("shot_backfill"),
                     shot_backfill_count=request.args.get("shot_count"),
-                    score_progression_json="[]",
+                    score_progression_json=_json_live.dumps(live_score_progression) if len(live_score_progression) > 1 else "[]",
                     road_abbr=_era_team_abbr(game.road_team_id),
                     home_abbr=_era_team_abbr(game.home_team_id),
                     quarter_scores=payload["quarter_scores"],
