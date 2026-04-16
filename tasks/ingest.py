@@ -14,7 +14,12 @@ from datetime import date, timedelta
 from celery import shared_task
 from sqlalchemy.orm import sessionmaker
 
-from db.backfill_nba_game_detail import is_game_detail_back_filled
+from db.backfill_nba_game_detail import (
+    fetch_all_period_stats,
+    create_player_period_stats,
+    has_game_period_stats,
+    is_game_detail_back_filled,
+)
 from db.backfill_nba_game_line_score import back_fill_game_line_score, has_game_line_score
 from db.backfill_nba_game_pbp import is_game_pbp_back_filled
 from db.backfill_nba_games import process_and_store_game
@@ -106,12 +111,13 @@ def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = 
     season = season_hint or (game.season if game is not None else None)
     artifacts_supported = _artifacts_available_from_nba_api(season)
 
-    has_detail = has_pbp = has_shot = has_line = False
+    has_detail = has_pbp = has_shot = has_line = has_period = False
     if game is not None:
         has_detail = is_game_detail_back_filled(game_id, sess)
         has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game_id, sess)
         has_shot = True if not artifacts_supported else is_game_shot_back_filled(sess, game_id)
         has_line = has_game_line_score(sess, game_id)
+        has_period = True if not artifacts_supported else has_game_period_stats(sess, game_id)
 
     return {
         "game_id": game_id,
@@ -123,7 +129,8 @@ def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = 
         "has_pbp": has_pbp,
         "has_shot": has_shot,
         "has_line": has_line,
-        "complete": bool(game is not None and has_detail and has_pbp and has_shot and has_line),
+        "has_period": has_period,
+        "complete": bool(game is not None and has_detail and has_pbp and has_shot and has_line and has_period),
     }
 
 
@@ -353,6 +360,23 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 exc,
                 exc_info=True,
             )
+
+    # Period stats: backfill if missing (non-fatal, post-metric).
+    with SessionLocal() as sess:
+        needs_period = not has_game_period_stats(sess, game_id)
+    if needs_period:
+        try:
+            logger.info("ingest_game %s: backfilling period stats …", game_id)
+            with SessionLocal() as sess:
+                period_data = fetch_all_period_stats(game_id)
+                for period, period_rows in period_data.items():
+                    for ps in period_rows:
+                        create_player_period_stats(sess, game_id, period, ps)
+                sess.commit()
+                if period_data:
+                    logger.info("ingest_game %s: stored period stats for %d periods.", game_id, len(period_data))
+        except Exception as exc:
+            logger.warning("ingest_game %s: period stats backfill failed (non-fatal): %s", game_id, exc)
 
     # Shot records are backfilled AFTER metrics are triggered so they don't
     # block metric computation. Shot data is only used for the web UI shot

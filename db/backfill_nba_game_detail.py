@@ -241,6 +241,16 @@ def fetch_period_stats(game_id, period):
         raise
 
 
+def has_game_period_stats(session, game_id: str) -> bool:
+    """Check if period stats exist for a game (at least 1 row)."""
+    return (
+        session.query(PlayerGamePeriodStats)
+        .filter(PlayerGamePeriodStats.game_id == game_id)
+        .limit(1)
+        .count()
+    ) > 0
+
+
 def fetch_all_period_stats(game_id):
     """Fetch per-period box scores for all periods (Q1-Q4 + OTs)."""
     import time as _time
