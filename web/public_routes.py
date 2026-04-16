@@ -1229,6 +1229,13 @@ def register_public_routes(
 
             season_ids_for_filter = year_to_season_ids.get(selected_year, []) if selected_year else []
 
+            # Phase filter: "2" = Regular, "4" = Playoffs, "5" = Play-In, etc.
+            selected_phase = (request.args.get("phase") or "").strip() or None
+            if selected_phase and season_ids_for_filter:
+                season_ids_for_filter = [
+                    sid for sid in season_ids_for_filter if str(sid).startswith(selected_phase)
+                ]
+
             selected_team = (request.args.get("team") or "").strip() or None
             try:
                 page = max(1, int(request.args.get("page", 1)))
@@ -1332,6 +1339,19 @@ def register_public_routes(
                 return phase_label_map.get(s[0], "")
             return ""
 
+        # Available phases for the selected year (for the phase dropdown).
+        # Order: Regular (2), Play-In (5), Playoffs (4), Pre (1), All-Star (3).
+        _phase_order = {"2": 0, "5": 1, "4": 2, "1": 3, "3": 4}
+        available_phases = []
+        if selected_year and selected_year in year_to_season_ids:
+            seen = set()
+            for sid in year_to_season_ids[selected_year]:
+                prefix = str(sid)[0]
+                if prefix not in seen and prefix in phase_label_map:
+                    seen.add(prefix)
+                    available_phases.append((prefix, phase_label_map[prefix]))
+            available_phases.sort(key=lambda x: _phase_order.get(x[0], 9))
+
         return get_render_template()(
             "games_list.html",
             view=view,
@@ -1348,6 +1368,8 @@ def register_public_routes(
             selected_year=selected_year,
             year_label=_year_label,
             phase_label_for=phase_label_for,
+            available_phases=available_phases,
+            selected_phase=selected_phase,
             selected_team=selected_team,
             selected_team_obj=selected_team_obj,
             fmt_date=get_fmt_date(),

@@ -276,8 +276,10 @@
     const params = new URLSearchParams();
     const year = document.getElementById('games-year-select').value;
     const team = document.getElementById('games-team-select').value;
+    const phase = document.getElementById('games-phase-select').value;
     if (year) params.set('year', year);
     if (team) params.set('team', team);
+    if (phase) params.set('phase', phase);
     const currentView = '{{ view }}';
     if (currentView) params.set('view', currentView);
     const query = params.toString();
@@ -326,22 +328,30 @@
       </option>
       {% endfor %}
     </select>
+    <select id="games-phase-select" class="season-select" onchange="applyGamesFilters()">
+      <option value="">{{ t('All Phases', '全部阶段') }}</option>
+      {% for code, label in available_phases %}
+      <option value="{{ code }}" {% if code == selected_phase %}selected{% endif %}>
+        {{ label }}
+      </option>
+      {% endfor %}
+    </select>
   </div>
 </div>
 
 {# ── Tab bar ── #}
 <div class="games-tabs">
   <div class="tab-bar">
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, view='results') }}"
+    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='results') }}"
        class="tab-btn {{ 'active' if view == 'results' }}">
       {{ t('Results', '赛果') }}
     </a>
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, view='schedule') }}"
+    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='schedule') }}"
        class="tab-btn {{ 'active' if view == 'schedule' }}">
       {{ t('Schedule', '赛程') }}
     </a>
     {% if has_live %}
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, view='live') }}"
+    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='live') }}"
        class="tab-btn {{ 'active' if view == 'live' }}">
       <span class="live-dot-small"></span>{{ t('Live', '进行中') }}
       <span class="tab-count">{{ live_count }}</span>
@@ -479,7 +489,7 @@
 </div>
 
 {% if total_pages > 1 %}
-{% macro page_url(p) %}{{ url_for('games_list', year=selected_year, team=selected_team, view=view, page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view=view, page=p) }}{% endmacro %}
 <div class="pagination">
   <a class="page-btn {{ 'disabled' if page == 1 }}" href="{{ page_url(page - 1) }}">&#8592;</a>
 
