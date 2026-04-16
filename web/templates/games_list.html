@@ -378,6 +378,8 @@
   .sc .tr.l{opacity:.38;}
   .sc .sd{color:var(--muted);font-size:10px;min-width:12px;text-align:center;}
   .sc .bl{width:18px;height:18px;border-radius:2px;}
+  .sc .bl-tbd{width:18px;height:18px;border-radius:2px;background:var(--border,#1a2a3a);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .sc .bl-tbd svg{width:12px;height:12px;opacity:.4;}
   .sc .ab{flex:1;white-space:nowrap;}
   .sc .wn{font-weight:700;min-width:10px;text-align:right;}
   .sc.tbd{opacity:.35;}.sc.tbd .tr{justify-content:center;color:var(--muted);}
@@ -426,24 +428,33 @@
   }
 </style>
 
+{# Team logo or TBD placeholder #}
+{% macro bk_logo(tid) %}
+{% if tid %}<img class="bl" src="{{ team_logo(tid, selected_year) }}" alt="" loading="lazy">
+{% else %}<span class="bl-tbd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg></span>{% endif %}
+{% endmacro %}
+
 {% macro sc(s) %}
 {% if s %}
 <div class="sc">
   <div class="tr {{ 'w' if s.winner and s.winner == s.top else '' }} {{ 'l' if s.winner and s.winner != s.top else '' }}">
     {% if s.ts %}<span class="sd">{{ s.ts }}</span>{% endif %}
-    <img class="bl" src="{{ team_logo(s.top, selected_year) }}" alt="" loading="lazy">
+    {{ bk_logo(s.top) }}
     <span class="ab">{{ team_abbr_for_year(s.top, selected_year) if s.top else 'TBD' }}</span>
     <span class="wn">{{ s.tw }}</span>
   </div>
   <div class="tr {{ 'w' if s.winner and s.winner == s.bot else '' }} {{ 'l' if s.winner and s.winner != s.bot else '' }}">
     {% if s.bs %}<span class="sd">{{ s.bs }}</span>{% endif %}
-    <img class="bl" src="{{ team_logo(s.bot, selected_year) }}" alt="" loading="lazy">
+    {{ bk_logo(s.bot) }}
     <span class="ab">{{ team_abbr_for_year(s.bot, selected_year) if s.bot else 'TBD' }}</span>
     <span class="wn">{{ s.bw }}</span>
   </div>
 </div>
 {% else %}
-<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
+<div class="sc tbd">
+  <div class="tr">{{ bk_logo(None) }}<span class="ab">TBD</span><span class="wn">-</span></div>
+  <div class="tr">{{ bk_logo(None) }}<span class="ab">TBD</span><span class="wn">-</span></div>
+</div>
 {% endif %}
 {% endmacro %}
 
@@ -451,18 +462,21 @@
 {% if g %}
 <div class="sc">
   <div class="tr {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
-    <img class="bl" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
+    {{ bk_logo(g.top) }}
     <span class="ab">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
     <span class="wn">{{ g.top_score if g.top_score is not none else '' }}</span>
   </div>
   <div class="tr {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
-    <img class="bl" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
+    {{ bk_logo(g.bot) }}
     <span class="ab">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
     <span class="wn">{{ g.bot_score if g.bot_score is not none else '' }}</span>
   </div>
 </div>
 {% else %}
-<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
+<div class="sc tbd">
+  <div class="tr">{{ bk_logo(None) }}<span class="ab">TBD</span><span class="wn"></span></div>
+  <div class="tr">{{ bk_logo(None) }}<span class="ab">TBD</span><span class="wn"></span></div>
+</div>
 {% endif %}
 {% endmacro %}
 
@@ -561,6 +575,8 @@
   .playin-standalone .sc .tr.w{font-weight:700;}
   .playin-standalone .sc .tr.l{opacity:.38;}
   .playin-standalone .sc .bl{width:18px;height:18px;border-radius:2px;}
+  .playin-standalone .sc .bl-tbd{width:18px;height:18px;border-radius:2px;background:var(--border,#1a2a3a);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .playin-standalone .sc .bl-tbd svg{width:12px;height:12px;opacity:.4;}
   .playin-standalone .sc .ab{flex:1;white-space:nowrap;}
   .playin-standalone .sc .wn{font-weight:700;min-width:10px;text-align:right;}
   .playin-standalone .sc.tbd{opacity:.35;}
@@ -577,22 +593,30 @@
   }
 </style>
 
+{% macro pi_logo(tid) %}
+{% if tid %}<img class="bl" src="{{ team_logo(tid, selected_year) }}" alt="" loading="lazy">
+{% else %}<span class="bl-tbd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg></span>{% endif %}
+{% endmacro %}
+
 {% macro pi_gc(g) %}
 {% if g %}
 <div class="sc">
   <div class="tr {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
-    <img class="bl" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
+    {{ pi_logo(g.top) }}
     <span class="ab">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
     <span class="wn">{{ g.top_score if g.top_score is not none else '' }}</span>
   </div>
   <div class="tr {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
-    <img class="bl" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
+    {{ pi_logo(g.bot) }}
     <span class="ab">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
     <span class="wn">{{ g.bot_score if g.bot_score is not none else '' }}</span>
   </div>
 </div>
 {% else %}
-<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
+<div class="sc tbd">
+  <div class="tr">{{ pi_logo(None) }}<span class="ab">TBD</span><span class="wn"></span></div>
+  <div class="tr">{{ pi_logo(None) }}<span class="ab">TBD</span><span class="wn"></span></div>
+</div>
 {% endif %}
 {% endmacro %}
 
