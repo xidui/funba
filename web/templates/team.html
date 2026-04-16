@@ -724,7 +724,7 @@
                   data-year="{{ bar.year_start }}"
                   data-has-playoffs="{{ '1' if bar.has_playoffs else '0' }}"
                   {% if bar.season == selected_season or (selected_season_kind == 'playoffs' and (bar.year_start|string) == cur_year_str) %}selected{% endif %}>
-            {{ bar.year_label }}{% if bar.wins + bar.losses > 0 %} · {{ bar.wins }}-{{ bar.losses }}{% endif %}
+            {{ bar.year_label }}
           </option>
           {% endfor %}
         </select>
