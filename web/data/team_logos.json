@@ -145,6 +145,24 @@
   },
   {
     "team_id": "1610612740",
+    "year_start": 2002,
+    "year_end": 2006,
+    "path": "static/team_logos/historical/1610612740/2002_2006.png"
+  },
+  {
+    "team_id": "1610612740",
+    "year_start": 2007,
+    "year_end": 2007,
+    "path": "static/team_logos/historical/1610612740/2007_2007.png"
+  },
+  {
+    "team_id": "1610612740",
+    "year_start": 2008,
+    "year_end": 2012,
+    "path": "static/team_logos/historical/1610612740/2008_2012.png"
+  },
+  {
+    "team_id": "1610612740",
     "year_start": 2013,
     "year_end": 2022,
     "path": "static/team_logos/historical/1610612740/2013_2022.png"
