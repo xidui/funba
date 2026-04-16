@@ -7,6 +7,18 @@
   },
   {
     "team_id": "1610612737",
+    "year_start": 1951,
+    "year_end": 1953,
+    "path": "static/team_logos/historical/1610612737/1951_1953.png"
+  },
+  {
+    "team_id": "1610612737",
+    "year_start": 1954,
+    "year_end": 1954,
+    "path": "static/team_logos/historical/1610612737/1954_1954.png"
+  },
+  {
+    "team_id": "1610612737",
     "year_start": 1955,
     "year_end": 1956,
     "path": "static/team_logos/historical/1610612737/1955_1956.png"
@@ -40,6 +52,12 @@
     "year_start": 1972,
     "year_end": 1994,
     "path": "static/team_logos/historical/1610612737/1972_1994.png"
+  },
+  {
+    "team_id": "1610612737",
+    "year_start": 1995,
+    "year_end": 2006,
+    "path": "static/team_logos/historical/1610612737/1995_2006.gif"
   },
   {
     "team_id": "1610612737",
@@ -202,6 +220,18 @@
     "year_start": 2017,
     "year_end": null,
     "path": "static/team_logos/historical/1610612742/current.svg"
+  },
+  {
+    "team_id": "1610612743",
+    "year_start": 1967,
+    "year_end": 1970,
+    "path": "static/team_logos/historical/1610612743/1967_1970.gif"
+  },
+  {
+    "team_id": "1610612743",
+    "year_start": 1971,
+    "year_end": 1973,
+    "path": "static/team_logos/historical/1610612743/1971_1973.gif"
   },
   {
     "team_id": "1610612743",
@@ -496,6 +526,12 @@
     "year_start": 2017,
     "year_end": null,
     "path": "static/team_logos/historical/1610612750/current.svg"
+  },
+  {
+    "team_id": "1610612751",
+    "year_start": 1967,
+    "year_end": 1967,
+    "path": "static/team_logos/historical/1610612751/1967_1967.gif"
   },
   {
     "team_id": "1610612751",
@@ -829,6 +865,24 @@
   },
   {
     "team_id": "1610612759",
+    "year_start": 1967,
+    "year_end": 1969,
+    "path": "static/team_logos/historical/1610612759/1967_1969.gif"
+  },
+  {
+    "team_id": "1610612759",
+    "year_start": 1970,
+    "year_end": 1972,
+    "path": "static/team_logos/historical/1610612759/1970_1972.gif"
+  },
+  {
+    "team_id": "1610612759",
+    "year_start": 1973,
+    "year_end": 1975,
+    "path": "static/team_logos/historical/1610612759/1973_1975.gif"
+  },
+  {
+    "team_id": "1610612759",
     "year_start": 1976,
     "year_end": 1988,
     "path": "static/team_logos/historical/1610612759/1976_1988.png"
@@ -1072,6 +1126,18 @@
     "year_start": 2015,
     "year_end": null,
     "path": "static/team_logos/historical/1610612764/current.svg"
+  },
+  {
+    "team_id": "1610612765",
+    "year_start": 1941,
+    "year_end": 1947,
+    "path": "static/team_logos/historical/1610612765/1941_1947.gif"
+  },
+  {
+    "team_id": "1610612765",
+    "year_start": 1948,
+    "year_end": 1956,
+    "path": "static/team_logos/historical/1610612765/1948_1956.gif"
   },
   {
     "team_id": "1610612765",
