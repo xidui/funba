@@ -106,11 +106,12 @@ def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = 
     season = season_hint or (game.season if game is not None else None)
     artifacts_supported = _artifacts_available_from_nba_api(season)
 
-    has_detail = has_pbp = has_shot = False
+    has_detail = has_pbp = has_shot = has_line = False
     if game is not None:
         has_detail = is_game_detail_back_filled(game_id, sess)
         has_pbp = True if not artifacts_supported else is_game_pbp_back_filled(game_id, sess)
         has_shot = True if not artifacts_supported else is_game_shot_back_filled(sess, game_id)
+        has_line = has_game_line_score(sess, game_id)
 
     return {
         "game_id": game_id,
@@ -121,7 +122,8 @@ def _load_game_artifact_status(sess, game_id: str, *, season_hint: str | None = 
         "has_detail": has_detail,
         "has_pbp": has_pbp,
         "has_shot": has_shot,
-        "complete": bool(game is not None and has_detail and has_pbp and has_shot),
+        "has_line": has_line,
+        "complete": bool(game is not None and has_detail and has_pbp and has_shot and has_line),
     }
 
 
