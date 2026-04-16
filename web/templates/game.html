@@ -2379,11 +2379,10 @@
 </div>
 
 <!-- ── Shot Chart ─────────────────────────────────────────────────── -->
+{% if current_status != 'live' %}
 <div class="card">
   <h2>{{ t('Shot Chart', '投篮图') }}</h2>
-  {% if current_status == 'live' %}
-  <p class="meta">{{ t('Shot chart becomes available after the game ends.', '投篮图会在比赛结束后显示。') }}</p>
-  {% elif current_status == 'upcoming' %}
+  {% if current_status == 'upcoming' %}
   <p class="meta">{{ t('Shot chart is not available before tip-off.', '比赛开始前暂无投篮图。') }}</p>
   {% else %}
 
@@ -2496,6 +2495,7 @@
   {% endif %}
   {% endif %}
 </div>
+{% endif %}
 
 <!-- ── Play By Play ───────────────────────────────────────────────── -->
 {% if current_status != 'live' %}
