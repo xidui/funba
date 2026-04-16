@@ -370,6 +370,7 @@ def _build_pbp_rows(actions: list[dict]) -> list[dict]:
                 "score": score,
                 "margin": "-",
                 "team_id": str(action.get("teamId") or "") or None,
+                "player_id": str(action.get("personId") or "") or None,
             }
         )
     return rows

@@ -1357,7 +1357,7 @@
 
   .lpbp-row {
     display: grid;
-    grid-template-columns: 44px 1fr;
+    grid-template-columns: 48px 1fr;
     gap: 10px;
     padding: 10px 12px 10px 8px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
@@ -1381,6 +1381,15 @@
     justify-content: flex-start;
     gap: 2px;
     padding-top: 2px;
+  }
+  .lpbp-headshot {
+    width: 32px;
+    height: 24px;
+    object-fit: cover;
+    object-position: top center;
+    border-radius: 4px;
+    background: var(--surface-3);
+    margin-bottom: 2px;
   }
   .lpbp-period {
     font-size: 9px;
@@ -2540,6 +2549,9 @@
       {% set ns.count = ns.count + 1 %}
       <div class="lpbp-row{% if row.event_type_code in (1, 3) %} lpbp-row-score{% endif %}" data-event-num="{{ row.event_num }}" data-period="{{ row.period }}">
         <div class="lpbp-rail">
+          {% if row.player_id %}
+          <img class="lpbp-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ row.player_id }}.png" alt="" loading="lazy" onerror="this.style.display='none'">
+          {% endif %}
           <div class="lpbp-period">
             {% if row.period is not string and row.period <= 4 %}Q{{ row.period }}
             {% elif row.period is not string %}OT{{ row.period - 4 }}
@@ -2858,11 +2870,16 @@
     const logoHtml = logoUrl
       ? '<img class="lpbp-logo" src="' + logoUrl + '" alt="" width="18" height="18" loading="lazy" onerror="this.style.display=\'none\'">'
       : '';
+    const pid = row.player_id || '';
+    const headshotHtml = pid
+      ? '<img class="lpbp-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/' + escapeHtml(pid) + '.png" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+      : '';
     const hasScore = row.score && row.score !== '-';
     const scoreBadge = hasScore ? '<span class="lpbp-score-badge">' + escapeHtml(row.score) + '</span>' : '';
     return (
       '<div class="lpbp-row' + scoreClass + '" data-event-num="' + escapeHtml(row.event_num) + '" data-period="' + escapeHtml(row.period) + '">' +
         '<div class="lpbp-rail">' +
+          headshotHtml +
           '<div class="lpbp-period">' + escapeHtml(periodLabel(row.period)) + '</div>' +
           '<div class="lpbp-clock">' + escapeHtml(row.clock) + '</div>' +
         '</div>' +
