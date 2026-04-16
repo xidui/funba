@@ -1218,6 +1218,311 @@
     background: rgba(249, 115, 22, 0.05);
   }
 
+  /* ── Live PBP floating dock ──────────────────────────────────── */
+  .live-pbp-dock {
+    position: fixed;
+    z-index: 140;
+    right: 16px;
+    top: 84px;
+    bottom: 16px;
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    transition: width 220ms ease, height 220ms ease, transform 220ms ease;
+  }
+
+  .live-pbp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 70%, transparent), transparent);
+    cursor: pointer;
+    user-select: none;
+    min-height: 48px;
+  }
+
+  .live-pbp-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .live-pbp-score {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .live-pbp-score .lpbp-abbr {
+    font-size: 11px;
+    color: var(--muted-2);
+    letter-spacing: 0.04em;
+  }
+  .live-pbp-score b {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .live-pbp-score .lpbp-sep {
+    color: var(--muted-2);
+    font-weight: 400;
+  }
+
+  .live-pbp-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .live-pbp-clock {
+    font-size: 11px;
+    color: var(--muted-2);
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .live-pbp-toggle {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--muted);
+    transition: background 120ms ease, transform 180ms ease;
+  }
+  .live-pbp-toggle:hover { background: var(--surface-3); color: var(--text); }
+  .lpbp-chevron {
+    width: 7px; height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    margin-top: -3px;
+    transition: transform 180ms ease;
+  }
+  .live-pbp-dock[data-collapsed="true"] .lpbp-chevron {
+    transform: rotate(-135deg);
+    margin-top: 2px;
+  }
+
+  .live-pbp-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+  }
+
+  .live-pbp-feed {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 4px 12px;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+  }
+  .live-pbp-feed::-webkit-scrollbar { width: 8px; }
+  .live-pbp-feed::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+  .live-pbp-feed::-webkit-scrollbar-track { background: transparent; }
+
+  .lpbp-row {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    padding: 10px 12px 10px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    align-items: flex-start;
+    transition: background 300ms ease;
+  }
+  .lpbp-row:last-child { border-bottom: none; }
+  .lpbp-row.lpbp-new {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    animation: lpbp-flash 1.8s ease-out;
+  }
+  @keyframes lpbp-flash {
+    0%   { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+    100% { background: transparent; }
+  }
+
+  .lpbp-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 2px;
+    padding-top: 2px;
+  }
+  .lpbp-period {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted-2);
+    text-transform: uppercase;
+  }
+  .lpbp-clock {
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    font-family: 'Outfit', 'Inter', sans-serif;
+  }
+
+  .lpbp-main { min-width: 0; }
+  .lpbp-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+    min-height: 18px;
+  }
+  .lpbp-logo {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .lpbp-score-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--surface-3);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .lpbp-row-score .lpbp-score-badge {
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface-3));
+    color: var(--accent);
+  }
+
+  .lpbp-desc {
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--text);
+    word-wrap: break-word;
+  }
+  .lpbp-row-score .lpbp-desc { font-weight: 600; }
+
+  .lpbp-period-sep {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    text-align: center;
+    padding: 6px 0;
+    margin: 6px 12px;
+    border-top: 1px dashed var(--border);
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .lpbp-empty {
+    padding: 40px 14px;
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+
+  .lpbp-jump {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 90%, black);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    z-index: 2;
+    animation: lpbp-pop 200ms ease-out;
+  }
+  @keyframes lpbp-pop {
+    from { transform: translateX(-50%) translateY(-6px); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0); opacity: 1; }
+  }
+
+  /* Collapsed state (desktop: slim floating pill) */
+  .live-pbp-dock[data-collapsed="true"] {
+    height: 48px;
+    bottom: auto;
+  }
+  .live-pbp-dock[data-collapsed="true"] .live-pbp-body { display: none; }
+
+  /* Keep main content from sitting under the dock on wide screens. */
+  @media (min-width: 1280px) {
+    body.site-main-has-live-dock .container { padding-right: 372px; }
+  }
+
+  /* Narrower than dock: bottom sheet */
+  @media (max-width: 1100px) {
+    .live-pbp-dock {
+      top: auto;
+      right: 12px;
+      left: 12px;
+      bottom: 12px;
+      width: auto;
+      max-height: 60vh;
+      border-radius: 14px;
+    }
+    .live-pbp-dock[data-collapsed="true"] {
+      height: 52px;
+    }
+    body.site-main-has-live-dock .container { padding-bottom: 76px; }
+  }
+
+  @media (max-width: 540px) {
+    .live-pbp-dock { right: 8px; left: 8px; bottom: 8px; }
+    .live-pbp-clock { max-width: 86px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-pbp-dock, .lpbp-row, .live-pbp-feed, .lpbp-jump, .lpbp-chevron {
+      transition: none !important;
+      animation: none !important;
+      scroll-behavior: auto;
+    }
+  }
+
   .live-badge {
     display: inline-flex;
     align-items: center;
@@ -2140,14 +2445,9 @@
 </div>
 
 <!-- ── Play By Play ───────────────────────────────────────────────── -->
+{% if current_status != 'live' %}
 <div class="card">
-  <h2>
-    {% if current_status == 'live' %}
-    {{ t('Live Play by Play', '实时逐回合') }}
-    {% else %}
-    {{ t('Play by Play', '逐回合') }}
-    {% endif %}
-  </h2>
+  <h2>{{ t('Play by Play', '逐回合') }}</h2>
   {% if current_status == 'upcoming' %}
   <p class="meta">{{ t('Play-by-play will appear once the game begins.', '比赛开始后会显示逐回合内容。') }}</p>
   {% elif pbp_rows %}
@@ -2201,6 +2501,74 @@
   <p class="meta">{{ t('No play-by-play records found for this game.', '这场比赛暂无逐回合记录。') }}</p>
   {% endif %}
 </div>
+{% endif %}
+
+{# ── Live floating PBP dock (right rail desktop / bottom sheet mobile) ── #}
+{% if current_status == 'live' %}
+<aside id="live-pbp-dock" class="live-pbp-dock" data-collapsed="false" aria-label="{{ t('Live play by play', '实时逐回合') }}">
+  <div class="live-pbp-header" id="live-pbp-header">
+    <div class="live-pbp-header-left">
+      <span class="live-badge"><span class="live-dot"></span>{{ t('LIVE', '直播') }}</span>
+      <span class="live-pbp-score" data-role="live-pbp-score">
+        <span class="lpbp-abbr">{{ team_abbr(game.road_team_id) }}</span>
+        <b data-role="live-pbp-road">{{ live_summary.road_score if live_summary else 0 }}</b>
+        <span class="lpbp-sep">·</span>
+        <b data-role="live-pbp-home">{{ live_summary.home_score if live_summary else 0 }}</b>
+        <span class="lpbp-abbr">{{ team_abbr(game.home_team_id) }}</span>
+      </span>
+    </div>
+    <div class="live-pbp-header-right">
+      <span class="live-pbp-clock" data-role="live-pbp-clock">{{ live_summary.summary if live_summary else '' }}</span>
+      <button class="live-pbp-toggle" type="button" aria-label="{{ t('Collapse live feed', '收起') }}" data-role="live-pbp-toggle">
+        <span class="lpbp-chevron"></span>
+      </button>
+    </div>
+  </div>
+  <div class="live-pbp-body">
+    <div class="live-pbp-feed" id="live-pbp-feed">
+      {% set ns = namespace(last_period=None, count=0) %}
+      {% for row in pbp_rows|reverse %}
+      {% if ns.count < 80 %}
+      {% if row.period != ns.last_period and ns.last_period is not none %}
+      <div class="lpbp-period-sep">
+        {% if row.period is not string and row.period <= 4 %}Q{{ row.period }} ends
+        {% elif row.period is not string %}OT{{ row.period - 4 }} ends
+        {% else %}{{ row.period }}{% endif %}
+      </div>
+      {% endif %}
+      {% set ns.last_period = row.period %}
+      {% set ns.count = ns.count + 1 %}
+      <div class="lpbp-row{% if row.event_type_code in (1, 3) %} lpbp-row-score{% endif %}" data-event-num="{{ row.event_num }}" data-period="{{ row.period }}">
+        <div class="lpbp-rail">
+          <div class="lpbp-period">
+            {% if row.period is not string and row.period <= 4 %}Q{{ row.period }}
+            {% elif row.period is not string %}OT{{ row.period - 4 }}
+            {% else %}{{ row.period }}{% endif %}
+          </div>
+          <div class="lpbp-clock">{{ row.clock }}</div>
+        </div>
+        <div class="lpbp-main">
+          <div class="lpbp-top">
+            {% if row.team_id %}
+            <img class="lpbp-logo" src="{{ team_logo(row.team_id, season_year(game.season)) }}" alt="" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+            {% endif %}
+            {% if row.score and row.score != '-' %}
+            <span class="lpbp-score-badge">{{ row.score }}</span>
+            {% endif %}
+          </div>
+          <div class="lpbp-desc">{{ row.description }}</div>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% if not pbp_rows %}
+      <div class="lpbp-empty">{{ t('Waiting for first play…', '等待第一回合…') }}</div>
+      {% endif %}
+    </div>
+    <button class="lpbp-jump" type="button" data-role="live-pbp-jump" hidden>↑ {{ t('New plays', '有新回合') }}</button>
+  </div>
+</aside>
+{% endif %}
 
 <script>
   /* ── Box Score tab toggle ─────────────────────────────────────── */
@@ -2447,6 +2815,8 @@
   }
 
   function renderPBP(pbpRows, container) {
+    // Legacy inline PBP table renderer (completed games). Live games use the
+    // floating dock via updateLivePbpDock().
     if (!container) return;
     const parts = ['<table class="pbp-table"><thead><tr><th class="mobile-hide">#</th><th class="mobile-hide">Period</th><th>Clock</th><th></th><th class="mobile-hide">Type</th><th>Event</th><th>Score</th><th class="mobile-hide">Margin</th></tr></thead><tbody>'];
     let lastPeriod = null;
@@ -2477,6 +2847,180 @@
     parts.push('</tbody></table>');
     container.innerHTML = parts.join('');
   }
+
+  /* ── Live floating PBP dock ──────────────────────────────── */
+  const LIVE_PBP_MAX_ROWS = 120;
+  const livePbpState = { knownEventNums: null, userPinned: false };
+
+  function pbpRowHtml(row) {
+    const scoreClass = (row.event_type_code === 1 || row.event_type_code === 3) ? ' lpbp-row-score' : '';
+    const logoUrl = row.team_id ? (PBP_TEAM_LOGOS[row.team_id] || '') : '';
+    const logoHtml = logoUrl
+      ? '<img class="lpbp-logo" src="' + logoUrl + '" alt="" width="18" height="18" loading="lazy" onerror="this.style.display=\'none\'">'
+      : '';
+    const hasScore = row.score && row.score !== '-';
+    const scoreBadge = hasScore ? '<span class="lpbp-score-badge">' + escapeHtml(row.score) + '</span>' : '';
+    return (
+      '<div class="lpbp-row' + scoreClass + '" data-event-num="' + escapeHtml(row.event_num) + '" data-period="' + escapeHtml(row.period) + '">' +
+        '<div class="lpbp-rail">' +
+          '<div class="lpbp-period">' + escapeHtml(periodLabel(row.period)) + '</div>' +
+          '<div class="lpbp-clock">' + escapeHtml(row.clock) + '</div>' +
+        '</div>' +
+        '<div class="lpbp-main">' +
+          '<div class="lpbp-top">' + logoHtml + scoreBadge + '</div>' +
+          '<div class="lpbp-desc">' + escapeHtml(row.description) + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function periodSepHtml(periodNum) {
+    const p = parseInt(periodNum, 10);
+    const label = (!isFinite(p) || p <= 0)
+      ? String(periodNum || '')
+      : (p <= 4 ? ('Q' + p + ' ends') : ('OT' + (p - 4) + ' ends'));
+    return '<div class="lpbp-period-sep">' + escapeHtml(label) + '</div>';
+  }
+
+  function seedLivePbpState() {
+    const feed = document.getElementById('live-pbp-feed');
+    if (!feed) return;
+    livePbpState.knownEventNums = new Set();
+    feed.querySelectorAll('.lpbp-row[data-event-num]').forEach(function (el) {
+      livePbpState.knownEventNums.add(el.getAttribute('data-event-num'));
+    });
+  }
+
+  function updateLivePbpDock(pbpRows) {
+    const feed = document.getElementById('live-pbp-feed');
+    if (!feed) return;
+    if (livePbpState.knownEventNums === null) seedLivePbpState();
+
+    // The payload is chronological. Find events we haven't inserted yet.
+    const fresh = [];
+    for (let i = 0; i < pbpRows.length; i++) {
+      const row = pbpRows[i];
+      const key = String(row.event_num);
+      if (!livePbpState.knownEventNums.has(key)) fresh.push(row);
+    }
+    if (!fresh.length) return;
+
+    const atTop = feed.scrollTop <= 6;
+
+    // Track the raw period number of the current topmost row.
+    const prevTopRow = feed.querySelector('.lpbp-row[data-period]');
+    const prevTopPeriod = prevTopRow ? parseInt(prevTopRow.getAttribute('data-period'), 10) : null;
+
+    const emptyEl = feed.querySelector('.lpbp-empty');
+    if (emptyEl) emptyEl.remove();
+
+    // Build HTML for fresh events in reverse order (newest on top). Insert
+    // period separators at quarter boundaries.
+    let html = '';
+    let prevPeriod = null;
+    for (let i = fresh.length - 1; i >= 0; i--) {
+      const row = fresh[i];
+      const rp = parseInt(row.period, 10) || 0;
+      if (prevPeriod !== null && rp !== prevPeriod) {
+        html += periodSepHtml(prevPeriod);
+      }
+      html += pbpRowHtml(row);
+      livePbpState.knownEventNums.add(String(row.event_num));
+      prevPeriod = rp;
+    }
+    // Separator between the oldest fresh event and the previous top of feed.
+    const oldestFreshPeriod = parseInt(fresh[0].period, 10) || 0;
+    if (prevTopPeriod !== null && isFinite(prevTopPeriod) && oldestFreshPeriod !== prevTopPeriod) {
+      html += periodSepHtml(prevTopPeriod);
+    }
+
+    feed.insertAdjacentHTML('afterbegin', html);
+
+    // Trim the tail so the DOM doesn't balloon over a long game.
+    const rows = feed.querySelectorAll('.lpbp-row');
+    if (rows.length > LIVE_PBP_MAX_ROWS) {
+      for (let i = LIVE_PBP_MAX_ROWS; i < rows.length; i++) rows[i].remove();
+    }
+
+    // Flash the new rows.
+    const newEls = feed.querySelectorAll('.lpbp-row');
+    for (let i = 0; i < fresh.length && i < newEls.length; i++) {
+      newEls[i].classList.add('lpbp-new');
+    }
+    setTimeout(function () {
+      feed.querySelectorAll('.lpbp-new').forEach(function (el) { el.classList.remove('lpbp-new'); });
+    }, 2000);
+
+    // Auto-follow or show the "new plays" jump button.
+    const jumpBtn = document.querySelector('[data-role="live-pbp-jump"]');
+    if (atTop && !livePbpState.userPinned) {
+      feed.scrollTop = 0;
+      if (jumpBtn) jumpBtn.hidden = true;
+    } else if (jumpBtn) {
+      jumpBtn.hidden = false;
+    }
+  }
+
+  function updateLivePbpHeader(summary) {
+    if (!summary) return;
+    const road = document.querySelector('[data-role="live-pbp-road"]');
+    const home = document.querySelector('[data-role="live-pbp-home"]');
+    const clock = document.querySelector('[data-role="live-pbp-clock"]');
+    if (road && summary.road_score != null) road.textContent = summary.road_score;
+    if (home && summary.home_score != null) home.textContent = summary.home_score;
+    if (clock && summary.summary) clock.textContent = summary.summary;
+  }
+
+  function initLivePbpDock() {
+    const dock = document.getElementById('live-pbp-dock');
+    if (!dock) return;
+
+    document.body.classList.add('site-main-has-live-dock');
+
+    const header = document.getElementById('live-pbp-header');
+    const toggleBtn = dock.querySelector('[data-role="live-pbp-toggle"]');
+    const feed = document.getElementById('live-pbp-feed');
+    const jumpBtn = dock.querySelector('[data-role="live-pbp-jump"]');
+
+    const STORAGE_KEY = 'funba:live-pbp-collapsed';
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === '1') {
+        dock.setAttribute('data-collapsed', 'true');
+      }
+    } catch (e) {}
+
+    function toggle(ev) {
+      if (ev) {
+        if (ev.target.closest('.live-pbp-toggle') == null && ev.target !== header && !header.contains(ev.target)) return;
+      }
+      const next = dock.getAttribute('data-collapsed') === 'true' ? 'false' : 'true';
+      dock.setAttribute('data-collapsed', next);
+      try { localStorage.setItem(STORAGE_KEY, next === 'true' ? '1' : '0'); } catch (e) {}
+    }
+
+    header.addEventListener('click', toggle);
+
+    if (feed) {
+      feed.addEventListener('scroll', function () {
+        const atTop = feed.scrollTop <= 6;
+        livePbpState.userPinned = !atTop;
+        if (atTop && jumpBtn) jumpBtn.hidden = true;
+      }, { passive: true });
+    }
+
+    if (jumpBtn) {
+      jumpBtn.addEventListener('click', function () {
+        if (!feed) return;
+        feed.scrollTo({ top: 0, behavior: 'smooth' });
+        livePbpState.userPinned = false;
+        jumpBtn.hidden = true;
+      });
+    }
+
+    seedLivePbpState();
+  }
+
+  initLivePbpDock();
 
   async function refresh() {
     let resp;
@@ -2520,6 +3064,11 @@
     if (pbpContainer && payload.pbp_rows && payload.pbp_rows.length) {
       renderPBP(payload.pbp_rows, pbpContainer);
     }
+    // Live floating dock gets diff-based updates.
+    if (payload.pbp_rows && payload.pbp_rows.length) {
+      updateLivePbpDock(payload.pbp_rows);
+    }
+    updateLivePbpHeader(payload.summary);
 
     // ── Live quick panel: WP bar + per-team FG%/3P% + top leaders ──
     const livePanel = document.querySelector('[data-live-panel]');
