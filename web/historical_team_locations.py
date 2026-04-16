@@ -1280,7 +1280,7 @@ def get_logo_url_for_year(team_id: str, year: int, *, static_prefix: str = "/") 
     fall back to the team's current-era local file. Only as a last-resort
     defensive branch do we return the remote CDN URL.
     """
-    logo = get_logo_for_year(team_id, year) or get_current_logo(team_id)
+    logo = get_logo_for_year(team_id, year) or get_nearest_logo(team_id, year) or get_current_logo(team_id)
     if logo is not None:
         return static_prefix.rstrip("/") + "/" + logo["path"]
     return _CURRENT_LOGO_CDN.format(team_id=team_id)
