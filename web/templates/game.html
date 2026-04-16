@@ -2222,7 +2222,7 @@
   <div id="bs-team">
     {% if team_stats %}
     <div class="table-wrap" data-mobile-key="game-team-stats">
-      <table style="min-width:0;">
+      <table>
         <thead>
           <tr>
             <th>{{ t('Team', '球队') }}</th>
@@ -2772,7 +2772,7 @@
     }
     const hasQS = quarterScores && quarterScores.length;
     const parts = [];
-    parts.push('<div class="table-wrap" data-mobile-key="game-team-stats"><table style="min-width:0;"><thead><tr><th>Team</th>');
+    parts.push('<div class="table-wrap" data-mobile-key="game-team-stats"><table><thead><tr><th>Team</th>');
     if (hasQS) {
       quarterScores.forEach(qs => parts.push('<th class="mobile-hide" style="text-align:center;">' + escapeHtml(periodLabel(qs.period)) + '</th>'));
     }
