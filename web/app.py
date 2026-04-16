@@ -62,16 +62,22 @@ from content_pipeline.game_analysis_issues import (
 from metrics.framework.family import (
     FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
+    WINDOW_SUFFIXES,
     build_career_code_variant,
     build_career_rule_definition,
     derive_career_description,
     derive_career_min_sample,
     derive_career_name,
+    derive_window_description,
+    derive_window_min_sample,
+    derive_window_name,
     family_base_key,
     family_career_key,
+    family_window_key,
     is_reserved_career_key,
     rule_is_career_variant,
     rule_supports_career,
+    window_type_from_key,
 )
 from web.paperclip_bridge import (
     PaperclipBridgeError,
@@ -1378,6 +1384,7 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
                 or time_scope == "season_and_career"
             ) if definition else False,
             career=time_scope == "career",
+            trigger=str(definition.get("trigger") or "game").strip().lower() if definition else "game",
             incremental=False,
             rank_order=str(definition.get("rank_order") or "desc").strip().lower() if definition else "desc",
             career_min_sample=definition.get("career_min_sample") if definition else None,
@@ -1400,6 +1407,7 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             career_min_sample=code_metadata["career_min_sample"],
             supports_career=code_metadata["supports_career"],
             career=code_metadata["career"],
+            trigger=code_metadata.get("trigger", "game"),
             incremental=code_metadata["incremental"],
             rank_order=code_metadata["rank_order"],
             season_types=code_metadata.get("season_types", ["regular", "playoffs", "playin"]),
@@ -1602,7 +1610,7 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
     from metrics.framework.runtime import get_metric as _get_metric
 
     current_key = metric_key
-    base_key = metric_key.removesuffix("_career")
+    base_key = family_base_key(metric_key)
     family_key = (
         getattr(runtime_metric, "group_key", None)
         or getattr(db_metric, "group_key", None)
@@ -1787,16 +1795,33 @@ def _catalog_metric_entries_for_row(
             **{k: v for k, v in search_fields.items() if k not in ("name", "description")},
         }
     ]
-    career_entry = _virtual_career_catalog_metric(
-        row,
-        search_fields=search_fields,
-        existing_keys=existing_keys,
-        counts=counts,
-        is_mine=is_mine,
+    entries.extend(
+        _virtual_window_catalog_metrics(
+            row,
+            search_fields=search_fields,
+            existing_keys=existing_keys,
+            counts=counts,
+            is_mine=is_mine,
+        )
     )
-    if career_entry is not None:
-        entries.append(career_entry)
     return entries
+
+
+def _catalog_eligible_window_types(row, *, search_fields: dict) -> list[str]:
+    if (
+        row.status != "published"
+        or search_fields.get("career")
+        or not search_fields.get("supports_career")
+    ):
+        return []
+    scope = search_fields.get("scope", row.scope)
+    if scope in ("game", "season"):
+        return []
+    window_types = ["career"]
+    trigger = str(search_fields.get("trigger") or "game").strip().lower()
+    if trigger == "season":
+        window_types.extend(["last5", "last3"])
+    return window_types
 
 
 def _catalog_has_virtual_career_metric(
@@ -1805,13 +1830,89 @@ def _catalog_has_virtual_career_metric(
     search_fields: dict,
     existing_keys: set[str],
 ) -> bool:
-    if (
-        row.status != "published"
-        or search_fields.get("career")
-        or not search_fields.get("supports_career")
-    ):
+    if "career" not in _catalog_eligible_window_types(row, search_fields=search_fields):
         return False
-    return f"{row.key}_career" not in existing_keys
+    return family_window_key(row.key, "career") not in existing_keys
+
+
+def _virtual_window_catalog_metrics(
+    row,
+    *,
+    search_fields: dict,
+    existing_keys: set[str],
+    counts: dict[str, int],
+    is_mine: bool,
+) -> list[dict]:
+    eligible = _catalog_eligible_window_types(row, search_fields=search_fields)
+    if not eligible:
+        return []
+
+    base_name = search_fields.get("name", row.name)
+    base_description = search_fields.get("description", row.description)
+    base_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", "")) or ""
+    base_description_zh = search_fields.get("description_zh", getattr(row, "description_zh", "")) or ""
+    career_suffix = str(search_fields.get("career_name_suffix") or " (Career)")
+    min_sample = int(search_fields.get("min_sample", row.min_sample or 1) or 1)
+    career_min_sample = search_fields.get("career_min_sample")
+
+    _WINDOW_ZH_SUFFIX = {
+        "career": "（生涯）",
+        "last3": "（近 3 季）",
+        "last5": "（近 5 季）",
+    }
+    _WINDOW_ZH_DESC_PREFIX = {
+        "career": "生涯",
+        "last3": "近 3 季",
+        "last5": "近 5 季",
+    }
+
+    entries: list[dict] = []
+    for window_type in eligible:
+        window_key = family_window_key(row.key, window_type)
+        if window_key in existing_keys:
+            continue
+        name_suffix = career_suffix if window_type == "career" else None
+        zh_suffix = _WINDOW_ZH_SUFFIX[window_type]
+        zh_desc_prefix = _WINDOW_ZH_DESC_PREFIX[window_type]
+        entries.append(
+            {
+                "key": window_key,
+                "name": _localized_metric_name(
+                    derive_window_name(base_name, window_type, suffix=name_suffix),
+                    f"{base_name_zh}{zh_suffix}" if base_name_zh else "",
+                ),
+                "name_zh": f"{base_name_zh}{zh_suffix}" if base_name_zh else "",
+                "description": _localized_metric_description(
+                    derive_window_description(base_description, window_type),
+                    f"{zh_desc_prefix}{base_description_zh}" if base_description_zh else "",
+                ),
+                "description_zh": f"{zh_desc_prefix}{base_description_zh}" if base_description_zh else "",
+                "scope": search_fields.get("scope", row.scope),
+                "category": search_fields.get("category", row.category or ""),
+                "status": "published",
+                "source_type": row.source_type,
+                "result_count": counts.get(window_key, 0),
+                "is_mine": is_mine,
+                "group_key": search_fields.get("group_key"),
+                "min_sample": derive_window_min_sample(
+                    min_sample,
+                    window_type,
+                    career_min_sample=career_min_sample,
+                ),
+                "expression": row.expression or "",
+                "definition_json": search_fields.get("definition_json", ""),
+                "code_python": search_fields.get("code_python", ""),
+                "supports_career": bool(search_fields.get("supports_career")),
+                "career": True,
+                "window_type": window_type,
+                "incremental": bool(search_fields.get("incremental", False)),
+                "rank_order": search_fields.get("rank_order", "desc"),
+                "career_min_sample": career_min_sample,
+                "time_scope": "career",
+                "base_metric_key": row.key,
+            }
+        )
+    return entries
 
 
 def _virtual_career_catalog_metric(
@@ -1822,53 +1923,16 @@ def _virtual_career_catalog_metric(
     counts: dict[str, int],
     is_mine: bool,
 ) -> dict | None:
-    if not _catalog_has_virtual_career_metric(
+    for entry in _virtual_window_catalog_metrics(
         row,
         search_fields=search_fields,
         existing_keys=existing_keys,
+        counts=counts,
+        is_mine=is_mine,
     ):
-        return None
-
-    career_key = f"{row.key}_career"
-    base_name = search_fields.get("name", row.name)
-    base_description = search_fields.get("description", row.description)
-    base_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", "")) or ""
-    base_description_zh = search_fields.get("description_zh", getattr(row, "description_zh", "")) or ""
-    career_suffix = str(search_fields.get("career_name_suffix") or " (Career)")
-    min_sample = int(search_fields.get("min_sample", row.min_sample or 1) or 1)
-    career_min_sample = search_fields.get("career_min_sample")
-
-    return {
-        "key": career_key,
-        "name": _localized_metric_name(
-            derive_career_name(base_name, career_suffix),
-            f"{base_name_zh}（生涯）" if base_name_zh else "",
-        ),
-        "name_zh": f"{base_name_zh}（生涯）" if base_name_zh else "",
-        "description": _localized_metric_description(
-            derive_career_description(base_description),
-            f"生涯{base_description_zh}" if base_description_zh else "",
-        ),
-        "description_zh": f"生涯{base_description_zh}" if base_description_zh else "",
-        "scope": search_fields.get("scope", row.scope),
-        "category": search_fields.get("category", row.category or ""),
-        "status": "published",
-        "source_type": row.source_type,
-        "result_count": counts.get(career_key, 0),
-        "is_mine": is_mine,
-        "group_key": search_fields.get("group_key"),
-        "min_sample": derive_career_min_sample(min_sample, career_min_sample),
-        "expression": row.expression or "",
-        "definition_json": search_fields.get("definition_json", ""),
-        "code_python": search_fields.get("code_python", ""),
-        "supports_career": bool(search_fields.get("supports_career")),
-        "career": True,
-        "incremental": bool(search_fields.get("incremental", False)),
-        "rank_order": search_fields.get("rank_order", "desc"),
-        "career_min_sample": career_min_sample,
-        "time_scope": "career",
-        "base_metric_key": row.key,
-    }
+        if entry.get("window_type") == "career":
+            return entry
+    return None
 
 
 def _catalog_metrics_total(
@@ -1957,19 +2021,26 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
     if current_season is None:
         return {}
 
-    # Build map of metric_key → (scope, rank_order, is_career)
-    metric_info: dict[str, tuple[str, str, bool]] = {}
+    # Build map of metric_key → (scope, rank_order, window_type)
+    # window_type is "career"/"last3"/"last5" for pseudo-season metrics, None for concrete-season metrics.
+    metric_info: dict[str, tuple[str, str, str | None]] = {}
     for m in metrics_list:
         if m.get("status") != "published":
             continue
-        metric_info[m["key"]] = (m["scope"], m.get("rank_order", "desc"), bool(m.get("career")))
+        window_type = m.get("window_type") or (window_type_from_key(m["key"]) if m.get("career") else None)
+        if m.get("career") and window_type is None:
+            window_type = "career"
+        metric_info[m["key"]] = (m["scope"], m.get("rank_order", "desc"), window_type)
 
     if not metric_info:
         return {}
 
-    season_keys = [k for k, v in metric_info.items() if not v[2] and v[0] != "season"]
-    season_scope_keys = [k for k, v in metric_info.items() if not v[2] and v[0] == "season"]
-    career_keys = [k for k, v in metric_info.items() if v[2]]
+    season_keys = [k for k, v in metric_info.items() if v[2] is None and v[0] != "season"]
+    season_scope_keys = [k for k, v in metric_info.items() if v[2] is None and v[0] == "season"]
+    window_keys_by_type: dict[str, list[str]] = {"career": [], "last3": [], "last5": []}
+    for k, v in metric_info.items():
+        if v[2] in window_keys_by_type:
+            window_keys_by_type[v[2]].append(k)
 
     def _fetch_top_rows(metric_keys: list[str], *, season_value: str | None = None, season_prefix: str | None = None, rank_order: str) -> list[SimpleNamespace]:
         if not metric_keys:
@@ -2020,18 +2091,28 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
 
     # Bulk query only the top 3 rows per metric instead of loading every result row.
     rows: list[SimpleNamespace] = []
-    season_desc = [k for k in season_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
-    season_asc = [k for k in season_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
-    career_desc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
-    career_asc = [k for k in career_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
-    season_scope_desc = [k for k in season_scope_keys if metric_info.get(k, ("", "desc", False))[1] == "desc"]
-    season_scope_asc = [k for k in season_scope_keys if metric_info.get(k, ("", "desc", False))[1] != "desc"]
+
+    def _split_by_order(keys: list[str]) -> tuple[list[str], list[str]]:
+        desc = [k for k in keys if metric_info.get(k, ("", "desc", None))[1] == "desc"]
+        asc = [k for k in keys if metric_info.get(k, ("", "desc", None))[1] != "desc"]
+        return desc, asc
+
+    season_desc, season_asc = _split_by_order(season_keys)
+    season_scope_desc, season_scope_asc = _split_by_order(season_scope_keys)
     rows.extend(_fetch_top_rows(season_desc, season_value=current_season, rank_order="desc"))
     rows.extend(_fetch_top_rows(season_asc, season_value=current_season, rank_order="asc"))
-    rows.extend(_fetch_top_rows(career_desc, season_value="all_regular", rank_order="desc"))
-    rows.extend(_fetch_top_rows(career_asc, season_value="all_regular", rank_order="asc"))
     rows.extend(_fetch_top_rows(season_scope_desc, season_prefix="2", rank_order="desc"))
     rows.extend(_fetch_top_rows(season_scope_asc, season_prefix="2", rank_order="asc"))
+    _WINDOW_PSEUDO_SEASON = {
+        "career": "all_regular",
+        "last3": "last3_regular",
+        "last5": "last5_regular",
+    }
+    for window_type, window_keys in window_keys_by_type.items():
+        pseudo_season = _WINDOW_PSEUDO_SEASON[window_type]
+        window_desc, window_asc = _split_by_order(window_keys)
+        rows.extend(_fetch_top_rows(window_desc, season_value=pseudo_season, rank_order="desc"))
+        rows.extend(_fetch_top_rows(window_asc, season_value=pseudo_season, rank_order="asc"))
 
     # Group by metric_key, sort, take top 3
     from collections import defaultdict
@@ -2047,7 +2128,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
 
     top3_raw: dict[str, list] = {}
     for key, results in by_metric.items():
-        scope, rank_order, _ = metric_info.get(key, ("player", "desc", False))
+        scope, rank_order, _ = metric_info.get(key, ("player", "desc", None))
         reverse = rank_order == "desc"
         results.sort(key=lambda r: r.value_num if r.value_num is not None else 0, reverse=reverse)
         top = results[:3]
@@ -3107,7 +3188,7 @@ def _format_backfill_timestamp(value) -> str | None:
 def _build_metric_backfill_status(session, metric_key: str):
     from metrics.framework.runtime import get_metric as _get_metric
 
-    base_metric_key = metric_key.removesuffix("_career")
+    base_metric_key = family_base_key(metric_key)
     db_metric = (
         session.query(MetricDefinitionModel)
         .filter(

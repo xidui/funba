@@ -5,6 +5,8 @@ from flask import abort, request
 from sqlalchemy import and_, func, or_
 from types import SimpleNamespace
 
+from metrics.framework.family import family_base_key, family_window_key, window_type_from_key
+
 
 def register_metric_detail_routes(app, deps):
     def _resolve_entity_labels(session, rows):
@@ -113,7 +115,7 @@ def register_metric_detail_routes(app, deps):
         Team = deps.team_model()
 
         with SessionLocal() as session:
-            base_metric_key = metric_key.removesuffix("_career")
+            base_metric_key = family_base_key(metric_key)
             db_metric = (
                 session.query(MetricDefinitionModel)
                 .filter(MetricDefinitionModel.key == base_metric_key, MetricDefinitionModel.status != "archived")
@@ -132,6 +134,34 @@ def register_metric_detail_routes(app, deps):
             is_season_scope = metric_def.scope == "season"
             related_metrics = deps.related_metric_links()(session, metric_key, runtime_metric, db_metric)
             current_metric_season = None
+
+            current_window_type = window_type_from_key(metric_key) if is_career_metric else None
+            window_tabs: list[dict] = []
+            if is_career_metric:
+                available_window_keys = {base_metric_key, metric_key}
+                for candidate_window in ("career", "last5", "last3"):
+                    candidate_key = family_window_key(base_metric_key, candidate_window)
+                    has_results = (
+                        session.query(MetricResultModel.metric_key)
+                        .filter(MetricResultModel.metric_key == candidate_key)
+                        .limit(1)
+                        .first()
+                    )
+                    if not has_results:
+                        continue
+                    available_window_keys.add(candidate_key)
+                    window_tabs.append(
+                        {
+                            "window_type": candidate_window,
+                            "metric_key": candidate_key,
+                            "label": {
+                                "career": deps.t()("Career", "生涯"),
+                                "last5": deps.t()("Last 5 Seasons", "近 5 季"),
+                                "last3": deps.t()("Last 3 Seasons", "近 3 季"),
+                            }[candidate_window],
+                            "is_current": candidate_key == metric_key,
+                        }
+                    )
 
             season_rows = (
                 session.query(MetricResultModel.season)
@@ -398,7 +428,7 @@ def register_metric_detail_routes(app, deps):
             else:
                 period = "this season"
 
-            base_key = metric_key.removesuffix("_career")
+            base_key = family_base_key(metric_key)
             detail_db_templates = deps.load_context_label_templates()(session, {base_key})
 
             # Batch-load game metadata for rows whose context has qualifying_game_ids,
@@ -520,11 +550,10 @@ def register_metric_detail_routes(app, deps):
 
             _, backfill = deps.build_metric_backfill_status()(session, metric_key)
             dd_key = metric_key
-            if is_career_metric and metric_key.endswith("_career"):
-                from metrics.framework.family import family_base_key as _fbk
+            if is_career_metric and window_type_from_key(metric_key) is not None:
                 from metrics.framework.runtime import _metric_declares_career_reducer as _mcr
                 if runtime_metric and _mcr(runtime_metric):
-                    dd_key = _fbk(metric_key)
+                    dd_key = family_base_key(metric_key)
             has_drilldown = (
                 session.query(MetricRunLog.game_id)
                 .filter(MetricRunLog.metric_key == dd_key, MetricRunLog.qualified == True)
@@ -536,7 +565,7 @@ def register_metric_detail_routes(app, deps):
 
             metric_perf_samples = []
             if deps.is_admin()():
-                perf_key = metric_key.removesuffix("_career")
+                perf_key = family_base_key(metric_key)
                 perf_rows = (
                     session.query(MetricPerfLog.duration_ms, MetricPerfLog.recorded_at)
                     .filter(MetricPerfLog.metric_key == perf_key)
@@ -578,6 +607,8 @@ def register_metric_detail_routes(app, deps):
             show_all_seasons=show_all_seasons,
             all_season_type=all_season_type,
             is_career_metric=is_career_metric,
+            current_window_type=current_window_type,
+            window_tabs=window_tabs,
             related_metrics=related_metrics,
             season_label=display_season_label,
             current_metric_season=current_metric_season,

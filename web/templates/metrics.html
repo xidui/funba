@@ -557,9 +557,17 @@
     const draftBadge = metric.status === 'draft'
       ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,#facc15 15%,transparent);color:#facc15;\">{{ t('draft', '草稿') }}</span>"
       : "";
-    const careerBadge = metric.career
-      ? "<span style=\"font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);\">{{ t('career', '生涯') }}</span>"
-      : "";
+    const windowBadgeStyle = "font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);";
+    let careerBadge = "";
+    if (metric.career) {
+      let windowLabel = "{{ t('career', '生涯') }}";
+      if (metric.window_type === "last3") {
+        windowLabel = "{{ t('last 3', '近 3 季') }}";
+      } else if (metric.window_type === "last5") {
+        windowLabel = "{{ t('last 5', '近 5 季') }}";
+      }
+      careerBadge = `<span style="${windowBadgeStyle}">${windowLabel}</span>`;
+    }
     const reason = metric.reason
       ? `<div class="result-reason">${esc(metric.reason)}</div>`
       : "";

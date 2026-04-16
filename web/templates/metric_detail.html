@@ -1080,6 +1080,14 @@
       {% endif %}
     </div>
     {% endif %}
+    {% if window_tabs and window_tabs|length > 1 %}
+    <div class="metric-switch">
+      {% for tab in window_tabs %}
+      <a class="metric-switch-link{% if tab.is_current %} active{% endif %}"
+         href="{{ url_for('metric_detail', metric_key=tab.metric_key) }}">{{ tab.label }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if related_metrics %}
     <div class="metric-switch">
       {% for related_metric in related_metrics %}
