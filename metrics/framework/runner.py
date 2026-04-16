@@ -501,6 +501,11 @@ def run_season_metric(
     If the metric implements compute_qualifications(), also writes MetricRunLog
     rows for drill-down support. Existing persisted output for the same
     (metric_key, season) is replaced so reruns reflect the latest logic.
+
+    Result rows and qualification/log rows are persisted in separate
+    transactions when ``commit=True``. This reduces cross-table lock chains:
+    ``MetricResult`` upserts release before the ``MetricRunLog`` delete/upsert
+    phase begins.
     Returns the number of results written.
     """
     metric_def = get_metric(metric_key, session=session)
@@ -542,17 +547,6 @@ def run_season_metric(
                 logger.error("run_season_metric %s compute_qualifications failed: %s",
                              metric_key, exc, exc_info=True)
                 qualifications = None
-
-        if replace_existing:
-            # Only delete MetricRunLog (small table, no contention).
-            # MetricResult rows are upserted by _flush_results (INSERT ON DUPLICATE KEY
-            # UPDATE), so DELETE is unnecessary and causes InnoDB deadlocks when multiple
-            # Celery workers process different seasons of the same metric concurrently
-            # (gap locks on the metric_key index overlap across seasons).
-            session.query(MetricRunLog).filter(
-                MetricRunLog.metric_key == metric_key,
-                MetricRunLog.season == season,
-            ).delete(synchronize_session=False)
 
         # Split metrics (sub_key_type set) persist ALL rows, including
         # below-threshold ones that carry value_num=None. Career reducers for
@@ -604,6 +598,9 @@ def run_season_metric(
                     metric_key, season, len(stale_ids), cap,
                 )
 
+        if commit:
+            session.commit()
+
         if qualifications:
             run_log_rows = [
                 _log_run(
@@ -618,9 +615,25 @@ def run_season_metric(
                 )
                 for q in qualifications
             ]
+        else:
+            run_log_rows = []
+
+        if replace_existing:
+            # Delete and reinsert qualifications in a follow-up transaction so
+            # `MetricRunLog` range locks do not overlap `MetricResult` writes.
+            session.query(MetricRunLog).filter(
+                MetricRunLog.metric_key == metric_key,
+                MetricRunLog.season == season,
+            ).delete(synchronize_session=False)
+
+        if run_log_rows:
             _flush_run_logs(session, run_log_rows)
-            logger.info("run_season_metric %s season=%s: %d qualification records written.",
-                         metric_key, season, len(run_log_rows))
+            logger.info(
+                "run_season_metric %s season=%s: %d qualification records written.",
+                metric_key,
+                season,
+                len(run_log_rows),
+            )
 
     duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
     db_reads, db_writes = get_counts()

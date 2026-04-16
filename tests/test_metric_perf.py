@@ -159,6 +159,26 @@ class TestMetricPerfRunnerHelpers(unittest.TestCase):
 
 
 class TestSeasonMetricRunnerFailures(unittest.TestCase):
+    def test_metric_result_write_lock_acquires_and_releases_connection_lock(self):
+        runner = _import_runner_module()
+        acquire_result = MagicMock()
+        acquire_result.scalar.return_value = 1
+        connection = MagicMock()
+        connection.execute.side_effect = [acquire_result, None]
+        session = MagicMock()
+        session.connection.return_value = connection
+
+        with runner._metric_result_write_lock(session, timeout_seconds=42):
+            pass
+
+        self.assertEqual(connection.execute.call_count, 2)
+        acquire_call, release_call = connection.execute.call_args_list
+        self.assertIn("GET_LOCK", str(acquire_call.args[0]))
+        self.assertEqual(acquire_call.args[1]["name"], runner._METRIC_RESULT_WRITE_LOCK_NAME)
+        self.assertEqual(acquire_call.args[1]["timeout_seconds"], 42)
+        self.assertIn("RELEASE_LOCK", str(release_call.args[0]))
+        self.assertEqual(release_call.args[1]["name"], runner._METRIC_RESULT_WRITE_LOCK_NAME)
+
     def test_run_season_metric_raises_for_missing_metric(self):
         runner = _import_runner_module()
 
@@ -185,6 +205,117 @@ class TestSeasonMetricRunnerFailures(unittest.TestCase):
                 runner.run_season_metric(MagicMock(), "metric_a", "22025", commit=False)
 
         perf_mock.assert_not_called()
+
+    def test_run_season_metric_commits_results_before_run_logs(self):
+        runner = _import_runner_module()
+        metric = SimpleNamespace(
+            trigger="season",
+            scope="team",
+            career=False,
+            compute_season=MagicMock(return_value=[SimpleNamespace(value_num=1.0)]),
+            compute_qualifications=MagicMock(
+                return_value=[{"game_id": "g1", "entity_id": "1610612737"}]
+            ),
+        )
+        session = MagicMock()
+        events: list[str] = []
+
+        run_log_query = MagicMock()
+        run_log_query.filter.return_value.delete.side_effect = (
+            lambda synchronize_session=False: events.append("delete_runlogs") or 0
+        )
+        session.query.side_effect = [run_log_query]
+        session.commit.side_effect = lambda: events.append("commit")
+
+        @contextmanager
+        def _fake_count_db_ops(_session):
+            yield lambda: (1, 2)
+
+        with patch.object(runner, "get_metric", return_value=metric), patch.object(
+            runner,
+            "_count_db_ops",
+            side_effect=_fake_count_db_ops,
+        ), patch.object(
+            runner,
+            "_flush_results",
+            side_effect=lambda *_args, **_kwargs: events.append("flush_results"),
+        ), patch.object(
+            runner,
+            "_flush_run_logs",
+            side_effect=lambda *_args, **_kwargs: events.append("flush_run_logs"),
+        ), patch.object(
+            runner,
+            "_record_metric_perf",
+            side_effect=lambda *_args, **_kwargs: events.append("record_perf"),
+        ):
+            count = runner.run_season_metric(session, "metric_a", "22025", commit=True)
+
+        self.assertEqual(count, 1)
+        metric.compute_qualifications.assert_called_once_with(session, "22025")
+        self.assertEqual(
+            events,
+            [
+                "flush_results",
+                "commit",
+                "delete_runlogs",
+                "flush_run_logs",
+                "record_perf",
+                "commit",
+            ],
+        )
+
+    def test_reduce_metric_batches_metric_result_writes(self):
+        runner = _import_runner_module()
+        metric = SimpleNamespace(
+            incremental=True,
+            compute_value=MagicMock(
+                side_effect=[
+                    SimpleNamespace(
+                        metric_key="metric_a",
+                        entity_type="player",
+                        entity_id="p1",
+                        season="22025",
+                        sub_key="",
+                        rank_group=None,
+                        game_id=None,
+                        value_num=5.0,
+                        value_str="5",
+                        context=None,
+                        noteworthiness=None,
+                        notable_reason=None,
+                    ),
+                    None,
+                ]
+            ),
+        )
+
+        entity_query = MagicMock()
+        entity_query.filter.return_value.distinct.return_value.order_by.return_value.all.return_value = [
+            ("player", "p1"),
+            ("player", "p2"),
+        ]
+        delta_query_1 = MagicMock()
+        delta_query_1.filter.return_value.order_by.return_value.all.return_value = [('{"pts": 5}',)]
+        delta_query_2 = MagicMock()
+        delta_query_2.filter.return_value.order_by.return_value.all.return_value = [('{"pts": 2}',)]
+        session = MagicMock()
+        session.query.side_effect = [entity_query, delta_query_1, delta_query_2]
+
+        @contextmanager
+        def _fake_count_db_ops(_session):
+            yield lambda: (0, 0)
+
+        with patch.object(runner, "get_metric", return_value=metric), \
+             patch.object(runner, "_count_db_ops", side_effect=_fake_count_db_ops), \
+             patch.object(runner, "_flush_results") as flush_mock, \
+             patch.object(runner, "_record_metric_perf"):
+            written = runner.reduce_metric(session, "metric_a", "22025", commit=False)
+
+        self.assertEqual(written, 1)
+        flush_mock.assert_called_once()
+        persisted_results = flush_mock.call_args.args[1]
+        self.assertEqual(len(persisted_results), 2)
+        self.assertEqual(getattr(persisted_results[0], "entity_id", None), "p1")
 
 
 class TestMetricPerfAdminPanel(unittest.TestCase):
