@@ -224,19 +224,16 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             with SessionLocal() as sess:
                 process_and_store_game(sess, row)
 
-        # Step 3: shot records
-        if needs_shot:
-            logger.info("ingest_game %s: backfilling shot records …", game_id)
-            with SessionLocal() as sess:
-                back_fill_game_shot_record(sess, game_id, False)
-                sess.commit()
-
+        # Verify detail+PBP are ready (shot records are backfilled later,
+        # after metrics are triggered, so they don't block metric computation).
         with SessionLocal() as sess:
             status_after = _load_game_artifact_status(sess, game_id)
-        missing_after = _missing_artifacts(status_after)
-        if missing_after:
+        missing_core = [
+            a for a in _missing_artifacts(status_after) if a != "shot"
+        ]
+        if missing_core:
             raise RuntimeError(
-                f"Artifacts not ready for game {game_id}: missing {', '.join(missing_after)}"
+                f"Core artifacts not ready for game {game_id}: missing {', '.join(missing_core)}"
             )
 
         # Step 3b: fix zero-score Game rows left by discover when API had no data
@@ -323,12 +320,12 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         "status": "ok",
         "new_game": not game_exists,
         "detail_pbp_refreshed": needs_detail_pbp,
-        "shot_refreshed": needs_shot,
+        "shot_refreshed": False,  # updated after post-metric shot backfill
         "line_score_rows": int(line_score_rows),
         "metric_tasks_enqueued": len(keys_to_run),
     }
 
-    if result["new_game"] or result["detail_pbp_refreshed"] or result["shot_refreshed"]:
+    if result["new_game"] or result["detail_pbp_refreshed"]:
         try:
             from tasks.metrics import refresh_current_season_metrics
 
@@ -341,9 +338,28 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 exc_info=True,
             )
 
+    # Shot records are backfilled AFTER metrics are triggered so they don't
+    # block metric computation. Shot data is only used for the web UI shot
+    # charts, not for any metric calculations.
+    shot_refreshed = False
+    if needs_shot:
+        try:
+            logger.info("ingest_game %s: backfilling shot records (post-metric) …", game_id)
+            with SessionLocal() as sess:
+                back_fill_game_shot_record(sess, game_id, False)
+                sess.commit()
+            shot_refreshed = True
+        except Exception as exc:
+            logger.warning(
+                "ingest_game %s: shot record backfill failed (non-fatal): %s",
+                game_id,
+                exc,
+            )
+    result["shot_refreshed"] = shot_refreshed
+
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
-        game_id, not game_exists, needs_detail_pbp, needs_shot, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
+        game_id, not game_exists, needs_detail_pbp, shot_refreshed, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
     )
     return result
 
