@@ -1315,14 +1315,29 @@ def register_public_routes(
             # Build bracket (before team filter so it shows full tournament)
             bracket = None
             if selected_phase in ("4", "5") and season_ids_for_filter:
-                bracket_games = (
-                    session.query(Game)
-                    .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
-                    .all()
-                )
                 if selected_phase == "4":
-                    bracket = _build_playoff_bracket(bracket_games)
+                    # Also include play-in games for unified bracket
+                    playin_sids = [
+                        sid for sid in year_to_season_ids.get(selected_year, [])
+                        if str(sid).startswith("5")
+                    ]
+                    all_bracket_sids = list(season_ids_for_filter) + playin_sids
+                    bracket_games = (
+                        session.query(Game)
+                        .filter(Game.season.in_(all_bracket_sids), Game.game_date.isnot(None))
+                        .all()
+                    )
+                    playoff_games = [g for g in bracket_games if str(g.season).startswith("4")]
+                    playin_games = [g for g in bracket_games if str(g.season).startswith("5")]
+                    bracket = _build_playoff_bracket(playoff_games)
+                    if playin_games:
+                        bracket["playin"] = _build_playin_bracket(playin_games)
                 else:
+                    bracket_games = (
+                        session.query(Game)
+                        .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
+                        .all()
+                    )
                     bracket = _build_playin_bracket(bracket_games)
 
             selected_team = (request.args.get("team") or "").strip() or None

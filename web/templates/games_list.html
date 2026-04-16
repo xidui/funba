@@ -394,6 +394,9 @@
   .bk-finals .sc::after{display:none;}
   /* champion badge */
   .bk-champ{text-align:center;margin-top:6px;font-size:11px;color:var(--accent);font-weight:700;}
+  /* play-in annotations */
+  .pi-note{font-size:9px;color:var(--muted);text-align:center;margin:-2px 0 2px;line-height:1.2;}
+  .bk-round.pi-round .sc::after{display:none;}
   @media(max-width:900px){.playoff-bracket{min-height:400px;}.bk-round,.bk-finals{min-width:110px;}}
 </style>
 
@@ -418,6 +421,25 @@
 {% endif %}
 {% endmacro %}
 
+{% macro gc(g) %}
+{% if g %}
+<div class="sc">
+  <div class="tr {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
+    <img class="bl" src="{{ team_logo(g.top, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
+    <span class="wn">{{ g.top_score if g.top_score is not none else '' }}</span>
+  </div>
+  <div class="tr {{ 'w' if g.winner and g.winner == g.bot|string else '' }} {{ 'l' if g.winner and g.winner != g.bot|string else '' }}">
+    <img class="bl" src="{{ team_logo(g.bot, selected_year) }}" alt="" loading="lazy">
+    <span class="ab">{{ team_abbr_for_year(g.bot, selected_year) if g.bot else 'TBD' }}</span>
+    <span class="wn">{{ g.bot_score if g.bot_score is not none else '' }}</span>
+  </div>
+</div>
+{% else %}
+<div class="sc tbd"><div class="tr">TBD</div><div class="tr">TBD</div></div>
+{% endif %}
+{% endmacro %}
+
 {% macro conn(n) %}
 <div class="bk-conn">
   {% for _ in range(n) %}
@@ -427,8 +449,19 @@
 {% endmacro %}
 
 <div class="playoff-bracket">
-  {# ── East (left to right: R1 → R2 → CF) ── #}
+  {# ── East (left to right: PI → R1 → R2 → CF) ── #}
   <div class="bk-half east">
+    {% if bracket.playin is defined and bracket.playin %}
+    <div class="bk-round pi-round">
+      <div class="rl">{{ t('Play-In', '附加赛') }}</div>
+      {{ gc(bracket.playin.east_78) }}
+      <div class="pi-note">{{ t('W→7th', '胜→7') }}</div>
+      {{ gc(bracket.playin.east_910) }}
+      <div class="pi-note">{{ t('L out', '败者淘汰') }}</div>
+      {{ gc(bracket.playin.east_final) }}
+      <div class="pi-note">{{ t('W→8th', '胜→8') }}</div>
+    </div>
+    {% endif %}
     <div class="bk-round">
       <div class="rl">{{ t('First Round', '首轮') }}</div>
       {% for s in bracket.er1 %}{{ sc(s) }}{% endfor %}
@@ -454,8 +487,19 @@
     {% endif %}
   </div>
 
-  {# ── West (right to left: CF ← R2 ← R1) ── #}
+  {# ── West (right to left: CF ← R2 ← R1 ← PI) ── #}
   <div class="bk-half west">
+    {% if bracket.playin is defined and bracket.playin %}
+    <div class="bk-round pi-round">
+      <div class="rl">{{ t('Play-In', '附加赛') }}</div>
+      {{ gc(bracket.playin.west_78) }}
+      <div class="pi-note">{{ t('W→7th', '胜→7') }}</div>
+      {{ gc(bracket.playin.west_910) }}
+      <div class="pi-note">{{ t('L out', '败者淘汰') }}</div>
+      {{ gc(bracket.playin.west_final) }}
+      <div class="pi-note">{{ t('W→8th', '胜→8') }}</div>
+    </div>
+    {% endif %}
     <div class="bk-round">
       <div class="rl">{{ t('First Round', '首轮') }}</div>
       {% for s in bracket.wr1 %}{{ sc(s) }}{% endfor %}
