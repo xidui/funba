@@ -148,6 +148,12 @@ def back_fill_game_line_score(
         logger.warning("No line score rows found for game_id=%s", game_id)
         return 0
 
+    # Don't persist incomplete line scores (e.g. fetched mid-game).
+    # Incomplete rows would be picked up by metrics and produce wrong values.
+    if any(row.get("q4_pts") is None for row in rows):
+        logger.info("skip line score for game %s; incomplete (q4 missing)", game_id)
+        return 0
+
     if replace_existing:
         session.query(GameLineScore).filter(GameLineScore.game_id == game_id).delete(synchronize_session=False)
 
