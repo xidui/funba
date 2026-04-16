@@ -492,6 +492,26 @@
     margin-top: 3px;
   }
 
+  .metrics-section .metric-window-rows {
+    flex-basis: 100%;
+    margin-top: 5px;
+    display: grid;
+    gap: 2px;
+  }
+
+  .metrics-section .metric-window-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .metrics-section .metric-window-row strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
   .metrics-section .metric-card.metric-notable {
     background: color-mix(in srgb, var(--accent) 6%, var(--surface));
   }
@@ -1631,6 +1651,16 @@
     'salary': t('Salary', '薪资'),
   } %}
 
+  {% macro render_window_row(label, window_metric) %}
+    <div class="metric-window-row">
+      <strong>{{ label }}</strong>
+      <span>
+        {{ window_metric.value_str if window_metric.value_str else ("%.3g"|format(window_metric.value_num) if window_metric.value_num is not none else "—") }}
+        {% if window_metric.rank %} · #{{ window_metric.rank }}{% if window_metric.total %}/{{ window_metric.total }}{% endif %}{% endif %}
+      </span>
+    </div>
+  {% endmacro %}
+
   {% macro render_metric_card(m, href) %}
     <a class="metric-card{% if m.is_notable %} metric-notable{% endif %}"
        href="{{ href }}" style="text-decoration:none;">
@@ -1640,6 +1670,13 @@
         <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
         {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
       </div>
+      {% if m.career or m.last5 or m.last3 %}
+      <div class="metric-window-rows">
+        {% if m.career %}{{ render_window_row(t('Career', '生涯'), m.career) }}{% endif %}
+        {% if m.last5 %}{{ render_window_row(t('Last 5', '近 5 季'), m.last5) }}{% endif %}
+        {% if m.last3 %}{{ render_window_row(t('Last 3', '近 3 季'), m.last3) }}{% endif %}
+      </div>
+      {% endif %}
     </a>
   {% endmacro %}
 

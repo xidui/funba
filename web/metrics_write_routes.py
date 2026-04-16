@@ -424,7 +424,7 @@ def register_metrics_write_routes(app, deps):
             definition = definition or {}
 
         if deps.is_reserved_career_key()(key):
-            return jsonify({"ok": False, "error": "Keys ending with '_career' are reserved for managed sibling metrics"}), 409
+            return jsonify({"ok": False, "error": "Keys ending with managed window suffixes are reserved for sibling metrics"}), 409
 
         supports_career, career_only, _ = deps.metric_supports_career()(
             source_type,

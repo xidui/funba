@@ -128,7 +128,7 @@ def test_ingest_yesterday_enqueues_each_game_without_chord():
     assert result == {"date": "2026-04-05", "enqueued": 2}
 
 
-def test_ingest_game_enqueues_season_refresh_after_success():
+def test_ingest_game_does_not_enqueue_season_refresh_for_shot_only_backfill():
     before_status = {
         "exists_game": True,
         "game_status": "completed",
@@ -149,12 +149,12 @@ def test_ingest_game_enqueues_season_refresh_after_success():
     }
 
     status_session = _ctx(MagicMock())
-    shot_session = _ctx(MagicMock())
     final_status_session = _ctx(MagicMock())
     zero_score_session = _ctx(MagicMock())
     zero_score_session.query.return_value.filter.return_value.first.return_value = None
     line_score_session = _ctx(MagicMock())
-    line_score_session.query.return_value.filter.return_value.first.return_value = None
+    period_check_session = _ctx(MagicMock())
+    shot_backfill_session = _ctx(MagicMock())
 
     ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
     try:
@@ -164,10 +164,11 @@ def test_ingest_game_enqueues_season_refresh_after_success():
             return_value=MagicMock(
                 side_effect=[
                     status_session,
-                    shot_session,
                     final_status_session,
                     zero_score_session,
                     line_score_session,
+                    period_check_session,
+                    shot_backfill_session,
                 ]
             ),
         ), patch.object(
@@ -181,6 +182,10 @@ def test_ingest_game_enqueues_season_refresh_after_success():
             ingest_tasks,
             "has_game_line_score",
             return_value=True,
+        ), patch.object(
+            ingest_tasks,
+            "has_game_period_stats",
+            return_value=True,
         ), patch(
             "tasks.metrics.refresh_current_season_metrics.delay",
         ) as refresh_delay_mock:
@@ -189,7 +194,7 @@ def test_ingest_game_enqueues_season_refresh_after_success():
         ingest_tasks.ingest_game.pop_request()
 
     shot_mock.assert_called_once()
-    refresh_delay_mock.assert_called_once_with([result])
+    refresh_delay_mock.assert_not_called()
     assert result["game_id"] == "g1"
     assert result["shot_refreshed"] is True
 
@@ -249,7 +254,7 @@ def test_ingest_game_retries_when_artifacts_still_incomplete():
 
     process_mock.assert_called_once()
     retry_mock.assert_called_once()
-    assert "Artifacts not ready" in str(retry_mock.call_args.kwargs["exc"])
+    assert "Core artifacts not ready" in str(retry_mock.call_args.kwargs["exc"])
 
 
 def test_compute_season_metric_queues_recent_content_check():
@@ -350,7 +355,17 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
 
     assert result == {
         "seasons": ["22025", "42025", "52025"],
-        "career_buckets": ["all_playin", "all_playoffs", "all_regular"],
+        "career_buckets": [
+            "all_regular",
+            "all_playoffs",
+            "all_playin",
+            "last5_regular",
+            "last5_playoffs",
+            "last5_playin",
+            "last3_regular",
+            "last3_playoffs",
+            "last3_playin",
+        ],
         "metrics": 2,
         "enqueued": 2,
         "callbacks": 1,
@@ -365,7 +380,7 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     callback_sig = chord_mock.return_value.call_args.args[0]
     assert callback_sig.kwargs["metric_key"] == "playoff_points"
     assert callback_sig.kwargs["run_id"] == "run-playoffs"
-    assert callback_sig.kwargs["buckets"] == ["all_playoffs"]
+    assert callback_sig.kwargs["buckets"] == ["all_playoffs", "last5_playoffs", "last3_playoffs"]
 
 
 def test_sync_schedule_games_enables_unplayed_upsert_mode():
@@ -431,7 +446,15 @@ def test_sync_schedule_window_syncs_expected_date_range():
     with patch.object(ingest_tasks, "date", _FakeDate), patch(
         "tasks.dispatch.sync_schedule_games",
         return_value={"g1", "g2"},
-    ) as sync_mock:
+    ) as sync_mock, patch.object(
+        ingest_tasks,
+        "_patch_today_meta_from_live",
+        return_value=(0, set()),
+    ), patch.object(
+        ingest_tasks,
+        "_sweep_game_slugs",
+        return_value=0,
+    ):
         result = ingest_tasks.sync_schedule_window.run(
             lookback_days=2,
             lookahead_days=5,
@@ -448,6 +471,8 @@ def test_sync_schedule_window_syncs_expected_date_range():
         "date_to": "04/06/2026",
         "season_types": ["PlayIn", "Playoffs"],
         "synced_games": 2,
+        "live_patched": 0,
+        "slug_patched": 0,
     }
 
 
@@ -523,6 +548,7 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
     zero_score_session = _ctx(MagicMock())
     zero_score_session.query.return_value.filter.return_value.first.return_value = None
     line_score_session = _ctx(MagicMock())
+    period_check_session = _ctx(MagicMock())
 
     ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
     try:
@@ -536,6 +562,7 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
                     final_status_session,
                     zero_score_session,
                     line_score_session,
+                    period_check_session,
                 ]
             ),
         ), patch.object(
@@ -560,6 +587,10 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
         ) as process_mock, patch.object(
             ingest_tasks,
             "has_game_line_score",
+            return_value=True,
+        ), patch.object(
+            ingest_tasks,
+            "has_game_period_stats",
             return_value=True,
         ), patch(
             "tasks.metrics.refresh_current_season_metrics.delay",
@@ -604,7 +635,7 @@ def test_cmd_season_metrics_with_explicit_season_enqueues_matching_career_bucket
         "tasks.metrics.enqueue_season_metric_refresh",
         return_value={
             "seasons": ["22025"],
-            "career_buckets": ["all_regular"],
+            "career_buckets": ["all_regular", "last5_regular", "last3_regular"],
             "metrics": 1,
             "enqueued": 1,
             "callbacks": 1,

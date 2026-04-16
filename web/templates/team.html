@@ -140,6 +140,25 @@
     border-color: var(--accent);
   }
 
+  .metric-window-rows {
+    margin-top: 6px;
+    display: grid;
+    gap: 2px;
+  }
+
+  .metric-window-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .metric-window-row strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
   /* ── Legacy / inactive team banner ─────────────────────── */
   .team-legacy-banner {
     display: flex;
@@ -925,6 +944,16 @@
 <section class="section metrics-section">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
+  {% macro render_window_row(label, window_metric) %}
+    <div class="metric-window-row">
+      <strong>{{ label }}</strong>
+      <span>
+        {{ window_metric.value_str if window_metric.value_str else ("%.3g"|format(window_metric.value_num) if window_metric.value_num is not none else "—") }}
+        {% if window_metric.rank %} · #{{ window_metric.rank }}{% if window_metric.total %}/{{ window_metric.total }}{% endif %}{% endif %}
+      </span>
+    </div>
+  {% endmacro %}
+
   {% if season_metrics %}
   <h3 class="metrics-sub-title">{{ season_label(current_season) }}</h3>
   <div class="metrics-grid">
@@ -938,14 +967,22 @@
         <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
         {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
       </div>
+      {% if m.career or m.last5 or m.last3 %}
+      <div class="metric-window-rows">
+        {% if m.career %}{{ render_window_row(t('Career', '生涯'), m.career) }}{% endif %}
+        {% if m.last5 %}{{ render_window_row(t('Last 5', '近 5 季'), m.last5) }}{% endif %}
+        {% if m.last3 %}{{ render_window_row(t('Last 3', '近 3 季'), m.last3) }}{% endif %}
+      </div>
+      {% endif %}
     </a>
     {% endfor %}
   </div>
   {% endif %}
 
-  {% if alltime_metrics %}
+  {% set career_alltime_metrics = alltime_metrics|selectattr('window_type', 'equalto', 'career')|list if alltime_metrics else [] %}
+  {% if career_alltime_metrics %}
   {% set ns = namespace(last_type="") %}
-  {% for m in alltime_metrics|sort(attribute='career_type_label') %}
+  {% for m in career_alltime_metrics|sort(attribute='career_type_label') %}
     {% if m.career_type_label != ns.last_type %}
       {% if ns.last_type %}</div>{% endif %}
       <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>

@@ -97,6 +97,21 @@ def test_aggregated_career_qualification_game_ids_filters_entity_and_dedupes():
     assert metric.calls == [(session, "all_playoffs")]
 
 
+def test_aggregated_career_qualification_game_ids_accepts_last3_pseudo_season():
+    metric = _FakeCareerMetric()
+    session = object()
+
+    game_ids = _aggregated_career_qualification_game_ids(
+        metric,
+        session,
+        "last3_playoffs",
+        entity_id="893",
+    )
+
+    assert game_ids == ["0048509102", "0049100022"]
+    assert metric.calls == [(session, "last3_playoffs")]
+
+
 def test_aggregated_career_qualification_game_ids_returns_none_for_non_career_metric():
     metric = _FakeSeasonMetric()
 

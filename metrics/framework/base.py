@@ -11,8 +11,21 @@ CAREER_SEASON = "all"  # deprecated — kept for backward compat
 # Career season split by type
 CAREER_SEASON_PREFIX = "all_"
 SEASON_TYPE_TO_CAREER = {"2": "all_regular", "4": "all_playoffs", "5": "all_playin"}
+WINDOW_SEASONS = {
+    "career": ["all_regular", "all_playoffs", "all_playin"],
+    "last3": ["last3_regular", "last3_playoffs", "last3_playin"],
+    "last5": ["last5_regular", "last5_playoffs", "last5_playin"],
+}
+WINDOW_DISPATCH_ORDER = ("career", "last5", "last3")
 CAREER_SEASONS = set(SEASON_TYPE_TO_CAREER.values())
-_CAREER_TO_TYPE = {v: k for k, v in SEASON_TYPE_TO_CAREER.items()}
+WINDOW_SEASON_PREFIXES = tuple(
+    prefix
+    for prefix in (
+        CAREER_SEASON_PREFIX,
+        "last3_",
+        "last5_",
+    )
+)
 METRIC_SEASON_TYPE_OPTIONS = ("regular", "playoffs", "playin")
 SEASON_TYPE_CODE_TO_OPTION = {"2": "regular", "4": "playoffs", "5": "playin"}
 _SEASON_TYPE_OPTION_ALIASES = {
@@ -22,6 +35,19 @@ _SEASON_TYPE_OPTION_ALIASES = {
     "playin": "playin",
     "play_in": "playin",
 }
+_WINDOW_SEASON_TO_WINDOW_TYPE: dict[str, str] = {}
+_WINDOW_SEASON_TO_TYPE: dict[str, str] = {}
+_WINDOW_SEASON_BY_TYPE: dict[str, dict[str, str]] = {}
+for _window_type, _seasons in WINDOW_SEASONS.items():
+    _WINDOW_SEASON_BY_TYPE[_window_type] = {}
+    for _season in _seasons:
+        _season_type = str(_season).split("_", 1)[1]
+        _WINDOW_SEASON_TO_WINDOW_TYPE[_season] = _window_type
+        _WINDOW_SEASON_BY_TYPE[_window_type][_season_type] = _season
+        for _code, _option in SEASON_TYPE_CODE_TO_OPTION.items():
+            if _option == _season_type:
+                _WINDOW_SEASON_TO_TYPE[_season] = _code
+                break
 
 
 def career_season_for(season: str) -> str | None:
@@ -29,19 +55,44 @@ def career_season_for(season: str) -> str | None:
 
     Returns None for preseason (1) and all-star (3) — skip career accumulation.
     """
-    if season and len(season) == 5 and season.isdigit():
-        return SEASON_TYPE_TO_CAREER.get(season[0])
-    return None
+    return window_season_for(season, "career")
+
+
+def window_season_for(season: str | None, window_type: str) -> str | None:
+    if not season:
+        return None
+    if is_career_season(season):
+        season_type = season_type_for(season)
+    elif len(season) == 5 and season.isdigit():
+        season_type = SEASON_TYPE_CODE_TO_OPTION.get(season[0])
+    else:
+        season_type = None
+    if season_type is None:
+        return None
+    return _WINDOW_SEASON_BY_TYPE.get(window_type, {}).get(season_type)
 
 
 def is_career_season(season: str | None) -> bool:
-    """Check if a season value is any career bucket (all_regular, all_playoffs, etc.)."""
-    return bool(season and season.startswith(CAREER_SEASON_PREFIX))
+    """Check if a season value is any pseudo-season bucket."""
+    return bool(season and str(season).startswith(WINDOW_SEASON_PREFIXES))
+
+
+def window_type_from_season(season: str | None) -> str | None:
+    return _WINDOW_SEASON_TO_WINDOW_TYPE.get(str(season or ""))
+
+
+def window_size_from_season(season: str | None) -> int | None:
+    window_type = window_type_from_season(season)
+    if window_type == "last3":
+        return 3
+    if window_type == "last5":
+        return 5
+    return None
 
 
 def career_season_type_code(career_season: str) -> str | None:
     """Reverse-map career season to type code, e.g. 'all_regular' → '2'."""
-    return _CAREER_TO_TYPE.get(career_season)
+    return _WINDOW_SEASON_TO_TYPE.get(career_season)
 
 
 def season_type_for(season: str | None) -> str | None:
@@ -187,6 +238,7 @@ class MetricDefinition(ABC):
     incremental: bool = True       # False → use compute() instead
     supports_career: bool = False  # True → also dispatch career season values
     career: bool = False           # True → this IS the career version (trigger="game" only)
+    window_type: str | None = None # "career" | "last3" | "last5" for managed pseudo-season siblings
     per_game: bool = True          # DEPRECATED — use trigger="season" instead
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)

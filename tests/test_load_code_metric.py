@@ -356,7 +356,34 @@ class CachedMetric(MetricDefinition):
             build.call_args_list,
             [
                 unittest.mock.call(base_row),
-                unittest.mock.call(base_row, career=True),
+                unittest.mock.call(base_row, career=True, window_type="career"),
+            ],
+        )
+
+    def test_get_metric_builds_dynamic_last3_metric_for_season_trigger_base_row(self):
+        runtime = self._load_runtime()
+        session = MagicMock()
+        base_row = types.SimpleNamespace(source_type="code")
+        base_metric = types.SimpleNamespace(career=False, supports_career=True, trigger="season")
+        last3_metric = object()
+
+        with patch.object(runtime, "_lookup_published_metric_row", side_effect=[None, base_row]) as lookup, \
+             patch.object(runtime, "_build_runtime_metric", side_effect=[base_metric, last3_metric]) as build:
+            result = runtime.get_metric("custom_metric_last3", session=session)
+
+        self.assertIs(result, last3_metric)
+        self.assertEqual(
+            lookup.call_args_list,
+            [
+                unittest.mock.call(session, "custom_metric_last3"),
+                unittest.mock.call(session, "custom_metric"),
+            ],
+        )
+        self.assertEqual(
+            build.call_args_list,
+            [
+                unittest.mock.call(base_row),
+                unittest.mock.call(base_row, career=True, window_type="last3"),
             ],
         )
 

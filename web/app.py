@@ -1070,7 +1070,7 @@ def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
     all_lookup_keys = set()
     for mk in metric_keys:
         all_lookup_keys.add(mk)
-        all_lookup_keys.add(mk.removesuffix("_career"))
+        all_lookup_keys.add(family_base_key(mk))
 
     db_rows = (
         session.query(MetricDefinitionModel.key, MetricDefinitionModel.name, MetricDefinitionModel.name_zh)
@@ -1081,17 +1081,15 @@ def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
 
     result = {}
     for mk in metric_keys:
-        base_key = mk.removesuffix("_career")
+        base_key = family_base_key(mk)
         db_metric = db_by_key.get(mk) or db_by_key.get(base_key)
         runtime_metric = _get_metric(mk, session=session)
-        if runtime_metric is None and mk.endswith("_career"):
+        if runtime_metric is None and base_key != mk:
             runtime_metric = _get_metric(base_key, session=session)
 
         name = getattr(db_metric, "name", None) or getattr(runtime_metric, "name", None) or base_key.replace("_", " ").title()
         name_zh = getattr(db_metric, "name_zh", None) or getattr(runtime_metric, "name_zh", None)
         localized = _localized_metric_name(name, name_zh)
-        if mk.endswith("_career") and localized == _localized_metric_name(base_key.replace("_", " ").title(), name_zh):
-            localized = f"{localized}{_t(' (Career)', '（生涯）')}"
         result[mk] = localized
     return result
 
@@ -1099,7 +1097,7 @@ def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
 def _metric_name_for_key(session, metric_key: str) -> str:
     from metrics.framework.runtime import get_metric as _get_metric
 
-    base_key = metric_key.removesuffix("_career")
+    base_key = family_base_key(metric_key)
     db_metric = (
         session.query(MetricDefinitionModel)
         .filter(MetricDefinitionModel.key.in_([metric_key, base_key]))
@@ -1107,15 +1105,12 @@ def _metric_name_for_key(session, metric_key: str) -> str:
         .first()
     )
     runtime_metric = _get_metric(metric_key, session=session)
-    if runtime_metric is None and metric_key.endswith("_career"):
+    if runtime_metric is None and base_key != metric_key:
         runtime_metric = _get_metric(base_key, session=session)
 
     name = getattr(db_metric, "name", None) or getattr(runtime_metric, "name", None) or base_key.replace("_", " ").title()
     name_zh = getattr(db_metric, "name_zh", None) or getattr(runtime_metric, "name_zh", None)
-    localized = _localized_metric_name(name, name_zh)
-    if metric_key.endswith("_career") and localized == _localized_metric_name(base_key.replace("_", " ").title(), name_zh):
-        return f"{localized}{_t(' (Career)', '（生涯）')}"
-    return localized
+    return _localized_metric_name(name, name_zh)
 
 
 def _truncate_search_text(text: str | None, limit: int = 2400) -> str:
@@ -2341,12 +2336,23 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     """
     import json
     from sqlalchemy import func
-    from metrics.framework.base import CAREER_SEASON, CAREER_SEASON_PREFIX, is_career_season, SEASON_TYPE_TO_CAREER
+    from metrics.framework.base import CAREER_SEASON_PREFIX, WINDOW_SEASONS, is_career_season, season_type_for, window_type_from_season
 
     _CAREER_TYPE_LABEL = {
         "all_regular": _t("Regular Season", "常规赛"),
         "all_playoffs": _t("Playoffs", "季后赛"),
         "all_playin": _t("Play-In", "附加赛"),
+        "last3_regular": _t("Last 3 Regular Seasons", "近 3 个常规赛季"),
+        "last3_playoffs": _t("Last 3 Playoff Seasons", "近 3 个季后赛季"),
+        "last3_playin": _t("Last 3 Play-In Seasons", "近 3 个附加赛季"),
+        "last5_regular": _t("Last 5 Regular Seasons", "近 5 个常规赛季"),
+        "last5_playoffs": _t("Last 5 Playoff Seasons", "近 5 个季后赛季"),
+        "last5_playin": _t("Last 5 Play-In Seasons", "近 5 个附加赛季"),
+    }
+    _WINDOW_LABELS = {
+        "career": _t("Career", "生涯"),
+        "last3": _t("Last 3", "近 3 季"),
+        "last5": _t("Last 5", "近 5 季"),
     }
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
@@ -2354,11 +2360,15 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     _disabled_keys = _disabled_metric_keys(session) if not is_admin() else set()
     scope_label = {"player": "players", "team": "teams", "game": "games"}.get(entity_type, "entities")
 
-    season_filter = (
-        (MetricResultModel.season == season) | (MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"))
-        if season
-        else None
-    )
+    if season:
+        pseudo_season_filters = [
+            MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"),
+            MetricResultModel.season.like("last3_%"),
+            MetricResultModel.season.like("last5_%"),
+        ]
+        season_filter = or_(MetricResultModel.season == season, *pseudo_season_filters)
+    else:
+        season_filter = None
 
     # Step 1: Fetch this entity's own rows first (fast, indexed lookup).
     entity_filters = [
@@ -2400,7 +2410,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     all_entity_keys = {r.metric_key for r in entity_rows}
     split_base_keys: set[str] = set()
     if all_entity_keys:
-        base_lookup = {k.removesuffix("_career") for k in all_entity_keys}
+        base_lookup = {family_base_key(k) for k in all_entity_keys}
         md_sub_rows = (
             session.query(MetricDefinitionModel.key)
             .filter(
@@ -2412,7 +2422,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         split_base_keys = {row.key for row in md_sub_rows}
     split_metric_keys = {
         k for k in all_entity_keys
-        if k.removesuffix("_career") in split_base_keys
+        if family_base_key(k) in split_base_keys
     }
 
     # Step 2: Compute rank and total via a self-join — only for non-split rows.
@@ -2469,7 +2479,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
 
     team_map = _team_map(session)
 
-    all_base_keys = {r.metric_key.removesuffix("_career") for r in rows}
+    all_base_keys = {family_base_key(r.metric_key) for r in rows}
     db_templates = _load_context_label_templates(session, all_base_keys)
 
     # Batch-load all metric names to avoid N+1 queries
@@ -2523,7 +2533,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             if m:
                 base_sample_note[k] = m.group(1).strip()
         for mk in split_metric_keys:
-            base = mk.removesuffix("_career")
+            base = family_base_key(mk)
             if base in base_sub_key_types:
                 sub_key_type_map[mk] = base_sub_key_types[base]
             if base in base_fill_zero:
@@ -2564,7 +2574,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     for r in rows:
         ctx = json.loads(r.context_json) if r.context_json else {}
         rank_group_label = _team_name(team_map, r.rank_group) if r.rank_group else None
-        base_key = r.metric_key.removesuffix("_career")
+        base_key = family_base_key(r.metric_key)
         context_label = _resolve_context_label(base_key, ctx, db_templates)
         rank, total = r.rank, r.total
         is_notable = total > 0 and rank / total <= 0.25
@@ -2607,7 +2617,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         entry = {
             "metric_key": r.metric_key,
             "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
-            "category": metric_category_cache.get(r.metric_key.removesuffix("_career"), ""),
+            "category": metric_category_cache.get(family_base_key(r.metric_key), ""),
             "entity_id": r.entity_id,
             "value_num": r.value_num,
             "value_str": r.value_str,
@@ -2620,14 +2630,20 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "rank_group": r.rank_group,
             "rank_group_label": rank_group_label,
             "computed_at": r.computed_at,
+            "window_type": None,
             # career cross-reference filled in below
             "career_rank": None,
             "career_total": None,
             "career_is_notable": False,
+            "career": None,
+            "last3": None,
+            "last5": None,
         }
-        if r.metric_key.endswith("_career") or is_career_season(r.season):
+        if is_career_season(r.season):
+            entry["window_type"] = window_type_from_season(r.season)
             entry["career_type"] = r.season
             entry["career_type_label"] = _CAREER_TYPE_LABEL.get(r.season, "Career")
+            entry["window_label"] = _WINDOW_LABELS.get(entry["window_type"], _t("Career", "生涯"))
             alltime_metrics.append(entry)
         else:
             season_metrics.append(entry)
@@ -2693,7 +2709,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
     # then append to season_metrics or alltime_metrics.
     for (metric_key, season_val), bucket in split_accum.items():
         splits = bucket["splits"]
-        is_asc = metric_key in _asc_keys or metric_key.removesuffix("_career") in _asc_keys
+        is_asc = metric_key in _asc_keys or family_base_key(metric_key) in _asc_keys
         splits.sort(key=lambda s: (s["value_num"] or 0), reverse=not is_asc)
 
         # Fill missing opponents with is_placeholder=True zero entries so the UI
@@ -2726,7 +2742,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         entry = {
             "metric_key": metric_key,
             "metric_name": bucket["metric_name"],
-            "category": metric_category_cache.get(metric_key.removesuffix("_career"), ""),
+            "category": metric_category_cache.get(family_base_key(metric_key), ""),
             "entity_id": bucket["entity_id"],
             "value_num": top["value_num"],
             "value_str": top["value_str"],
@@ -2739,39 +2755,63 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "rank_group": bucket["rank_group"],
             "rank_group_label": bucket["rank_group_label"],
             "computed_at": bucket["computed_at"],
+            "window_type": None,
             "career_rank": None,
             "career_total": None,
             "career_is_notable": False,
+            "career": None,
+            "last3": None,
+            "last5": None,
             "sub_key_type": bucket["sub_key_type"],
             "splits": splits,
             "primary_sub_key_info": top["sub_key_info"],
             "sample_note": metric_sample_note.get(metric_key, ""),
         }
-        if metric_key.endswith("_career") or is_career_season(season_val):
+        if is_career_season(season_val):
+            entry["window_type"] = window_type_from_season(season_val)
             entry["career_type"] = season_val
             entry["career_type_label"] = _CAREER_TYPE_LABEL.get(season_val, "Career")
+            entry["window_label"] = _WINDOW_LABELS.get(entry["window_type"], _t("Career", "生涯"))
             alltime_metrics.append(entry)
         else:
             season_metrics.append(entry)
 
-    # Attach career rank to each season entry so cards can show both at once.
-    # Match career bucket to the current season's type.
-    current_type = season[0] if season and len(season) == 5 and season.isdigit() else None
-    matching_career_season = SEASON_TYPE_TO_CAREER.get(current_type) if current_type else None
-    career_by_base = {}
+    # Attach matching window variants to each current-season entry so cards can
+    # show season + career/last5/last3 together.
+    current_season_type = season_type_for(season)
+    matching_window_seasons = {
+        window_type: next(
+            (
+                pseudo_season
+                for pseudo_season in pseudo_seasons
+                if season_type_for(pseudo_season) == current_season_type
+            ),
+            None,
+        )
+        for window_type, pseudo_seasons in WINDOW_SEASONS.items()
+    }
+    windows_by_base: dict[str, dict[str, dict]] = {}
     for e in alltime_metrics:
-        if matching_career_season and e.get("career_type") != matching_career_season:
+        window_type = e.get("window_type")
+        if not window_type:
             continue
-        career_by_base[e["metric_key"].removesuffix("_career")] = e
+        if current_season_type and e.get("career_type") != matching_window_seasons.get(window_type):
+            continue
+        windows_by_base.setdefault(family_base_key(e["metric_key"]), {})[window_type] = e
     for entry in season_metrics:
         entry["all_games_rank"] = None
         entry["all_games_total"] = None
         entry["all_games_is_notable"] = False
-        career = career_by_base.get(entry["metric_key"])
-        if career:
-            entry["career_rank"] = career["rank"]
-            entry["career_total"] = career["total"]
-            entry["career_is_notable"] = career["is_notable"]
+        entry["career"] = None
+        entry["last3"] = None
+        entry["last5"] = None
+        window_entries = windows_by_base.get(family_base_key(entry["metric_key"]), {})
+        for window_type in ("career", "last5", "last3"):
+            entry[window_type] = window_entries.get(window_type)
+        if entry["career"]:
+            entry["career_rank"] = entry["career"]["rank"]
+            entry["career_total"] = entry["career"]["total"]
+            entry["career_is_notable"] = entry["career"]["is_notable"]
 
     # For game-scope metrics, compute a cross-season "All Games" rank
     # (RANK partitioned by metric_key only, no season filter).

@@ -5,38 +5,112 @@ import copy
 
 
 CAREER_KEY_SUFFIX = "_career"
+LAST3_KEY_SUFFIX = "_last3"
+LAST5_KEY_SUFFIX = "_last5"
+WINDOW_SUFFIXES = {
+    "career": CAREER_KEY_SUFFIX,
+    "last3": LAST3_KEY_SUFFIX,
+    "last5": LAST5_KEY_SUFFIX,
+}
 FAMILY_VARIANT_SEASON = "season"
 FAMILY_VARIANT_CAREER = "career"
 
 
 def family_base_key(key: str) -> str:
-    return str(key or "").removesuffix(CAREER_KEY_SUFFIX)
+    value = str(key or "")
+    for suffix in WINDOW_SUFFIXES.values():
+        if value.endswith(suffix):
+            return value.removesuffix(suffix)
+    return value
+
+
+def window_type_from_key(key: str) -> str | None:
+    value = str(key or "")
+    for window_type, suffix in WINDOW_SUFFIXES.items():
+        if value.endswith(suffix):
+            return window_type
+    return None
+
+
+def family_window_key(base_key: str, window_type: str) -> str:
+    suffix = WINDOW_SUFFIXES[window_type]
+    return family_base_key(base_key) + suffix
 
 
 def family_career_key(base_key: str) -> str:
-    return family_base_key(base_key) + CAREER_KEY_SUFFIX
+    return family_window_key(base_key, "career")
+
+
+def family_last3_key(base_key: str) -> str:
+    return family_window_key(base_key, "last3")
+
+
+def family_last5_key(base_key: str) -> str:
+    return family_window_key(base_key, "last5")
+
+
+def is_reserved_window_key(key: str) -> bool:
+    return window_type_from_key(key) is not None
 
 
 def is_reserved_career_key(key: str) -> bool:
-    return str(key or "").endswith(CAREER_KEY_SUFFIX)
+    return is_reserved_window_key(key)
 
 
-def derive_career_name(name: str, suffix: str = " (Career)") -> str:
+def derive_window_name(
+    name: str,
+    window_type: str,
+    *,
+    suffix: str | None = None,
+) -> str:
+    if suffix is None:
+        suffix = {
+            "career": " (Career)",
+            "last3": " (Last 3 Seasons)",
+            "last5": " (Last 5 Seasons)",
+        }[window_type]
     base_name = (name or "").strip()
     return f"{base_name}{suffix}" if base_name else suffix.strip()
 
 
-def derive_career_description(description: str) -> str:
+def derive_career_name(name: str, suffix: str = " (Career)") -> str:
+    return derive_window_name(name, "career", suffix=suffix)
+
+
+def derive_window_description(description: str, window_type: str) -> str:
     base_description = (description or "").strip()
-    suffix = "Computed across seasons of the same type (regular season, playoffs, or play-in)."
+    suffix = {
+        "career": "Computed across seasons of the same type (regular season, playoffs, or play-in).",
+        "last3": "Computed across the most recent 3 seasons of the same type (regular season, playoffs, or play-in).",
+        "last5": "Computed across the most recent 5 seasons of the same type (regular season, playoffs, or play-in).",
+    }[window_type]
     return f"{base_description} {suffix}".strip() if base_description else suffix
 
 
-def derive_career_min_sample(min_sample: int, career_min_sample: int | None) -> int:
+def derive_career_description(description: str) -> str:
+    return derive_window_description(description, "career")
+
+
+def derive_window_min_sample(
+    min_sample: int,
+    window_type: str,
+    *,
+    career_min_sample: int | None = None,
+) -> int:
     base_min = int(min_sample or 1)
-    if career_min_sample is not None:
-        return int(career_min_sample)
-    return max(base_min * 5, base_min)
+    if window_type == "career":
+        if career_min_sample is not None:
+            return int(career_min_sample)
+        return max(base_min * 5, base_min)
+    if window_type == "last3":
+        return max(base_min * 3, base_min)
+    if window_type == "last5":
+        return max(base_min * 5, base_min)
+    raise KeyError(f"Unsupported window_type: {window_type!r}")
+
+
+def derive_career_min_sample(min_sample: int, career_min_sample: int | None) -> int:
+    return derive_window_min_sample(min_sample, "career", career_min_sample=career_min_sample)
 
 
 def rule_supports_career(definition: dict | None, scope: str | None) -> bool:
@@ -117,6 +191,25 @@ def _rewrite_metric_attr(code_python: str, attr_name: str, value) -> str:
     return code_python
 
 
+def build_window_code_variant(
+    code_python: str,
+    *,
+    base_key: str,
+    name: str,
+    description: str,
+    min_sample: int,
+    window_type: str,
+) -> str:
+    window_code = code_python
+    window_code = _rewrite_metric_attr(window_code, "key", family_window_key(base_key, window_type))
+    window_code = _rewrite_metric_attr(window_code, "name", name)
+    window_code = _rewrite_metric_attr(window_code, "description", description)
+    window_code = _rewrite_metric_attr(window_code, "min_sample", int(min_sample))
+    window_code = _rewrite_metric_attr(window_code, "career", True)
+    window_code = _rewrite_metric_attr(window_code, "supports_career", False)
+    return window_code
+
+
 def build_career_code_variant(
     code_python: str,
     *,
@@ -125,11 +218,11 @@ def build_career_code_variant(
     description: str,
     min_sample: int,
 ) -> str:
-    career_code = code_python
-    career_code = _rewrite_metric_attr(career_code, "key", family_career_key(base_key))
-    career_code = _rewrite_metric_attr(career_code, "name", name)
-    career_code = _rewrite_metric_attr(career_code, "description", description)
-    career_code = _rewrite_metric_attr(career_code, "min_sample", int(min_sample))
-    career_code = _rewrite_metric_attr(career_code, "career", True)
-    career_code = _rewrite_metric_attr(career_code, "supports_career", False)
-    return career_code
+    return build_window_code_variant(
+        code_python,
+        base_key=base_key,
+        name=name,
+        description=description,
+        min_sample=min_sample,
+        window_type="career",
+    )

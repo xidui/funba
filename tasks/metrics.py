@@ -174,7 +174,7 @@ def enqueue_season_metric_refresh(
     *,
     metrics: list | None = None,
 ) -> dict:
-    from metrics.framework.base import CAREER_SEASONS, career_season_for, season_matches_metric_types
+    from metrics.framework.base import WINDOW_DISPATCH_ORDER, WINDOW_SEASONS, season_matches_metric_types, season_type_for
     from metrics.framework.runtime import get_all_metrics
 
     affected_seasons = sorted({season for season in seasons if season})
@@ -187,7 +187,13 @@ def enqueue_season_metric_refresh(
             if getattr(m, "trigger", "game") == "season" and not getattr(m, "career", False)
         ]
 
-    career_buckets = {career_season_for(season) for season in affected_seasons if career_season_for(season)}
+    affected_types = {season_type_for(season) for season in affected_seasons if season_type_for(season)}
+    career_buckets = [
+        bucket
+        for window_type in WINDOW_DISPATCH_ORDER
+        for bucket in WINDOW_SEASONS[window_type]
+        if season_type_for(bucket) in affected_types
+    ]
 
     enqueued = 0
     callbacks = 0
@@ -198,7 +204,7 @@ def enqueue_season_metric_refresh(
             if season_matches_metric_types(season, getattr(m, "season_types", None))
         ]
         eligible_career_buckets = [
-            bucket for bucket in sorted(CAREER_SEASONS)
+            bucket for bucket in career_buckets
             if bucket in career_buckets and season_matches_metric_types(bucket, getattr(m, "season_types", None))
         ]
         if not eligible_seasons and not (getattr(m, "supports_career", False) and eligible_career_buckets):
@@ -231,14 +237,14 @@ def enqueue_season_metric_refresh(
     logger.info(
         "enqueue_season_metric_refresh: seasons=%s, career_buckets=%s, enqueued %d season task(s) with %d career callback(s) for %d metric(s).",
         affected_seasons,
-        sorted(career_buckets),
+        career_buckets,
         enqueued,
         callbacks,
         scheduled_metrics,
     )
     return {
         "seasons": affected_seasons,
-        "career_buckets": sorted(career_buckets),
+        "career_buckets": career_buckets,
         "metrics": scheduled_metrics,
         "enqueued": enqueued,
         "callbacks": callbacks,
@@ -450,6 +456,7 @@ def _notify_owner_on_complete(session, run_id: str) -> None:
 def _mark_run_failed(session, run_id: str, error_text: str) -> None:
     session.query(MetricComputeRun).filter(
         MetricComputeRun.id == run_id,
+        MetricComputeRun.status.in_((_RUN_STATUS_MAPPING, _RUN_STATUS_REDUCING)),
     ).update(
         {
             "status": _RUN_STATUS_FAILED,
@@ -854,9 +861,9 @@ def enqueue_career_metric_family_task(
     run_id: str | None = None,
     buckets: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
-    """Enqueue the three career buckets after all concrete seasons finish."""
-    from metrics.framework.family import family_career_key
-    from metrics.framework.base import season_matches_metric_types
+    """Enqueue all pseudo-season window buckets after concrete seasons finish."""
+    from metrics.framework.base import WINDOW_DISPATCH_ORDER, WINDOW_SEASONS, season_matches_metric_types, window_type_from_season
+    from metrics.framework.family import family_window_key
     from metrics.framework.runtime import get_metric
 
     base_metric = get_metric(metric_key)
@@ -865,26 +872,41 @@ def enqueue_career_metric_family_task(
     if getattr(base_metric, "career", False) or not getattr(base_metric, "supports_career", False):
         return {"metric_key": metric_key, "skipped": True, "reason": "no_career_variant"}
 
-    career_key = family_career_key(metric_key)
-    career_metric = get_metric(career_key)
-    if career_metric is None:
-        return {"metric_key": metric_key, "skipped": True, "reason": "missing_career_metric"}
-
     enqueued = 0
-    candidate_buckets = list(buckets) if buckets is not None else ["all_regular", "all_playoffs", "all_playin"]
+    dispatched_metric_keys: set[str] = set()
+    window_metric_cache: dict[str, object | None] = {}
+    candidate_buckets = (
+        list(buckets)
+        if buckets is not None
+        else [bucket for window_type in WINDOW_DISPATCH_ORDER for bucket in WINDOW_SEASONS[window_type]]
+    )
     for bucket in candidate_buckets:
-        if not season_matches_metric_types(bucket, getattr(career_metric, "season_types", None)):
+        window_type = window_type_from_season(bucket)
+        if window_type is None:
             continue
-        compute_season_metric_task.delay(career_key, bucket, run_id=run_id)
+        window_key = family_window_key(metric_key, window_type)
+        if window_key not in window_metric_cache:
+            window_metric_cache[window_key] = get_metric(window_key)
+        window_metric = window_metric_cache[window_key]
+        if window_metric is None:
+            continue
+        if not season_matches_metric_types(bucket, getattr(window_metric, "season_types", None)):
+            continue
+        compute_season_metric_task.delay(window_key, bucket, run_id=run_id)
+        dispatched_metric_keys.add(window_key)
         enqueued += 1
 
     logger.info(
-        "enqueue_career_metric_family: metric=%s career_metric=%s enqueued %d bucket(s)",
+        "enqueue_career_metric_family: metric=%s window_metrics=%s enqueued %d bucket(s)",
         metric_key,
-        career_key,
+        sorted(dispatched_metric_keys),
         enqueued,
     )
-    return {"metric_key": metric_key, "career_metric": career_key, "enqueued": enqueued}
+    return {
+        "metric_key": metric_key,
+        "window_metrics": sorted(dispatched_metric_keys),
+        "enqueued": enqueued,
+    }
 
 
 @shared_task(

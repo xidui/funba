@@ -16,23 +16,23 @@ from sqlalchemy.orm import Session, sessionmaker
 from db import models as db_models
 from db.game_status import completed_game_clause
 from metrics.framework.base import (
-    CAREER_SEASON,
     MetricDefinition,
     MetricResult,
-    career_season_for,
     career_season_type_code,
     is_career_season,
     normalize_metric_season_types,
+    window_season_for,
+    window_size_from_season,
 )
 from metrics.framework.family import (
-    FAMILY_VARIANT_CAREER,
     FAMILY_VARIANT_SEASON,
-    derive_career_description,
-    derive_career_min_sample,
-    derive_career_name,
+    derive_window_description,
+    derive_window_min_sample,
+    derive_window_name,
     family_base_key,
-    family_career_key,
+    family_window_key,
     rule_supports_career,
+    window_type_from_key,
 )
 
 MetricDefinitionModel = db_models.MetricDefinition
@@ -238,6 +238,15 @@ def _career_base_key(metric: MetricDefinition) -> str:
     return family_base_key(getattr(metric, "base_metric_key", None) or metric.key)
 
 
+def _metric_window_types(metric: MetricDefinition) -> list[str]:
+    if not getattr(metric, "supports_career", False) or getattr(metric, "scope", None) in ("game", "season"):
+        return []
+    window_types = ["career"]
+    if getattr(metric, "trigger", "game") == "season":
+        window_types.extend(["last5", "last3"])
+    return window_types
+
+
 def _career_season_prefix(career_season: str) -> str | None:
     code = career_season_type_code(career_season)
     if not code:
@@ -245,10 +254,34 @@ def _career_season_prefix(career_season: str) -> str | None:
     return f"{code}%"
 
 
+def _window_target_seasons(session: Session, base_key: str, career_season: str) -> list[str] | None:
+    prefix = _career_season_prefix(career_season)
+    window_size = window_size_from_season(career_season)
+    if not prefix or window_size is None:
+        return None
+    if MetricResultModel is None:
+        return []
+    rows = (
+        session.query(MetricResultModel.season)
+        .filter(
+            MetricResultModel.metric_key == base_key,
+            MetricResultModel.season.like(prefix),
+        )
+        .distinct()
+        .order_by(MetricResultModel.season.desc())
+        .limit(window_size)
+        .all()
+    )
+    return [season for (season,) in rows if season]
+
+
 def _career_ready_from_season_results(session: Session, base_key: str, career_season: str) -> bool:
     prefix = _career_season_prefix(career_season)
     if not prefix:
         return False
+    target_seasons = _window_target_seasons(session, base_key, career_season)
+    if target_seasons is not None:
+        return bool(target_seasons)
 
     expected = {
         season
@@ -281,17 +314,24 @@ def _career_context_rows(session: Session, base_key: str, career_season: str) ->
     prefix = _career_season_prefix(career_season)
     if not prefix:
         return []
+    target_seasons = _window_target_seasons(session, base_key, career_season)
+    filters = [
+        MetricResultModel.metric_key == base_key,
+        MetricResultModel.entity_id.isnot(None),
+    ]
+    if target_seasons is not None:
+        if not target_seasons:
+            return []
+        filters.append(MetricResultModel.season.in_(target_seasons))
+    else:
+        filters.append(MetricResultModel.season.like(prefix))
     rows = (
         session.query(
             MetricResultModel.entity_id,
             MetricResultModel.sub_key,
             MetricResultModel.context_json,
         )
-        .filter(
-            MetricResultModel.metric_key == base_key,
-            MetricResultModel.season.like(prefix),
-            MetricResultModel.entity_id.isnot(None),
-        )
+        .filter(*filters)
         .all()
     )
     parsed: list[tuple[str, str, dict]] = []
@@ -310,13 +350,20 @@ def _career_context_rows_by_season(session: Session, base_key: str, career_seaso
     prefix = _career_season_prefix(career_season)
     if not prefix:
         return []
+    target_seasons = _window_target_seasons(session, base_key, career_season)
+    filters = [
+        MetricResultModel.metric_key == base_key,
+        MetricResultModel.entity_id.isnot(None),
+    ]
+    if target_seasons is not None:
+        if not target_seasons:
+            return []
+        filters.append(MetricResultModel.season.in_(target_seasons))
+    else:
+        filters.append(MetricResultModel.season.like(prefix))
     rows = (
         session.query(MetricResultModel.entity_id, MetricResultModel.season, MetricResultModel.context_json)
-        .filter(
-            MetricResultModel.metric_key == base_key,
-            MetricResultModel.season.like(prefix),
-            MetricResultModel.entity_id.isnot(None),
-        )
+        .filter(*filters)
         .all()
     )
     parsed: list[tuple[str, str, dict]] = []
@@ -446,6 +493,7 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
     prefix = _career_season_prefix(season)
     if not _metric_declares_career_reducer(metric) or not prefix:
         return None
+    target_seasons = _window_target_seasons(session, base_key, season)
     max_keys = tuple(getattr(metric, "career_max_keys", ()) or ())
     min_keys = tuple(getattr(metric, "career_min_keys", ()) or ())
     extrema_keys = max_keys + min_keys
@@ -453,7 +501,7 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
     if extrema_keys:
         context_rows = _career_context_rows_by_season(session, base_key, season)
         totals_by_entity = _aggregate_contexts(
-            [(entity_id, context) for entity_id, _, context in context_rows],
+            [(entity_id, "", context) for entity_id, _, context in context_rows],
             sum_keys=tuple(getattr(metric, "career_sum_keys", ()) or ()),
             max_keys=max_keys,
             min_keys=min_keys,
@@ -471,8 +519,8 @@ def _aggregate_career_qualifications_from_season_logs(session: Session, metric: 
         session.query(MetricRunLog.entity_id, MetricRunLog.season, MetricRunLog.game_id)
         .filter(
             MetricRunLog.metric_key == base_key,
-            MetricRunLog.season.like(prefix),
             MetricRunLog.qualified.is_(True),
+            MetricRunLog.season.in_(target_seasons) if target_seasons is not None else MetricRunLog.season.like(prefix),
         )
         .all()
     )
@@ -593,6 +641,26 @@ def _aggregated_career_qualification_game_ids(
     return _fallback_career_result_context_game_ids(session, metric, season_value, entity_id_value)
 
 
+def _resolve_window_type(
+    *,
+    variant: str | None,
+    key: str | None,
+    explicit_window_type: str | None,
+    career: bool | None,
+    inner_career: bool = False,
+) -> str | None:
+    if explicit_window_type is not None:
+        return explicit_window_type
+    if variant in {"career", "last3", "last5"}:
+        return variant
+    key_window = window_type_from_key(key)
+    if key_window is not None:
+        return key_window
+    if career or inner_career:
+        return "career"
+    return None
+
+
 class RuleMetricDefinition(MetricDefinition):
     """Adapter that makes a DB-backed rule metric runnable by the existing runner."""
 
@@ -602,7 +670,13 @@ class RuleMetricDefinition(MetricDefinition):
     career_name_suffix = " (Career)"
     career_min_sample: int | None = None
 
-    def __init__(self, row: MetricDefinitionModel, *, career: bool | None = None):
+    def __init__(
+        self,
+        row: MetricDefinitionModel,
+        *,
+        career: bool | None = None,
+        window_type: str | None = None,
+    ):
         self._base_row = row
         self._base_key = row.key
         self._base_name = row.name
@@ -630,27 +704,48 @@ class RuleMetricDefinition(MetricDefinition):
         self.career_min_sample = int(career_min_sample) if career_min_sample is not None else None
         self.season_types = normalize_metric_season_types(self.definition.get("season_types"))
         self.qualifying_field = self.definition.get("qualifying_field")  # legacy, unused
-        explicit_career = self.variant == FAMILY_VARIANT_CAREER
-        self.career = explicit_career if career is None else career
+        persisted_window = _resolve_window_type(
+            variant=self.variant,
+            key=row.key,
+            explicit_window_type=None,
+            career=None,
+        )
+        self.window_type = _resolve_window_type(
+            variant=self.variant,
+            key=row.key,
+            explicit_window_type=window_type,
+            career=career,
+        )
+        self.career = self.window_type is not None
 
         if self.time_scope == "career":
+            self.window_type = "career"
             self.career = True
             self.supports_career = False
         elif self.time_scope == "season_and_career":
             self.supports_career = True
 
-        if self.career:
-            if not explicit_career and self.time_scope != "career":
-                self.key = family_career_key(self._base_key)
-                self.name = derive_career_name(self._base_name, self.career_name_suffix)
-                self.description = derive_career_description(self.description)
+        if self.window_type is not None:
+            if persisted_window is None and self.time_scope != "career":
+                self.key = family_window_key(self._base_key, self.window_type)
+                self.name = derive_window_name(
+                    self._base_name,
+                    self.window_type,
+                    suffix=self.career_name_suffix if self.window_type == "career" else None,
+                )
+                self.description = derive_window_description(self.description, self.window_type)
                 self.supports_career = False
-            self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
+            self.min_sample = derive_window_min_sample(
+                self.min_sample,
+                self.window_type,
+                career_min_sample=self.career_min_sample,
+            )
 
-    def make_career_sibling(self) -> RuleMetricDefinition | None:
-        if not self.supports_career or self.scope in ("game", "season"):
-            return None
-        return RuleMetricDefinition(self._base_row, career=True)
+    def make_window_siblings(self) -> list[RuleMetricDefinition]:
+        return [
+            RuleMetricDefinition(self._base_row, window_type=window_type)
+            for window_type in _metric_window_types(self)
+        ]
 
     def compute(
         self,
@@ -665,7 +760,7 @@ class RuleMetricDefinition(MetricDefinition):
             return None
 
         if self.career:
-            target_season = career_season_for(season) if season else None
+            target_season = window_season_for(season, self.window_type or "career")
             if target_season is None:
                 return None
         else:
@@ -732,7 +827,13 @@ def _load_code_metric_class(code: str) -> type[MetricDefinition]:
 class CodeMetricDefinition(MetricDefinition):
     """Adapter that wraps a DB-backed code metric (source_type='code')."""
 
-    def __init__(self, row: MetricDefinitionModel, *, career: bool | None = None):
+    def __init__(
+        self,
+        row: MetricDefinitionModel,
+        *,
+        career: bool | None = None,
+        window_type: str | None = None,
+    ):
         self._inner = load_code_metric(row.code_python)
         self._base_row = row
         # Copy attributes from the inner metric
@@ -752,8 +853,6 @@ class CodeMetricDefinition(MetricDefinition):
         self.variant = getattr(row, "variant", None)
         self.base_metric_key = getattr(row, "base_metric_key", None)
         self.managed_family = bool(getattr(row, "managed_family", False))
-        explicit_career = self.variant == FAMILY_VARIANT_CAREER or bool(getattr(self._inner, "career", False))
-        self.career = explicit_career if career is None else career
         self.career_name_suffix = getattr(self._inner, "career_name_suffix", " (Career)")
         self.career_min_sample = getattr(self._inner, "career_min_sample", None)
         self.career_aggregate_mode = getattr(self._inner, "career_aggregate_mode", None)
@@ -772,19 +871,43 @@ class CodeMetricDefinition(MetricDefinition):
         self.fill_missing_sub_keys_with_zero = bool(getattr(row, "fill_missing_sub_keys_with_zero", False))
         self.qualifying_field = getattr(self._inner, "qualifying_field", None)  # legacy, unused
         self.max_results_per_season = getattr(row, "max_results_per_season", None) or getattr(self._inner, "max_results_per_season", None)
+        persisted_window = _resolve_window_type(
+            variant=self.variant,
+            key=self.key,
+            explicit_window_type=None,
+            career=None,
+            inner_career=bool(getattr(self._inner, "career", False)),
+        )
+        self.window_type = _resolve_window_type(
+            variant=self.variant,
+            key=self.key,
+            explicit_window_type=window_type,
+            career=career,
+            inner_career=bool(getattr(self._inner, "career", False)),
+        )
+        self.career = self.window_type is not None
 
-        if self.career:
-            if not explicit_career:
-                self.key = family_career_key(self._base_row.key)
-                self.name = derive_career_name(self._inner.name, self.career_name_suffix)
-                self.description = derive_career_description(self._inner.description)
+        if self.window_type is not None:
+            if persisted_window is None:
+                self.key = family_window_key(self._base_row.key, self.window_type)
+                self.name = derive_window_name(
+                    self._inner.name,
+                    self.window_type,
+                    suffix=self.career_name_suffix if self.window_type == "career" else None,
+                )
+                self.description = derive_window_description(self._inner.description, self.window_type)
             self.supports_career = False
-            self.min_sample = derive_career_min_sample(self.min_sample, self.career_min_sample)
+            self.min_sample = derive_window_min_sample(
+                self.min_sample,
+                self.window_type,
+                career_min_sample=self.career_min_sample,
+            )
 
-    def make_career_sibling(self) -> CodeMetricDefinition | None:
-        if not self.supports_career or self.scope in ("game", "season"):
-            return None
-        return CodeMetricDefinition(self._base_row, career=True)
+    def make_window_siblings(self) -> list[CodeMetricDefinition]:
+        return [
+            CodeMetricDefinition(self._base_row, window_type=window_type)
+            for window_type in _metric_window_types(self)
+        ]
 
     def compute_delta(self, session, entity_id, game_id):
         return self._inner.compute_delta(ReadOnlySession(session), entity_id, game_id)
@@ -859,9 +982,9 @@ def _load_published_code_metrics(session: Session) -> list[CodeMetricDefinition]
         try:
             metric = CodeMetricDefinition(row)
             metrics.append(metric)
-            sibling = metric.make_career_sibling()
-            if sibling is not None and sibling.key not in existing_keys:
-                metrics.append(sibling)
+            for sibling in metric.make_window_siblings():
+                if sibling.key not in existing_keys:
+                    metrics.append(sibling)
         except Exception as exc:
             logger.error("Failed to load code metric %s: %s", row.key, exc)
     return metrics
@@ -882,9 +1005,9 @@ def _load_published_rule_metrics(session: Session) -> list[RuleMetricDefinition]
     for row in rows:
         metric = RuleMetricDefinition(row)
         metrics.append(metric)
-        sibling = metric.make_career_sibling()
-        if sibling is not None and sibling.key not in existing_keys:
-            metrics.append(sibling)
+        for sibling in metric.make_window_siblings():
+            if sibling.key not in existing_keys:
+                metrics.append(sibling)
     return metrics
 
 
@@ -907,10 +1030,11 @@ def _build_runtime_metric(
     row: MetricDefinitionModel,
     *,
     career: bool | None = None,
+    window_type: str | None = None,
 ) -> MetricDefinition:
     if row.source_type == "code":
-        return CodeMetricDefinition(row, career=career)
-    return RuleMetricDefinition(row, career=career)
+        return CodeMetricDefinition(row, career=career, window_type=window_type)
+    return RuleMetricDefinition(row, career=career, window_type=window_type)
 
 
 def _lookup_published_metric_row(session: Session, key: str) -> MetricDefinitionModel | None:
@@ -929,7 +1053,8 @@ def _load_metric_by_key(session: Session, key: str) -> MetricDefinition | None:
     if row is not None:
         return _build_runtime_metric(row)
 
-    if not key.endswith("_career"):
+    window_type = window_type_from_key(key)
+    if window_type is None:
         return None
 
     base_key = family_base_key(key)
@@ -943,8 +1068,10 @@ def _load_metric_by_key(session: Session, key: str) -> MetricDefinition | None:
     base_metric = _build_runtime_metric(base_row)
     if base_metric.career or not getattr(base_metric, "supports_career", False):
         return None
+    if window_type != "career" and getattr(base_metric, "trigger", "game") != "season":
+        return None
 
-    return _build_runtime_metric(base_row, career=True)
+    return _build_runtime_metric(base_row, career=True, window_type=window_type)
 
 
 def get_all_metrics(session: Session | None = None) -> list[MetricDefinition]:
@@ -975,8 +1102,8 @@ def expand_metric_keys(metric_keys: Iterable[str], session: Session | None = Non
         metric = metrics.get(key)
         if metric is None or metric.career or not getattr(metric, "supports_career", False):
             continue
-        career_key = key + "_career"
-        if career_key in metrics and career_key not in seen:
-            seen.add(career_key)
-            expanded.append(career_key)
+        for sibling in getattr(metric, "make_window_siblings", lambda: [])():
+            if sibling.key in metrics and sibling.key not in seen:
+                seen.add(sibling.key)
+                expanded.append(sibling.key)
     return expanded
