@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 import time
 
-from sqlalchemy import event, func
+from sqlalchemy import event, func, text
 from sqlalchemy.orm import Session
 
 from db.game_status import is_game_completed
@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 _BULK_WRITE_BATCH_SIZE = 1000
 _PERF_WINDOW = 5
+_METRIC_RESULT_WRITE_LOCK_NAME = "metric_result_write"
+_METRIC_RESULT_WRITE_LOCK_TIMEOUT_SECONDS = 300
 
 
 def _batched(rows: list, batch_size: int = _BULK_WRITE_BATCH_SIZE):
@@ -67,7 +69,8 @@ def _upsert_result(session: Session, result: MetricResult) -> None:
         context_json=stmt.inserted.context_json,
         computed_at=stmt.inserted.computed_at,
     )
-    session.execute(stmt)
+    with _metric_result_write_lock(session):
+        session.execute(stmt)
 
 
 def _flush_results(session: Session, results: list[MetricResult]) -> None:
@@ -77,17 +80,46 @@ def _flush_results(session: Session, results: list[MetricResult]) -> None:
 
     from sqlalchemy.dialects.mysql import insert
 
-    for batch in _batched(results):
-        stmt = insert(MetricResultModel).values([_result_row(result) for result in batch])
-        stmt = stmt.on_duplicate_key_update(
-            rank_group=stmt.inserted.rank_group,
-            game_id=stmt.inserted.game_id,
-            value_num=stmt.inserted.value_num,
-            value_str=stmt.inserted.value_str,
-            context_json=stmt.inserted.context_json,
-            computed_at=stmt.inserted.computed_at,
-        )
-        session.execute(stmt)
+    with _metric_result_write_lock(session):
+        for batch in _batched(results):
+            stmt = insert(MetricResultModel).values([_result_row(result) for result in batch])
+            stmt = stmt.on_duplicate_key_update(
+                rank_group=stmt.inserted.rank_group,
+                game_id=stmt.inserted.game_id,
+                value_num=stmt.inserted.value_num,
+                value_str=stmt.inserted.value_str,
+                context_json=stmt.inserted.context_json,
+                computed_at=stmt.inserted.computed_at,
+            )
+            session.execute(stmt)
+
+
+@contextmanager
+def _metric_result_write_lock(
+    session: Session,
+    timeout_seconds: int = _METRIC_RESULT_WRITE_LOCK_TIMEOUT_SECONDS,
+):
+    """Serialize MetricResult upserts to avoid cross-metric InnoDB deadlocks."""
+    connection = session.connection()
+    acquired = connection.execute(
+        text("SELECT GET_LOCK(:name, :timeout_seconds)"),
+        {
+            "name": _METRIC_RESULT_WRITE_LOCK_NAME,
+            "timeout_seconds": int(timeout_seconds),
+        },
+    ).scalar()
+    if acquired != 1:
+        raise RuntimeError(f"Failed to acquire MetricResult write lock: {_METRIC_RESULT_WRITE_LOCK_NAME}")
+    try:
+        yield
+    finally:
+        try:
+            connection.execute(
+                text("SELECT RELEASE_LOCK(:name)"),
+                {"name": _METRIC_RESULT_WRITE_LOCK_NAME},
+            )
+        except Exception:
+            logger.exception("Failed to release MetricResult write lock %s", _METRIC_RESULT_WRITE_LOCK_NAME)
 
 
 def _log_run(
@@ -385,6 +417,7 @@ def reduce_metric(
         )
 
         results_written = 0
+        persisted_results: list[MetricResult] = []
         for entity_type, entity_id in entity_rows:
             # Read all deltas for this entity, ordered by game_id (chronological)
             delta_rows = (
@@ -419,11 +452,11 @@ def reduce_metric(
 
             if result:
                 result.context = totals
-                _upsert_result(session, result)
+                persisted_results.append(result)
                 results_written += 1
             else:
                 # Below min_sample — persist totals so they are visible
-                _upsert_result(session, MetricResult(
+                persisted_results.append(MetricResult(
                     metric_key=metric_key,
                     entity_type=entity_type,
                     entity_id=entity_id,
@@ -432,6 +465,8 @@ def reduce_metric(
                     value_num=None,
                     context=totals,
                 ))
+
+        _flush_results(session, persisted_results)
 
     duration_ms = max(int((time.perf_counter() - started_at) * 1000), 0)
     db_reads, db_writes = get_counts()
@@ -542,6 +577,32 @@ def run_season_metric(
 
         _flush_results(session, persisted_results)
         count = len(persisted_results)
+
+        # When max_results_per_season is set, remove stale results that
+        # fell out of the top N after recomputation.  Only delete rows
+        # whose entity_id is NOT in the new result set — this avoids the
+        # broad DELETE that causes InnoDB deadlocks while still cleaning
+        # up obsolete entries.
+        if cap and replace_existing:
+            new_entity_ids = {r.entity_id for r in persisted_results}
+            stale = (
+                session.query(MetricResultModel)
+                .filter(
+                    MetricResultModel.metric_key == metric_key,
+                    MetricResultModel.season == season,
+                    MetricResultModel.entity_id.notin_(new_entity_ids) if new_entity_ids else True,
+                )
+                .all()
+            )
+            if stale:
+                stale_ids = [r.id for r in stale]
+                session.query(MetricResultModel).filter(
+                    MetricResultModel.id.in_(stale_ids)
+                ).delete(synchronize_session=False)
+                logger.info(
+                    "run_season_metric %s season=%s: pruned %d stale results (cap=%d).",
+                    metric_key, season, len(stale_ids), cap,
+                )
 
         if qualifications:
             run_log_rows = [
