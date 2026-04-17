@@ -58,8 +58,59 @@ def _build_bracket_series(games):
     return dict(top=top, bot=bot, tw=tw, bw=bw, winner=winner, ts=None, bs=None)
 
 
+_EMPTY_BRACKET = dict(
+    er1=[None] * 4, er2=[None] * 2, ecf=None,
+    wr1=[None] * 4, wr2=[None] * 2, wcf=None,
+    finals=None,
+)
+
+
+# Eastern Conference franchise IDs (post-1971 conference era). Used to assign
+# topology-derived bracket halves to the East/West labels in the template
+# when the game-ID format pre-dates the modern round/series encoding.
+# Hornets/Pelicans (1610612740) is intentionally omitted — they were East
+# only in 2002-04, but those years use the modern game-ID format anyway.
+_EASTERN_CONFERENCE_TEAM_IDS = {
+    "1610612737",  # ATL
+    "1610612738",  # BOS
+    "1610612751",  # NJN/BKN
+    "1610612766",  # CHA (Hornets/Bobcats)
+    "1610612741",  # CHI
+    "1610612739",  # CLE
+    "1610612765",  # DET
+    "1610612754",  # IND
+    "1610612748",  # MIA
+    "1610612749",  # MIL
+    "1610612752",  # NYK
+    "1610612753",  # ORL
+    "1610612755",  # PHI
+    "1610612761",  # TOR
+    "1610612764",  # WAS/WSB
+}
+
+
+def _has_modern_playoff_id_encoding(games) -> bool:
+    """Modern (~2001+) playoff game IDs put the round digit at position 7
+    (e.g. `0042200101`); older IDs (pre-2001) are sequential and always have
+    `0` there (e.g. `0049200001`)."""
+    for g in games:
+        gid = str(getattr(g, "game_id", "") or "")
+        if len(gid) >= 10 and gid[7] in "1234":
+            return True
+    return False
+
+
 def _build_playoff_bracket(games):
-    """Parse playoff game list into bracket structure keyed by round/series."""
+    """Parse playoff game list into bracket structure keyed by round/series.
+
+    Falls back to topology-based construction for older seasons whose game
+    IDs do not encode round/series at positions 7/8.
+    """
+    if not games:
+        return dict(_EMPTY_BRACKET)
+    if not _has_modern_playoff_id_encoding(games):
+        return _build_playoff_bracket_from_topology(games)
+
     _R1_SEEDS = {
         0: (1, 8), 1: (4, 5), 2: (3, 6), 3: (2, 7),
         4: (1, 8), 5: (4, 5), 6: (3, 6), 7: (2, 7),
@@ -88,6 +139,103 @@ def _build_playoff_bracket(games):
         wr2=[_s(2, i + 2) for i in range(2)],
         wcf=_s(3, 1),
         finals=_s(4, 0),
+    )
+
+
+def _build_playoff_bracket_from_topology(games):
+    """Derive bracket from team-pair grouping + chronology.
+
+    For older seasons where game IDs are sequential, we can't read the round
+    off the ID. Instead: group games into series (one per team pair), find
+    the chronologically last series (= NBA Finals), then walk backwards
+    through each finalist's prior series to reconstruct R2 and R1.
+    """
+    pair_games: dict[tuple[str, str], list] = defaultdict(list)
+    for g in games:
+        if not g.home_team_id or not g.road_team_id:
+            continue
+        pair = tuple(sorted([str(g.home_team_id), str(g.road_team_id)]))
+        pair_games[pair].append(g)
+
+    def _series(pair, gs):
+        gs.sort(key=lambda g: ((g.game_date or date.min), str(g.game_id)))
+        first = gs[0]
+        top = str(first.home_team_id)
+        bot = str(first.road_team_id)
+        tw = sum(1 for g in gs if str(getattr(g, "wining_team_id", "") or "") == top)
+        bw = sum(1 for g in gs if str(getattr(g, "wining_team_id", "") or "") == bot)
+        winner = top if tw > bw else (bot if bw > tw else None)
+        return {
+            "pair": pair, "top": top, "bot": bot,
+            "tw": tw, "bw": bw, "winner": winner,
+            "ts": None, "bs": None,
+            "start": gs[0].game_date, "end": gs[-1].game_date,
+        }
+
+    series = [_series(p, gs) for p, gs in pair_games.items()]
+    if not series:
+        return dict(_EMPTY_BRACKET)
+    series.sort(key=lambda s: (s["end"] or date.min, s["start"] or date.min))
+
+    finals = series[-1]
+    used = {finals["pair"]}
+
+    def _won_before(team, before):
+        if before is None:
+            return None
+        cand = [
+            s for s in series
+            if s["pair"] not in used
+            and s["winner"] == team
+            and s["end"] is not None
+            and s["end"] < before
+        ]
+        return max(cand, key=lambda s: s["end"]) if cand else None
+
+    def _build_side(finalist):
+        cf = _won_before(finalist, finals["start"])
+        if cf is None:
+            return [None] * 4, [None] * 2, None
+        used.add(cf["pair"])
+        # Each CF participant is the winner of an R2 series.
+        r2_list = []
+        for participant in (cf["top"], cf["bot"]):
+            r2 = _won_before(participant, cf["start"])
+            if r2:
+                used.add(r2["pair"])
+            r2_list.append(r2)
+        # Each R2 participant is the winner of an R1 series. Order: for each
+        # R2 series, push its top participant's R1 then its bot's — keeps
+        # siblings adjacent in the rendered bracket tree.
+        r1_list = []
+        for r2 in r2_list:
+            if r2 is None:
+                r1_list.extend([None, None])
+                continue
+            for participant in (r2["top"], r2["bot"]):
+                r1 = _won_before(participant, r2["start"])
+                if r1:
+                    used.add(r1["pair"])
+                r1_list.append(r1)
+        return r1_list, r2_list, cf
+
+    top_side = _build_side(finals["top"])
+    bot_side = _build_side(finals["bot"])
+
+    # Place each side under the East/West label using the historical
+    # conference of the finals participants. Default top→East, bot→West when
+    # neither (or both) is in the East lookup.
+    top_east = finals["top"] in _EASTERN_CONFERENCE_TEAM_IDS
+    bot_east = finals["bot"] in _EASTERN_CONFERENCE_TEAM_IDS
+    if bot_east and not top_east:
+        east, west = bot_side, top_side
+    else:
+        east, west = top_side, bot_side
+
+    return dict(
+        er1=east[0], er2=east[1], ecf=east[2],
+        wr1=west[0], wr2=west[1], wcf=west[2],
+        finals=finals,
     )
 
 
