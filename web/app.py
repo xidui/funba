@@ -5045,6 +5045,7 @@ def inject_template_helpers():
         paperclip_issue_base_url = get_paperclip_issue_base_url(session)
     return {
         "season_label": _season_label,
+        "season_year_label": _season_year_label,
         "lang": _current_lang(),
         "t": _t,
         "url_for": _localized_url_for,
