@@ -423,6 +423,19 @@
     .bk-conn{width:8px;min-width:8px;}
     .pi-note{font-size:8px;}
   }
+  /* clickable matchup cards (toggle filter on game list below) */
+  .sc.sc-clickable{cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease;}
+  .sc.sc-clickable:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));}
+  .sc.matchup-active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .matchup-filter-banner{display:none;align-items:center;gap:10px;margin:0 0 12px;padding:8px 12px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));border-radius:8px;background:color-mix(in srgb,var(--accent) 8%,var(--surface));font-size:12px;}
+  .matchup-filter-banner.is-visible{display:flex;}
+  .matchup-filter-banner .mfb-label{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:10px;}
+  .matchup-filter-banner .mfb-teams{color:var(--text);font-weight:700;}
+  .matchup-filter-banner .mfb-clear{margin-left:auto;background:none;border:1px solid var(--border);color:var(--muted);padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;transition:color .12s,border-color .12s;}
+  .matchup-filter-banner .mfb-clear:hover{color:var(--text);border-color:var(--accent);}
+  .game-row.matchup-hidden,.date-group-header.matchup-hidden{display:none!important;}
+  .matchup-empty-msg{display:none;padding:16px;color:var(--muted);font-size:12px;text-align:center;}
+  .matchup-empty-msg.is-visible{display:block;}
 </style>
 
 {# Team logo or TBD placeholder #}
@@ -433,7 +446,8 @@
 
 {% macro sc(s) %}
 {% if s %}
-<div class="sc">
+<div class="sc{% if s.top and s.bot %} sc-clickable{% endif %}"
+     {% if s.top and s.bot %}data-matchup-top="{{ s.top }}" data-matchup-bot="{{ s.bot }}"{% endif %}>
   <div class="tr {{ 'w' if s.winner and s.winner == s.top else '' }} {{ 'l' if s.winner and s.winner != s.top else '' }}">
     {% if s.ts %}<span class="sd">{{ s.ts }}</span>{% endif %}
     {{ bk_logo(s.top) }}
@@ -457,7 +471,8 @@
 
 {% macro gc(g) %}
 {% if g %}
-<div class="sc">
+<div class="sc{% if g.top and g.bot %} sc-clickable{% endif %}"
+     {% if g.top and g.bot %}data-matchup-top="{{ g.top }}" data-matchup-bot="{{ g.bot }}"{% endif %}>
   <div class="tr {{ 'w' if g.winner and g.winner == g.top|string else '' }} {{ 'l' if g.winner and g.winner != g.top|string else '' }}">
     {{ bk_logo(g.top) }}
     <span class="ab">{{ team_abbr_for_year(g.top, selected_year) if g.top else 'TBD' }}</span>
@@ -555,6 +570,91 @@
     </div>
   </div>
 </div>
+
+<div id="matchup-filter-banner" class="matchup-filter-banner" role="status" aria-live="polite">
+  <span class="mfb-label">{{ t('Filtered', '筛选') }}</span>
+  <span class="mfb-teams" id="matchup-filter-teams"></span>
+  <span id="matchup-filter-count" class="meta"></span>
+  <button type="button" class="mfb-clear" id="matchup-filter-clear">{{ t('Clear', '清除') }}</button>
+</div>
+
+<script>
+(function(){
+  var cards = document.querySelectorAll('.playoff-bracket .sc-clickable');
+  if (!cards.length) return;
+  var banner = document.getElementById('matchup-filter-banner');
+  var teamsEl = document.getElementById('matchup-filter-teams');
+  var countEl = document.getElementById('matchup-filter-count');
+  var clearBtn = document.getElementById('matchup-filter-clear');
+  var activeCard = null;
+
+  function getAbbr(card, row){
+    var ab = card.querySelectorAll('.tr .ab');
+    return (ab[row] && ab[row].textContent.trim()) || '';
+  }
+
+  function clearFilter(){
+    if (activeCard) activeCard.classList.remove('matchup-active');
+    activeCard = null;
+    banner.classList.remove('is-visible');
+    document.querySelectorAll('.game-row.matchup-hidden, .date-group-header.matchup-hidden')
+      .forEach(function(el){ el.classList.remove('matchup-hidden'); });
+    document.querySelectorAll('.matchup-empty-msg').forEach(function(el){ el.classList.remove('is-visible'); });
+  }
+
+  function applyFilter(card){
+    var top = card.getAttribute('data-matchup-top');
+    var bot = card.getAttribute('data-matchup-bot');
+    if (!top || !bot) return;
+    if (activeCard) activeCard.classList.remove('matchup-active');
+    activeCard = card;
+    card.classList.add('matchup-active');
+
+    var shown = 0;
+    document.querySelectorAll('.game-row').forEach(function(row){
+      var r = row.getAttribute('data-road-team') || '';
+      var h = row.getAttribute('data-home-team') || '';
+      var match = (r === top && h === bot) || (r === bot && h === top);
+      row.classList.toggle('matchup-hidden', !match);
+      if (match) shown++;
+    });
+
+    // Hide date group headers with no visible rows below them.
+    document.querySelectorAll('.game-rows').forEach(function(container){
+      var children = Array.prototype.slice.call(container.children);
+      var lastHeader = null;
+      var headerHasVisible = false;
+      children.forEach(function(el){
+        if (el.classList.contains('date-group-header')){
+          if (lastHeader){ lastHeader.classList.toggle('matchup-hidden', !headerHasVisible); }
+          lastHeader = el;
+          headerHasVisible = false;
+        } else if (el.classList.contains('game-row') && !el.classList.contains('matchup-hidden')){
+          headerHasVisible = true;
+        }
+      });
+      if (lastHeader){ lastHeader.classList.toggle('matchup-hidden', !headerHasVisible); }
+    });
+
+    var topAbbr = getAbbr(card, 0);
+    var botAbbr = getAbbr(card, 1);
+    teamsEl.textContent = topAbbr + ' vs ' + botAbbr;
+    countEl.textContent = shown
+      ? ('· ' + shown + ' ' + {{ t('games on this page', '场（本页）')|tojson }})
+      : {{ t('· no games on this page', '· 本页没有这组比赛')|tojson }};
+    banner.classList.add('is-visible');
+  }
+
+  cards.forEach(function(card){
+    card.addEventListener('click', function(ev){
+      ev.preventDefault();
+      if (card === activeCard){ clearFilter(); }
+      else { applyFilter(card); }
+    });
+  });
+  if (clearBtn) clearBtn.addEventListener('click', clearFilter);
+})();
+</script>
 {% endif %}
 
 {# ── Game row macro ── #}
@@ -566,9 +666,13 @@
   <a
     class="game-row {{ entry.status }}"
     href="{{ game_url(entry.game_id) }}"
+    data-road-team="{{ entry.road_team_id or '' }}"
+    data-home-team="{{ entry.home_team_id or '' }}"
     {% if entry.status == 'live' %}data-live-game-id="{{ entry.game_id }}"{% endif %}>
   {% else %}
-  <div class="game-row {{ entry.status }} no-link" aria-disabled="true">
+  <div class="game-row {{ entry.status }} no-link" aria-disabled="true"
+       data-road-team="{{ entry.road_team_id or '' }}"
+       data-home-team="{{ entry.home_team_id or '' }}">
   {% endif %}
       <span class="game-team {{ 'winner' if entry.road_won else ('loser' if entry.home_won else '') }}">
         {% if road and road.team_id %}
