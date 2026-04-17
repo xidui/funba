@@ -966,6 +966,54 @@
     line-height: 1.4;
   }
 
+  /* Inline insight under the entity name — only visible on mobile,
+     since the dedicated Insight column is hidden there to keep the
+     rankings table within the viewport. */
+  .entity-reason-mobile {
+    display: none;
+    font-size: 11px;
+    color: var(--muted-2);
+    line-height: 1.35;
+    margin-top: 3px;
+  }
+
+  /* ── Mobile: drop derived columns, tighten density, inline insight ── */
+  @media (max-width: 640px) {
+    .rankings-table-wrap { overflow-x: visible; }
+    .rankings-table { font-size: 12px; }
+    .rankings-table th,
+    .rankings-table td {
+      padding: 8px 6px;
+    }
+    .rankings-table th.col-group,
+    .rankings-table td.col-group,
+    .rankings-table th.col-games,
+    .rankings-table td.col-games,
+    .rankings-table th.col-standing,
+    .rankings-table td.col-standing,
+    .rankings-table th.col-reason,
+    .rankings-table td.col-reason {
+      display: none;
+    }
+    .rankings-table th.col-season,
+    .rankings-table td.col-season {
+      font-size: 10px;
+    }
+    .rank-num {
+      font-size: 13px;
+      min-width: 22px;
+    }
+    .entity-thumb {
+      width: 26px;
+      height: 26px;
+    }
+    .entity-cell { gap: 6px; }
+    .entity-link { font-size: 12px; }
+    .value-cell { font-size: 15px; }
+    .md-split-trigger { font-size: 15px; }
+    .entity-reason-mobile { display: block; }
+  }
+
   .empty-state {
     padding: 60px 20px;
     text-align: center;
@@ -1473,8 +1521,8 @@
   <table class="rankings-table">
     <thead>
       <tr>
-        <th>#</th>
-        <th>
+        <th class="col-rank">#</th>
+        <th class="col-entity">
           {% if is_season_scope %}
             {% set _sort_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sort=none if sort_by == 'season' else 'season') %}
             <a href="{{ _sort_url }}" class="th-sort-link{% if sort_by == 'season' %} active{% endif %}" title="{{ t('Sort by season', '按赛季排序') }}">
@@ -1510,13 +1558,13 @@
           </a>
           {% endif %}
         </th>
-        {% if show_rank_group %}<th>{{ t('Group', '分组') }}</th>{% endif %}
-        {% if has_sub_keys %}<th>{{ metric_def.sub_key_label_zh if lang == 'zh' and metric_def.sub_key_label_zh else (metric_def.sub_key_label or t('Entry', '条目')) }}</th>{% endif %}
-        {% if show_all_seasons and not is_season_scope %}<th>{{ t('Season', '赛季') }}</th>{% endif %}
-        <th class="right">{{ t('Value', '数值') }}</th>
-        {% if metric_def.scope != 'game' %}<th class="right">{{ t('Games', '比赛') }}</th>{% endif %}
-        <th>{{ t('Standing', '排名') }}</th>
-        <th>{{ t('Insight', '解读') }}</th>
+        {% if show_rank_group %}<th class="col-group">{{ t('Group', '分组') }}</th>{% endif %}
+        {% if has_sub_keys %}<th class="col-sub-key">{{ metric_def.sub_key_label_zh if lang == 'zh' and metric_def.sub_key_label_zh else (metric_def.sub_key_label or t('Entry', '条目')) }}</th>{% endif %}
+        {% if show_all_seasons and not is_season_scope %}<th class="col-season">{{ t('Season', '赛季') }}</th>{% endif %}
+        <th class="right col-value">{{ t('Value', '数值') }}</th>
+        {% if metric_def.scope != 'game' %}<th class="right col-games">{{ t('Games', '比赛') }}</th>{% endif %}
+        <th class="col-standing">{{ t('Standing', '排名') }}</th>
+        <th class="col-reason">{{ t('Insight', '解读') }}</th>
       </tr>
     </thead>
     <tbody>
@@ -1524,10 +1572,10 @@
       {% for r in result_rows %}
       {% set is_repeat = has_sub_keys and expand and r.entity_id == ns.prev_entity %}
       <tr class="{% if r.is_notable %}notable-row{% endif %}{% if is_repeat %} repeat-entity{% endif %}{% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %} season-ongoing{% endif %}">
-        <td>
+        <td class="col-rank">
           <span class="rank-num{% if r.rank <= 3 %} top3{% endif %}">#{{ r.rank }}</span>
         </td>
-        <td>
+        <td class="col-entity">
           <div class="entity-cell">
             {% if r.entity_type == 'player' or r.entity_type == 'player_franchise' %}
               {% set player_id = r.entity_id.split(':')[0] %}
@@ -1587,12 +1635,15 @@
               {{ r.entity_label }}
             {% endif %}
           </div>
+          {% if r.notable_reason %}
+          <div class="entity-reason-mobile">{{ r.notable_reason }}</div>
+          {% endif %}
         </td>
         {% if show_rank_group %}
-        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.rank_group_label or 'All' }}</td>
+        <td class="col-group" style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.rank_group_label or 'All' }}</td>
         {% endif %}
         {% if has_sub_keys %}
-        <td style="font-size:12px;color:var(--muted);white-space:nowrap;">
+        <td class="col-sub-key" style="font-size:12px;color:var(--muted);white-space:nowrap;">
           <span style="display:inline-flex;align-items:center;gap:4px;">
           {% if r.sub_key_info and r.sub_key_info.team_id %}
             {% set _turl = team_url(r.sub_key_info.team_id) %}
@@ -1628,9 +1679,9 @@
         </td>
         {% endif %}
         {% if show_all_seasons and not is_season_scope %}
-        <td style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
+        <td class="col-season" style="font-size:11px;color:var(--muted-2);white-space:nowrap;">{{ r.season }}</td>
         {% endif %}
-        <td class="right">
+        <td class="right col-value">
           {% set _games_meta = r.games_meta or [] %}
           {% if _games_meta|length == 1 %}
             <a class="value-cell value-cell-game-link" href="{{ game_url(_games_meta[0].game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ r.value_str or r.value_num }}</a>
@@ -1649,11 +1700,11 @@
           {% if r.context_label %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;">{{ r.context_label }}</div>{% endif %}
         </td>
         {% if metric_def.scope != 'game' %}
-        <td class="right" style="color:var(--muted-2);font-size:12px;">
+        <td class="right col-games" style="color:var(--muted-2);font-size:12px;">
           {% if r.games_counted is not none %}{{ r.games_counted }}{% else %}—{% endif %}
         </td>
         {% endif %}
-        <td>
+        <td class="col-standing">
           {% if r.value_num is not none %}
           <span style="font-size:12px;font-weight:600;color:{{ 'var(--accent)' if r.is_notable else 'var(--muted)' }};">
             #{{ r.rank }} of {{ r.total }}
@@ -1662,7 +1713,7 @@
           <span style="color:var(--muted)">—</span>
           {% endif %}
         </td>
-        <td class="reason-text">{{ r.notable_reason or '—' }}</td>
+        <td class="reason-text col-reason">{{ r.notable_reason or '—' }}</td>
       </tr>
       {% if (r.games_meta or [])|length > 1 %}
       {% set _games_meta = r.games_meta %}
