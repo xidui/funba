@@ -5,6 +5,7 @@ import ast
 import builtins as py_builtins
 import json
 import logging
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import Iterable
 
@@ -21,6 +22,7 @@ from metrics.framework.base import (
     career_season_type_code,
     is_career_season,
     normalize_metric_season_types,
+    season_type_for,
     window_season_for,
     window_size_from_season,
 )
@@ -439,6 +441,53 @@ def _metric_declares_career_reducer(metric: MetricDefinition) -> bool:
     )
 
 
+def _effective_window_min_sample(metric: MetricDefinition, season: str) -> int | None:
+    """Compute the season-type-aware min_sample for this metric/season.
+
+    Returns None if no override is needed (e.g. regular-season buckets, or
+    metrics that lack a base min_sample to start from).
+    """
+    base_min = getattr(metric, "_base_min_sample", None)
+    if base_min is None:
+        return None
+    season_type = season_type_for(season)
+    if season_type not in ("playoffs", "playin"):
+        return None
+    window_type = getattr(metric, "window_type", None) or "career"
+    return derive_window_min_sample(
+        base_min,
+        window_type,
+        career_min_sample=getattr(metric, "career_min_sample", None),
+        season_type=season_type,
+    )
+
+
+@contextmanager
+def _swap_min_sample(metric: MetricDefinition, season: str):
+    """Temporarily replace metric.min_sample for the duration of one reduce.
+
+    User-defined compute_career_value implementations read self.min_sample
+    directly. Swapping the attribute lets the same code emit looser results
+    for playoffs/play-in pseudo-seasons without each metric having to know.
+    Code metrics delegate compute to an inner instance, so swap both layers.
+    """
+    new_min = _effective_window_min_sample(metric, season)
+    if new_min is None:
+        yield
+        return
+    targets: list[tuple[object, int]] = [(metric, metric.min_sample)]
+    inner = getattr(metric, "_inner", None)
+    if inner is not None and hasattr(inner, "min_sample"):
+        targets.append((inner, inner.min_sample))
+    for obj, _ in targets:
+        obj.min_sample = new_min
+    try:
+        yield
+    finally:
+        for obj, original in targets:
+            obj.min_sample = original
+
+
 def _aggregate_declared_career_metric(session: Session, metric: MetricDefinition, season: str) -> list[MetricResult]:
     base_key = _career_base_key(metric)
     rows = _career_context_rows(session, base_key, season)
@@ -453,32 +502,33 @@ def _aggregate_declared_career_metric(session: Session, metric: MetricDefinition
 
     results: list[MetricResult] = []
 
-    if group_by_sub_key:
-        # Index raw rows by (entity, sub_key) so the metric can inspect
-        # per-season context details in addition to aggregated totals.
-        raw_by_key: dict[tuple[str, str], list[dict]] = {}
-        for entity_id, sub_key, context in rows:
-            raw_by_key.setdefault((entity_id, sub_key), []).append(context)
-        for key in sorted(totals_by_key):
-            entity_id, sub_key = key
-            result = metric.compute_career_value(
-                totals_by_key[key],
-                season,
-                entity_id,
-                sub_key=sub_key,
-                rows=raw_by_key.get(key, []),
-            )
-            if result is not None:
-                result.metric_key = metric.key
-                if not result.sub_key:
-                    result.sub_key = sub_key
-                results.append(result)
-    else:
-        for entity_id in sorted(totals_by_key):
-            result = metric.compute_career_value(totals_by_key[entity_id], season, entity_id)
-            if result is not None:
-                result.metric_key = metric.key
-                results.append(result)
+    with _swap_min_sample(metric, season):
+        if group_by_sub_key:
+            # Index raw rows by (entity, sub_key) so the metric can inspect
+            # per-season context details in addition to aggregated totals.
+            raw_by_key: dict[tuple[str, str], list[dict]] = {}
+            for entity_id, sub_key, context in rows:
+                raw_by_key.setdefault((entity_id, sub_key), []).append(context)
+            for key in sorted(totals_by_key):
+                entity_id, sub_key = key
+                result = metric.compute_career_value(
+                    totals_by_key[key],
+                    season,
+                    entity_id,
+                    sub_key=sub_key,
+                    rows=raw_by_key.get(key, []),
+                )
+                if result is not None:
+                    result.metric_key = metric.key
+                    if not result.sub_key:
+                        result.sub_key = sub_key
+                    results.append(result)
+        else:
+            for entity_id in sorted(totals_by_key):
+                result = metric.compute_career_value(totals_by_key[entity_id], season, entity_id)
+                if result is not None:
+                    result.metric_key = metric.key
+                    results.append(result)
     return results
 
 
@@ -843,6 +893,7 @@ class CodeMetricDefinition(MetricDefinition):
         self.scope = row.scope or self._inner.scope
         self.category = getattr(self._inner, "category", row.category or "")
         self.min_sample = int(row.min_sample or self._inner.min_sample or 1)
+        self._base_min_sample = self.min_sample
         self.incremental = self._inner.incremental
         self.supports_career = getattr(self._inner, "supports_career", False)
         self.rank_order = getattr(self._inner, "rank_order", "desc")

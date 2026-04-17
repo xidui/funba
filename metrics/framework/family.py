@@ -96,8 +96,23 @@ def derive_window_min_sample(
     window_type: str,
     *,
     career_min_sample: int | None = None,
+    season_type: str | None = None,
 ) -> int:
+    """Compute the effective min_sample for a window/season-type combination.
+
+    season_type is one of "regular" / "playoffs" / "playin" (or None to use
+    the per-window default, which assumes regular). Playoffs and play-in have
+    fewer games per year, so they keep the base threshold (or 1 for play-in)
+    instead of being multiplied by the window length.
+    """
     base_min = int(min_sample or 1)
+    season_type_norm = (season_type or "").strip().lower() or None
+
+    if season_type_norm == "playin":
+        return 1
+    if season_type_norm == "playoffs":
+        return max(base_min, 1)
+
     if window_type == "career":
         if career_min_sample is not None:
             return int(career_min_sample)
