@@ -116,6 +116,20 @@
     margin-bottom: 4px;
   }
 
+  .detail-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .detail-title-row .detail-title {
+    margin-bottom: 0;
+  }
+  .detail-title-row .metric-switch {
+    margin-top: 0;
+  }
+
   .detail-meta {
     display: flex;
     align-items: center;
@@ -1049,7 +1063,17 @@
 
 <div class="detail-header">
   <div>
-    <div class="detail-title">{{ metric_def.name }}</div>
+    <div class="detail-title-row">
+      <div class="detail-title">{{ metric_def.name }}</div>
+      {% if window_tabs and window_tabs|length > 1 %}
+      <div class="metric-switch">
+        {% for tab in window_tabs %}
+        <a class="metric-switch-link{% if tab.is_current %} active{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=tab.metric_key) }}">{{ tab.label }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
     <div class="detail-meta">
       <span class="scope-badge {{ metric_def.scope }}">{{ metric_def.scope }}</span>
       <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">{{ metric_def.category }}</span>
@@ -1109,14 +1133,6 @@
       <span style="font-size:10px;font-weight:700;color:var(--win);">▼</span>
       {% endif %}
       {% endif %}
-    </div>
-    {% endif %}
-    {% if window_tabs and window_tabs|length > 1 %}
-    <div class="metric-switch">
-      {% for tab in window_tabs %}
-      <a class="metric-switch-link{% if tab.is_current %} active{% endif %}"
-         href="{{ url_for('metric_detail', metric_key=tab.metric_key) }}">{{ tab.label }}</a>
-      {% endfor %}
     </div>
     {% endif %}
     {% if related_metrics %}
