@@ -1565,24 +1565,47 @@ def register_public_routes(
             completed_all.sort(key=lambda item: (item.game_date, item.game_id), reverse=True)
             upcoming_games.sort(key=lambda item: (item.game_date, item.game_id))
 
-            # Determine active view
+            # Determine active view. Results + Schedule are unified into a
+            # single "games" view ordered chronologically; Live is kept
+            # separate because it auto-refreshes on its own cadence.
+            # Legacy ?view=results / ?view=schedule fold into the combined
+            # view so old bookmarks keep working.
             view = request.args.get("view", "").strip().lower()
             has_live = bool(live_games)
-            if view not in ("results", "schedule", "live"):
-                view = "live" if has_live else "results"
             if view == "live" and not has_live:
-                view = "results"
+                view = "games"
+            elif view == "":
+                view = "live" if has_live else "games"
+            elif view != "live":
+                view = "games"
 
-            # Paginate based on active view
-            if view == "results":
-                paginate_source = completed_all
-            elif view == "schedule":
-                paginate_source = upcoming_games
-            else:
-                paginate_source = []
+            # Combined list sorted newest→oldest (future dates appear above
+            # past dates). Default page is the one whose first entry is
+            # today-or-earlier — so a fresh visit lands the user on today
+            # with past games scrolling below and future games one page back.
+            combined_games = sorted(
+                upcoming_games + completed_all,
+                key=lambda item: (item.game_date, item.game_id),
+                reverse=True,
+            )
+            paginate_source = combined_games if view == "games" else []
 
             total = len(paginate_source)
             total_pages = max(1, (total + page_size - 1) // page_size) if paginate_source else 1
+
+            default_page = 1
+            if paginate_source:
+                today_start_idx = next(
+                    (
+                        i for i, entry in enumerate(paginate_source)
+                        if entry.game_date is not None and entry.game_date <= today
+                    ),
+                    len(paginate_source) - 1,
+                )
+                default_page = (today_start_idx // page_size) + 1
+
+            if "page" not in request.args and view == "games":
+                page = default_page
             page = min(page, total_pages)
             start = (page - 1) * page_size
             end = start + page_size

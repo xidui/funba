@@ -339,26 +339,23 @@
   </div>
 </div>
 
-{# ── Tab bar ── #}
+{# ── Tab bar ── only shown when a Live tab is available; otherwise a single
+   unified "Games" view makes the tab bar redundant. ── #}
+{% if has_live %}
 <div class="games-tabs">
   <div class="tab-bar">
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='results') }}"
-       class="tab-btn {{ 'active' if view == 'results' }}">
-      {{ t('Results', '赛果') }}
+    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='games') }}"
+       class="tab-btn {{ 'active' if view == 'games' }}">
+      {{ t('Games', '比赛') }}
     </a>
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='schedule') }}"
-       class="tab-btn {{ 'active' if view == 'schedule' }}">
-      {{ t('Schedule', '赛程') }}
-    </a>
-    {% if has_live %}
     <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='live') }}"
        class="tab-btn {{ 'active' if view == 'live' }}">
       <span class="live-dot-small"></span>{{ t('Live', '进行中') }}
       <span class="tab-count">{{ live_count }}</span>
     </a>
-    {% endif %}
   </div>
 </div>
+{% endif %}
 
 {# ── Playoff Bracket ── #}
 {% if bracket and selected_phase == '4' %}
@@ -658,22 +655,8 @@
     <p class="meta">{{ t('No live games right now.', '当前没有正在进行的比赛。') }}</p>
     {% endif %}
 
-  {% elif view == 'schedule' %}
-    {# ── Schedule View ── #}
-    {% if date_groups %}
-      {{ render_date_groups(date_groups) }}
-    {% else %}
-    <p class="meta">
-      {% if selected_team_obj %}
-      {{ t('No upcoming games for', '没有找到') }} {{ display_team_name(selected_team_obj) }} {{ t('in this season.', '的未开始比赛。') }}
-      {% else %}
-      {{ t('No upcoming games found for this season.', '这个赛季没有找到未开始的比赛。') }}
-      {% endif %}
-    </p>
-    {% endif %}
-
   {% else %}
-    {# ── Results View (default) ── #}
+    {# ── Games View (unified: upcoming + completed, newest first) ── #}
     {% if date_groups %}
       {{ render_date_groups(date_groups) }}
     {% else %}
