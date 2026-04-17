@@ -1486,7 +1486,15 @@
   </h2>
   <div class="stint-timeline">
     {% for s in player_stint_timeline %}
-    {% set href = url_for('team_page', slug=s.team_slug) if s.team_slug else '#' %}
+    {% if s.team_slug %}
+      {% if s.last_season_code %}
+        {% set href = url_for('team_page', slug=s.team_slug, season=s.last_season_code) %}
+      {% else %}
+        {% set href = url_for('team_page', slug=s.team_slug) %}
+      {% endif %}
+    {% else %}
+      {% set href = '#' %}
+    {% endif %}
     <a class="stint-block {% if s.is_active %}active{% endif %}"
        href="{{ href }}"
        title="{{ s.team_name }}{% if s.how_acquired %} — {{ s.how_acquired }}{% endif %}">

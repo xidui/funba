@@ -604,6 +604,16 @@ def register_detail_routes(
                         "is_active": s.left_at is None,
                         "how_acquired": s.how_acquired,
                     })
+                # Season code (5-digit, regular season) of the last season the
+                # player spent with that team — used to deep-link the team page
+                # to the era the stint actually covered, instead of today.
+                for entry in merged:
+                    left_at_final = entry.get("left_at")
+                    if left_at_final is None:
+                        entry["last_season_code"] = None
+                    else:
+                        start_year = left_at_final.year if left_at_final.month >= 10 else left_at_final.year - 1
+                        entry["last_season_code"] = f"2{start_year}"
                 player_stint_timeline = merged
 
             salary_records = (
