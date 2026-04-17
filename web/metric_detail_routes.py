@@ -156,7 +156,7 @@ def register_metric_detail_routes(app, deps):
                         "is_current": base_metric_key == metric_key,
                     }
                 )
-            for candidate_window in ("career", "last5", "last3"):
+            for candidate_window in ("last3", "last5", "career"):
                 candidate_key = family_window_key(base_metric_key, candidate_window)
                 if not _has_results_for(candidate_key):
                     continue
