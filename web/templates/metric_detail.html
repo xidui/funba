@@ -70,6 +70,21 @@
     font-size: 13px;
   }
 
+  .limited-data-notice {
+    font-size: 12px;
+    color: #facc15;
+    background: color-mix(in srgb, #facc15 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, #facc15 30%, var(--border));
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .limited-data-notice::before {
+    content: "⚠ ";
+    font-weight: 700;
+  }
+
   /* ── dimmed repeated-entity rows in expanded mode ─────────── */
   tr.repeat-entity td {
     opacity: 0.55;
@@ -1424,6 +1439,12 @@
 </script>
 
 {% if result_rows %}
+{% if total > 0 and total < 10 and not search_q and not entity_filter_id and not sub_key_filter %}
+<div class="limited-data-notice">
+  {{ t('Limited data for this view — only %d result%s found. Try a wider time window or a different season type.' % (total, '' if total == 1 else 's'),
+       '此视图数据较少——仅 %d 条结果。可尝试更宽的时间窗或其他赛季类型。' % total) }}
+</div>
+{% endif %}
 <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
   {% if search_q %}
     {{ total }} result{{ 's' if total != 1 }} for "{{ search_q }}" — {{ season_label }}
