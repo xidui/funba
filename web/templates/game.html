@@ -70,6 +70,18 @@
     gap: 24px;
     align-items: center;
   }
+  @media (max-width: 640px) {
+    .upcoming-preview { padding: 16px 14px 18px; }
+    .up-preview-grid {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    .up-preview-center { padding: 0; order: 2; }
+    .up-preview-team:first-child { order: 1; }
+    .up-preview-team:last-child  { order: 3; }
+    .up-preview-vs { font-size: 16px; }
+    .up-tipoff-time { font-size: 24px; }
+  }
   .up-preview-team {
     display: flex;
     flex-direction: column;
