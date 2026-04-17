@@ -1454,11 +1454,12 @@ def register_public_routes(
             season_ids_for_filter = year_to_season_ids.get(selected_year, []) if selected_year else []
 
             def _pick_active_phase(year: str | None) -> str | None:
-                """Pick the phase prefix ("2","4","5",...) most relevant today.
+                """Pick the phase prefix ("2","4",...) most relevant today.
 
                 Looks at games within a ±3 day window and prefers the latest
-                phase present (playoffs > play-in > all-star > regular > pre).
-                Returns None if no games exist for the given year in the window.
+                phase present. Play-in games (prefix "5") are rolled up into
+                the playoff bucket ("4") since play-in has few games and
+                feeds directly into the bracket.
                 """
                 if not year:
                     return None
@@ -1479,56 +1480,48 @@ def register_public_routes(
                     s = str(row.season)
                     if len(s) == 5 and s.isdigit() and s[1:] == year:
                         phases_present.add(s[0])
-                for prefix in ("4", "5", "3", "2", "1"):
+                if "4" in phases_present or "5" in phases_present:
+                    return "4"
+                for prefix in ("3", "2", "1"):
                     if prefix in phases_present:
                         return prefix
                 return None
 
-            # Phase filter: "2" = Regular, "4" = Playoffs, "5" = Play-In, etc.
+            # Phase filter: "2" = Regular, "4" = Playoffs (incl. Play-In), etc.
             # `phase=all` is the explicit "show everything" sentinel — used so
             # that choosing "All Phases" from the dropdown survives the round
             # trip without being silently replaced by the auto-pick below.
             # A missing `phase` param triggers auto-pick of the current phase.
+            # Legacy `phase=5` is folded into `phase=4` (play-in rolled up).
             raw_phase = (request.args.get("phase") or "").strip()
             if raw_phase == "all":
                 selected_phase = "all"
-            elif raw_phase in {"1", "2", "3", "4", "5"}:
+            elif raw_phase == "5":
+                selected_phase = "4"
+            elif raw_phase in {"1", "2", "3", "4"}:
                 selected_phase = raw_phase
             else:
                 selected_phase = _pick_active_phase(selected_year)
 
             if selected_phase and selected_phase != "all" and season_ids_for_filter:
+                allowed_prefixes = {"4", "5"} if selected_phase == "4" else {selected_phase}
                 season_ids_for_filter = [
-                    sid for sid in season_ids_for_filter if str(sid).startswith(selected_phase)
+                    sid for sid in season_ids_for_filter if str(sid)[:1] in allowed_prefixes
                 ]
 
             # Build bracket (before team filter so it shows full tournament)
             bracket = None
-            if selected_phase in ("4", "5") and season_ids_for_filter:
-                if selected_phase == "4":
-                    # Also include play-in games for unified bracket
-                    playin_sids = [
-                        sid for sid in year_to_season_ids.get(selected_year, [])
-                        if str(sid).startswith("5")
-                    ]
-                    all_bracket_sids = list(season_ids_for_filter) + playin_sids
-                    bracket_games = (
-                        session.query(Game)
-                        .filter(Game.season.in_(all_bracket_sids), Game.game_date.isnot(None))
-                        .all()
-                    )
-                    playoff_games = [g for g in bracket_games if str(g.season).startswith("4")]
-                    playin_games = [g for g in bracket_games if str(g.season).startswith("5")]
-                    bracket = _build_playoff_bracket(playoff_games)
-                    if playin_games:
-                        bracket["playin"] = _build_playin_bracket(playin_games)
-                else:
-                    bracket_games = (
-                        session.query(Game)
-                        .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
-                        .all()
-                    )
-                    bracket = _build_playin_bracket(bracket_games)
+            if selected_phase == "4" and season_ids_for_filter:
+                bracket_games = (
+                    session.query(Game)
+                    .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
+                    .all()
+                )
+                playoff_games = [g for g in bracket_games if str(g.season).startswith("4")]
+                playin_games = [g for g in bracket_games if str(g.season).startswith("5")]
+                bracket = _build_playoff_bracket(playoff_games)
+                if playin_games:
+                    bracket["playin"] = _build_playin_bracket(playin_games)
 
             selected_team = (request.args.get("team") or "").strip() or None
             try:
@@ -1634,13 +1627,17 @@ def register_public_routes(
             return ""
 
         # Available phases for the selected year (for the phase dropdown).
-        # Order: Regular (2), Play-In (5), Playoffs (4), Pre (1), All-Star (3).
-        _phase_order = {"2": 0, "5": 1, "4": 2, "1": 3, "3": 4}
+        # Order: Regular (2), Playoffs (4), Pre (1), All-Star (3).
+        # Play-In (5) is rolled into Playoffs, so it is not a separate option —
+        # a year that has only play-in games still gets a Playoffs entry.
+        _phase_order = {"2": 0, "4": 1, "1": 2, "3": 3}
         available_phases = []
         if selected_year and selected_year in year_to_season_ids:
             seen = set()
             for sid in year_to_season_ids[selected_year]:
                 prefix = str(sid)[0]
+                if prefix == "5":
+                    prefix = "4"  # Fold play-in into playoffs
                 if prefix not in seen and prefix in phase_label_map:
                     seen.add(prefix)
                     available_phases.append((prefix, phase_label_map[prefix]))
