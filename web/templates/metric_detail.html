@@ -1861,7 +1861,7 @@
                     See all <span class="dd-count">{{ _games_meta|length }}</span> games
                   {% endif %}
                 </div>
-                <p class="drilldown-preview-copy">{{ t('Every matchup, score, and win–loss split — one free account.', '每场对阵、比分、胜负分布，一个免费账号全搞定。') }}</p>
+                <p class="drilldown-preview-copy">{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录或注册账号即可解锁完整的比赛下钻列表。') }}</p>
                 <a href="{{ _drilldown_login_url }}" class="drilldown-preview-button">{{ t('Sign in / Register', '登录 / 注册') }}</a>
                 <div class="drilldown-preview-meta">{{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') }}</div>
               </div>
@@ -2245,7 +2245,7 @@ function toggleRelatedMore(btn) {
   const drilldownPreviewHeadlineFmt = drilldownPreviewHeadlineZh
     ? (n) => `查看全部 <span class="dd-count">${n}</span> 场比赛`
     : (n) => `See all <span class="dd-count">${n}</span> games`;
-  const drilldownPreviewCopy = {{ t('Every matchup, score, and win\u2013loss split — one free account.', '每场对阵、比分、胜负分布，一个免费账号全搞定。') | tojson }};
+  const drilldownPreviewCopy = {{ t('Sign in or create an account to unlock the full drill-down game list.', '登录或注册账号即可解锁完整的比赛下钻列表。') | tojson }};
   const drilldownPreviewMeta = {{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') | tojson }};
   const drilldownPreviewButton = {{ t('Sign in / Register', '登录 / 注册') | tojson }};
   const drilldownPreviewLockSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;

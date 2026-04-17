@@ -1,10 +1,15 @@
 from nba_api.stats.endpoints import boxscoretraditionalv3
 from datetime import datetime
 from db.game_status import infer_game_status
-from db.models import Team, TeamGameStats, PlayerGameStats, PlayerGamePeriodStats, Player, Game, engine
+from db.models import Team, TeamGameStats, PlayerGameStats, Player, Game, engine
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 import logging
+
+try:
+    from db.models import PlayerGamePeriodStats
+except (ImportError, AttributeError):
+    PlayerGamePeriodStats = None
 
 
 # Set up logging
@@ -243,6 +248,8 @@ def fetch_period_stats(game_id, period):
 
 def has_game_period_stats(session, game_id: str) -> bool:
     """Check if period stats exist for a game (at least 1 row)."""
+    if PlayerGamePeriodStats is None:
+        return False
     return (
         session.query(PlayerGamePeriodStats)
         .filter(PlayerGamePeriodStats.game_id == game_id)
@@ -273,6 +280,8 @@ def fetch_all_period_stats(game_id):
 
 def create_player_period_stats(session, game_id, period, player_stats):
     """Create or update a PlayerGamePeriodStats row."""
+    if PlayerGamePeriodStats is None:
+        return
     player_id = str(player_stats['PLAYER_ID'])
     team_id = str(player_stats['TEAM_ID'])
     min_value, sec_value = _parse_minutes(player_stats.get('MIN'))

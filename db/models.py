@@ -758,6 +758,8 @@ class NewsArticle(Base):
     __tablename__ = 'NewsArticle'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Keep the column-level index only. Defining the same named index again in
+    # __table_args__ breaks in-memory SQLite test setup with "index already exists".
     cluster_id = Column(Integer, ForeignKey('NewsCluster.id', ondelete='SET NULL'), nullable=True, index=True)
     source = Column(String(32), nullable=False)                  # 'espn' | 'nba' | 'funba'
     internal_social_post_id = Column(
@@ -779,7 +781,6 @@ class NewsArticle(Base):
     __table_args__ = (
         UniqueConstraint('source', 'source_guid', name='uq_NewsArticle_source_guid'),
         Index('ix_NewsArticle_published_at', 'published_at'),
-        Index('ix_NewsArticle_cluster_id', 'cluster_id'),
         Index('ix_NewsArticle_source_published', 'source', 'published_at'),
     )
 

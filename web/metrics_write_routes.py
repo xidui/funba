@@ -40,7 +40,6 @@ def register_metrics_write_routes(app, deps):
                 session,
                 scope_filter=scope_filter,
                 status_filter=status_filter,
-                include_result_counts=False,
             )
             candidate_count = len(catalog)
             try:
@@ -49,15 +48,13 @@ def register_metrics_write_routes(app, deps):
                 return jsonify({"ok": False, "error": str(exc)}), 400
 
         try:
-            with SessionLocal() as embed_session:
-                ranked = rank_metrics(
-                    query,
-                    catalog,
-                    limit=8,
-                    model=llm_model,
-                    usage_recorder=usage_payload.update,
-                    session=embed_session,
-                )
+            ranked = rank_metrics(
+                query,
+                catalog,
+                limit=8,
+                model=llm_model,
+                usage_recorder=usage_payload.update,
+            )
         except ValueError as exc:
             deps.record_ai_usage_event()(
                 feature="metric_search",

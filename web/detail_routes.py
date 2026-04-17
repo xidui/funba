@@ -25,6 +25,24 @@ def _format_tipoff_et(iso_et: str | None) -> str | None:
         return None
 
 
+def _safe_model_attr(model, attr: str):
+    return getattr(model, attr, None)
+
+
+def _lookup_by_slug_or_id(session, model, slug: str, *, id_attr: str, prefix: str | None = None):
+    row = None
+    slug_col = _safe_model_attr(model, "slug")
+    if slug_col is not None:
+        row = session.query(model).filter(slug_col == slug).first()
+    if row is not None:
+        return row
+    legacy_id = slug.removeprefix(prefix) if prefix and slug.startswith(prefix) else slug
+    id_col = _safe_model_attr(model, id_attr)
+    if id_col is None:
+        return None
+    return session.query(model).filter(id_col == legacy_id).first()
+
+
 def _build_upcoming_preview(session, game, teams, live_summary, *, headshot_fn=None):
     """Pre-tipoff context for the game detail page.
 
@@ -35,154 +53,160 @@ def _build_upcoming_preview(session, game, teams, live_summary, *, headshot_fn=N
     place of the empty box-score panels. Pure read; no caching needed
     (low traffic on upcoming pages).
     """
-    from db.models import Game as GameModel, Player, PlayerGameStats
+    try:
+        from db.models import Game as GameModel, Player, PlayerGameStats
+    except (ImportError, AttributeError):
+        return None
 
     if not game.home_team_id or not game.road_team_id or not game.game_date:
         return None
 
-    # Pick the latest in-progress regular season as the record source.
-    current_season_row = (
-        session.query(GameModel.season)
-        .filter(GameModel.wining_team_id.isnot(None))
-        .filter(GameModel.season.like("2%"))
-        .order_by(GameModel.game_date.desc())
-        .limit(1)
-        .first()
-    )
-    current_season = current_season_row[0] if current_season_row else None
-    if not current_season:
-        return None
-
-    team_ids = {game.home_team_id, game.road_team_id}
-    past_games = (
-        session.query(GameModel)
-        .filter(
-            GameModel.season == current_season,
-            GameModel.wining_team_id.isnot(None),
-            (GameModel.home_team_id.in_(team_ids)) | (GameModel.road_team_id.in_(team_ids)),
-        )
-        .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
-        .all()
-    )
-
-    team_games: dict[str, list] = defaultdict(list)
-    for pg in past_games:
-        if pg.home_team_id in team_ids:
-            team_games[pg.home_team_id].append(pg)
-        if pg.road_team_id in team_ids:
-            team_games[pg.road_team_id].append(pg)
-
-    def _team_block(team_id):
-        rows = team_games.get(team_id, [])
-        wins = sum(1 for pg in rows if pg.wining_team_id == team_id)
-        losses = len(rows) - wins
-        last10 = ["W" if pg.wining_team_id == team_id else "L" for pg in reversed(rows[:10])]
-        rest = None
-        if rows:
-            days = (game.game_date - rows[0].game_date).days
-            if days > 0:
-                rest = {"days": days, "is_b2b": days == 1}
-        return {
-            "team_id": team_id,
-            "wins": wins,
-            "losses": losses,
-            "last10": last10,
-            "rest": rest,
-        }
-
-    home_block = _team_block(game.home_team_id)
-    road_block = _team_block(game.road_team_id)
-
-    # Head-to-head series this season.
-    home_h2h = 0
-    road_h2h = 0
-    for pg in past_games:
-        if {pg.home_team_id, pg.road_team_id} != team_ids:
-            continue
-        if pg.wining_team_id == game.home_team_id:
-            home_h2h += 1
-        elif pg.wining_team_id == game.road_team_id:
-            road_h2h += 1
-    h2h = None
-    if home_h2h + road_h2h > 0:
-        h2h = {"home_wins": home_h2h, "road_wins": road_h2h}
-
-    tipoff = None
-    if live_summary:
-        tipoff = _format_tipoff_et(live_summary.get("game_time_et"))
-
-    # Last-10 head-to-head across all seasons — gives a trend chip strip.
-    h2h_history_rows = (
-        session.query(GameModel)
-        .filter(
-            GameModel.wining_team_id.isnot(None),
-            GameModel.home_team_id.in_(team_ids),
-            GameModel.road_team_id.in_(team_ids),
-        )
-        .filter(GameModel.game_date < game.game_date)
-        .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
-        .limit(10)
-        .all()
-    )
-    h2h_history = []
-    for pg in reversed(h2h_history_rows):
-        if {pg.home_team_id, pg.road_team_id} != team_ids:
-            continue
-        h2h_history.append(
-            {
-                "game_id": pg.game_id,
-                "game_date": pg.game_date,
-                "home_team_id": pg.home_team_id,
-                "road_team_id": pg.road_team_id,
-                "winner_team_id": pg.wining_team_id,
-                "home_score": pg.home_team_score,
-                "road_score": pg.road_team_score,
-            }
-        )
-
-    # Top scorer from each team's previous completed game (any matchup).
-    def _last_game_scorer(team_id):
-        prev_rows = team_games.get(team_id, [])
-        if not prev_rows:
-            return None
-        prev = prev_rows[0]  # most recent past game
-        row = (
-            session.query(PlayerGameStats, Player)
-            .outerjoin(Player, Player.player_id == PlayerGameStats.player_id)
-            .filter(
-                PlayerGameStats.game_id == prev.game_id,
-                PlayerGameStats.team_id == team_id,
-                PlayerGameStats.pts.isnot(None),
-            )
-            .order_by(PlayerGameStats.pts.desc())
+    try:
+        # Pick the latest in-progress regular season as the record source.
+        current_season_row = (
+            session.query(GameModel.season)
+            .filter(GameModel.wining_team_id.isnot(None))
+            .filter(GameModel.season.like("2%"))
+            .order_by(GameModel.game_date.desc())
             .limit(1)
-            .one_or_none()
+            .first()
         )
-        if not row:
+        current_season = current_season_row[0] if current_season_row else None
+        if not current_season:
             return None
-        pgs, player = row
+
+        team_ids = {game.home_team_id, game.road_team_id}
+        past_games = (
+            session.query(GameModel)
+            .filter(
+                GameModel.season == current_season,
+                GameModel.wining_team_id.isnot(None),
+                (GameModel.home_team_id.in_(team_ids)) | (GameModel.road_team_id.in_(team_ids)),
+            )
+            .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
+            .all()
+        )
+
+        team_games: dict[str, list] = defaultdict(list)
+        for pg in past_games:
+            if pg.home_team_id in team_ids:
+                team_games[pg.home_team_id].append(pg)
+            if pg.road_team_id in team_ids:
+                team_games[pg.road_team_id].append(pg)
+
+        def _team_block(team_id):
+            rows = team_games.get(team_id, [])
+            wins = sum(1 for pg in rows if pg.wining_team_id == team_id)
+            losses = len(rows) - wins
+            last10 = ["W" if pg.wining_team_id == team_id else "L" for pg in reversed(rows[:10])]
+            rest = None
+            if rows:
+                days = (game.game_date - rows[0].game_date).days
+                if days > 0:
+                    rest = {"days": days, "is_b2b": days == 1}
+            return {
+                "team_id": team_id,
+                "wins": wins,
+                "losses": losses,
+                "last10": last10,
+                "rest": rest,
+            }
+
+        home_block = _team_block(game.home_team_id)
+        road_block = _team_block(game.road_team_id)
+
+        # Head-to-head series this season.
+        home_h2h = 0
+        road_h2h = 0
+        for pg in past_games:
+            if {pg.home_team_id, pg.road_team_id} != team_ids:
+                continue
+            if pg.wining_team_id == game.home_team_id:
+                home_h2h += 1
+            elif pg.wining_team_id == game.road_team_id:
+                road_h2h += 1
+        h2h = None
+        if home_h2h + road_h2h > 0:
+            h2h = {"home_wins": home_h2h, "road_wins": road_h2h}
+
+        tipoff = None
+        if live_summary:
+            tipoff = _format_tipoff_et(live_summary.get("game_time_et"))
+
+        # Last-10 head-to-head across all seasons — gives a trend chip strip.
+        h2h_history_rows = (
+            session.query(GameModel)
+            .filter(
+                GameModel.wining_team_id.isnot(None),
+                GameModel.home_team_id.in_(team_ids),
+                GameModel.road_team_id.in_(team_ids),
+            )
+            .filter(GameModel.game_date < game.game_date)
+            .order_by(GameModel.game_date.desc(), GameModel.game_id.desc())
+            .limit(10)
+            .all()
+        )
+        h2h_history = []
+        for pg in reversed(h2h_history_rows):
+            if {pg.home_team_id, pg.road_team_id} != team_ids:
+                continue
+            h2h_history.append(
+                {
+                    "game_id": pg.game_id,
+                    "game_date": pg.game_date,
+                    "home_team_id": pg.home_team_id,
+                    "road_team_id": pg.road_team_id,
+                    "winner_team_id": pg.wining_team_id,
+                    "home_score": pg.home_team_score,
+                    "road_score": pg.road_team_score,
+                }
+            )
+
+        # Top scorer from each team's previous completed game (any matchup).
+        def _last_game_scorer(team_id):
+            prev_rows = team_games.get(team_id, [])
+            if not prev_rows:
+                return None
+            prev = prev_rows[0]  # most recent past game
+            row = (
+                session.query(PlayerGameStats, Player)
+                .outerjoin(Player, Player.player_id == PlayerGameStats.player_id)
+                .filter(
+                    PlayerGameStats.game_id == prev.game_id,
+                    PlayerGameStats.team_id == team_id,
+                    PlayerGameStats.pts.isnot(None),
+                )
+                .order_by(PlayerGameStats.pts.desc())
+                .limit(1)
+                .one_or_none()
+            )
+            if not row:
+                return None
+            pgs, player = row
+            return {
+                "player_id": pgs.player_id,
+                "name": (player.full_name if player else pgs.player_id),
+                "slug": (player.slug if player else None),
+                "pts": int(pgs.pts or 0),
+                "reb": int(pgs.reb or 0) if pgs.reb is not None else None,
+                "ast": int(pgs.ast or 0) if pgs.ast is not None else None,
+                "headshot_url": headshot_fn(pgs.player_id) if headshot_fn else None,
+                "prev_game_id": prev.game_id,
+                "prev_game_date": prev.game_date,
+            }
+
+        home_block["last_game_scorer"] = _last_game_scorer(game.home_team_id)
+        road_block["last_game_scorer"] = _last_game_scorer(game.road_team_id)
+
         return {
-            "player_id": pgs.player_id,
-            "name": (player.full_name if player else pgs.player_id),
-            "slug": (player.slug if player else None),
-            "pts": int(pgs.pts or 0),
-            "reb": int(pgs.reb or 0) if pgs.reb is not None else None,
-            "ast": int(pgs.ast or 0) if pgs.ast is not None else None,
-            "headshot_url": headshot_fn(pgs.player_id) if headshot_fn else None,
-            "prev_game_id": prev.game_id,
-            "prev_game_date": prev.game_date,
+            "home": home_block,
+            "road": road_block,
+            "h2h": h2h,
+            "h2h_history": h2h_history,
+            "tipoff_et": tipoff,
         }
-
-    home_block["last_game_scorer"] = _last_game_scorer(game.home_team_id)
-    road_block["last_game_scorer"] = _last_game_scorer(game.road_team_id)
-
-    return {
-        "home": home_block,
-        "road": road_block,
-        "h2h": h2h,
-        "h2h_history": h2h_history,
-        "tipoff_et": tipoff,
-    }
+    except Exception:
+        return None
 
 
 def _safe_fetch_live_card(game_id: str):
@@ -327,16 +351,13 @@ def register_detail_routes(
         PlayerSalary = get_player_salary_model()
 
         with SessionLocal() as session:
-            player = session.query(Player).filter(Player.slug == slug).first()
-            if player is None:
-                legacy_player_id = slug.removeprefix("player-") if slug.startswith("player-") else slug
-                player = session.query(Player).filter(Player.player_id == legacy_player_id).first()
-                if player is not None and getattr(player, "slug", None) and player.slug != slug:
-                    redirect_params = request.args.to_dict(flat=True)
-                    return redirect(
-                        get_localized_url_for()("player_page", slug=player.slug, **redirect_params),
-                        code=302,
-                    )
+            player = _lookup_by_slug_or_id(session, Player, slug, id_attr="player_id", prefix="player-")
+            if player is not None and getattr(player, "slug", None) and player.slug != slug:
+                redirect_params = request.args.to_dict(flat=True)
+                return redirect(
+                    get_localized_url_for()("player_page", slug=player.slug, **redirect_params),
+                    code=302,
+                )
             if player is None:
                 abort(404, description=f"Player not found")
             player_id = player.player_id
@@ -516,69 +537,74 @@ def register_detail_routes(
             player_metrics = get_metric_results()(session, "player", player_id, selected_season)
 
             # ── Team stint timeline ──
-            from db.models import TeamRosterStint as _TRS
-            from web.historical_team_locations import get_era_abbr_for_year as _tl_abbr
-            from web.historical_team_locations import get_era_name_for_year as _tl_name
-            stint_rows = (
-                session.query(_TRS)
-                .filter(_TRS.player_id == player_id)
-                .order_by(_TRS.joined_at.asc())
-                .all()
-            )
-            # Merge adjacent stints on the same team (can happen if game-derived +
-            # snapshot both produced rows with a tiny overlap or touching span).
-            merged: list[dict] = []
-            from datetime import date as _today_date
-            _current_yr = _today_date.today().year
-            for s in stint_rows:
-                team_obj = teams.get(s.team_id)
-                if merged and merged[-1]["team_id"] == s.team_id:
-                    prev = merged[-1]
-                    prev_left = prev["left_at"]
-                    new_left = s.left_at
-                    if prev_left is None or new_left is None:
-                        prev["left_at"] = None
-                        prev["left_year"] = None
-                        prev["is_active"] = True
-                    elif new_left > prev_left:
-                        prev["left_at"] = new_left
-                        prev["left_year"] = new_left.year
-                    # Recompute era + abbr from the (possibly updated) end year
-                    era_year = prev["left_year"] if prev["left_year"] is not None else _current_yr
-                    prev["era_year"] = era_year
-                    era_name = _tl_name(prev["team_id"], era_year)
-                    era_abbr = _tl_abbr(prev["team_id"], era_year)
-                    team_obj = teams.get(prev["team_id"])
-                    if era_name:
-                        prev["team_name"] = era_name
-                    if era_abbr:
-                        prev["team_abbr"] = era_abbr
-                    continue
-                joined_year = s.joined_at.year if s.joined_at else None
-                left_year = s.left_at.year if s.left_at else None
-                # Era lookup year = end of stint (or current year if still active).
-                # Using the end year gives the "most recent" era label — e.g. a
-                # 2007-2016 stint labels as OKC (2016), not SEA (2007).
-                era_year = left_year if left_year is not None else _current_yr
-                era_name = None
-                era_abbr = None
-                if era_year is not None:
-                    era_name = _tl_name(s.team_id, era_year)
-                    era_abbr = _tl_abbr(s.team_id, era_year)
-                merged.append({
-                    "team_id": s.team_id,
-                    "team_slug": team_obj.slug if team_obj else None,
-                    "team_name": era_name or (team_obj.full_name if team_obj else "?"),
-                    "team_abbr": era_abbr or (team_obj.abbr if team_obj else "?"),
-                    "joined_at": s.joined_at,
-                    "left_at": s.left_at,
-                    "joined_year": joined_year,
-                    "left_year": left_year,
-                    "era_year": era_year,
-                    "is_active": s.left_at is None,
-                    "how_acquired": s.how_acquired,
-                })
-            player_stint_timeline = merged
+            player_stint_timeline = []
+            try:
+                from db.models import TeamRosterStint as _TRS
+            except (ImportError, AttributeError):
+                _TRS = None
+            if _TRS is not None:
+                from web.historical_team_locations import get_era_abbr_for_year as _tl_abbr
+                from web.historical_team_locations import get_era_name_for_year as _tl_name
+                stint_rows = (
+                    session.query(_TRS)
+                    .filter(_TRS.player_id == player_id)
+                    .order_by(_TRS.joined_at.asc())
+                    .all()
+                )
+                # Merge adjacent stints on the same team (can happen if game-derived +
+                # snapshot both produced rows with a tiny overlap or touching span).
+                merged: list[dict] = []
+                from datetime import date as _today_date
+                _current_yr = _today_date.today().year
+                for s in stint_rows:
+                    team_obj = teams.get(s.team_id)
+                    if merged and merged[-1]["team_id"] == s.team_id:
+                        prev = merged[-1]
+                        prev_left = prev["left_at"]
+                        new_left = s.left_at
+                        if prev_left is None or new_left is None:
+                            prev["left_at"] = None
+                            prev["left_year"] = None
+                            prev["is_active"] = True
+                        elif new_left > prev_left:
+                            prev["left_at"] = new_left
+                            prev["left_year"] = new_left.year
+                        # Recompute era + abbr from the (possibly updated) end year
+                        era_year = prev["left_year"] if prev["left_year"] is not None else _current_yr
+                        prev["era_year"] = era_year
+                        era_name = _tl_name(prev["team_id"], era_year)
+                        era_abbr = _tl_abbr(prev["team_id"], era_year)
+                        team_obj = teams.get(prev["team_id"])
+                        if era_name:
+                            prev["team_name"] = era_name
+                        if era_abbr:
+                            prev["team_abbr"] = era_abbr
+                        continue
+                    joined_year = s.joined_at.year if s.joined_at else None
+                    left_year = s.left_at.year if s.left_at else None
+                    # Era lookup year = end of stint (or current year if still active).
+                    # Using the end year gives the "most recent" era label — e.g. a
+                    # 2007-2016 stint labels as OKC (2016), not SEA (2007).
+                    era_year = left_year if left_year is not None else _current_yr
+                    era_name = None
+                    era_abbr = None
+                    if era_year is not None:
+                        era_name = _tl_name(s.team_id, era_year)
+                        era_abbr = _tl_abbr(s.team_id, era_year)
+                    merged.append({
+                        "team_id": s.team_id,
+                        "team_slug": team_obj.slug if team_obj else None,
+                        "team_name": era_name or (team_obj.full_name if team_obj else "?"),
+                        "team_abbr": era_abbr or (team_obj.abbr if team_obj else "?"),
+                        "joined_at": s.joined_at,
+                        "left_at": s.left_at,
+                        "joined_year": joined_year,
+                        "left_year": left_year,
+                        "era_year": era_year,
+                        "is_active": s.left_at is None,
+                        "how_acquired": s.how_acquired,
+                    })
+                player_stint_timeline = merged
 
             salary_records = (
                 session.query(PlayerSalary)
@@ -628,22 +654,19 @@ def register_detail_routes(
         TeamGameStats = get_team_game_stats_model()
 
         with SessionLocal() as session:
-            team = session.query(Team).filter(Team.slug == slug).first()
-            if team is None:
-                legacy_team_id = slug.removeprefix("team-") if slug.startswith("team-") else slug
-                team = session.query(Team).filter(Team.team_id == legacy_team_id).first()
-                if team is not None and getattr(team, "slug", None) and team.slug != slug:
-                    redirect_params = request.args.to_dict(flat=True)
-                    return redirect(
-                        get_localized_url_for()("team_page", slug=team.slug, **redirect_params),
-                        code=302,
-                    )
+            team = _lookup_by_slug_or_id(session, Team, slug, id_attr="team_id", prefix="team-")
+            if team is not None and getattr(team, "slug", None) and team.slug != slug:
+                redirect_params = request.args.to_dict(flat=True)
+                return redirect(
+                    get_localized_url_for()("team_page", slug=team.slug, **redirect_params),
+                    code=302,
+                )
             if team is None:
                 abort(404, description=f"Team not found")
             team_id = team.team_id
 
             canonical_team = None
-            if team.canonical_team_id and team.canonical_team_id != team.team_id:
+            if getattr(team, "canonical_team_id", None) and team.canonical_team_id != team.team_id:
                 canonical_team = session.query(Team).filter(Team.team_id == team.canonical_team_id).first()
 
             championship_rows = (
@@ -775,7 +798,6 @@ def register_detail_routes(
             team_metrics = get_metric_results()(session, "team", team_id, selected_season)
 
             # ── Roster + coaching staff for the selected games season ──
-            from db.models import TeamRosterStint, TeamCoachStint, Player as _PlayerM
             roster_players: list[dict] = []
             roster_coaches: list[dict] = []
             roster_season_label = None
@@ -787,7 +809,12 @@ def register_detail_routes(
                 roster_season_label = get_season_label()(selected_games_season) if selected_games_season else None
 
             # Date bounds for the selected season for this team (fallback Oct-Jun).
-            if _sel_year is not None:
+            try:
+                from db.models import TeamRosterStint, TeamCoachStint, Player as _PlayerM
+            except (ImportError, AttributeError):
+                TeamRosterStint = TeamCoachStint = _PlayerM = None
+
+            if _sel_year is not None and TeamRosterStint is not None and TeamCoachStint is not None and _PlayerM is not None:
                 bounds_row = session.execute(text("""
                     SELECT MIN(g.game_date) AS lo, MAX(g.game_date) AS hi
                     FROM Game g
@@ -1032,16 +1059,13 @@ def register_detail_routes(
         with SessionLocal() as session:
             from db.backfill_nba_game_line_score import has_game_line_score
 
-            persisted_game = session.query(Game).filter(Game.slug == slug).first()
-            if persisted_game is None:
-                legacy_game_id = slug.removeprefix("game-") if slug.startswith("game-") else slug
-                persisted_game = session.query(Game).filter(Game.game_id == legacy_game_id).first()
-                if persisted_game is not None and getattr(persisted_game, "slug", None) and persisted_game.slug != slug:
-                    redirect_params = request.args.to_dict(flat=True)
-                    return redirect(
-                        get_localized_url_for()("game_page", slug=persisted_game.slug, **redirect_params),
-                        code=302,
-                    )
+            persisted_game = _lookup_by_slug_or_id(session, Game, slug, id_attr="game_id", prefix="game-")
+            if persisted_game is not None and getattr(persisted_game, "slug", None) and persisted_game.slug != slug:
+                redirect_params = request.args.to_dict(flat=True)
+                return redirect(
+                    get_localized_url_for()("game_page", slug=persisted_game.slug, **redirect_params),
+                    code=302,
+                )
             game = persisted_game
             game_id = game.game_id if game else slug
 

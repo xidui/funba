@@ -758,13 +758,13 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_rookie_first": {
         "label": "All-Rookie 1st",
         "short_label": "All-Rk 1st",
-        "badge_label": "All-Rk 1st",
+        "badge_label": "1st Team",
         "entity": "player",
     },
     "all_rookie_second": {
         "label": "All-Rookie 2nd",
         "short_label": "All-Rk 2nd",
-        "badge_label": "All-Rk 2nd",
+        "badge_label": "2nd Team",
         "entity": "player",
     },
 }
@@ -1393,11 +1393,6 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
         return details
 
     if code_metadata:
-        # The DB row's name / description columns are the canonical source of
-        # truth (they reflect admin UI edits). Code-python class attributes
-        # are the bootstrap value and can go stale — especially for DB-stored
-        # career metrics whose class may omit the "(Career)" / "（生涯）"
-        # suffix. Prefer the DB row when it has a value.
         row_name = getattr(row, "name", "") or ""
         row_name_zh = getattr(row, "name_zh", "") or ""
         row_description = getattr(row, "description", "") or ""
@@ -1411,10 +1406,13 @@ def _db_metric_search_fields(row: MetricDefinitionModel, *, code_metadata: dict 
             incremental=code_metadata["incremental"],
             rank_order=code_metadata["rank_order"],
             season_types=code_metadata.get("season_types", ["regular", "playoffs", "playin"]),
-            name=row_name or code_metadata["name"],
-            name_zh=row_name_zh or code_metadata.get("name_zh", ""),
-            description=row_description or code_metadata["description"],
-            description_zh=row_description_zh or code_metadata.get("description_zh", ""),
+            # Code metadata reflects the actual runtime metric behavior and is
+            # the best source when DB display fields go stale. Preserve DB
+            # localization only when the code metadata does not provide it.
+            name=code_metadata.get("name") or row_name,
+            name_zh=code_metadata.get("name_zh", "") or row_name_zh,
+            description=code_metadata.get("description") or row_description,
+            description_zh=code_metadata.get("description_zh", "") or row_description_zh,
             scope=code_metadata["scope"],
             category=code_metadata["category"],
             career_name_suffix=code_metadata.get("career_name_suffix", " (Career)"),

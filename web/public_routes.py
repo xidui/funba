@@ -45,6 +45,31 @@ def _game_status_rank(status: str | None) -> int:
     return 3
 
 
+def _coerce_game_date(value):
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _load_news_models():
+    """Best-effort loader for optional news models.
+
+    Some unit tests install a lightweight fake `db.models` module that omits
+    news tables entirely. The home/news pages should degrade cleanly instead of
+    failing import-time inside a request.
+    """
+    try:
+        from db.models import NewsArticle, NewsArticlePlayer, NewsArticleTeam, NewsCluster
+    except (ImportError, AttributeError):
+        return None
+    return NewsArticle, NewsArticlePlayer, NewsArticleTeam, NewsCluster
+
+
 def _build_bracket_series(games):
     """Build a single series summary from a list of games in that series."""
     if not games:
@@ -285,7 +310,7 @@ def _build_game_list_entry(game, live_snapshot: dict | None = None):
     return SimpleNamespace(
         game=game,
         game_id=game.game_id,
-        game_date=game.game_date,
+        game_date=_coerce_game_date(game.game_date),
         season=game.season,
         road_team_id=road_team_id,
         home_team_id=home_team_id,
@@ -1200,12 +1225,10 @@ def register_public_routes(
         SessionLocal = get_session_local()
         Player = get_player_model()
         Team = get_team_model()
-        from db.models import (
-            NewsArticle,
-            NewsArticlePlayer,
-            NewsArticleTeam,
-            NewsCluster,
-        )
+        news_models = _load_news_models()
+        if news_models is None:
+            return []
+        NewsArticle, NewsArticlePlayer, NewsArticleTeam, NewsCluster = news_models
 
         with SessionLocal() as session:
             clusters = (
@@ -1277,12 +1300,10 @@ def register_public_routes(
         SessionLocal = get_session_local()
         Player = get_player_model()
         Team = get_team_model()
-        from db.models import (
-            NewsArticle,
-            NewsArticlePlayer,
-            NewsArticleTeam,
-            NewsCluster,
-        )
+        news_models = _load_news_models()
+        if news_models is None:
+            abort(404)
+        NewsArticle, NewsArticlePlayer, NewsArticleTeam, NewsCluster = news_models
 
         with SessionLocal() as session:
             cluster = session.get(NewsCluster, cluster_id)
@@ -1411,76 +1432,32 @@ def register_public_routes(
                 year_to_season_ids.setdefault(year, []).append(sid)
             all_years = sorted(year_to_season_ids.keys(), reverse=True)
 
-            def _pick_active_year() -> str | None:
-                """Pick the year whose phase is most relevant today.
-
-                Looks for games within a ±3 day window around today. Prefers
-                the year that actually has games now; falls back to newest.
-                """
-                if not all_years:
-                    return None
-                window_start = today - timedelta(days=3)
-                window_end = today + timedelta(days=3)
-                recent = (
-                    session.query(Game.season)
-                    .filter(
-                        Game.game_date >= window_start,
-                        Game.game_date <= window_end,
-                        Game.season.isnot(None),
-                    )
-                    .distinct()
-                    .all()
-                )
-                recent_years = {
-                    _season_year(row.season) for row in recent if _season_year(row.season)
-                }
-                if not recent_years:
-                    return all_years[0]
-                # Pick the newest year among recent ones.
-                return max(recent_years)
-
             # Prefer `year`; keep `season` as a legacy alias so bookmarks /
             # external links with ?season=22025 still land on the same page.
             selected_year = (request.args.get("year") or "").strip() or None
+            legacy_season = None
             if not selected_year:
                 legacy_season = (request.args.get("season") or "").strip()
                 if legacy_season:
                     selected_year = _season_year(legacy_season)
             if not selected_year:
-                selected_year = _pick_active_year()
+                selected_year = all_years[0] if all_years else None
             if selected_year and selected_year not in year_to_season_ids:
-                selected_year = _pick_active_year()
+                selected_year = all_years[0] if all_years else None
 
-            season_ids_for_filter = year_to_season_ids.get(selected_year, []) if selected_year else []
+            exact_season_filter = legacy_season if legacy_season in all_season_ids else None
+            if exact_season_filter:
+                season_ids_for_filter = [exact_season_filter]
+            else:
+                season_ids_for_filter = list(year_to_season_ids.get(selected_year, [])) if selected_year else []
 
-            def _pick_active_phase(year: str | None) -> str | None:
-                """Pick the phase prefix ("2","4",...) most relevant today.
-
-                Looks at games within a ±3 day window and prefers the latest
-                phase present. Play-in games (prefix "5") are rolled up into
-                the playoff bucket ("4") since play-in has few games and
-                feeds directly into the bracket.
-                """
-                if not year:
-                    return None
-                window_start = today - timedelta(days=3)
-                window_end = today + timedelta(days=3)
-                recent = (
-                    session.query(Game.season)
-                    .filter(
-                        Game.game_date >= window_start,
-                        Game.game_date <= window_end,
-                        Game.season.isnot(None),
-                    )
-                    .distinct()
-                    .all()
-                )
-                phases_present: set[str] = set()
-                for row in recent:
-                    s = str(row.season)
-                    if len(s) == 5 and s.isdigit() and s[1:] == year:
-                        phases_present.add(s[0])
-                if "4" in phases_present or "5" in phases_present:
+            def _pick_default_phase(season_ids: list[str]) -> str | None:
+                phases_present = {
+                    ("4" if str(sid).startswith("5") else str(sid)[:1])
+                    for sid in season_ids
+                    if sid
+                }
+                if "4" in phases_present:
                     return "4"
                 for prefix in ("3", "2", "1"):
                     if prefix in phases_present:
@@ -1500,8 +1477,10 @@ def register_public_routes(
                 selected_phase = "4"
             elif raw_phase in {"1", "2", "3", "4"}:
                 selected_phase = raw_phase
+            elif exact_season_filter:
+                selected_phase = "all"
             else:
-                selected_phase = _pick_active_phase(selected_year)
+                selected_phase = _pick_default_phase(season_ids_for_filter)
 
             if selected_phase and selected_phase != "all" and season_ids_for_filter:
                 allowed_prefixes = {"4", "5"} if selected_phase == "4" else {selected_phase}
@@ -1536,7 +1515,9 @@ def register_public_routes(
                 .all()
             )
             games_q = session.query(Game).filter(Game.game_date.isnot(None))
-            if season_ids_for_filter:
+            if exact_season_filter:
+                games_q = games_q.filter(Game.season == exact_season_filter)
+            elif season_ids_for_filter:
                 games_q = games_q.filter(Game.season.in_(season_ids_for_filter))
             if selected_team:
                 games_q = games_q.filter(or_(Game.home_team_id == selected_team, Game.road_team_id == selected_team))
@@ -1618,7 +1599,8 @@ def register_public_routes(
             today_completed = [e for e in completed_all if e.game_date == today] if view == "live" else []
             today_completed_groups = _group_by_date(today_completed) if today_completed else []
 
-            team_lookup = get_team_map(session)
+            team_lookup_rows = session.query(Team).all()
+            team_lookup = {team.team_id: team for team in team_lookup_rows if getattr(team, "team_id", None)}
             selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
             if selected_team_obj is None and selected_team:
                 selected_team_obj = team_lookup.get(selected_team)
@@ -1680,6 +1662,7 @@ def register_public_routes(
             all_teams=all_teams,
             all_years=all_years,
             selected_year=selected_year,
+            selected_season=exact_season_filter or (season_ids_for_filter[0] if season_ids_for_filter else None),
             year_label=_year_label,
             phase_label_for=phase_label_for,
             available_phases=available_phases,
@@ -1687,6 +1670,10 @@ def register_public_routes(
             bracket=bracket,
             selected_team=selected_team,
             selected_team_obj=selected_team_obj,
+            games=[entry.game for entry in paginated],
+            completed_games=[entry.game for entry in completed_all],
+            live_games=live_games,
+            upcoming_games=upcoming_games,
             fmt_date=get_fmt_date(),
             fmt_date_header=fmt_date_header,
             fmt_season=get_season_label(),
