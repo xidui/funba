@@ -206,36 +206,38 @@
     color: var(--accent);
   }
 
-  .related-select-wrap {
-    align-items: center;
+  .related-chips {
+    margin-top: 10px;
+    gap: 4px;
   }
-  .related-select-label {
-    font-size: 11px;
+  .related-chips-label {
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--muted-2);
-    margin-right: 2px;
+    color: var(--muted);
+    margin-right: 4px;
   }
-  .related-select {
-    appearance: none;
-    -webkit-appearance: none;
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 6px 28px 6px 12px;
-    font-size: 12px;
+  .metric-switch-link.compact {
+    font-size: 10px;
+    padding: 3px 8px;
+    letter-spacing: 0.04em;
+    text-transform: none;
     font-weight: 600;
-    cursor: pointer;
-    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-    max-width: 360px;
   }
-  .related-select:hover { border-color: var(--accent); color: var(--accent); }
-  .related-select:focus { outline: none; border-color: var(--accent); }
+  .metric-switch-link.hidden { display: none; }
+  .related-more-btn {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .related-more-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   .status-pill {
     font-size: 10px;
@@ -1136,24 +1138,17 @@
     </div>
     {% endif %}
     {% if related_metrics %}
-    {% if related_metrics|length <= 4 %}
-    <div class="metric-switch">
+    {% set _related_visible = 6 %}
+    <div class="metric-switch related-chips" data-collapsed="true" data-visible="{{ _related_visible }}">
+      <span class="related-chips-label">{{ t('More in this family', '同类指标') }}</span>
       {% for related_metric in related_metrics %}
-      <a class="metric-switch-link{% if related_metric.active %} active{% endif %}"
+      <a class="metric-switch-link compact{% if related_metric.active %} active{% endif %}{% if loop.index > _related_visible %} hidden{% endif %}"
          href="{{ url_for('metric_detail', metric_key=related_metric.metric_key) }}">{{ related_metric.label }}</a>
       {% endfor %}
+      {% if related_metrics|length > _related_visible %}
+      <button type="button" class="related-more-btn" data-more-text="+{{ related_metrics|length - _related_visible }} {{ t('more', '更多') }}" data-less-text="{{ t('less', '收起') }}" onclick="toggleRelatedMore(this)">+{{ related_metrics|length - _related_visible }} {{ t('more', '更多') }}</button>
+      {% endif %}
     </div>
-    {% else %}
-    <div class="metric-switch related-select-wrap">
-      <label class="related-select-label" for="related-metric-select">{{ t('More in this family', '同类指标') }}</label>
-      <select id="related-metric-select" class="related-select" onchange="if(this.value){location.href=this.value;}">
-        <option value="">{{ t('Browse %d related…' % related_metrics|length, '浏览 %d 个相关指标…' % related_metrics|length) }}</option>
-        {% for related_metric in related_metrics %}
-        <option value="{{ url_for('metric_detail', metric_key=related_metric.metric_key) }}"{% if related_metric.active %} disabled selected{% endif %}>{{ related_metric.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
     {% endif %}
   </div>
 
@@ -1948,6 +1943,23 @@ function toggleMetricEnabled(metricKey) {
       else { alert(data.error || 'Failed'); btn.disabled = false; }
     })
     .catch(() => { alert('Request failed'); btn.disabled = false; });
+}
+
+function toggleRelatedMore(btn) {
+  const wrap = btn.closest('.related-chips');
+  if (!wrap) return;
+  const visible = parseInt(wrap.dataset.visible || '6', 10);
+  const links = wrap.querySelectorAll('.metric-switch-link');
+  const collapsed = wrap.dataset.collapsed !== 'false';
+  if (collapsed) {
+    links.forEach(el => el.classList.remove('hidden'));
+    wrap.dataset.collapsed = 'false';
+    btn.textContent = btn.dataset.lessText || 'less';
+  } else {
+    links.forEach((el, i) => { if (i >= visible) el.classList.add('hidden'); });
+    wrap.dataset.collapsed = 'true';
+    btn.textContent = btn.dataset.moreText || 'more';
+  }
 }
 </script>
 <script>
