@@ -1067,6 +1067,17 @@
       display: inline-block;
     }
     .entity-reason-mobile { display: block; }
+    /* Power-user chrome inside rows takes a lot of horizontal room on
+       phones — the toggle switches in the header, the row-level filter
+       icons, and the active-player dot. Hide them on mobile; everything
+       they do is still reachable from the desktop view or via URL. */
+    .rankings-table th.col-entity .active-toggle-link { display: none; }
+    .rankings-table td .row-filter-btn { display: none; }
+    .rankings-table td .active-dot { display: none; }
+    /* Shrink the sub-key column padding and logo so a 3-letter opponent
+       abbr doesn't claim more width than it needs. */
+    .rankings-table td.col-sub-key img { width: 14px !important; height: 14px !important; }
+    .rankings-table td.col-sub-key { font-size: 11px !important; }
   }
 
   .empty-state {
