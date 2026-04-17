@@ -1636,19 +1636,9 @@ def _related_metric_links(session, metric_key: str, runtime_metric, db_metric) -
         )
         for row in rows:
             _add(row.key)
-            related = _get_metric(row.key, session=session)
-            if related is not None and getattr(related, "supports_career", False):
-                career_key = row.key + "_career"
-                if _get_metric(career_key, session=session) is not None:
-                    _add(career_key)
 
-    season_metric = _get_metric(base_key, session=session)
-    if season_metric is not None:
+    if _get_metric(base_key, session=session) is not None:
         _add(base_key)
-        if getattr(season_metric, "supports_career", False):
-            career_key = base_key + "_career"
-            if _get_metric(career_key, session=session) is not None:
-                _add(career_key)
 
     links = []
     for key in candidate_keys:

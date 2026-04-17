@@ -192,6 +192,37 @@
     color: var(--accent);
   }
 
+  .related-select-wrap {
+    align-items: center;
+  }
+  .related-select-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-2);
+    margin-right: 2px;
+  }
+  .related-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 28px 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    max-width: 360px;
+  }
+  .related-select:hover { border-color: var(--accent); color: var(--accent); }
+  .related-select:focus { outline: none; border-color: var(--accent); }
+
   .status-pill {
     font-size: 10px;
     font-weight: 700;
@@ -1089,12 +1120,24 @@
     </div>
     {% endif %}
     {% if related_metrics %}
+    {% if related_metrics|length <= 4 %}
     <div class="metric-switch">
       {% for related_metric in related_metrics %}
       <a class="metric-switch-link{% if related_metric.active %} active{% endif %}"
          href="{{ url_for('metric_detail', metric_key=related_metric.metric_key) }}">{{ related_metric.label }}</a>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="metric-switch related-select-wrap">
+      <label class="related-select-label" for="related-metric-select">{{ t('More in this family', '同类指标') }}</label>
+      <select id="related-metric-select" class="related-select" onchange="if(this.value){location.href=this.value;}">
+        <option value="">{{ t('Browse %d related…' % related_metrics|length, '浏览 %d 个相关指标…' % related_metrics|length) }}</option>
+        {% for related_metric in related_metrics %}
+        <option value="{{ url_for('metric_detail', metric_key=related_metric.metric_key) }}"{% if related_metric.active %} disabled selected{% endif %}>{{ related_metric.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     {% endif %}
   </div>
 
