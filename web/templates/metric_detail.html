@@ -439,82 +439,121 @@
     font-style: italic;
     padding: 8px 0;
   }
+  /* Drill-down login gate: show ~5 rows of the table, then mask-fade the
+     rest and float a centered CTA card below it. Uses mask-image on the
+     content itself so the fade sits naturally on top of real rows rather
+     than being a separate overlay. */
   .drilldown-preview-shell {
     position: relative;
-    padding-bottom: 64px;
+    padding-bottom: 170px;
   }
   .drilldown-preview-content {
-    max-height: 92px;
+    max-height: 220px;
     overflow: hidden;
     pointer-events: none;
     user-select: none;
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
   }
   .drilldown-preview-content.drilldown-preview-content-split {
-    max-height: 132px;
+    max-height: 248px;
   }
-  .drilldown-preview-fade {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 64px;
-    height: 64px;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface) 0%, transparent) 0%,
-      color-mix(in srgb, var(--surface) 72%, transparent) 58%,
-      var(--surface) 100%
-    );
-    pointer-events: none;
-  }
+  /* Legacy node — kept only to avoid breaking any stray references. The
+     fade now lives inside .drilldown-preview-content via mask-image. */
+  .drilldown-preview-fade { display: none; }
+
   .drilldown-preview-cta {
     position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 8px;
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    width: min(100%, 420px);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-    background: color-mix(in srgb, var(--surface) 92%, var(--bg));
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+    gap: 8px;
+    padding: 18px 20px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%,
+        var(--surface) 100%);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+    text-align: center;
+  }
+  .drilldown-preview-lock {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .drilldown-preview-headline {
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.25;
+  }
+  .drilldown-preview-headline .dd-count {
+    color: var(--accent);
   }
   .drilldown-preview-copy {
-    font-size: 11px;
-    line-height: 1.35;
+    font-size: 12px;
+    line-height: 1.4;
     color: var(--muted);
+    margin: 0;
+    max-width: 320px;
   }
   .drilldown-preview-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 8px 12px;
+    gap: 6px;
+    padding: 10px 28px;
+    margin-top: 4px;
     border-radius: 999px;
     background: var(--accent);
     color: #0b0f19;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 700;
     text-decoration: none;
     white-space: nowrap;
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+    transition: transform 0.12s ease, box-shadow 0.15s ease, filter 0.15s ease;
   }
   .drilldown-preview-button:hover {
-    filter: brightness(1.03);
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .drilldown-preview-meta {
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-top: 2px;
   }
   @media (max-width: 640px) {
     .drilldown-preview-shell {
-      padding-bottom: 94px;
+      padding-bottom: 190px;
+    }
+    .drilldown-preview-content {
+      max-height: 180px;
+    }
+    .drilldown-preview-content.drilldown-preview-content-split {
+      max-height: 200px;
     }
     .drilldown-preview-cta {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .drilldown-preview-fade {
-      bottom: 94px;
+      width: calc(100% - 20px);
+      padding: 14px 16px;
     }
     .drilldown-preview-button {
       width: 100%;
+      padding: 11px 20px;
     }
   }
 
@@ -1797,10 +1836,23 @@
             {% endif %}
             {% if _drilldown_preview_enabled %}
               </div>
-              <div class="drilldown-preview-fade"></div>
               <div class="drilldown-preview-cta">
-                <div class="drilldown-preview-copy">{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录 / 注册后查看完整 drill-down 比赛列表。') }}</div>
-                <a href="{{ _drilldown_login_url }}" class="drilldown-preview-button">{{ t('Sign In / Register', '登录 / 注册') }}</a>
+                <div class="drilldown-preview-lock" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </div>
+                <div class="drilldown-preview-headline">
+                  {% if lang == 'zh' %}
+                    查看全部 <span class="dd-count">{{ _games_meta|length }}</span> 场比赛
+                  {% else %}
+                    See all <span class="dd-count">{{ _games_meta|length }}</span> games
+                  {% endif %}
+                </div>
+                <p class="drilldown-preview-copy">{{ t('Every matchup, score, and win–loss split — one free account.', '每场对阵、比分、胜负分布，一个免费账号全搞定。') }}</p>
+                <a href="{{ _drilldown_login_url }}" class="drilldown-preview-button">{{ t('Sign in / Register', '登录 / 注册') }}</a>
+                <div class="drilldown-preview-meta">{{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') }}</div>
               </div>
             </div>
             {% endif %}
@@ -2178,8 +2230,14 @@ function toggleRelatedMore(btn) {
   const metricKey = {{ metric_def.key | tojson }};
   const drilldownPreviewEnabled = {{ _drilldown_preview_enabled | tojson }};
   const drilldownLoginUrl = {{ _drilldown_login_url | tojson }};
-  const drilldownPreviewCopy = {{ t('Sign in or create an account to unlock the full drill-down game list.', '登录 / 注册后查看完整 drill-down 比赛列表。') | tojson }};
-  const drilldownPreviewButton = {{ t('Sign In / Register', '登录 / 注册') | tojson }};
+  const drilldownPreviewHeadlineZh = {{ lang == 'zh' | tojson }};
+  const drilldownPreviewHeadlineFmt = drilldownPreviewHeadlineZh
+    ? (n) => `查看全部 <span class="dd-count">${n}</span> 场比赛`
+    : (n) => `See all <span class="dd-count">${n}</span> games`;
+  const drilldownPreviewCopy = {{ t('Every matchup, score, and win\u2013loss split — one free account.', '每场对阵、比分、胜负分布，一个免费账号全搞定。') | tojson }};
+  const drilldownPreviewMeta = {{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') | tojson }};
+  const drilldownPreviewButton = {{ t('Sign in / Register', '登录 / 注册') | tojson }};
+  const drilldownPreviewLockSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
   const cache = {};
 
   document.querySelectorAll('.games-drilldown').forEach(el => {
@@ -2265,10 +2323,12 @@ function toggleRelatedMore(btn) {
     if (drilldownPreviewEnabled) {
       html += `<div class="drilldown-preview-shell">
         <div class="drilldown-preview-content">${tableHtml}</div>
-        <div class="drilldown-preview-fade"></div>
         <div class="drilldown-preview-cta">
-          <div class="drilldown-preview-copy">${drilldownPreviewCopy}</div>
+          <div class="drilldown-preview-lock" aria-hidden="true">${drilldownPreviewLockSvg}</div>
+          <div class="drilldown-preview-headline">${drilldownPreviewHeadlineFmt(total)}</div>
+          <p class="drilldown-preview-copy">${drilldownPreviewCopy}</p>
           <a href="${drilldownLoginUrl}" class="drilldown-preview-button">${drilldownPreviewButton}</a>
+          <div class="drilldown-preview-meta">${drilldownPreviewMeta}</div>
         </div>
       </div>`;
     } else {
