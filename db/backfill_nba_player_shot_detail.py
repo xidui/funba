@@ -24,20 +24,49 @@ def _int_or_none(value):
     return int(value)
 
 
+# NBA API treats season_type_all_star as a hard filter even when a game_id
+# is supplied — queries that don't match the game's phase come back empty.
+# Regular Season is the NBA API default, so play-in and playoff games need
+# an explicit override to return any shots at all.
+_SEASON_TYPE_BY_PREFIX = {
+    '1': 'Pre Season',
+    '2': 'Regular Season',
+    '3': 'All Star',
+    '4': 'Playoffs',
+    '5': 'PlayIn',
+}
+
+
+def _season_type_from_season_id(season_id):
+    if not season_id:
+        return 'Regular Season'
+    return _SEASON_TYPE_BY_PREFIX.get(str(season_id)[:1], 'Regular Season')
+
+
+def _resolve_game_season_type(sess, game_id):
+    row = sess.query(Game.season).filter(Game.game_id == game_id).first()
+    if row is None:
+        return 'Regular Season'
+    return _season_type_from_season_id(row[0])
+
+
 @retry(
     wait=wait_exponential(multiplier=1, max=60),  # Wait 1, 2, 4, ..., up to 60 seconds
     stop=stop_after_attempt(10),  # Retry up to 5 times
     retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),  # Retry on network issues and timeouts
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
-def fetch_shot_chart(team_id, player_id, game_id, season=None, season_type=None):
+def fetch_shot_chart(team_id, player_id, game_id, season=None, season_type=None, season_type_all_star=None):
     if season is None:
-        shot_chart = shotchartdetail.ShotChartDetail(
+        kwargs = dict(
             team_id=team_id,
             player_id=player_id,
             game_id_nullable=game_id,
-            context_measure_simple='FGA'  # 'FGA' for field goal attempts
+            context_measure_simple='FGA',
         )
+        if season_type_all_star:
+            kwargs['season_type_all_star'] = season_type_all_star
+        shot_chart = shotchartdetail.ShotChartDetail(**kwargs)
         return shot_chart.get_normalized_dict()
     else:
         shot_chart = shotchartdetail.ShotChartDetail(
@@ -146,8 +175,10 @@ def back_fill_game_shot_record(sess, game_id, commit=False):
         return
 
     # One API call per game for both teams/all players.
-    # ShotChartDetail supports team_id=0, player_id=0 with game_id filter.
-    shots = fetch_shot_chart(0, 0, game_id).get('Shot_Chart_Detail', [])
+    # ShotChartDetail supports team_id=0, player_id=0 with game_id filter,
+    # but the season_type_all_star filter must match the game's phase.
+    season_type = _resolve_game_season_type(sess, game_id)
+    shots = fetch_shot_chart(0, 0, game_id, season_type_all_star=season_type).get('Shot_Chart_Detail', [])
 
     # Group full-shot payload by (player_id, team_id) so we can fill only missing pairs.
     shots_by_pair = defaultdict(list)
@@ -216,7 +247,8 @@ def back_fill_game_shot_record_from_api(sess, game_id, commit=False, replace_exi
     if sess is None:
         sess = Session()
 
-    shots = fetch_shot_chart(0, 0, game_id).get('Shot_Chart_Detail', [])
+    season_type = _resolve_game_season_type(sess, game_id)
+    shots = fetch_shot_chart(0, 0, game_id, season_type_all_star=season_type).get('Shot_Chart_Detail', [])
 
     if replace_existing:
         sess.query(ShotRecord).filter(ShotRecord.game_id == game_id).delete(synchronize_session=False)
