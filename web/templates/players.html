@@ -382,11 +382,16 @@
   </div>
 
   {# ── Team picker ── #}
+  {# For historical seasons the era-aware helpers return the team's name
+     and abbr from that year (e.g. "Seattle SuperSonics" / "SEA" in 2002);
+     fall back to the canonical Team record when no era data exists. #}
   <div class="team-picker" id="team-picker">
     <button class="team-pick team-pick-all active" data-team="all" title="{{ t('All Teams', '全部球队') }}">ALL</button>
     {% for team in teams_with_players %}
-    <button class="team-pick" data-team="{{ team.abbr }}" title="{{ team.full_name }}">
-      <img src="{{ team_logo(team.team_id, season_year) }}" alt="{{ team.abbr }}" loading="lazy" onerror="this.parentElement.textContent='{{ team.abbr }}'">
+    {% set era_abbr = team_abbr_for_year(team.team_id, season_year) or team.abbr %}
+    {% set era_name = team_name_for_year(team.team_id, season_year) or team.full_name %}
+    <button class="team-pick" data-team="{{ era_abbr }}" title="{{ era_name }}">
+      <img src="{{ team_logo(team.team_id, season_year) }}" alt="{{ era_abbr }}" loading="lazy" onerror="this.parentElement.textContent='{{ era_abbr }}'">
     </button>
     {% endfor %}
   </div>
@@ -394,18 +399,20 @@
   {# ── Team sections (all hidden by default, shown when a team is picked) ── #}
   <div id="team-rosters">
     {% for team in teams_with_players %}
-    <div class="team-section" data-team-abbr="{{ team.abbr }}">
+    {% set era_abbr = team_abbr_for_year(team.team_id, season_year) or team.abbr %}
+    {% set era_name = team_name_for_year(team.team_id, season_year) or team.full_name %}
+    <div class="team-section" data-team-abbr="{{ era_abbr }}">
       <div class="team-section-header">
         <img
           src="{{ team_logo(team.team_id, season_year) }}"
-          alt="{{ team.abbr }}"
+          alt="{{ era_abbr }}"
           class="team-section-logo"
           loading="lazy"
           onerror="this.style.display='none'"
         />
         <a href="{{ team_url(team.team_id) }}" style="text-decoration:none;">
-          <span class="team-section-name">{{ team.full_name }}</span>
-          <span class="team-section-abbr">{{ team.abbr }}</span>
+          <span class="team-section-name">{{ era_name }}</span>
+          <span class="team-section-abbr">{{ era_abbr }}</span>
         </a>
         <span class="team-section-count">{{ team.players|length }}</span>
       </div>
