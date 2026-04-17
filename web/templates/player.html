@@ -415,34 +415,70 @@
     }
   }
 
-  /* ── Three-column metrics layout (player page) ──────────── */
-  .metrics-columns {
+  /* ── Highlights strip (top of metrics section) ───────────── */
+  .metrics-highlights {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 16px;
-    align-items: start;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
   }
-
-  @media (max-width: 1000px) {
-    .metrics-columns {
-      grid-template-columns: 1fr 1fr;
-    }
+  .highlight-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: 10px;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 10%, var(--surface)) 0%,
+      var(--surface) 100%);
+    text-decoration: none;
+    color: var(--text);
+    transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
-
-  @media (max-width: 640px) {
-    .metrics-columns {
-      grid-template-columns: 1fr;
-    }
+  .highlight-card:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 18%, transparent);
   }
-
-  .metrics-col-title {
-    font-size: 11px;
+  .highlight-scope {
+    font-size: 10px;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted);
-    margin: 0 0 8px;
+    text-transform: uppercase;
+    color: var(--accent);
   }
+  .highlight-name {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.25;
+    min-height: 30px;
+  }
+  .highlight-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .highlight-rank {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .highlight-rank .rank-best {
+    color: var(--accent);
+  }
+
+  /* ── Scope tabs + panels ─────────────────────────────────── */
+  .metrics-scope-tabs {
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .metrics-scope-panel { display: none; }
+  .metrics-scope-panel.active { display: block; }
 
   /* ── Compact metric rows (player page override) ─────────── */
   .metrics-section .metrics-grid {
@@ -1760,40 +1796,82 @@
     {%- endfor -%}
   {% endmacro %}
 
-  <div class="metrics-columns">
-    {% if season_metrics %}
-    <div class="metrics-col">
-      <h3 class="metrics-col-title">{{ season_label(selected_season) }}</h3>
-      {{ render_category_groups(season_metrics, render_metric_card, false) }}
-    </div>
-    {% endif %}
+  {# ── Highlights strip: top notable across all scopes ─────── #}
+  {%- set hl = namespace(items=[]) -%}
+  {%- set _season_label_str = season_label(selected_season) -%}
+  {%- for m in season_metrics if m.is_notable -%}
+    {%- set _ = hl.items.append({
+      'm': m,
+      'scope_label': _season_label_str,
+      'rank': m.rank,
+      'total': m.total,
+      'href': url_for('metric_detail', metric_key=m.metric_key),
+    }) -%}
+  {%- endfor -%}
+  {%- for m in regular_career if m.is_notable -%}
+    {%- set _ = hl.items.append({
+      'm': m,
+      'scope_label': t('Regular Career', '常规赛生涯'),
+      'rank': m.rank,
+      'total': m.total,
+      'href': url_for('metric_detail', metric_key=m.metric_key, season=m.career_type),
+    }) -%}
+  {%- endfor -%}
+  {%- for m in playoffs_career if m.is_notable -%}
+    {%- set _ = hl.items.append({
+      'm': m,
+      'scope_label': t('Playoffs Career', '季后赛生涯'),
+      'rank': m.rank,
+      'total': m.total,
+      'href': url_for('metric_detail', metric_key=m.metric_key, season=m.career_type),
+    }) -%}
+  {%- endfor -%}
+  {%- for m in playin_career if m.is_notable -%}
+    {%- set _ = hl.items.append({
+      'm': m,
+      'scope_label': t('Play-In Career', '附加赛生涯'),
+      'rank': m.rank,
+      'total': m.total,
+      'href': url_for('metric_detail', metric_key=m.metric_key, season=m.career_type),
+    }) -%}
+  {%- endfor -%}
+  {%- set highlights = (hl.items | sort(attribute='rank'))[:6] -%}
 
-    {% if regular_career %}
-    <div class="metrics-col">
-      <h3 class="metrics-col-title">{{ t('Regular Season Career', '常规赛生涯') }}</h3>
-      {{ render_category_groups(regular_career, render_metric_card_career, true) }}
-    </div>
-    {% endif %}
+  {% if highlights %}
+  <div class="metrics-highlights">
+    {% for h in highlights %}
+      {% set _val = h.m.value_str if h.m.value_str else ("%.3g"|format(h.m.value_num) if h.m.value_num is not none else "—") %}
+      <a class="highlight-card" href="{{ h.href }}" style="text-decoration:none;">
+        <div class="highlight-scope">{{ h.scope_label }}</div>
+        <div class="highlight-name">{{ h.m.metric_name }}</div>
+        <div class="highlight-value">{{ _val }}</div>
+        <div class="highlight-rank">
+          <span class="{% if h.rank == 1 %}rank-best{% endif %}">#{{ h.rank }}</span>{% if h.total %} / {{ h.total }}{% endif %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+  {% endif %}
 
-    {% if playoffs_career %}
-    <div class="metrics-col">
-      <h3 class="metrics-col-title">{{ t('Playoffs Career', '季后赛生涯') }}</h3>
-      {{ render_category_groups(playoffs_career, render_metric_card_career, true) }}
-    </div>
-    {% endif %}
+  {# ── Scope tabs + panels (one scope at a time) ───────────── #}
+  {%- set scope_tabs = [] -%}
+  {%- if season_metrics -%}{%- set _ = scope_tabs.append(('season', _season_label_str, season_metrics, render_metric_card, false)) -%}{%- endif -%}
+  {%- if regular_career -%}{%- set _ = scope_tabs.append(('regular', t('Regular Career', '常规赛生涯'), regular_career, render_metric_card_career, true)) -%}{%- endif -%}
+  {%- if playoffs_career -%}{%- set _ = scope_tabs.append(('playoffs', t('Playoffs Career', '季后赛生涯'), playoffs_career, render_metric_card_career, true)) -%}{%- endif -%}
+  {%- if playin_career -%}{%- set _ = scope_tabs.append(('playin', t('Play-In Career', '附加赛生涯'), playin_career, render_metric_card_career, true)) -%}{%- endif -%}
+
+  {% if scope_tabs %}
+  <div class="tab-bar metrics-scope-tabs" id="metrics-scope-tabs">
+    {% for key, label, _items, _macro, _kind in scope_tabs %}
+      <button type="button" class="tab-btn{% if loop.first %} active{% endif %}" data-scope="{{ key }}">{{ label }} <span style="opacity:0.55;font-weight:500;">{{ _items|length }}</span></button>
+    {% endfor %}
   </div>
 
-  {% if playin_career %}
-  <div class="metrics-more-wrap" style="margin-top:10px;">
-    <button type="button" id="show-playin-metrics" class="metrics-more-btn">
-      {{ t('Play-In Career', '附加赛生涯') }} ({{ playin_career|length }}) &#9660;
-    </button>
-  </div>
-  <div id="playin-metrics-block" style="display:none;margin-top:8px;">
-    <div style="max-width:33.3%;">
-      {{ render_category_groups(playin_career, render_metric_card_career, true) }}
+  {% for key, _label, items, macro, kind in scope_tabs %}
+    <div class="metrics-scope-panel{% if loop.first %} active{% endif %}" data-scope="{{ key }}">
+      {{ render_category_groups(items, macro, kind) }}
     </div>
-  </div>
+  {% endfor %}
   {% endif %}
 
   {# ── Matchup Splits ────────────────────────────────────────── #}
@@ -2417,12 +2495,20 @@
 
 <script>
 (function () {
-  /* ── Metrics expand button ──────────────────────────────────── */
-  var btnPlayin = document.getElementById('show-playin-metrics');
-  if (btnPlayin) {
-    btnPlayin.addEventListener('click', function () {
-      document.getElementById('playin-metrics-block').style.display = '';
-      btnPlayin.parentElement.remove();
+  /* ── Metrics scope tabs ─────────────────────────────────────── */
+  var scopeBar = document.getElementById('metrics-scope-tabs');
+  if (scopeBar) {
+    var panels = document.querySelectorAll('.metrics-scope-panel');
+    scopeBar.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        scopeBar.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var target = btn.dataset.scope;
+        panels.forEach(function (p) {
+          if (p.dataset.scope === target) p.classList.add('active');
+          else p.classList.remove('active');
+        });
+      });
     });
   }
 
