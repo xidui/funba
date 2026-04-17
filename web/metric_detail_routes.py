@@ -85,7 +85,14 @@ def register_metric_detail_routes(app, deps):
         from metrics.framework.base import CAREER_SEASON, is_career_season
         from metrics.framework.runtime import get_metric as _get_metric
 
-        career_season_labels = {"all_regular": "Regular Season", "all_playoffs": "Playoffs", "all_playin": "Play-In"}
+        # Same three labels for every window page (career / last3 / last5);
+        # the URL's window suffix already disambiguates which time bucket the
+        # value lives in, so the dropdown stays "Regular / Playoffs / Play-In".
+        WINDOW_SEASON_LABELS = [
+            ("regular", deps.t()("Regular Season", "常规赛")),
+            ("playoffs", deps.t()("Playoffs", "季后赛")),
+            ("playin", deps.t()("Play-In", "附加赛")),
+        ]
 
         selected_season = request.args.get("season", "")
         all_season_type = None
@@ -185,9 +192,16 @@ def register_metric_detail_routes(app, deps):
             season_values = [r.season for r in season_rows]
             if is_career_metric:
                 show_all_seasons = False
-                career_season_options = sorted([s for s in season_values if is_career_season(s)])
+                window_type = window_type_from_key(metric_key) or "career"
+                window_prefix = "all_" if window_type == "career" else f"{window_type}_"
+                window_season_set = {s for s in season_values if is_career_season(s) and s.startswith(window_prefix)}
+                career_season_options = [
+                    window_prefix + season_type
+                    for season_type, _ in WINDOW_SEASON_LABELS
+                    if window_prefix + season_type in window_season_set
+                ]
                 if not selected_season or selected_season not in career_season_options:
-                    selected_season = "all_regular" if "all_regular" in career_season_options else (career_season_options[0] if career_season_options else "all_regular")
+                    selected_season = career_season_options[0] if career_season_options else f"{window_prefix}regular"
                 season_options = career_season_options
                 season_groups = [
                     {
@@ -195,7 +209,11 @@ def register_metric_detail_routes(app, deps):
                         "type_name": "Career",
                         "type_name_plural": "Career",
                         "all_value": None,
-                        "seasons": [{"value": s, "label": career_season_labels.get(s, s)} for s in career_season_options],
+                        "seasons": [
+                            {"value": window_prefix + season_type, "label": label}
+                            for season_type, label in WINDOW_SEASON_LABELS
+                            if window_prefix + season_type in window_season_set
+                        ],
                     }
                 ]
             elif is_season_scope:
