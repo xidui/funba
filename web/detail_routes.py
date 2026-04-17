@@ -381,11 +381,25 @@ def register_detail_routes(
                 for row in player_award_rows
             ]
 
+            has_playin_stats = session.query(
+                session.query(PlayerGameStats.game_id)
+                .join(Game, PlayerGameStats.game_id == Game.game_id)
+                .filter(PlayerGameStats.player_id == player_id, Game.season.like("5%"))
+                .exists()
+            ).scalar()
+
+            _season_prefix_by_kind = {"regular": "2", "playoffs": "4", "playin": "5"}
+            _career_label_by_kind = {
+                "regular": "Regular Season",
+                "playoffs": "Playoffs",
+                "playin": "Play-In",
+            }
+            _allowed_kinds = {"regular", "playoffs"} | ({"playin"} if has_playin_stats else set())
             selected_career_kind = request.args.get("career_kind", "regular")
-            if selected_career_kind not in {"regular", "playoffs"}:
+            if selected_career_kind not in _allowed_kinds:
                 selected_career_kind = "regular"
-            season_prefix = "2" if selected_career_kind == "regular" else "4"
-            career_kind_label = "Regular Season" if selected_career_kind == "regular" else "Playoffs"
+            season_prefix = _season_prefix_by_kind[selected_career_kind]
+            career_kind_label = _career_label_by_kind[selected_career_kind]
 
             teams = get_team_map()(session)
             career_overall, career_season_rows = get_player_career_summary()(
@@ -636,6 +650,7 @@ def register_detail_routes(
             player=player,
             selected_career_kind=selected_career_kind,
             career_kind_label=career_kind_label,
+            has_playin_stats=has_playin_stats,
             career_overall=career_overall,
             career_season_rows=career_season_rows,
             selected_heatmap_season=selected_heatmap_season,

@@ -1554,6 +1554,12 @@
         href="?career_kind=playoffs&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
         class="tab-btn {{ 'active' if selected_career_kind == 'playoffs' }}"
       >{{ t('Playoffs', '季后赛') }}</a>
+      {% if has_playin_stats %}
+      <a
+        href="?career_kind=playin&heatmap_season={{ selected_heatmap_season }}&season={{ selected_season or '' }}"
+        class="tab-btn {{ 'active' if selected_career_kind == 'playin' }}"
+      >{{ t('Play-In', '附加赛') }}</a>
+      {% endif %}
     </div>
 
     <!-- Totals / Per Game toggle (JS, no page reload) -->
