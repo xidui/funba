@@ -704,19 +704,19 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_nba_first": {
         "label": "All-NBA 1st",
         "short_label": "All-NBA 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-NBA 1st",
         "entity": "player",
     },
     "all_nba_second": {
         "label": "All-NBA 2nd",
         "short_label": "All-NBA 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-NBA 2nd",
         "entity": "player",
     },
     "all_nba_third": {
         "label": "All-NBA 3rd",
         "short_label": "All-NBA 3rd",
-        "badge_label": "3rd Team",
+        "badge_label": "All-NBA 3rd",
         "entity": "player",
     },
     "dpoy": {
@@ -746,25 +746,25 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_defensive_first": {
         "label": "All-Def 1st",
         "short_label": "All-Def 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-Def 1st",
         "entity": "player",
     },
     "all_defensive_second": {
         "label": "All-Def 2nd",
         "short_label": "All-Def 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-Def 2nd",
         "entity": "player",
     },
     "all_rookie_first": {
         "label": "All-Rookie 1st",
         "short_label": "All-Rk 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-Rk 1st",
         "entity": "player",
     },
     "all_rookie_second": {
         "label": "All-Rookie 2nd",
         "short_label": "All-Rk 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-Rk 2nd",
         "entity": "player",
     },
 }

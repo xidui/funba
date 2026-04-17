@@ -294,8 +294,8 @@ class TestAwardsDisplayHelpers(unittest.TestCase):
         self.award_badge_label, self.group_award_entries = _import_web_helpers()
 
     def test_badge_labels_match_player_profile_copy(self):
-        self.assertEqual(self.award_badge_label("all_nba_first"), "1st Team")
-        self.assertEqual(self.award_badge_label("all_rookie_second"), "2nd Team")
+        self.assertEqual(self.award_badge_label("all_nba_first"), "All-NBA 1st")
+        self.assertEqual(self.award_badge_label("all_rookie_second"), "All-Rk 2nd")
         self.assertEqual(self.award_badge_label("champion"), "Champion")
 
     def test_group_award_entries_marks_dynasties_and_repeat_streaks(self):
