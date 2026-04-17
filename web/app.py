@@ -704,19 +704,19 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_nba_first": {
         "label": "All-NBA 1st",
         "short_label": "All-NBA 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-NBA 1st",
         "entity": "player",
     },
     "all_nba_second": {
         "label": "All-NBA 2nd",
         "short_label": "All-NBA 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-NBA 2nd",
         "entity": "player",
     },
     "all_nba_third": {
         "label": "All-NBA 3rd",
         "short_label": "All-NBA 3rd",
-        "badge_label": "3rd Team",
+        "badge_label": "All-NBA 3rd",
         "entity": "player",
     },
     "dpoy": {
@@ -746,25 +746,25 @@ _AWARD_TYPE_META: dict[str, dict[str, str]] = {
     "all_defensive_first": {
         "label": "All-Def 1st",
         "short_label": "All-Def 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-Def 1st",
         "entity": "player",
     },
     "all_defensive_second": {
         "label": "All-Def 2nd",
         "short_label": "All-Def 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-Def 2nd",
         "entity": "player",
     },
     "all_rookie_first": {
         "label": "All-Rookie 1st",
         "short_label": "All-Rk 1st",
-        "badge_label": "1st Team",
+        "badge_label": "All-Rk 1st",
         "entity": "player",
     },
     "all_rookie_second": {
         "label": "All-Rookie 2nd",
         "short_label": "All-Rk 2nd",
-        "badge_label": "2nd Team",
+        "badge_label": "All-Rk 2nd",
         "entity": "player",
     },
 }
@@ -813,12 +813,14 @@ def _award_badge_label(award_type: str) -> str:
     label = meta.get("badge_label", _award_type_label(award_type, short=True))
     zh_labels = {
         "Champion": "总冠军",
-        "1st Team": "一阵",
-        "2nd Team": "二阵",
-        "3rd Team": "三阵",
-        "6th Man": "第六人",
+        "All-NBA 1st": "一阵",
+        "All-NBA 2nd": "二阵",
+        "All-NBA 3rd": "三阵",
+        "All-Def 1st": "防守一阵",
+        "All-Def 2nd": "防守二阵",
         "All-Rk 1st": "新秀一阵",
         "All-Rk 2nd": "新秀二阵",
+        "6th Man": "第六人",
     }
     return zh_labels.get(label, label) if _is_zh() else label
 
