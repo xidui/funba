@@ -951,6 +951,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             limit=8,
             model="gpt-5.4",
             usage_recorder=ANY,
+            session=session,
         )
 
     def test_metric_search_api_ignores_explicit_draft_status(self):
@@ -975,6 +976,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             session,
             scope_filter="",
             status_filter="",
+            include_result_counts=False,
         )
 
     def test_metric_search_api_passes_admin_model_override(self):
@@ -1002,6 +1004,7 @@ class TestMetricSearchAuth(unittest.TestCase):
             limit=8,
             model="claude-sonnet-4-6",
             usage_recorder=ANY,
+            session=session,
         )
 
     def test_metric_search_api_blocks_free_user_when_search_requires_pro(self):
