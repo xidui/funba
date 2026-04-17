@@ -624,8 +624,12 @@ def register_metric_detail_routes(app, deps):
             display_season_label = deps.season_label()(selected_season)
         current_metric_season_label = deps.season_label()(current_metric_season) if current_metric_season else None
         is_player_scope = metric_def.scope in ("player", "player_franchise")
+        # Prototype card layout via ?design=cards — lets us preview without
+        # forcing the new design on everyone before the user approves it.
+        design_mode = (request.args.get("design") or "").strip().lower()
         return deps.render_template()(
             "metric_detail.html",
+            design_mode=design_mode,
             metric_def=metric_def,
             result_rows=result_rows,
             show_rank_group=show_rank_group,
