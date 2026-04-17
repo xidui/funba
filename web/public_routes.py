@@ -1453,9 +1453,51 @@ def register_public_routes(
 
             season_ids_for_filter = year_to_season_ids.get(selected_year, []) if selected_year else []
 
+            def _pick_active_phase(year: str | None) -> str | None:
+                """Pick the phase prefix ("2","4","5",...) most relevant today.
+
+                Looks at games within a ±3 day window and prefers the latest
+                phase present (playoffs > play-in > all-star > regular > pre).
+                Returns None if no games exist for the given year in the window.
+                """
+                if not year:
+                    return None
+                window_start = today - timedelta(days=3)
+                window_end = today + timedelta(days=3)
+                recent = (
+                    session.query(Game.season)
+                    .filter(
+                        Game.game_date >= window_start,
+                        Game.game_date <= window_end,
+                        Game.season.isnot(None),
+                    )
+                    .distinct()
+                    .all()
+                )
+                phases_present: set[str] = set()
+                for row in recent:
+                    s = str(row.season)
+                    if len(s) == 5 and s.isdigit() and s[1:] == year:
+                        phases_present.add(s[0])
+                for prefix in ("4", "5", "3", "2", "1"):
+                    if prefix in phases_present:
+                        return prefix
+                return None
+
             # Phase filter: "2" = Regular, "4" = Playoffs, "5" = Play-In, etc.
-            selected_phase = (request.args.get("phase") or "").strip() or None
-            if selected_phase and season_ids_for_filter:
+            # `phase=all` is the explicit "show everything" sentinel — used so
+            # that choosing "All Phases" from the dropdown survives the round
+            # trip without being silently replaced by the auto-pick below.
+            # A missing `phase` param triggers auto-pick of the current phase.
+            raw_phase = (request.args.get("phase") or "").strip()
+            if raw_phase == "all":
+                selected_phase = "all"
+            elif raw_phase in {"1", "2", "3", "4", "5"}:
+                selected_phase = raw_phase
+            else:
+                selected_phase = _pick_active_phase(selected_year)
+
+            if selected_phase and selected_phase != "all" and season_ids_for_filter:
                 season_ids_for_filter = [
                     sid for sid in season_ids_for_filter if str(sid).startswith(selected_phase)
                 ]

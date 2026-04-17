@@ -329,7 +329,7 @@
       {% endfor %}
     </select>
     <select id="games-phase-select" class="season-select" onchange="applyGamesFilters()">
-      <option value="">{{ t('All Phases', '全部阶段') }}</option>
+      <option value="all" {% if selected_phase == 'all' %}selected{% endif %}>{{ t('All Phases', '全部阶段') }}</option>
       {% for code, label in available_phases %}
       <option value="{{ code }}" {% if code == selected_phase %}selected{% endif %}>
         {{ label }}
