@@ -2300,13 +2300,28 @@ def register_public_routes(
             )
             selected_season = request.args.get("season") or latest_season
 
-            # Get current teams (non-legacy)
+            # Teams actually active in the selected season — includes
+            # legacy franchises (Seattle SuperSonics, NJ Nets, etc.) for
+            # historical seasons, so their rosters and historical logos
+            # show up under their real franchise identity.
+            team_ids_in_season = [
+                row[0] for row in (
+                    session.query(PlayerGameStats.team_id)
+                    .join(Game, Game.game_id == PlayerGameStats.game_id)
+                    .filter(
+                        Game.season == selected_season,
+                        PlayerGameStats.team_id.isnot(None),
+                    )
+                    .distinct()
+                    .all()
+                )
+            ]
             teams = (
                 session.query(Team)
-                .filter(Team.is_legacy == False)
+                .filter(Team.team_id.in_(team_ids_in_season))
                 .order_by(Team.full_name.asc())
                 .all()
-            )
+            ) if team_ids_in_season else []
             team_lookup = {t.team_id: t for t in teams}
 
             # Get each player's most recent team in the selected season
@@ -2420,6 +2435,12 @@ def register_public_routes(
 
             player_count = sum(len(t["players"]) for t in teams_with_players)
 
+        # Year the season started — e.g. "22002" → "2002". Used by the
+        # template so team_logo resolves to the historical era.
+        season_year = None
+        if selected_season and len(str(selected_season)) == 5 and str(selected_season).isdigit():
+            season_year = str(selected_season)[1:]
+
         t = get_t()
         render_template = get_render_template()
         return render_template(
@@ -2427,6 +2448,7 @@ def register_public_routes(
             teams_with_players=teams_with_players,
             player_count=player_count,
             selected_season=selected_season,
+            season_year=season_year,
             season_ids=season_ids,
         )
 
