@@ -187,7 +187,14 @@ def register_metric_detail_routes(app, deps):
                 show_all_seasons = False
                 career_season_options = sorted([s for s in season_values if is_career_season(s)])
                 if not selected_season or selected_season not in career_season_options:
-                    selected_season = "all_regular" if "all_regular" in career_season_options else (career_season_options[0] if career_season_options else "all_regular")
+                    preferred_window = window_type_from_key(metric_key) or "career"
+                    preferred_season = "all_regular" if preferred_window == "career" else f"{preferred_window}_regular"
+                    if preferred_season in career_season_options:
+                        selected_season = preferred_season
+                    elif career_season_options:
+                        selected_season = career_season_options[0]
+                    else:
+                        selected_season = preferred_season
                 season_options = career_season_options
                 season_groups = [
                     {
