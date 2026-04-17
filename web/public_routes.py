@@ -1193,7 +1193,7 @@ def register_public_routes(
                 )
 
         today_games_data = _build_today_games(team_lookup)
-        news_entries = _build_home_news(team_lookup)
+        notable_recent = _build_recent_notable_metrics(team_lookup)
         top_scorers = _build_top_scorers()
 
         games_active = [g for g in today_games_data if g.get("status") in (GAME_STATUS_LIVE, GAME_STATUS_COMPLETED)]
@@ -1216,11 +1216,11 @@ def register_public_routes(
             today_games=today_games_data,
             games_active=games_active,
             upcoming_games=upcoming_games,
-            news_entries=news_entries,
+            notable_recent=notable_recent,
             top_scorers=top_scorers,
         )
 
-    def _build_home_news(team_lookup: dict) -> list[dict]:
+    def _build_home_news(team_lookup: dict, limit: int = 15) -> list[dict]:
         """Top-scored news clusters for the home feed."""
         SessionLocal = get_session_local()
         Player = get_player_model()
@@ -1235,7 +1235,7 @@ def register_public_routes(
                 session.query(NewsCluster)
                 .filter(NewsCluster.representative_article_id.isnot(None))
                 .order_by(NewsCluster.score.desc())
-                .limit(15)
+                .limit(limit)
                 .all()
             )
             if not clusters:
@@ -1295,6 +1295,216 @@ def register_public_routes(
                     }
                 )
             return entries
+
+    _notable_cache: dict = {"ts": 0.0, "signature": None, "payload": {"cards": [], "game_dates": []}}
+    _NOTABLE_TTL_SECONDS = 600  # 10 minutes
+
+    def _build_recent_notable_metrics(team_lookup: dict) -> dict:
+        """Surface notable game-scope metrics from the most recent game days.
+
+        Ranks every game-scope row (per metric_key) in a single bulk window
+        query, then filters to rows tied to games on the last few game dates
+        where the rank is in the top 1% or top 10 overall. This is the home
+        page's marquee feature, so the result is also memoised with a TTL.
+        """
+        import json
+        import time
+
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+        MetricResultModel = get_metric_result_model()
+        get_asc_fn = get_asc_metric_keys()
+        get_metric_name = get_metric_name_for_key()
+
+        try:
+            with SessionLocal() as session:
+                latest_row = (
+                    session.query(Game.season)
+                    .filter(Game.home_team_score.isnot(None))
+                    .order_by(Game.game_date.desc(), Game.game_id.desc())
+                    .limit(1)
+                    .first()
+                )
+                if latest_row is None or not latest_row.season:
+                    return {"cards": [], "game_dates": []}
+                latest_prefix = str(latest_row.season)[:1]
+                # Constrain to dates within the same season type so the window
+                # query can filter cheaply by season prefix.
+                date_rows = (
+                    session.query(Game.game_date, func.count(Game.game_id).label("n"))
+                    .filter(
+                        Game.home_team_score.isnot(None),
+                        Game.season.like(f"{latest_prefix}%"),
+                    )
+                    .group_by(Game.game_date)
+                    .order_by(Game.game_date.desc())
+                    .limit(3)
+                    .all()
+                )
+                dates = [r.game_date for r in date_rows if r.game_date is not None]
+                if not dates:
+                    return {"cards": [], "game_dates": []}
+
+                now = time.monotonic()
+                signature = tuple(d.isoformat() if hasattr(d, "isoformat") else str(d) for d in dates)
+                if (
+                    _notable_cache["signature"] == signature
+                    and (now - _notable_cache["ts"]) < _NOTABLE_TTL_SECONDS
+                    and _notable_cache["payload"].get("cards") is not None
+                ):
+                    return _notable_cache["payload"]
+
+                games = (
+                    session.query(Game)
+                    .filter(
+                        Game.game_date.in_(dates),
+                        Game.home_team_score.isnot(None),
+                        Game.season.like(f"{latest_prefix}%"),
+                    )
+                    .order_by(Game.game_date.desc(), Game.game_id.asc())
+                    .all()
+                )
+                if not games:
+                    return {"cards": [], "game_dates": dates}
+
+                game_by_id = {g.game_id: g for g in games}
+                game_ids = list(game_by_id)
+
+                asc_keys = get_asc_fn(session)
+                rank_value = case(
+                    (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
+                    else_=MetricResultModel.value_num,
+                ) if asc_keys else MetricResultModel.value_num
+                base_filters = [
+                    MetricResultModel.entity_type == "game",
+                    MetricResultModel.value_num.isnot(None),
+                    MetricResultModel.season.like(f"{latest_prefix}%"),
+                ]
+                ranked = (
+                    session.query(
+                        MetricResultModel.entity_id.label("entity_id"),
+                        MetricResultModel.metric_key.label("metric_key"),
+                        MetricResultModel.value_num.label("value_num"),
+                        MetricResultModel.value_str.label("value_str"),
+                        MetricResultModel.season.label("season"),
+                        MetricResultModel.context_json.label("context_json"),
+                        func.rank()
+                        .over(
+                            partition_by=[
+                                MetricResultModel.metric_key,
+                                func.coalesce(MetricResultModel.rank_group, "__all__"),
+                            ],
+                            order_by=rank_value.desc(),
+                        )
+                        .label("rank"),
+                        func.count(MetricResultModel.id)
+                        .over(
+                            partition_by=[
+                                MetricResultModel.metric_key,
+                                func.coalesce(MetricResultModel.rank_group, "__all__"),
+                            ],
+                        )
+                        .label("total"),
+                    )
+                    .filter(*base_filters)
+                    .subquery()
+                )
+
+                entity_filter = or_(
+                    ranked.c.entity_id.in_(game_ids),
+                    *[ranked.c.entity_id.like(f"{gid}:%") for gid in game_ids],
+                )
+                rows = (
+                    session.query(ranked)
+                    .filter(entity_filter)
+                    .all()
+                )
+
+                metric_keys = {r.metric_key for r in rows}
+                name_cache = {k: get_metric_name(session, k) for k in metric_keys}
+
+                all_cards: list[dict] = []
+                for r in rows:
+                    total = int(r.total or 0)
+                    if not total:
+                        continue
+                    rank = int(r.rank)
+                    ratio = rank / total
+                    is_hero = ratio <= 0.01
+                    is_featured = is_hero or rank <= 10
+                    if not is_featured:
+                        continue
+                    owner_gid = str(r.entity_id).split(":", 1)[0]
+                    game = game_by_id.get(owner_gid)
+                    if game is None:
+                        continue
+                    try:
+                        ctx = json.loads(r.context_json) if r.context_json else {}
+                    except (TypeError, ValueError):
+                        ctx = {}
+                    home_team = team_lookup.get(game.home_team_id)
+                    road_team = team_lookup.get(game.road_team_id)
+                    winner_id = str(game.wining_team_id) if getattr(game, "wining_team_id", None) else None
+                    season_badge = f"#{rank} Season" if rank <= 10 or ratio <= 0.25 else None
+                    all_badge = f"#{rank} All" if rank <= 3 or ratio <= 0.01 else None
+                    all_cards.append(
+                        {
+                            "metric_key": r.metric_key,
+                            "metric_name": name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+                            "value_num": r.value_num,
+                            "value_str": r.value_str,
+                            "rank": rank,
+                            "total": total,
+                            "ratio": ratio,
+                            "is_hero": is_hero,
+                            "context": ctx,
+                            "context_label": ctx.get("note") if isinstance(ctx, dict) else None,
+                            "season_badge_text": season_badge,
+                            "all_badge_text": all_badge,
+                            "game_id": game.game_id,
+                            "game_slug": game.slug,
+                            "game_date": game.game_date,
+                            "game_season": game.season,
+                            "home_team_id": game.home_team_id,
+                            "road_team_id": game.road_team_id,
+                            "home_abbr": home_team.abbr if home_team else (game.home_team_id or ""),
+                            "road_abbr": road_team.abbr if road_team else (game.road_team_id or ""),
+                            "home_score": game.home_team_score,
+                            "road_score": game.road_team_score,
+                            "winner_id": winner_id,
+                        }
+                    )
+        except Exception:
+            return {"cards": [], "game_dates": []}
+
+        all_cards.sort(
+            key=lambda c: (
+                c["ratio"],
+                c["rank"],
+                -(c["game_date"].toordinal() if c.get("game_date") else 0),
+            )
+        )
+        # Dedup so one metric doesn't flood the feed — keep the best per metric.
+        seen_keys: set[str] = set()
+        deduped: list[dict] = []
+        for c in all_cards:
+            if c["metric_key"] in seen_keys:
+                continue
+            seen_keys.add(c["metric_key"])
+            deduped.append(c)
+
+        payload = {"cards": deduped[:20], "game_dates": dates}
+        _notable_cache["ts"] = now
+        _notable_cache["signature"] = signature
+        _notable_cache["payload"] = payload
+        return payload
+
+    def news_page():
+        SessionLocal = get_session_local()
+        with SessionLocal() as session:
+            team_lookup = get_team_map(session)
+        entries = _build_home_news(team_lookup, limit=60)
+        return get_render_template()("news.html", news_entries=entries)
 
     def news_detail(cluster_id: int):
         SessionLocal = get_session_local()
@@ -2517,6 +2727,8 @@ def register_public_routes(
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/teams", endpoint="teams_list_page", view_func=teams_list_page)
     app.add_url_rule("/cn/teams", endpoint="teams_list_page_zh", view_func=teams_list_page)
+    app.add_url_rule("/news", endpoint="news_page", view_func=news_page)
+    app.add_url_rule("/cn/news", endpoint="news_page_zh", view_func=news_page)
     app.add_url_rule("/news/<int:cluster_id>", endpoint="news_detail", view_func=news_detail)
     app.add_url_rule("/cn/news/<int:cluster_id>", endpoint="news_detail_zh", view_func=news_detail)
     app.add_url_rule("/cn/games", endpoint="games_list_zh", view_func=games_list)
@@ -2535,6 +2747,7 @@ def register_public_routes(
 
     return SimpleNamespace(
         home=home,
+        news_page=news_page,
         games_list=games_list,
         awards_page=awards_page,
         players_browse=players_browse,

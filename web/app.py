@@ -278,6 +278,7 @@ _LOCALIZED_PUBLIC_ENDPOINTS = {
     "metric_edit": "metric_edit_zh",
     "pricing": "pricing_zh",
     "account_page": "account_page_zh",
+    "news_page": "news_page_zh",
     "news_detail": "news_detail_zh",
     "teams_list_page": "teams_list_page_zh",
 }
@@ -5173,6 +5174,7 @@ _public_views = register_public_routes(
     get_pct_fmt=lambda: pct_fmt,
 )
 home = _public_views.home
+news_page = _public_views.news_page
 games_list = _public_views.games_list
 awards_page = _public_views.awards_page
 player_hints_api = _public_views.player_hints_api
