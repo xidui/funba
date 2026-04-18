@@ -1042,6 +1042,19 @@
           <div class="notable-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           {% if m.context_label %}<div class="notable-context">{{ m.context_label }}</div>{% endif %}
           <div class="notable-footer">
+            {% if m.subject_kind == 'player' %}
+            <span class="notable-subject" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ player_url(m.player_id) }}'" title="{{ t('Open player page', '查看球员') }}">
+              {% if m.player_headshot_url %}
+              <img class="notable-subject-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+              {% endif %}
+              <span class="notable-subject-name">{{ m.player_name }}</span>
+            </span>
+            {% elif m.subject_kind == 'team' %}
+            <span class="notable-subject" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ team_url(m.team_id) }}'" title="{{ t('Open team page', '查看球队') }}">
+              <img class="notable-subject-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
+              <span class="notable-subject-name">{{ m.team_abbr }}</span>
+            </span>
+            {% else %}
             <span class="notable-game" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ game_url(m.game_id) }}'" title="{{ t('Open game', '查看比赛') }}">
               <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M4.5 9.5c2 0 4-.5 5.5-2"/><path d="M4.5 14.5c2 0 4 .5 5.5 2"/><path d="M19.5 9.5c-2 0-4-.5-5.5-2"/><path d="M19.5 14.5c-2 0-4 .5-5.5 2"/><path d="M12 2v20"/></svg>
               <span class="notable-team {% if m.winner_id and m.winner_id == m.road_team_id|string %}notable-team-winner{% endif %}">{{ m.road_abbr }}</span>
@@ -1054,10 +1067,13 @@
               {% endif %}
               <span class="notable-team {% if m.winner_id and m.winner_id == m.home_team_id|string %}notable-team-winner{% endif %}">{{ m.home_abbr }}</span>
             </span>
+            {% endif %}
+            {% if m.game_date %}
             <span class="notable-date">
               <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               {{ m.game_date.strftime('%b %d') }}
             </span>
+            {% endif %}
           </div>
         </a>
         {% endfor %}
@@ -1370,6 +1386,31 @@
     cursor: pointer;
   }
   .notable-game:hover { color: var(--accent); }
+  .notable-subject {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    color: var(--heading);
+    cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .notable-subject:hover { color: var(--accent); }
+  .notable-subject-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface-3);
+  }
+  .notable-subject-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .notable-team {
     letter-spacing: 0.02em;
   }

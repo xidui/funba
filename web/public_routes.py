@@ -1502,6 +1502,7 @@ def register_public_routes(
                     all_badge = f"#{rank} All" if rank <= 3 or ratio <= 0.01 else None
                     all_cards.append(
                         {
+                            "subject_kind": "game",
                             "metric_key": r.metric_key,
                             "metric_name": name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
                             "value_num": r.value_num,
@@ -1527,14 +1528,124 @@ def register_public_routes(
                             "winner_id": winner_id,
                         }
                     )
+
+                # --- Player / team current-season leaders ---
+                # For each non-game metric key, surface rows whose value ranks
+                # at the very top of the current NBA year pool. These never
+                # show up in the game feed above (entity_type='game' only).
+                Player = get_player_model()
+                headshot_fn = get_player_headshot_url()
+                for subject_kind, subject_entity_type, subject_rank_limit in [
+                    ("player", "player", 1),
+                    ("team", "team", 1),
+                ]:
+                    subj_rank_value = case(
+                        (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
+                        else_=MetricResultModel.value_num,
+                    ) if asc_keys else MetricResultModel.value_num
+                    subj_ranked = (
+                        session.query(
+                            MetricResultModel.entity_id.label("entity_id"),
+                            MetricResultModel.metric_key.label("metric_key"),
+                            MetricResultModel.value_num.label("value_num"),
+                            MetricResultModel.value_str.label("value_str"),
+                            MetricResultModel.season.label("season"),
+                            MetricResultModel.context_json.label("context_json"),
+                            func.row_number()
+                            .over(
+                                partition_by=[MetricResultModel.metric_key],
+                                order_by=subj_rank_value.desc(),
+                            )
+                            .label("rn"),
+                            func.count(MetricResultModel.id)
+                            .over(partition_by=[MetricResultModel.metric_key])
+                            .label("total"),
+                        )
+                        .filter(
+                            MetricResultModel.entity_type == subject_entity_type,
+                            MetricResultModel.value_num.isnot(None),
+                            MetricResultModel.season.like(season_year_pattern),
+                        )
+                        .subquery()
+                    )
+                    leaders = session.query(subj_ranked).filter(subj_ranked.c.rn <= subject_rank_limit).all()
+                    if not leaders:
+                        continue
+
+                    leader_metric_keys = {r.metric_key for r in leaders}
+                    for key in leader_metric_keys:
+                        if key not in name_cache:
+                            name_cache[key] = get_metric_name(session, key)
+
+                    if subject_kind == "player":
+                        player_ids = {str(r.entity_id) for r in leaders}
+                        players = session.query(Player).filter(Player.player_id.in_(player_ids)).all()
+                        player_by_id = {p.player_id: p for p in players}
+                    else:
+                        player_by_id = {}
+
+                    for r in leaders:
+                        total = int(r.total or 0)
+                        if not total:
+                            continue
+                        rank = int(r.rn)
+                        ratio = rank / total
+                        is_hero = ratio <= 0.01 or rank <= 3
+                        try:
+                            ctx = json.loads(r.context_json) if r.context_json else {}
+                        except (TypeError, ValueError):
+                            ctx = {}
+                        season_badge = f"#{rank} Season" if rank <= 10 else None
+                        all_badge = f"#{rank} Season leader" if rank == 1 else None
+
+                        card = {
+                            "subject_kind": subject_kind,
+                            "metric_key": r.metric_key,
+                            "metric_name": name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+                            "value_num": r.value_num,
+                            "value_str": r.value_str,
+                            "rank": rank,
+                            "total": total,
+                            "ratio": ratio,
+                            "is_hero": is_hero,
+                            "context": ctx,
+                            "context_label": ctx.get("note") if isinstance(ctx, dict) else None,
+                            "season_badge_text": season_badge,
+                            "all_badge_text": all_badge,
+                            # Reuse sort key slot — same-year leaders share today's recency.
+                            "game_date": None,
+                            "game_season": r.season,
+                        }
+                        if subject_kind == "player":
+                            player = player_by_id.get(str(r.entity_id))
+                            if player is None:
+                                continue
+                            card.update({
+                                "player_id": player.player_id,
+                                "player_name": player.full_name,
+                                "player_headshot_url": headshot_fn(player.player_id) if headshot_fn else None,
+                            })
+                        else:
+                            tm = team_lookup.get(str(r.entity_id))
+                            if tm is None:
+                                continue
+                            card.update({
+                                "team_id": tm.team_id,
+                                "team_abbr": tm.abbr,
+                                "team_name": tm.full_name,
+                            })
+                        all_cards.append(card)
         except Exception:
             return {"cards": [], "game_dates": []}
 
+        _today_ord = date.today().toordinal()
         all_cards.sort(
             key=lambda c: (
                 c["ratio"],
                 c["rank"],
-                -(c["game_date"].toordinal() if c.get("game_date") else 0),
+                # Non-game cards fall back to today so league-leader entries
+                # aren't treated as ancient in the recency tiebreak.
+                -(c["game_date"].toordinal() if c.get("game_date") else _today_ord),
             )
         )
         # Dedup so one metric doesn't flood the feed — keep the best per metric.
