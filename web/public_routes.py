@@ -1636,6 +1636,8 @@ def register_public_routes(
                             })
                         all_cards.append(card)
         except Exception:
+            import traceback
+            traceback.print_exc()
             return {"cards": [], "game_dates": []}
 
         _today_ord = date.today().toordinal()
