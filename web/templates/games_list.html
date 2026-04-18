@@ -278,13 +278,11 @@
     if (year) params.set('year', year);
     if (team) params.set('team', team);
     if (phase) params.set('phase', phase);
-    const currentView = '{{ view }}';
-    if (currentView) params.set('view', currentView);
     const query = params.toString();
     window.location.href = '{{ url_for("games_list") }}' + (query ? '?' + query : '');
   }
 
-  {% if view == 'live' %}
+  {% if has_live %}
   async function refreshLiveRows() {
     const response = await fetch('{{ url_for("api_games_live") }}', { headers: { 'Accept': 'application/json' } });
     if (!response.ok) return;
@@ -336,24 +334,6 @@
     </select>
   </div>
 </div>
-
-{# ── Tab bar ── only shown when a Live tab is available; otherwise a single
-   unified "Games" view makes the tab bar redundant. ── #}
-{% if has_live %}
-<div class="games-tabs">
-  <div class="tab-bar">
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='games') }}"
-       class="tab-btn {{ 'active' if view == 'games' }}">
-      {{ t('Games', '比赛') }}
-    </a>
-    <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view='live') }}"
-       class="tab-btn {{ 'active' if view == 'live' }}">
-      <span class="live-dot-small"></span>{{ t('Live', '进行中') }}
-      <span class="tab-count">{{ live_count }}</span>
-    </a>
-  </div>
-</div>
-{% endif %}
 
 {# ── Playoff Bracket ── #}
 {% if bracket and selected_phase == '4' %}
@@ -742,39 +722,23 @@
   </div>
 {% endmacro %}
 
-{# ── Main content ── #}
+{# ── Main content ── unified list: live, upcoming, completed ── #}
 <div class="card">
-  {% if view == 'live' %}
-    {# ── Live View ── #}
-    {% if live_date_groups %}
-      {{ render_date_groups(live_date_groups) }}
-    {% endif %}
-    {% if today_completed_groups %}
-    <div class="section-divider">{{ t('Completed Today', '今日已结束') }}</div>
-      {{ render_date_groups(today_completed_groups) }}
-    {% endif %}
-    {% if not live_date_groups and not today_completed_groups %}
-    <p class="meta">{{ t('No live games right now.', '当前没有正在进行的比赛。') }}</p>
-    {% endif %}
-
+  {% if date_groups %}
+    {{ render_date_groups(date_groups) }}
   {% else %}
-    {# ── Games View (unified: upcoming + completed, newest first) ── #}
-    {% if date_groups %}
-      {{ render_date_groups(date_groups) }}
+  <p class="meta">
+    {% if selected_team_obj %}
+    {{ t('No games found for', '这个赛季没有找到') }} {{ display_team_name(selected_team_obj) }} {{ t('in this season.', '的比赛。') }}
     {% else %}
-    <p class="meta">
-      {% if selected_team_obj %}
-      {{ t('No games found for', '这个赛季没有找到') }} {{ display_team_name(selected_team_obj) }} {{ t('in this season.', '的比赛。') }}
-      {% else %}
-      {{ t('No games found for this season.', '这个赛季没有找到比赛。') }}
-      {% endif %}
-    </p>
+    {{ t('No games found for this season.', '这个赛季没有找到比赛。') }}
     {% endif %}
+  </p>
   {% endif %}
 </div>
 
 {% if total_pages > 1 %}
-{% macro page_url(p) %}{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, view=view, page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, page=p) }}{% endmacro %}
 <div class="pagination">
   <a class="page-btn {{ 'disabled' if page == 1 }}" href="{{ page_url(page - 1) }}">&#8592;</a>
 

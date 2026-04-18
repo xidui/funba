@@ -1756,30 +1756,27 @@ def register_public_routes(
             completed_all.sort(key=lambda item: (item.game_date, item.game_id), reverse=True)
             upcoming_games.sort(key=lambda item: (item.game_date, item.game_id))
 
-            # Determine active view. Results + Schedule are unified into a
-            # single "games" view ordered chronologically; Live is kept
-            # separate because it auto-refreshes on its own cadence.
-            # Legacy ?view=results / ?view=schedule fold into the combined
-            # view so old bookmarks keep working.
-            view = request.args.get("view", "").strip().lower()
+            # Single unified list: live, upcoming, and completed games sorted
+            # newest→oldest. Within the same date, live games float to the
+            # top so ongoing action is immediately visible; upcoming comes
+            # next, completed last. Legacy ?view=live / ?view=results /
+            # ?view=schedule all fold into this view (kept for bookmarks).
             has_live = bool(live_games)
-            if view == "live" and not has_live:
-                view = "games"
-            elif view == "":
-                view = "live" if has_live else "games"
-            elif view != "live":
-                view = "games"
+            view = "games"
 
-            # Combined list sorted newest→oldest (future dates appear above
-            # past dates). Default page is the one whose first entry is
-            # today-or-earlier — so a fresh visit lands the user on today
-            # with past games scrolling below and future games one page back.
+            def _status_rank(entry):
+                if entry.status == GAME_STATUS_LIVE:
+                    return 2
+                if entry.status == GAME_STATUS_UPCOMING:
+                    return 1
+                return 0
+
             combined_games = sorted(
-                upcoming_games + completed_all,
-                key=lambda item: (item.game_date, item.game_id),
+                upcoming_games + live_games + completed_all,
+                key=lambda item: (item.game_date, _status_rank(item), item.game_id),
                 reverse=True,
             )
-            paginate_source = combined_games if view == "games" else []
+            paginate_source = combined_games
 
             # With the playoff bracket visible, skip pagination so clicking a
             # series card filters across the full playoff+play-in set (the
@@ -1802,7 +1799,7 @@ def register_public_routes(
                 )
                 default_page = (today_start_idx // page_size) + 1
 
-            if "page" not in request.args and view == "games":
+            if "page" not in request.args:
                 page = default_page
             page = min(page, total_pages)
             start = (page - 1) * page_size
@@ -1810,11 +1807,6 @@ def register_public_routes(
             paginated = paginate_source[start:end] if paginate_source else []
 
             date_groups = _group_by_date(paginated)
-
-            # Live view extras: live games grouped + today's completed
-            live_date_groups = _group_by_date(live_games) if view == "live" else []
-            today_completed = [e for e in completed_all if e.game_date == today] if view == "live" else []
-            today_completed_groups = _group_by_date(today_completed) if today_completed else []
 
             team_lookup_rows = session.query(Team).all()
             team_lookup = {team.team_id: team for team in team_lookup_rows if getattr(team, "team_id", None)}
@@ -1870,8 +1862,6 @@ def register_public_routes(
             view=view,
             has_live=has_live,
             date_groups=date_groups,
-            live_date_groups=live_date_groups,
-            today_completed_groups=today_completed_groups,
             live_count=len(live_games),
             results_count=len(completed_all),
             schedule_count=len(upcoming_games),
