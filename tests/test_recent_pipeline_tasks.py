@@ -155,6 +155,8 @@ def test_ingest_game_does_not_enqueue_season_refresh_for_shot_only_backfill():
     line_score_session = _ctx(MagicMock())
     period_check_session = _ctx(MagicMock())
     shot_backfill_session = _ctx(MagicMock())
+    metric_log_session = _ctx(MagicMock())
+    metric_log_session.query.return_value.filter.return_value.first.return_value = object()
 
     ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
     try:
@@ -169,6 +171,7 @@ def test_ingest_game_does_not_enqueue_season_refresh_for_shot_only_backfill():
                     line_score_session,
                     period_check_session,
                     shot_backfill_session,
+                    metric_log_session,
                 ]
             ),
         ), patch.object(
@@ -195,6 +198,89 @@ def test_ingest_game_does_not_enqueue_season_refresh_for_shot_only_backfill():
 
     shot_mock.assert_called_once()
     refresh_delay_mock.assert_not_called()
+    assert result["game_id"] == "g1"
+    assert result["shot_refreshed"] is True
+
+
+def test_ingest_game_forces_season_refresh_when_metric_logs_are_missing():
+    before_status = {
+        "exists_game": True,
+        "game_status": "completed",
+        "artifacts_supported": True,
+        "has_detail": True,
+        "has_pbp": True,
+        "has_shot": False,
+        "season": "52025",
+    }
+    after_status = {
+        "exists_game": True,
+        "game_status": "completed",
+        "artifacts_supported": True,
+        "has_detail": True,
+        "has_pbp": True,
+        "has_shot": True,
+        "season": "52025",
+    }
+
+    status_session = _ctx(MagicMock())
+    final_status_session = _ctx(MagicMock())
+    zero_score_session = _ctx(MagicMock())
+    zero_score_session.query.return_value.filter.return_value.first.return_value = None
+    line_score_session = _ctx(MagicMock())
+    period_check_session = _ctx(MagicMock())
+    shot_backfill_session = _ctx(MagicMock())
+    metric_log_session = _ctx(MagicMock())
+    metric_log_session.query.return_value.filter.return_value.first.return_value = None
+
+    ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
+    try:
+        with patch.object(
+            ingest_tasks,
+            "_session_factory",
+            return_value=MagicMock(
+                side_effect=[
+                    status_session,
+                    final_status_session,
+                    zero_score_session,
+                    line_score_session,
+                    period_check_session,
+                    shot_backfill_session,
+                    metric_log_session,
+                ]
+            ),
+        ), patch.object(
+            ingest_tasks,
+            "_load_game_artifact_status",
+            side_effect=[before_status, after_status],
+        ), patch.object(
+            ingest_tasks,
+            "back_fill_game_shot_record",
+        ) as shot_mock, patch.object(
+            ingest_tasks,
+            "has_game_line_score",
+            return_value=True,
+        ), patch.object(
+            ingest_tasks,
+            "has_game_period_stats",
+            return_value=True,
+        ), patch(
+            "tasks.metrics.refresh_current_season_metrics.delay",
+        ) as refresh_delay_mock:
+            result = ingest_tasks.ingest_game.run("g1")
+    finally:
+        ingest_tasks.ingest_game.pop_request()
+
+    shot_mock.assert_called_once()
+    refresh_delay_mock.assert_called_once_with(
+        [
+            {
+                "game_id": "g1",
+                "new_game": True,
+                "detail_pbp_refreshed": False,
+                "shot_refreshed": True,
+            }
+        ]
+    )
     assert result["game_id"] == "g1"
     assert result["shot_refreshed"] is True
 
@@ -281,6 +367,32 @@ def test_compute_season_metric_queues_recent_content_check():
     progress_mock.assert_called_once_with("run-1")
     delay_mock.assert_called_once_with("22025")
     assert result == {"metric_key": "metric_a", "season": "22025", "results_written": 7}
+
+
+def test_compute_season_metric_queues_recent_content_check_for_playin():
+    session = _ctx(MagicMock())
+    session_factory = MagicMock(return_value=session)
+    outer_ctx = _ctx(session_factory)
+
+    with patch.object(
+        metrics_tasks,
+        "_reduce_locked_session_factory",
+        return_value=outer_ctx,
+    ), patch.object(
+        metrics_tasks,
+        "run_season_metric",
+        return_value=7,
+    ), patch.object(
+        metrics_tasks,
+        "_increment_compute_run_progress",
+    ) as progress_mock, patch(
+        "tasks.content.ensure_recent_content_analysis_for_season_task.delay",
+    ) as delay_mock:
+        result = metrics_tasks.compute_season_metric_task.run("metric_a", "52025", run_id="run-1")
+
+    progress_mock.assert_called_once_with("run-1")
+    delay_mock.assert_called_once_with("52025")
+    assert result == {"metric_key": "metric_a", "season": "52025", "results_written": 7}
 
 
 def test_compute_season_metric_marks_run_failed_when_runner_raises():

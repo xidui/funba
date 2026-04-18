@@ -28,7 +28,7 @@ from db.backfill_nba_player_shot_detail import (
     is_game_shot_back_filled,
 )
 from db.game_status import GAME_STATUS_COMPLETED, completed_game_clause, get_game_status, infer_game_status
-from db.models import Game, Team, TeamGameStats, engine
+from db.models import Game, MetricRunLog, Team, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 from runtime_flags import get_runtime_flag
 
@@ -148,6 +148,14 @@ def _missing_artifacts(status: dict) -> list[str]:
         if not status.get("has_period"):
             missing.append("period_stats")
     return missing
+
+
+def _has_metric_run_logs(sess, game_id: str) -> bool:
+    return (
+        sess.query(MetricRunLog.game_id)
+        .filter(MetricRunLog.game_id == game_id)
+        .first()
+    ) is not None
 
 
 def _list_incomplete_game_ids(game_ids: list[str]) -> list[str]:
@@ -364,11 +372,13 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         "metric_tasks_enqueued": len(keys_to_run),
     }
 
+    queued_season_refresh = False
     if result["new_game"] or result["detail_pbp_refreshed"]:
         try:
             from tasks.metrics import refresh_current_season_metrics
 
             refresh_current_season_metrics.delay([result])
+            queued_season_refresh = True
         except Exception as exc:
             logger.warning(
                 "ingest_game %s: failed to enqueue season metric refresh: %s",
@@ -412,6 +422,32 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 exc,
             )
     result["shot_refreshed"] = shot_refreshed
+
+    if not queued_season_refresh and not legacy_game_metric_fanout:
+        with SessionLocal() as sess:
+            has_metric_logs = _has_metric_run_logs(sess, game_id)
+        if not has_metric_logs:
+            refresh_payload = {
+                "game_id": game_id,
+                "new_game": True,
+                "detail_pbp_refreshed": False,
+                "shot_refreshed": shot_refreshed,
+            }
+            try:
+                from tasks.metrics import refresh_current_season_metrics
+
+                refresh_current_season_metrics.delay([refresh_payload])
+                logger.info(
+                    "ingest_game %s: forced season metric refresh because no MetricRunLog rows exist after ingest.",
+                    game_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "ingest_game %s: failed to enqueue forced season metric refresh: %s",
+                    game_id,
+                    exc,
+                    exc_info=True,
+                )
 
     logger.info(
         "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",

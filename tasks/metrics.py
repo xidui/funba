@@ -831,7 +831,7 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
     if run_id:
         _increment_compute_run_progress(run_id)
 
-    if season and str(season).startswith(("2", "4")):
+    if season and str(season).startswith(("2", "4", "5")):
         try:
             from tasks.content import ensure_recent_content_analysis_for_season_task
 
