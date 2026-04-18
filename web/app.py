@@ -26,6 +26,7 @@ from flask_limiter import Limiter
 from sqlalchemy import and_, case, distinct, func, or_, text
 from sqlalchemy.orm import sessionmaker
 from social_media.hupu.forums import normalize_hupu_forum
+from social_media.hupu.validation import validate_hupu_title
 from social_media.images import store_prepared_image
 
 from db.llm_models import (
@@ -2362,6 +2363,200 @@ def _game_metric_best_rank(entry: dict) -> int:
     return min(ranks) if ranks else 10**9
 
 
+def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
+    """Return player + team metrics that this specific game advanced.
+
+    Uses MetricRunLog.game_id to find (metric, entity) pairs flagged as
+    `qualified` for this game — i.e. the game meaningfully moved the
+    underlying season aggregate. Each card also gets a season-pool rank
+    and an all-time (same season-type prefix) rank so the caller can
+    decide how loudly to surface it.
+
+    Returns {"player": [cards], "team": [cards]}; each card follows the
+    same shape as game-scope cards so templates can share helpers.
+    """
+    import json as _json
+    from db.models import MetricRunLog, Player as _Player
+
+    runs = (
+        session.query(
+            MetricRunLog.metric_key,
+            MetricRunLog.entity_type,
+            MetricRunLog.entity_id,
+            MetricRunLog.season,
+        )
+        .filter(
+            MetricRunLog.game_id == game_id,
+            MetricRunLog.qualified.is_(True),
+            MetricRunLog.entity_type.in_(("player", "team")),
+        )
+        .all()
+    )
+    if not runs:
+        return {"player": [], "team": []}
+
+    trigger_keys = {(r.metric_key, r.entity_type, r.entity_id, r.season) for r in runs}
+    metric_keys = {k[0] for k in trigger_keys}
+
+    disabled = _disabled_metric_keys(session) if not is_admin() else set()
+    if disabled:
+        metric_keys = metric_keys - disabled
+        trigger_keys = {k for k in trigger_keys if k[0] in metric_keys}
+    if not trigger_keys:
+        return {"player": [], "team": []}
+
+    # Fetch the current MetricResult value for every trigger pair in one
+    # query, then prune to the exact tuples we logged (metric_key +
+    # entity_id + season together).
+    candidate_rows = (
+        session.query(MetricResultModel)
+        .filter(
+            MetricResultModel.metric_key.in_(metric_keys),
+            MetricResultModel.entity_type.in_(("player", "team")),
+            MetricResultModel.value_num.isnot(None),
+        )
+        .all()
+    )
+    entity_rows = [
+        r for r in candidate_rows
+        if (r.metric_key, r.entity_type, r.entity_id, r.season) in trigger_keys
+    ]
+    if not entity_rows:
+        return {"player": [], "team": []}
+
+    _asc_keys = _asc_metric_keys(session)
+    target_ids = [r.id for r in entity_rows]
+    MR = MetricResultModel
+    e = MR.__table__.alias("e")
+    p = MR.__table__.alias("p")
+    if _asc_keys:
+        better_expr = case(
+            (e.c.metric_key.in_(_asc_keys), p.c.value_num < e.c.value_num),
+            else_=(p.c.value_num > e.c.value_num),
+        )
+    else:
+        better_expr = p.c.value_num > e.c.value_num
+
+    # Season rank — same (metric_key, entity_type, season) pool.
+    season_join = and_(
+        p.c.metric_key == e.c.metric_key,
+        p.c.entity_type == e.c.entity_type,
+        p.c.season == e.c.season,
+        p.c.value_num.isnot(None),
+    )
+    season_rank_q = (
+        session.query(
+            e.c.id,
+            func.count(p.c.id).label("total"),
+            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        )
+        .select_from(e).join(p, season_join)
+        .filter(e.c.id.in_(target_ids))
+        .group_by(e.c.id)
+    )
+    season_rank_map = {r.id: (int(r.rank), int(r.total)) for r in season_rank_q.all()}
+
+    # All-time rank — same (metric_key, entity_type, season_prefix) pool.
+    prefix_p = func.substr(p.c.season, 1, 1)
+    prefix_e = func.substr(e.c.season, 1, 1)
+    alltime_join = and_(
+        p.c.metric_key == e.c.metric_key,
+        p.c.entity_type == e.c.entity_type,
+        prefix_p == prefix_e,
+        p.c.value_num.isnot(None),
+    )
+    alltime_rank_q = (
+        session.query(
+            e.c.id,
+            func.count(p.c.id).label("total"),
+            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        )
+        .select_from(e).join(p, alltime_join)
+        .filter(e.c.id.in_(target_ids))
+        .group_by(e.c.id)
+    )
+    alltime_rank_map = {r.id: (int(r.rank), int(r.total)) for r in alltime_rank_q.all()}
+
+    metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
+    base_keys = {family_base_key(r.metric_key) for r in entity_rows}
+    db_templates = _load_context_label_templates(session, base_keys)
+
+    team_map = _team_map(session)
+    player_ids = {r.entity_id for r in entity_rows if r.entity_type == "player"}
+    player_map: dict[str, Any] = {}
+    if player_ids:
+        for pl in session.query(_Player).filter(_Player.player_id.in_(player_ids)).all():
+            player_map[pl.player_id] = pl
+
+    result: dict[str, list[dict]] = {"player": [], "team": []}
+    for r in entity_rows:
+        season_rank, season_total = season_rank_map.get(r.id, (1, 1))
+        all_rank, all_total = alltime_rank_map.get(r.id, (None, None))
+        season_ratio = (season_rank / season_total) if season_total else 1.0
+        all_ratio = (all_rank / all_total) if (all_rank is not None and all_total) else None
+        best_ratio = min(x for x in (season_ratio, all_ratio) if x is not None)
+
+        is_hero = (all_ratio is not None and all_ratio <= 0.01) or season_ratio <= 0.01
+        is_featured = (
+            is_hero
+            or season_rank <= 10
+            or (all_rank is not None and all_rank <= 10)
+            or season_ratio <= 0.25
+        )
+        if not is_featured:
+            continue
+
+        try:
+            ctx = _json.loads(r.context_json) if r.context_json else {}
+        except Exception:
+            ctx = {}
+        context_label = None
+        if isinstance(ctx, dict):
+            context_label = _resolve_context_label(family_base_key(r.metric_key), ctx, db_templates)
+            if not context_label:
+                context_label = ctx.get("note")
+
+        card = {
+            "metric_key": r.metric_key,
+            "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+            "entity_type": r.entity_type,
+            "entity_id": r.entity_id,
+            "season": r.season,
+            "value_num": r.value_num,
+            "value_str": r.value_str,
+            "rank": season_rank,
+            "total": season_total,
+            "all_rank": all_rank,
+            "all_total": all_total,
+            "ratio": season_ratio,
+            "all_ratio": all_ratio,
+            "best_ratio": best_ratio,
+            "is_featured": is_featured,
+            "is_hero": is_hero,
+            "context_label": context_label,
+            "season_badge_text": _game_metric_badge_text(season_rank, season_total, "Season"),
+            "all_badge_text": _game_metric_badge_text(all_rank, all_total, "All"),
+        }
+        if r.entity_type == "player":
+            pl = player_map.get(r.entity_id)
+            if pl is None:
+                continue
+            card["player_id"] = pl.player_id
+            card["player_name"] = pl.full_name
+            card["player_headshot_url"] = _player_headshot_url(pl.player_id)
+        else:
+            tm = team_map.get(r.entity_id)
+            if tm is None:
+                continue
+            card["team_id"] = tm.team_id
+            card["team_abbr"] = tm.abbr
+        result[r.entity_type].append(card)
+
+    for bucket in result.values():
+        bucket.sort(key=lambda c: (c["best_ratio"], c["rank"]))
+    return result
+
+
 def _prepare_game_metric_cards(
     season_metrics: list[dict],
     visible_limit: int = 4,
@@ -3675,16 +3870,33 @@ def _content_review_validation_errors(text: str) -> list[str]:
             errors.append("Copy says '三双' but the visible stat line does not show three categories at 10+.")
 
     return errors
-
-
 def _post_ai_review_validation_errors(db_sess, post_id: int) -> list[str]:
-    variants = (
-        db_sess.query(SocialPostVariant.content_raw)
+    variant_rows = (
+        db_sess.query(SocialPostVariant.id, SocialPostVariant.title, SocialPostVariant.content_raw)
         .filter(SocialPostVariant.post_id == post_id)
         .all()
     )
+    variant_ids = [variant_id for variant_id, _title, _content_raw in variant_rows]
+    hupu_variant_ids: set[int] = set()
+    if variant_ids:
+        hupu_variant_ids = {
+            variant_id
+            for (variant_id,) in (
+                db_sess.query(SocialPostDelivery.variant_id)
+                .filter(
+                    SocialPostDelivery.variant_id.in_(variant_ids),
+                    SocialPostDelivery.platform == "hupu",
+                    SocialPostDelivery.is_enabled == True,
+                )
+                .all()
+            )
+        }
     errors: list[str] = []
-    for idx, (content_raw,) in enumerate(variants, start=1):
+    for idx, (variant_id, title, content_raw) in enumerate(variant_rows, start=1):
+        if variant_id in hupu_variant_ids:
+            title_error = validate_hupu_title(title)
+            if title_error:
+                errors.append(f"Variant {idx}: {title_error}")
         for err in _content_review_validation_errors(content_raw):
             errors.append(f"Variant {idx}: {err}")
     return errors
@@ -5219,6 +5431,7 @@ _detail_views = register_detail_routes(
     get_fmt_minutes=lambda: _fmt_minutes,
     get_localized_url_for=lambda: _localized_url_for,
     get_metric_results=lambda: _get_metric_results,
+    get_game_triggered_entity_metrics=lambda: _get_game_triggered_entity_metrics,
     get_season_start_year_label=lambda: _season_start_year_label,
     get_season_year_label=lambda: _season_year_label,
     get_coerce_award_season=lambda: _coerce_award_season,

@@ -329,6 +329,7 @@ def register_detail_routes(
     get_fmt_minutes: Callable[[], Callable[[int | None, int | None], str]],
     get_localized_url_for: Callable[[], Callable[..., str]],
     get_metric_results: Callable[[], Callable[[Any, str, str, str | None], dict]],
+    get_game_triggered_entity_metrics: Callable[[], Callable[[Any, str, str | None], dict]],
     get_season_start_year_label: Callable[[], Callable[[int | None], str]],
     get_season_year_label: Callable[[], Callable[[str | None], str]],
     get_coerce_award_season: Callable[[], Callable[[str | int | None], int | None]],
@@ -1616,7 +1617,13 @@ def register_detail_routes(
             if game is None:
                 abort(404)
             game_metrics = get_metric_results()(session, "game", game.game_id, game.season)
-        return get_render_template()("_game_metrics.html", game_metrics=game_metrics)
+            triggered = get_game_triggered_entity_metrics()(session, game.game_id, game.season)
+        return get_render_template()(
+            "_game_metrics.html",
+            game_metrics=game_metrics,
+            triggered_player_metrics=triggered.get("player", []),
+            triggered_team_metrics=triggered.get("team", []),
+        )
 
     def api_game_period_stats(game_id: str):
         """Return per-period player stats for a game. Fetch from NBA API if not in DB."""
