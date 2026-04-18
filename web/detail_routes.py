@@ -1145,6 +1145,17 @@ def register_detail_routes(
             game_status = get_game_status(game)
             live_summary = (live_payload or {}).get("summary") or fetch_live_scoreboard_map().get(game_id)
 
+            # If the persisted row still looks "upcoming" but the NBA live feed
+            # reports the game has tipped off, serve the live view directly —
+            # otherwise the first page load shows an upcoming preview until the
+            # 60s client poll forces a reload.
+            if (
+                game_status == GAME_STATUS_UPCOMING
+                and live_summary
+                and live_summary.get("status") == GAME_STATUS_LIVE
+            ):
+                game_status = GAME_STATUS_LIVE
+
             # Derive the season start year from the Game row so we can render
             # era-appropriate team names and abbreviations (Seattle SuperSonics
             # in 2007, not Oklahoma City Thunder, etc.).
