@@ -76,7 +76,7 @@
 
   .game-row {
     display: grid;
-    grid-template-columns: 1fr auto 1fr 120px;
+    grid-template-columns: 1fr auto 1fr minmax(120px, max-content);
     align-items: center;
     gap: 12px;
     padding: 11px 14px;
@@ -151,8 +151,6 @@
     color: var(--muted);
     text-align: right;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     display: flex;
     align-items: center;
     justify-content: flex-end;
