@@ -959,17 +959,22 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
     """
     Session = sessionmaker(bind=engine)
 
-    # Extract game_ids from ingest results; skip if nothing actually changed
+    # Extract game_ids from ingest results; skip if nothing actually requested a
+    # season refresh.
     game_ids = []
-    any_changed = False
+    refresh_requested = False
     for r in (ingest_results or []):
         if isinstance(r, dict) and r.get("game_id"):
             game_ids.append(r["game_id"])
-            if r.get("new_game") or r.get("detail_pbp_refreshed") or r.get("shot_refreshed"):
-                any_changed = True
+            if (
+                r.get("metric_refresh_reason")
+                or r.get("needed_detail_pbp_refresh")
+                or r.get("new_game")
+            ):
+                refresh_requested = True
 
-    if game_ids and not any_changed:
-        logger.info("refresh_current_season_metrics: %d games checked, none had new data — skipping.", len(game_ids))
+    if game_ids and not refresh_requested:
+        logger.info("refresh_current_season_metrics: %d games checked, no refresh requested — skipping.", len(game_ids))
         return {"status": "no_changes", "games_checked": len(game_ids)}
 
     with Session() as session:

@@ -158,6 +158,19 @@ def _has_metric_run_logs(sess, game_id: str) -> bool:
     ) is not None
 
 
+def _metric_refresh_reason_for_game(
+    sess,
+    game_id: str,
+    *,
+    needed_detail_pbp_refresh: bool,
+) -> str | None:
+    if needed_detail_pbp_refresh:
+        return "needed_detail_pbp_refresh"
+    if not _has_metric_run_logs(sess, game_id):
+        return "missing_metric_run_logs"
+    return None
+
+
 def _list_incomplete_game_ids(game_ids: list[str]) -> list[str]:
     SessionLocal = _session_factory()
     with SessionLocal() as sess:
@@ -208,7 +221,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 "status": "skipped",
                 "skip_reason": game_status or "non_completed",
                 "new_game": False,
-                "detail_pbp_refreshed": False,
+                "needed_detail_pbp_refresh": False,
                 "shot_refreshed": False,
                 "line_score_rows": 0,
                 "metric_tasks_enqueued": 0,
@@ -220,14 +233,14 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
                 game_status or "non-completed",
             )
 
-        needs_detail_pbp = not (has_detail and has_pbp)
+        needed_detail_pbp_refresh = not (has_detail and has_pbp)
         needs_shot = not has_shot
 
         if game_exists and not artifacts_supported:
             # NBA API does not provide PBP / shot detail before 1996-97.
             # For those seasons, treat missing PBP/shot as permanently unavailable
             # so ingest can move on and still fan out computable metrics.
-            needs_detail_pbp = not has_detail
+            needed_detail_pbp_refresh = not has_detail
             needs_shot = False
             logger.info(
                 "ingest_game %s: skipping PBP/shot fetch for pre-1996 season %s.",
@@ -235,7 +248,7 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             )
 
         # Step 2: fetch from API if anything is missing (covers new games too)
-        if needs_detail_pbp or not game_exists:
+        if needed_detail_pbp_refresh or not game_exists:
             logger.info("ingest_game %s: fetching game+detail+PBP from NBA API …", game_id)
             row = existing_game_row or _fetch_api_row(game_id)
             if row is None:
@@ -366,23 +379,32 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
         "game_id": game_id,
         "status": "ok",
         "new_game": not game_exists,
-        "detail_pbp_refreshed": needs_detail_pbp,
+        "needed_detail_pbp_refresh": needed_detail_pbp_refresh,
         "shot_refreshed": False,  # updated after post-metric shot backfill
         "line_score_rows": int(line_score_rows),
         "metric_tasks_enqueued": len(keys_to_run),
     }
 
-    queued_season_refresh = False
-    if result["new_game"] or result["detail_pbp_refreshed"]:
+    with SessionLocal() as sess:
+        metric_refresh_reason = _metric_refresh_reason_for_game(
+            sess,
+            game_id,
+            needed_detail_pbp_refresh=needed_detail_pbp_refresh,
+        )
+    if metric_refresh_reason:
+        refresh_payload = {
+            **result,
+            "metric_refresh_reason": metric_refresh_reason,
+        }
         try:
             from tasks.metrics import refresh_current_season_metrics
 
-            refresh_current_season_metrics.delay([result])
-            queued_season_refresh = True
+            refresh_current_season_metrics.delay([refresh_payload])
         except Exception as exc:
             logger.warning(
-                "ingest_game %s: failed to enqueue season metric refresh: %s",
+                "ingest_game %s: failed to enqueue season metric refresh (%s): %s",
                 game_id,
+                metric_refresh_reason,
                 exc,
                 exc_info=True,
             )
@@ -423,35 +445,9 @@ def ingest_game(self, game_id: str, metric_keys: list[str] | None = None, force:
             )
     result["shot_refreshed"] = shot_refreshed
 
-    if not queued_season_refresh and not legacy_game_metric_fanout:
-        with SessionLocal() as sess:
-            has_metric_logs = _has_metric_run_logs(sess, game_id)
-        if not has_metric_logs:
-            refresh_payload = {
-                "game_id": game_id,
-                "new_game": True,
-                "detail_pbp_refreshed": False,
-                "shot_refreshed": shot_refreshed,
-            }
-            try:
-                from tasks.metrics import refresh_current_season_metrics
-
-                refresh_current_season_metrics.delay([refresh_payload])
-                logger.info(
-                    "ingest_game %s: forced season metric refresh because no MetricRunLog rows exist after ingest.",
-                    game_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "ingest_game %s: failed to enqueue forced season metric refresh: %s",
-                    game_id,
-                    exc,
-                    exc_info=True,
-                )
-
     logger.info(
-        "ingest_game %s: done (new_game=%s, detail_pbp_refreshed=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
-        game_id, not game_exists, needs_detail_pbp, shot_refreshed, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
+        "ingest_game %s: done (new_game=%s, needed_detail_pbp_refresh=%s, shot_refreshed=%s, line_score_rows=%d, legacy_game_metric_fanout=%s) → %d metric tasks enqueued.",
+        game_id, not game_exists, needed_detail_pbp_refresh, shot_refreshed, line_score_rows, legacy_game_metric_fanout, len(keys_to_run),
     )
     return result
 

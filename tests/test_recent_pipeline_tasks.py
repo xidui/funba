@@ -169,9 +169,9 @@ def test_ingest_game_does_not_enqueue_season_refresh_for_shot_only_backfill():
                     final_status_session,
                     zero_score_session,
                     line_score_session,
+                    metric_log_session,
                     period_check_session,
                     shot_backfill_session,
-                    metric_log_session,
                 ]
             ),
         ), patch.object(
@@ -243,9 +243,9 @@ def test_ingest_game_forces_season_refresh_when_metric_logs_are_missing():
                     final_status_session,
                     zero_score_session,
                     line_score_session,
+                    metric_log_session,
                     period_check_session,
                     shot_backfill_session,
-                    metric_log_session,
                 ]
             ),
         ), patch.object(
@@ -275,9 +275,13 @@ def test_ingest_game_forces_season_refresh_when_metric_logs_are_missing():
         [
             {
                 "game_id": "g1",
-                "new_game": True,
-                "detail_pbp_refreshed": False,
-                "shot_refreshed": True,
+                "status": "ok",
+                "new_game": False,
+                "needed_detail_pbp_refresh": False,
+                "shot_refreshed": False,
+                "line_score_rows": 0,
+                "metric_tasks_enqueued": 0,
+                "metric_refresh_reason": "missing_metric_run_logs",
             }
         ]
     )
@@ -463,7 +467,9 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     ), patch.object(metrics_tasks.compute_season_metric_task, "delay") as delay_mock, patch(
         "tasks.metrics.chord",
     ) as chord_mock:
-        result = metrics_tasks.refresh_current_season_metrics.run([{"game_id": "g1", "new_game": True}])
+        result = metrics_tasks.refresh_current_season_metrics.run(
+            [{"game_id": "g1", "metric_refresh_reason": "needed_detail_pbp_refresh"}]
+        )
 
     assert result == {
         "seasons": ["22025", "42025", "52025"],
@@ -627,7 +633,7 @@ def test_ingest_game_skips_existing_upcoming_game():
         "status": "skipped",
         "skip_reason": "upcoming",
         "new_game": False,
-        "detail_pbp_refreshed": False,
+        "needed_detail_pbp_refresh": False,
         "shot_refreshed": False,
         "line_score_rows": 0,
         "metric_tasks_enqueued": 0,
@@ -660,6 +666,7 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
     zero_score_session = _ctx(MagicMock())
     zero_score_session.query.return_value.filter.return_value.first.return_value = None
     line_score_session = _ctx(MagicMock())
+    metric_refresh_session = _ctx(MagicMock())
     period_check_session = _ctx(MagicMock())
 
     ingest_tasks.ingest_game.push_request(id="worker-1", retries=0)
@@ -674,6 +681,7 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
                     final_status_session,
                     zero_score_session,
                     line_score_session,
+                    metric_refresh_session,
                     period_check_session,
                 ]
             ),
@@ -713,12 +721,25 @@ def test_ingest_game_force_refreshes_existing_upcoming_game():
 
     process_mock.assert_called_once()
     fetch_row_mock.assert_not_called()
-    refresh_delay_mock.assert_called_once_with([result])
+    refresh_delay_mock.assert_called_once_with(
+        [
+            {
+                "game_id": "g1",
+                "status": "ok",
+                "new_game": False,
+                "needed_detail_pbp_refresh": True,
+                "shot_refreshed": False,
+                "line_score_rows": 0,
+                "metric_tasks_enqueued": 0,
+                "metric_refresh_reason": "needed_detail_pbp_refresh",
+            }
+        ]
+    )
     assert result == {
         "game_id": "g1",
         "status": "ok",
         "new_game": False,
-        "detail_pbp_refreshed": True,
+        "needed_detail_pbp_refresh": True,
         "shot_refreshed": False,
         "line_score_rows": 0,
         "metric_tasks_enqueued": 0,
