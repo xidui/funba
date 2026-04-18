@@ -1808,6 +1808,13 @@ def register_public_routes(
 
             date_groups = _group_by_date(paginated)
 
+            # Split the list so the template can collapse the "Upcoming"
+            # section by default — otherwise users scroll past dozens of
+            # scheduled playoff placeholders to reach today's games.
+            future_date_groups = [(dt, entries) for dt, entries in date_groups if dt is not None and dt > today]
+            past_date_groups = [(dt, entries) for dt, entries in date_groups if dt is None or dt <= today]
+            future_games_count = sum(len(entries) for _, entries in future_date_groups)
+
             team_lookup_rows = session.query(Team).all()
             team_lookup = {team.team_id: team for team in team_lookup_rows if getattr(team, "team_id", None)}
             selected_team_obj = next((team for team in all_teams if team.team_id == selected_team), None)
@@ -1862,6 +1869,9 @@ def register_public_routes(
             view=view,
             has_live=has_live,
             date_groups=date_groups,
+            future_date_groups=future_date_groups,
+            past_date_groups=past_date_groups,
+            future_games_count=future_games_count,
             live_count=len(live_games),
             results_count=len(completed_all),
             schedule_count=len(upcoming_games),

@@ -225,6 +225,47 @@
     color: var(--muted);
   }
 
+  .future-games { margin-bottom: 10px; }
+  .future-games-summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 9px 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    user-select: none;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .future-games-summary::-webkit-details-marker { display: none; }
+  .future-games-summary:hover { color: var(--text); border-color: var(--border-2); }
+  .future-games-caret {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid currentColor;
+    transform: rotate(-90deg);
+    transition: transform 0.15s ease;
+  }
+  .future-games[open] .future-games-caret { transform: rotate(0); }
+  .future-games-count {
+    font-family: 'Inter', sans-serif;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .future-games-body { margin-top: 8px; }
+
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
@@ -589,13 +630,21 @@
     card.classList.add('matchup-active');
 
     var shown = 0;
+    var futureShown = false;
     document.querySelectorAll('.game-row').forEach(function(row){
       var r = row.getAttribute('data-road-team') || '';
       var h = row.getAttribute('data-home-team') || '';
       var match = (r === top && h === bot) || (r === bot && h === top);
       row.classList.toggle('matchup-hidden', !match);
-      if (match) shown++;
+      if (match) {
+        shown++;
+        if (row.closest('.future-games')) futureShown = true;
+      }
     });
+    // Auto-expand the Upcoming section if any match lives inside it.
+    if (futureShown) {
+      document.querySelectorAll('details.future-games').forEach(function(d){ d.open = true; });
+    }
 
     // Hide date group headers with no visible rows below them.
     document.querySelectorAll('.game-rows').forEach(function(container){
@@ -725,7 +774,21 @@
 {# ── Main content ── unified list: live, upcoming, completed ── #}
 <div class="card">
   {% if date_groups %}
-    {{ render_date_groups(date_groups) }}
+    {% if future_date_groups %}
+    <details class="future-games"{% if not past_date_groups %} open{% endif %}>
+      <summary class="future-games-summary">
+        <span class="future-games-caret" aria-hidden="true"></span>
+        {{ t('Upcoming', '未来比赛') }}
+        <span class="future-games-count">({{ future_games_count }})</span>
+      </summary>
+      <div class="future-games-body">
+        {{ render_date_groups(future_date_groups) }}
+      </div>
+    </details>
+    {% endif %}
+    {% if past_date_groups %}
+      {{ render_date_groups(past_date_groups) }}
+    {% endif %}
   {% else %}
   <p class="meta">
     {% if selected_team_obj %}
