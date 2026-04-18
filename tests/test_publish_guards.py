@@ -16,6 +16,13 @@ import scripts.funba_xiaohongshu_publish as xhs_publish  # noqa: E402
 
 
 class TestPublishAgeGuards(unittest.TestCase):
+    def test_hupu_missing_thread_url_after_submit_is_retryable(self):
+        self.assertTrue(
+            hupu_publish._is_retryable_hupu_publish_failure(
+                "ERROR: Submit completed but Hupu thread URL was not detected; still on https://bbs.hupu.com/newpost/179"
+            )
+        )
+
     def test_hupu_date_only_source_date_uses_end_of_local_day(self):
         age = hupu_publish._source_date_age_hours(
             "2026-04-06",

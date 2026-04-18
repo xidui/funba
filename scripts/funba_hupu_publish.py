@@ -125,13 +125,13 @@ def _is_retryable_hupu_publish_failure(output: str, *, timed_out: bool = False) 
         "ERROR: Not logged in.",
         "Unknown forum:",
         "Hupu post command succeeded but did not return a published URL",
-        "Submit completed but Hupu thread URL was not detected",
         "Post submitted! URL:",
     )
     if any(marker in text for marker in non_retryable_markers):
         return False
 
     retryable_markers = (
+        "Submit completed but Hupu thread URL was not detected",
         "Submit blocked by Hupu: 请先选择专区",
         "Forum selection did not persist",
         "Forum option not found in selector",
