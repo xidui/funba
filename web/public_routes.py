@@ -1304,6 +1304,7 @@ def register_public_routes(
 
     def _notable_compute_signature(session):
         """Cheap query: latest season, top 7 dates, season-year pattern."""
+        Game = get_game_model()
         latest_row = (
             session.query(Game.season)
             .filter(Game.home_team_score.isnot(None))
@@ -1636,8 +1637,6 @@ def register_public_routes(
                             })
                         all_cards.append(card)
         except Exception:
-            import traceback
-            traceback.print_exc()
             return {"cards": [], "game_dates": []}
 
         _today_ord = date.today().toordinal()
