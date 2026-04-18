@@ -1781,6 +1781,13 @@ def register_public_routes(
             )
             paginate_source = combined_games if view == "games" else []
 
+            # With the playoff bracket visible, skip pagination so clicking a
+            # series card filters across the full playoff+play-in set (the
+            # client-side filter only sees rows currently in the DOM). Total
+            # is bounded (~100 games), fine to render as a single list.
+            if bracket and paginate_source:
+                page_size = max(page_size, len(paginate_source))
+
             total = len(paginate_source)
             total_pages = max(1, (total + page_size - 1) // page_size) if paginate_source else 1
 
