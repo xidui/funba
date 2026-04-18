@@ -1018,7 +1018,7 @@
       <div class="notable-list">
         {% for m in notable_cards %}
         <a class="notable-item{% if m.is_hero %} notable-item-hero{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
+           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
           {% if m.is_hero %}
           <span class="notable-hero-flag" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
