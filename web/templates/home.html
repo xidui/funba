@@ -21,6 +21,34 @@
 </script>
 {% endblock %}
 {% block content %}
+{%- macro notable_icon(mk) -%}
+{%- set k = (mk or '')|lower -%}
+{%- if 'missed' in k -%}
+<svg class="notable-ico notable-ico-miss" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+{%- elif 'three' in k -%}
+<svg class="notable-ico notable-ico-three" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+{%- elif 'steal' in k or 'block' in k -%}
+<svg class="notable-ico notable-ico-defense" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+{%- elif 'rebound' in k -%}
+<svg class="notable-ico notable-ico-board" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+{%- elif 'assist' in k -%}
+<svg class="notable-ico notable-ico-assist" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+{%- elif 'turnover' in k -%}
+<svg class="notable-ico notable-ico-to" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+{%- elif 'run' in k or 'lead_changes' in k or 'dominant' in k -%}
+<svg class="notable-ico notable-ico-run" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+{%- elif 'margin' in k or 'lead' in k or 'deficit' in k or 'disparity' in k -%}
+<svg class="notable-ico notable-ico-margin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+{%- elif 'free_throw' in k -%}
+<svg class="notable-ico notable-ico-ft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+{%- elif 'overtime' in k or 'halftime' in k or 'quarter' in k or 'half' in k -%}
+<svg class="notable-ico notable-ico-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+{%- elif 'triple_double' in k or 'multi' in k -%}
+<svg class="notable-ico notable-ico-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+{%- else -%}
+<svg class="notable-ico notable-ico-points" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+{%- endif -%}
+{%- endmacro -%}
 <style>
   .home-hero {
     margin-bottom: 22px;
@@ -986,9 +1014,13 @@
     {% set notable_dates = notable_recent.game_dates if notable_recent else [] %}
     <div class="card notable-card">
       <div class="notable-header">
-        <h2 style="margin:0;">{{ t('Notable Stats From Recent Games', '近几日比赛中值得一提的数据') }}</h2>
+        <h2 class="notable-title">
+          <svg class="notable-title-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          {{ t('Notable Stats From Recent Games', '近几日比赛中值得一提的数据') }}
+        </h2>
         {% if notable_dates %}
         <span class="notable-sub">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           {% if notable_dates|length > 1 %}{{ notable_dates[-1].strftime('%b %d') }} – {{ notable_dates[0].strftime('%b %d') }}{% else %}{{ notable_dates[0].strftime('%b %d, %Y') }}{% endif %}
         </span>
         {% endif %}
@@ -998,20 +1030,31 @@
         {% for m in notable_cards %}
         <a class="notable-item{% if m.is_hero %} notable-item-hero{% endif %}"
            href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
+          {% if m.is_hero %}
+          <span class="notable-hero-flag" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </span>
+          {% endif %}
           <div class="notable-item-head">
-            <div class="notable-metric">
-              {% if m.is_hero %}<span class="notable-star">★</span>{% endif %}
-              {{ m.metric_name }}
-            </div>
+            <span class="notable-icon-wrap">{{ notable_icon(m.metric_key) }}</span>
+            <div class="notable-metric">{{ m.metric_name }}</div>
             <div class="notable-badges">
-              {% if m.all_badge_text %}<span class="notable-chip notable-chip-all">{{ m.all_badge_text }}</span>{% endif %}
-              {% if m.season_badge_text %}<span class="notable-chip">{{ m.season_badge_text }}</span>{% endif %}
+              {% if m.all_badge_text %}
+              <span class="notable-chip notable-chip-all">
+                <svg class="notable-chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+                {{ m.all_badge_text }}
+              </span>
+              {% endif %}
+              {% if m.season_badge_text and not m.all_badge_text %}<span class="notable-chip">{{ m.season_badge_text }}</span>{% endif %}
             </div>
           </div>
           <div class="notable-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
           {% if m.context_label %}<div class="notable-context">{{ m.context_label }}</div>{% endif %}
           <div class="notable-footer">
             <span class="notable-game" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ game_url(m.game_id) }}'" title="{{ t('Open game', '查看比赛') }}">
+              <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M4.5 9.5c2 0 4-.5 5.5-2"/><path d="M4.5 14.5c2 0 4 .5 5.5 2"/><path d="M19.5 9.5c-2 0-4-.5-5.5-2"/><path d="M19.5 14.5c-2 0-4 .5-5.5 2"/><path d="M12 2v20"/></svg>
               <span class="notable-team {% if m.winner_id and m.winner_id == m.road_team_id|string %}notable-team-winner{% endif %}">{{ m.road_abbr }}</span>
               {% if m.road_score is not none and m.home_score is not none %}
               <span class="notable-score">{{ m.road_score }}</span>
@@ -1022,7 +1065,10 @@
               {% endif %}
               <span class="notable-team {% if m.winner_id and m.winner_id == m.home_team_id|string %}notable-team-winner{% endif %}">{{ m.home_abbr }}</span>
             </span>
-            <span class="notable-date">{{ m.game_date.strftime('%b %d') }}</span>
+            <span class="notable-date">
+              <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              {{ m.game_date.strftime('%b %d') }}
+            </span>
           </div>
         </a>
         {% endfor %}
@@ -1123,17 +1169,37 @@
     padding-bottom: 10px;
     border-bottom: 1px solid var(--border-2);
   }
-  .notable-header h2 { font-size: 18px; }
+  .notable-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    margin: 0;
+  }
+  .notable-title-ico {
+    width: 18px;
+    height: 18px;
+    color: var(--accent);
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 40%, transparent));
+  }
   .notable-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
     background: var(--surface-2);
-    padding: 3px 10px;
+    padding: 4px 10px;
     border-radius: 999px;
     white-space: nowrap;
+  }
+  .notable-sub svg {
+    width: 12px;
+    height: 12px;
+    opacity: 0.85;
   }
   .notable-list {
     display: grid;
@@ -1141,69 +1207,133 @@
     gap: 10px;
   }
   .notable-item {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px 14px;
+    padding: 14px 14px 12px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
     text-decoration: none;
     color: inherit;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    overflow: hidden;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  .notable-item::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--notable-color, var(--accent)) 14%, transparent), transparent 55%);
+    opacity: 0.6;
   }
   .notable-item:hover {
-    border-color: var(--accent);
+    border-color: var(--notable-color, var(--accent));
     background: var(--surface-3);
     text-decoration: none;
     transform: translateY(-1px);
+    box-shadow: 0 8px 22px -14px color-mix(in srgb, var(--notable-color, var(--accent)) 50%, transparent);
   }
   .notable-item-hero {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface-2)), var(--surface-2) 55%);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface-2)), var(--surface-2) 55%);
   }
   .notable-item-hero:hover {
     border-color: var(--accent);
   }
+  .notable-hero-flag {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 18px;
+    height: 18px;
+    color: var(--accent);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+  }
+  .notable-hero-flag svg {
+    width: 18px;
+    height: 18px;
+  }
 
   .notable-item-head {
-    display: flex;
+    position: relative;
+    display: grid;
+    grid-template-columns: 34px 1fr auto;
     align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
+    column-gap: 10px;
+    row-gap: 4px;
   }
+  .notable-item-hero .notable-item-head { grid-template-columns: 34px 1fr auto; padding-right: 22px; }
+
+  .notable-icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--notable-color, var(--accent)) 16%, transparent);
+    color: var(--notable-color, var(--accent));
+    flex-shrink: 0;
+  }
+  .notable-ico {
+    width: 17px;
+    height: 17px;
+  }
+  /* per-category hue via CSS custom property (controls icon bg + hover glow) */
+  .notable-item:has(.notable-ico-miss)     { --notable-color: #f87171; }
+  .notable-item:has(.notable-ico-three)    { --notable-color: #a78bfa; }
+  .notable-item:has(.notable-ico-defense)  { --notable-color: #60a5fa; }
+  .notable-item:has(.notable-ico-board)    { --notable-color: #2dd4bf; }
+  .notable-item:has(.notable-ico-assist)   { --notable-color: #22d3ee; }
+  .notable-item:has(.notable-ico-to)       { --notable-color: #fbbf24; }
+  .notable-item:has(.notable-ico-run)      { --notable-color: #fde047; }
+  .notable-item:has(.notable-ico-margin)   { --notable-color: #4ade80; }
+  .notable-item:has(.notable-ico-ft)       { --notable-color: #cbd5f5; }
+  .notable-item:has(.notable-ico-clock)    { --notable-color: #818cf8; }
+  .notable-item:has(.notable-ico-star)     { --notable-color: #facc15; }
+  .notable-item:has(.notable-ico-points)   { --notable-color: #f97316; }
+
   .notable-metric {
-    font-size: 12px;
+    align-self: center;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: var(--muted);
     line-height: 1.3;
   }
-  .notable-star {
-    color: var(--accent);
-    margin-right: 2px;
-  }
   .notable-badges {
+    align-self: center;
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
     flex-shrink: 0;
   }
   .notable-chip {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-family: 'Outfit', sans-serif;
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.02em;
-    padding: 2px 7px;
+    padding: 2px 8px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     color: var(--accent);
     white-space: nowrap;
   }
   .notable-chip-all {
-    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+    color: var(--heading);
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .notable-chip-ico {
+    width: 11px;
+    height: 11px;
+    color: var(--accent);
   }
 
   .notable-value {
@@ -1213,6 +1343,8 @@
     line-height: 1.2;
     color: var(--heading);
     word-break: break-word;
+    padding-left: 44px;
+    margin-top: -2px;
   }
   .notable-item-hero .notable-value { color: var(--accent); }
 
@@ -1220,6 +1352,7 @@
     font-size: 12px;
     color: var(--muted-2);
     line-height: 1.35;
+    padding-left: 44px;
   }
 
   .notable-footer {
@@ -1228,9 +1361,15 @@
     justify-content: space-between;
     gap: 8px;
     margin-top: auto;
-    padding-top: 6px;
+    padding-top: 8px;
     border-top: 1px dashed color-mix(in srgb, var(--border) 65%, transparent);
     font-size: 11px;
+  }
+  .notable-foot-ico {
+    width: 11px;
+    height: 11px;
+    opacity: 0.75;
+    flex-shrink: 0;
   }
   .notable-game {
     display: inline-flex;
@@ -1257,6 +1396,9 @@
     font-weight: 600;
   }
   .notable-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
