@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from datetime import date, timedelta
 from itertools import groupby as _groupby
@@ -1297,16 +1298,91 @@ def register_public_routes(
             return entries
 
     _notable_cache: dict = {"ts": 0.0, "signature": None, "payload": {"cards": [], "game_dates": []}}
-    _NOTABLE_TTL_SECONDS = 600  # 10 minutes
+    _NOTABLE_TTL_SECONDS = 600  # 10 minutes — beyond this we refresh
+    _NOTABLE_STALE_SECONDS = 6 * 3600  # 6 hours — serve stale rather than recompute sync
+    _notable_refresh_lock = threading.Lock()
+
+    def _notable_compute_signature(session):
+        """Cheap query: latest season, top 7 dates, season-year pattern."""
+        latest_row = (
+            session.query(Game.season)
+            .filter(Game.home_team_score.isnot(None))
+            .order_by(Game.game_date.desc(), Game.game_id.desc())
+            .limit(1)
+            .first()
+        )
+        if latest_row is None or not latest_row.season:
+            return None, None, None
+        season_year_pattern = f"_{str(latest_row.season)[1:]}"
+        date_rows = (
+            session.query(Game.game_date, func.count(Game.game_id).label("n"))
+            .filter(
+                Game.home_team_score.isnot(None),
+                Game.season.like(season_year_pattern),
+            )
+            .group_by(Game.game_date)
+            .order_by(Game.game_date.desc())
+            .limit(7)
+            .all()
+        )
+        dates = [r.game_date for r in date_rows if r.game_date is not None]
+        if not dates:
+            return None, None, None
+        signature = tuple(d.isoformat() for d in dates)
+        return signature, dates, season_year_pattern
+
+    def _notable_refresh_async(team_lookup: dict):
+        """Kick off a background refresh if one isn't already running."""
+        if not _notable_refresh_lock.acquire(blocking=False):
+            return
+
+        def _run():
+            try:
+                _compute_recent_notable_metrics(team_lookup, store=True)
+            except Exception:
+                pass
+            finally:
+                _notable_refresh_lock.release()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _build_recent_notable_metrics(team_lookup: dict) -> dict:
-        """Surface notable game-scope metrics from the most recent game days.
+        """Stale-while-revalidate wrapper around the rank computation.
 
-        Ranks every game-scope row (per metric_key) in a single bulk window
-        query, then filters to rows tied to games on the last few game dates
-        where the rank is in the top 1% or top 10 overall. This is the home
-        page's marquee feature, so the result is also memoised with a TTL.
+        Callers get instant responses after the first warm-up: a hot cache
+        returns directly, a stale-but-matching cache returns immediately
+        and queues a background refresh, and only a completely cold cache
+        blocks on the ~4s window query.
         """
+        import time
+
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+
+        try:
+            with SessionLocal() as session:
+                signature, _dates, _pattern = _notable_compute_signature(session)
+        except Exception:
+            signature = None
+
+        now = time.monotonic()
+        cached = _notable_cache
+        cached_payload = cached.get("payload") or {}
+        cached_has_cards = cached_payload.get("cards") is not None
+
+        if signature is not None and cached.get("signature") == signature and cached_has_cards:
+            age = now - cached.get("ts", 0.0)
+            if age < _NOTABLE_TTL_SECONDS:
+                return cached_payload
+            if age < _NOTABLE_STALE_SECONDS:
+                _notable_refresh_async(team_lookup)
+                return cached_payload
+
+        # Cold / mismatched / too stale — compute synchronously.
+        return _compute_recent_notable_metrics(team_lookup, store=True)
+
+    def _compute_recent_notable_metrics(team_lookup: dict, *, store: bool) -> dict:
+        """The expensive path: fetches games, ranks metrics, builds cards."""
         import json
         import time
 
@@ -1318,43 +1394,9 @@ def register_public_routes(
 
         try:
             with SessionLocal() as session:
-                latest_row = (
-                    session.query(Game.season)
-                    .filter(Game.home_team_score.isnot(None))
-                    .order_by(Game.game_date.desc(), Game.game_id.desc())
-                    .limit(1)
-                    .first()
-                )
-                if latest_row is None or not latest_row.season:
+                signature, dates, season_year_pattern = _notable_compute_signature(session)
+                if signature is None:
                     return {"cards": [], "game_dates": []}
-                # Season IDs are 5 digits: [type][year_start]. Matching on
-                # same NBA year (e.g. "_2025") keeps play-in, regular, and
-                # playoff games all in scope when a phase has just tipped
-                # off and would otherwise drag in last year's finals.
-                season_year_pattern = f"_{str(latest_row.season)[1:]}"
-                date_rows = (
-                    session.query(Game.game_date, func.count(Game.game_id).label("n"))
-                    .filter(
-                        Game.home_team_score.isnot(None),
-                        Game.season.like(season_year_pattern),
-                    )
-                    .group_by(Game.game_date)
-                    .order_by(Game.game_date.desc())
-                    .limit(7)
-                    .all()
-                )
-                dates = [r.game_date for r in date_rows if r.game_date is not None]
-                if not dates:
-                    return {"cards": [], "game_dates": []}
-
-                now = time.monotonic()
-                signature = tuple(d.isoformat() if hasattr(d, "isoformat") else str(d) for d in dates)
-                if (
-                    _notable_cache["signature"] == signature
-                    and (now - _notable_cache["ts"]) < _NOTABLE_TTL_SECONDS
-                    and _notable_cache["payload"].get("cards") is not None
-                ):
-                    return _notable_cache["payload"]
 
                 games = (
                     session.query(Game)
@@ -1505,10 +1547,31 @@ def register_public_routes(
             deduped.append(c)
 
         payload = {"cards": deduped[:20], "game_dates": dates}
-        _notable_cache["ts"] = now
-        _notable_cache["signature"] = signature
-        _notable_cache["payload"] = payload
+        if store:
+            _notable_cache["ts"] = time.monotonic()
+            _notable_cache["signature"] = signature
+            _notable_cache["payload"] = payload
         return payload
+
+    def _prewarm_notable_cache():
+        """Fire on worker boot so the first visitor never pays the cold
+        query. Runs in a daemon thread after a short delay."""
+        import time as _time
+
+        def _run():
+            _time.sleep(3)  # let the app finish initialising
+            try:
+                SessionLocal = get_session_local()
+                Team = get_team_model()
+                with SessionLocal() as session:
+                    team_lookup = {t.team_id: t for t in session.query(Team).all() if getattr(t, "team_id", None)}
+                _compute_recent_notable_metrics(team_lookup, store=True)
+            except Exception:
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    _prewarm_notable_cache()
 
     def news_page():
         SessionLocal = get_session_local()
