@@ -1327,18 +1327,20 @@ def register_public_routes(
                 )
                 if latest_row is None or not latest_row.season:
                     return {"cards": [], "game_dates": []}
-                latest_prefix = str(latest_row.season)[:1]
-                # Constrain to dates within the same season type so the window
-                # query can filter cheaply by season prefix.
+                # Season IDs are 5 digits: [type][year_start]. Matching on
+                # same NBA year (e.g. "_2025") keeps play-in, regular, and
+                # playoff games all in scope when a phase has just tipped
+                # off and would otherwise drag in last year's finals.
+                season_year_pattern = f"_{str(latest_row.season)[1:]}"
                 date_rows = (
                     session.query(Game.game_date, func.count(Game.game_id).label("n"))
                     .filter(
                         Game.home_team_score.isnot(None),
-                        Game.season.like(f"{latest_prefix}%"),
+                        Game.season.like(season_year_pattern),
                     )
                     .group_by(Game.game_date)
                     .order_by(Game.game_date.desc())
-                    .limit(3)
+                    .limit(7)
                     .all()
                 )
                 dates = [r.game_date for r in date_rows if r.game_date is not None]
@@ -1359,7 +1361,7 @@ def register_public_routes(
                     .filter(
                         Game.game_date.in_(dates),
                         Game.home_team_score.isnot(None),
-                        Game.season.like(f"{latest_prefix}%"),
+                        Game.season.like(season_year_pattern),
                     )
                     .order_by(Game.game_date.desc(), Game.game_id.asc())
                     .all()
@@ -1370,15 +1372,22 @@ def register_public_routes(
                 game_by_id = {g.game_id: g for g in games}
                 game_ids = list(game_by_id)
 
+                # Rank pool: each prefix competes only against its own
+                # historical pool (playoffs vs playoffs, play-in vs play-in)
+                # so a play-in game isn't measured against regular-season
+                # extremes.
+                prefixes_in_games = sorted({str(g.season)[:1] for g in games if g.season})
+
                 asc_keys = get_asc_fn(session)
                 rank_value = case(
                     (MetricResultModel.metric_key.in_(asc_keys), -MetricResultModel.value_num),
                     else_=MetricResultModel.value_num,
                 ) if asc_keys else MetricResultModel.value_num
+                season_prefix_col = func.substr(MetricResultModel.season, 1, 1)
                 base_filters = [
                     MetricResultModel.entity_type == "game",
                     MetricResultModel.value_num.isnot(None),
-                    MetricResultModel.season.like(f"{latest_prefix}%"),
+                    or_(*[MetricResultModel.season.like(f"{p}%") for p in prefixes_in_games]),
                 ]
                 ranked = (
                     session.query(
@@ -1393,6 +1402,7 @@ def register_public_routes(
                             partition_by=[
                                 MetricResultModel.metric_key,
                                 func.coalesce(MetricResultModel.rank_group, "__all__"),
+                                season_prefix_col,
                             ],
                             order_by=rank_value.desc(),
                         )
@@ -1402,6 +1412,7 @@ def register_public_routes(
                             partition_by=[
                                 MetricResultModel.metric_key,
                                 func.coalesce(MetricResultModel.rank_group, "__all__"),
+                                season_prefix_col,
                             ],
                         )
                         .label("total"),
