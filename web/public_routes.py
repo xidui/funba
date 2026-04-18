@@ -1658,7 +1658,30 @@ def register_public_routes(
             seen_keys.add(c["metric_key"])
             deduped.append(c)
 
-        payload = {"cards": deduped[:20], "game_dates": dates}
+        # Per-kind quotas so player cards (with tiny ratios from large
+        # pools) don't crowd out game and team cards. Unfilled slots are
+        # topped up from the remaining pool in ratio order.
+        by_kind: dict[str, list[dict]] = {"game": [], "player": [], "team": []}
+        for c in deduped:
+            by_kind.setdefault(c.get("subject_kind", "game"), []).append(c)
+        quotas = {"game": 10, "player": 7, "team": 3}
+        selected: list[dict] = []
+        for kind, limit in quotas.items():
+            selected.extend(by_kind.get(kind, [])[:limit])
+        picked = {id(c) for c in selected}
+        leftovers = [c for c in deduped if id(c) not in picked]
+        if len(selected) < 20:
+            selected.extend(leftovers[: 20 - len(selected)])
+
+        selected.sort(
+            key=lambda c: (
+                c["ratio"],
+                c["rank"],
+                -(c["game_date"].toordinal() if c.get("game_date") else _today_ord),
+            )
+        )
+
+        payload = {"cards": selected[:20], "game_dates": dates}
         if store:
             _notable_cache["ts"] = time.monotonic()
             _notable_cache["signature"] = signature
