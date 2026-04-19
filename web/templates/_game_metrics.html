@@ -1,73 +1,9 @@
-<!-- ── Game Metrics ────────────────────────────────────────────────── -->
+<!-- ── Game Highlights (game metrics + triggered player/team) ──────── -->
 {% set game_metric_list = game_metrics.season %}
 {% set extra_game_metric_list = game_metrics.season_extra %}
-{% if game_metric_list %}
-<div class="card">
-  <div class="analytics-header">
-    <div class="analytics-icon">⚡</div>
-    <h2 class="analytics-title">{{ t('Game Metrics', '比赛指标') }}</h2>
-  </div>
-  <div class="game-metrics-grid">
-    {% for m in game_metric_list %}
-    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_featured %} gmc-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">
-      <div class="gmc-top">
-        <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
-        {% if m.season_badge_text or m.all_badge_text %}
-        <div class="gmc-ranks">
-          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
-          {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
-        </div>
-        {% endif %}
-      </div>
-      <div class="gmc-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-      {% if m.context_label %}<div class="gmc-context">{{ m.context_label }}</div>{% endif %}
-    </a>
-    {% endfor %}
-    {% for m in extra_game_metric_list %}
-    <a class="gmc{% if m.is_hero %} gmc-notable gmc-hero{% elif m.is_featured %} gmc-notable{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
-       data-extra-game-metric
-       style="display:none;">
-      <div class="gmc-top">
-        <div class="gmc-key">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
-        {% if m.season_badge_text or m.all_badge_text %}
-        <div class="gmc-ranks">
-          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
-          {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
-        </div>
-        {% endif %}
-      </div>
-      <div class="gmc-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-      {% if m.context_label %}<div class="gmc-context">{{ m.context_label }}</div>{% endif %}
-    </a>
-    {% endfor %}
-  </div>
-  {% if extra_game_metric_list %}
-  <div class="gmc-more-wrap">
-    <button type="button" id="show-more-game-metrics" class="gmc-more-btn">
-      <span>{{ t('Show', '显示') }} {{ extra_game_metric_list|length }} {{ t('More Metrics ▼', '更多指标 ▼') }}</span>
-    </button>
-  </div>
-  <script>
-    (function () {
-      const btn = document.getElementById('show-more-game-metrics');
-      if (!btn) return;
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('[data-extra-game-metric]').forEach((el) => {
-          el.style.display = '';
-        });
-        btn.parentElement.remove();
-      });
-    })();
-  </script>
-  {% endif %}
-</div>
-{% endif %}
-
 {% set triggered_player_metrics = triggered_player_metrics or [] %}
 {% set triggered_team_metrics = triggered_team_metrics or [] %}
-{% if triggered_player_metrics or triggered_team_metrics %}
+{% if game_metric_list or triggered_player_metrics or triggered_team_metrics %}
 <style>
   .tem-card {
     display: flex; align-items: center; gap: 12px;
@@ -78,18 +14,41 @@
   .tem-card:hover { border-color: var(--accent); background: var(--surface-3, #142438); text-decoration: none; }
   .tem-card.tem-hero { border-color: color-mix(in srgb, var(--accent) 50%, var(--border, #1f2a3a)); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface-2, #0d1c2e)), var(--surface-2, #0d1c2e) 55%); }
   .tem-avatar { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface-3, #142438); }
+  .tem-avatar-icon { display: flex; align-items: center; justify-content: center; font-size: 18px; background: color-mix(in srgb, var(--accent) 18%, var(--surface-3, #142438)); color: var(--accent); }
   .tem-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .tem-name { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 13px; color: var(--heading, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tem-metric { font-size: 11px; color: var(--muted-2, #9aa3b2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tem-value { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; color: var(--heading, #fff); flex-shrink: 0; }
   .tem-badges { display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
   .tem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+  .tem-section-h { margin: 6px 0 8px; font-size: 13px; color: var(--muted-2, #9aa3b2); text-transform: uppercase; letter-spacing: 0.06em; }
+  .tem-section + .tem-section > .tem-section-h { margin-top: 16px; }
 </style>
 <div class="card">
   <div class="analytics-header">
     <div class="analytics-icon">✨</div>
-    <h2 class="analytics-title">{{ t('Triggered This Game', '本场触发的指标') }}</h2>
+    <h2 class="analytics-title">{{ t('Game Highlights', '本场看点') }}</h2>
   </div>
+
+  {% macro game_card(m, extra=False) %}
+    <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}"
+       href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
+       {% if extra %}data-extra-game-metric style="display:none;"{% endif %}>
+      <span class="tem-avatar tem-avatar-icon">⚡</span>
+      <div class="tem-body">
+        <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
+        {% if m.context_label %}<div class="tem-metric">{{ m.context_label }}</div>{% endif %}
+        {% if m.season_badge_text or m.all_badge_text %}
+        <div class="tem-badges">
+          {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
+          {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="tem-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+    </a>
+  {% endmacro %}
+
   {% macro triggered_card(m, kind) %}
     <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}">
@@ -118,17 +77,50 @@
     </a>
   {% endmacro %}
 
+  {% if game_metric_list %}
+  <div class="tem-section">
+    <h3 class="tem-section-h">{{ t('Game Metrics', '比赛指标') }}</h3>
+    <div class="tem-grid">
+      {% for m in game_metric_list %}{{ game_card(m) }}{% endfor %}
+      {% for m in extra_game_metric_list %}{{ game_card(m, extra=True) }}{% endfor %}
+    </div>
+    {% if extra_game_metric_list %}
+    <div class="gmc-more-wrap">
+      <button type="button" id="show-more-game-metrics" class="gmc-more-btn">
+        <span>{{ t('Show', '显示') }} {{ extra_game_metric_list|length }} {{ t('More Metrics ▼', '更多指标 ▼') }}</span>
+      </button>
+    </div>
+    <script>
+      (function () {
+        const btn = document.getElementById('show-more-game-metrics');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          document.querySelectorAll('[data-extra-game-metric]').forEach((el) => {
+            el.style.display = '';
+          });
+          btn.parentElement.remove();
+        });
+      })();
+    </script>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if triggered_player_metrics %}
-  <h3 style="margin: 6px 0 8px; font-size: 13px; color: var(--muted-2, #9aa3b2); text-transform: uppercase; letter-spacing: 0.06em;">{{ t('Player Highlights', '球员亮点') }}</h3>
-  <div class="tem-grid">
-    {% for m in triggered_player_metrics[:12] %}{{ triggered_card(m, 'player') }}{% endfor %}
+  <div class="tem-section">
+    <h3 class="tem-section-h">{{ t('Player Highlights', '球员亮点') }}</h3>
+    <div class="tem-grid">
+      {% for m in triggered_player_metrics[:12] %}{{ triggered_card(m, 'player') }}{% endfor %}
+    </div>
   </div>
   {% endif %}
 
   {% if triggered_team_metrics %}
-  <h3 style="margin: 16px 0 8px; font-size: 13px; color: var(--muted-2, #9aa3b2); text-transform: uppercase; letter-spacing: 0.06em;">{{ t('Team Highlights', '球队亮点') }}</h3>
-  <div class="tem-grid">
-    {% for m in triggered_team_metrics[:6] %}{{ triggered_card(m, 'team') }}{% endfor %}
+  <div class="tem-section">
+    <h3 class="tem-section-h">{{ t('Team Highlights', '球队亮点') }}</h3>
+    <div class="tem-grid">
+      {% for m in triggered_team_metrics[:6] %}{{ triggered_card(m, 'team') }}{% endfor %}
+    </div>
   </div>
   {% endif %}
 </div>
