@@ -32,12 +32,18 @@
   </div>
 
   {% macro game_card(m, extra=False) %}
+    {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
+    {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
     <a class="tem-card tem-card-game{% if m.is_hero %} tem-hero{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
        {% if extra %}data-extra-game-metric style="display:none;"{% endif %}>
       <div class="tem-body">
         <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
-        {% if m.context_label %}<div class="tem-metric">{{ m.context_label }}</div>{% endif %}
+        {% if m.context_label %}
+          <div class="tem-metric">{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
+        {% elif not val_short %}
+          <div class="tem-metric">{{ val_raw }}</div>
+        {% endif %}
         {% if m.season_badge_text or m.all_badge_text %}
         <div class="tem-badges">
           {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
@@ -45,7 +51,7 @@
         </div>
         {% endif %}
       </div>
-      <div class="tem-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
+      {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
     </a>
   {% endmacro %}
 
