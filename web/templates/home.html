@@ -1015,67 +1015,55 @@
         {% endif %}
       </div>
       {% if notable_cards %}
-      <div class="notable-list">
+      <div class="tem-grid">
         {% for m in notable_cards %}
-        <a class="notable-item{% if m.is_hero %} notable-item-hero{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
-          {% if m.is_hero %}
-          <span class="notable-hero-flag" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-            </svg>
-          </span>
-          {% endif %}
-          <div class="notable-item-head">
-            <span class="notable-icon-wrap">{{ notable_icon(m.metric_key) }}</span>
-            <div class="notable-metric">{{ m.metric_name }}</div>
-            <div class="notable-badges">
-              {% if m.all_badge_text %}
-              <span class="notable-chip notable-chip-all">
-                <svg class="notable-chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
-                {{ m.all_badge_text }}
-              </span>
-              {% endif %}
-              {% if m.season_badge_text and not m.all_badge_text %}<span class="notable-chip">{{ m.season_badge_text }}</span>{% endif %}
-            </div>
-          </div>
-          <div class="notable-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
-          {% if m.context_label %}<div class="notable-context">{{ m.context_label }}</div>{% endif %}
-          <div class="notable-footer">
+          {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
+          {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
+          {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
+          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}"
+             href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
             {% if m.subject_kind == 'player' %}
-            <span class="notable-subject" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ player_url(m.player_id) }}'" title="{{ t('Open player page', '查看球员') }}">
               {% if m.player_headshot_url %}
-              <img class="notable-subject-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
-              {% endif %}
-              <span class="notable-subject-name">{{ m.player_name }}</span>
-            </span>
-            {% elif m.subject_kind == 'team' %}
-            <span class="notable-subject" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ team_url(m.team_id) }}'" title="{{ t('Open team page', '查看球队') }}">
-              <img class="notable-subject-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
-              <span class="notable-subject-name">{{ m.team_abbr }}</span>
-            </span>
-            {% else %}
-            <span class="notable-game" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ game_url(m.game_id) }}'" title="{{ t('Open game', '查看比赛') }}">
-              <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M4.5 9.5c2 0 4-.5 5.5-2"/><path d="M4.5 14.5c2 0 4 .5 5.5 2"/><path d="M19.5 9.5c-2 0-4-.5-5.5-2"/><path d="M19.5 14.5c-2 0-4 .5-5.5 2"/><path d="M12 2v20"/></svg>
-              <span class="notable-team {% if m.winner_id and m.winner_id == m.road_team_id|string %}notable-team-winner{% endif %}">{{ m.road_abbr }}</span>
-              {% if m.road_score is not none and m.home_score is not none %}
-              <span class="notable-score">{{ m.road_score }}</span>
-              <span class="notable-at">–</span>
-              <span class="notable-score">{{ m.home_score }}</span>
+                <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
               {% else %}
-              <span class="notable-at">@</span>
+                <span class="tem-avatar"></span>
               {% endif %}
-              <span class="notable-team {% if m.winner_id and m.winner_id == m.home_team_id|string %}notable-team-winner{% endif %}">{{ m.home_abbr }}</span>
-            </span>
+            {% elif m.subject_kind == 'team' %}
+              <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
-            {% if m.game_date %}
-            <span class="notable-date">
-              <svg class="notable-foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              {{ m.game_date.strftime('%b %d') }}
-            </span>
-            {% endif %}
-          </div>
-        </a>
+            <div class="tem-body">
+              <div class="tem-name">
+                {% if m.is_hero %}★ {% endif %}
+                {% if m.subject_kind == 'player' %}{{ m.player_name }}
+                {% elif m.subject_kind == 'team' %}{{ m.team_abbr }}
+                {% else %}{{ m.metric_name }}{% endif %}
+              </div>
+              <div class="tem-metric">
+                {% if is_entity %}{{ m.metric_name }}{% if m.context_label %} · {{ m.context_label }}{% endif %}
+                {% elif m.context_label %}{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}
+                {% elif not val_short %}{{ val_raw }}{% endif %}
+              </div>
+              {% if m.season_badge_text or m.all_badge_text %}
+              <div class="tem-badges">
+                {% if m.all_badge_text %}<span class="rank-chip notable">{{ m.all_badge_text }}</span>{% endif %}
+                {% if m.season_badge_text and not m.all_badge_text %}<span class="rank-chip notable">{{ m.season_badge_text }}</span>{% endif %}
+              </div>
+              {% endif %}
+              <div class="tem-meta">
+                <span class="tem-meta-game">
+                  <span class="tem-team{% if m.winner_id and m.winner_id == m.road_team_id|string %} tem-team-winner{% endif %}">{{ m.road_abbr }}</span>
+                  {% if m.road_score is not none and m.home_score is not none %}
+                    <span>{{ m.road_score }}–{{ m.home_score }}</span>
+                  {% else %}
+                    <span class="tem-at">@</span>
+                  {% endif %}
+                  <span class="tem-team{% if m.winner_id and m.winner_id == m.home_team_id|string %} tem-team-winner{% endif %}">{{ m.home_abbr }}</span>
+                </span>
+                {% if m.game_date %}<span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span>{% endif %}
+              </div>
+            </div>
+            {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
+          </a>
         {% endfor %}
       </div>
       {% else %}
@@ -1206,238 +1194,31 @@
     height: 12px;
     opacity: 0.85;
   }
-  .notable-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 10px;
+  .tem-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--border, #1f2a3a);
+    border-radius: 10px; background: var(--surface-2, #0d1c2e);
+    text-decoration: none; color: inherit; transition: border-color 0.12s, background 0.12s;
   }
-  .notable-item {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 14px 12px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    text-decoration: none;
-    color: inherit;
-    overflow: hidden;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s, box-shadow 0.15s;
-  }
-  .notable-item::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--notable-color, var(--accent)) 14%, transparent), transparent 55%);
-    opacity: 0.6;
-  }
-  .notable-item:hover {
-    border-color: var(--notable-color, var(--accent));
-    background: var(--surface-3);
-    text-decoration: none;
-    transform: translateY(-1px);
-    box-shadow: 0 8px 22px -14px color-mix(in srgb, var(--notable-color, var(--accent)) 50%, transparent);
-  }
-  .notable-item-hero {
-    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface-2)), var(--surface-2) 55%);
-  }
-  .notable-item-hero:hover {
-    border-color: var(--accent);
-  }
-  .notable-hero-flag {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 18px;
-    height: 18px;
-    color: var(--accent);
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
-  }
-  .notable-hero-flag svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .notable-item-head {
-    position: relative;
-    display: grid;
-    grid-template-columns: 34px 1fr auto;
-    align-items: flex-start;
-    column-gap: 10px;
-    row-gap: 4px;
-  }
-  .notable-item-hero .notable-item-head { grid-template-columns: 34px 1fr auto; padding-right: 22px; }
-
-  .notable-icon-wrap {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--notable-color, var(--accent)) 16%, transparent);
-    color: var(--notable-color, var(--accent));
-    flex-shrink: 0;
-  }
-  .notable-ico {
-    width: 17px;
-    height: 17px;
-  }
-  /* per-category hue via CSS custom property (controls icon bg + hover glow) */
-  .notable-item:has(.notable-ico-miss)     { --notable-color: #f87171; }
-  .notable-item:has(.notable-ico-three)    { --notable-color: #a78bfa; }
-  .notable-item:has(.notable-ico-defense)  { --notable-color: #60a5fa; }
-  .notable-item:has(.notable-ico-board)    { --notable-color: #2dd4bf; }
-  .notable-item:has(.notable-ico-assist)   { --notable-color: #22d3ee; }
-  .notable-item:has(.notable-ico-to)       { --notable-color: #fbbf24; }
-  .notable-item:has(.notable-ico-run)      { --notable-color: #fde047; }
-  .notable-item:has(.notable-ico-margin)   { --notable-color: #4ade80; }
-  .notable-item:has(.notable-ico-ft)       { --notable-color: #cbd5f5; }
-  .notable-item:has(.notable-ico-clock)    { --notable-color: #818cf8; }
-  .notable-item:has(.notable-ico-star)     { --notable-color: #facc15; }
-  .notable-item:has(.notable-ico-points)   { --notable-color: #f97316; }
-
-  .notable-metric {
-    align-self: center;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    line-height: 1.3;
-  }
-  .notable-badges {
-    align-self: center;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-  .notable-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: 'Outfit', sans-serif;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: var(--accent);
-    white-space: nowrap;
-  }
-  .notable-chip-all {
-    background: color-mix(in srgb, var(--accent) 32%, transparent);
-    color: var(--heading);
-    border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .notable-chip-ico {
-    width: 11px;
-    height: 11px;
-    color: var(--accent);
-  }
-
-  .notable-value {
-    font-family: 'Outfit', sans-serif;
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1.2;
-    color: var(--heading);
-    word-break: break-word;
-    padding-left: 44px;
-    margin-top: -2px;
-  }
-  .notable-item-hero .notable-value { color: var(--accent); }
-
-  .notable-context {
-    font-size: 12px;
-    color: var(--muted-2);
-    line-height: 1.35;
-    padding-left: 44px;
-  }
-
-  .notable-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-top: auto;
-    padding-top: 8px;
-    border-top: 1px dashed color-mix(in srgb, var(--border) 65%, transparent);
-    font-size: 11px;
-  }
-  .notable-foot-ico {
-    width: 11px;
-    height: 11px;
-    opacity: 0.75;
-    flex-shrink: 0;
-  }
-  .notable-game {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: 'Outfit', sans-serif;
-    font-weight: 700;
-    color: var(--muted-2);
-    cursor: pointer;
-  }
-  .notable-game:hover { color: var(--accent); }
-  .notable-subject {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-family: 'Outfit', sans-serif;
-    font-weight: 700;
-    color: var(--heading);
-    cursor: pointer;
-    max-width: 100%;
-    overflow: hidden;
-  }
-  .notable-subject:hover { color: var(--accent); }
-  .notable-subject-avatar {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-    background: var(--surface-3);
-  }
-  .notable-subject-name {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .notable-team {
-    letter-spacing: 0.02em;
-  }
-  .notable-team-winner {
-    color: var(--heading);
-  }
-  .notable-score {
-    font-weight: 800;
-    color: var(--heading);
-  }
-  .notable-at {
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .notable-date {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
+  .tem-card:hover { border-color: var(--accent); background: var(--surface-3, #142438); text-decoration: none; }
+  .tem-card.tem-hero { border-color: color-mix(in srgb, var(--accent) 50%, var(--border, #1f2a3a)); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface-2, #0d1c2e)), var(--surface-2, #0d1c2e) 55%); }
+  .tem-avatar { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface-3, #142438); }
+  .tem-card-game { border-left: 3px solid color-mix(in srgb, var(--accent) 40%, transparent); padding-left: 12px; }
+  .tem-card-game.tem-hero { border-left-color: var(--accent); }
+  .tem-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .tem-name { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 13px; color: var(--heading, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tem-metric { font-size: 11px; color: var(--muted-2, #9aa3b2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tem-metric:empty { display: none; }
+  .tem-value { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; color: var(--heading, #fff); flex-shrink: 0; }
+  .tem-badges { display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
+  .tem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+  .tem-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-family: 'Outfit', sans-serif; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #64748b); }
+  .tem-meta-game { display: inline-flex; align-items: center; gap: 4px; }
+  .tem-team-winner { color: var(--heading, #fff); }
+  .tem-at { opacity: 0.7; }
+  .tem-meta-date { color: var(--muted-2, #9aa3b2); }
   @media (max-width: 600px) {
-    .notable-list { grid-template-columns: 1fr; }
+    .tem-grid { grid-template-columns: 1fr; }
   }
 </style>
 
