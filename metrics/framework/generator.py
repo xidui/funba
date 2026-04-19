@@ -244,21 +244,61 @@ MetricResult(
 )
 ```
 
+### context_label_template — show the numerator/denominator under the value
+Set this as a class attribute whenever the headline value is a rate, a ratio, or
+any number that would be clearer with the supporting counts displayed. The UI
+renders it as a small line under value_str, using Python `str.format_map()` over
+the `context` dict.
+```python
+context_label_template = "{fgm}/{fga}"            # FG rate metrics
+context_label_template = "{wins}/{games}"         # win-rate metrics
+context_label_template = "{made}/{attempts} 3PT"  # 3PT rate metrics
+```
+STRONG RECOMMENDATION: if `context` contains a numerator/denominator pair
+(`fgm/fga`, `made/attempts`, `wins/games`, `hits/tries`, etc.), add a
+`context_label_template` by default — users almost always want to see it.
+
+### entity_id — per-team-in-game pattern for game-scope metrics
+For game-scope metrics where EACH TEAM in the game produces its own row (e.g.
+"team with highest Q1 FG%"), encode both the game and the team in entity_id:
+```python
+entity_id=f"{game_id}:{team_id}"
+```
+This is the standard pattern — `sub_key` is NOT used for this case because the
+team is already part of the entity identity. Use `sub_key` only for additional
+slicing on top of entity (see below).
+
 ### sub_key — multiple results per entity per season
 By default, each (metric_key, entity_type, entity_id, season) has ONE result row.
 Set `sub_key` to a distinguishing string when the metric should produce MULTIPLE
-ranked rows for the same entity in the same season. Examples:
+ranked rows PER entity (adding a dimension beyond entity_id). Examples:
 - Monthly breakdown: `sub_key="2025-01"` (one row per month per player)
-- Per-opponent splits: `sub_key="1610612744"` (one row per opponent)
+- Per-opponent splits: `sub_key="1610612744"` (one row per opponent team)
 
 Rules:
 - Leave `sub_key` as default `""` when one row per entity per season is sufficient
   (this is the common case — most metrics should NOT use sub_key).
+- NEVER set `sub_key` to a value that is already encoded in `entity_id`. If
+  entity_id is `f"{game_id}:{team_id}"` and you write `sub_key=team_id`, that is
+  pure redundancy: it adds no new dimension and will surface as a useless raw
+  ID column in the UI. Same for `entity_id=player_id` with `sub_key=player_id`.
 - Only use `sub_key` when the user explicitly asks for multiple entries per entity
   per season (e.g. "each month as a separate ranking entry").
 - If the user asks for "the best month" or "the highest X", that is ONE row per
   entity — do NOT use sub_key. Store which month it was in `context` instead.
 - `sub_key` values should be stable and sortable (e.g. "2025-01", not "January").
+
+### sub_key_type and sub_key_label (REQUIRED when sub_key is set)
+When the metric produces real sub_key rows, the UI needs to know how to render
+them. Declare these class attributes so raw IDs get resolved to names/logos:
+```python
+sub_key_type = "team"        # "team" | "player" | "month" | "zone"
+sub_key_label = "Opponent"   # English column header
+sub_key_label_zh = "对手"    # Chinese column header
+```
+Without `sub_key_type`, the detail-page column shows the raw sub_key string
+(e.g. the literal team_id number) instead of an abbr + logo. If you add
+`sub_key`, you MUST also add `sub_key_type` and `sub_key_label`.
 
 ## Career season helpers (import from metrics.framework.base)
 
@@ -408,7 +448,8 @@ IMPORTANT:
   rank_order) and trims. Do NOT set it for player/team-scope metrics where each
   entity should have exactly one result row per season.
 - CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must always be the RAW metric value, not a rank ordinal. value_str should display the value in human-readable form, never a rank like #1 or #2. When the user asks for a "ranking", store the underlying value and let the system rank.
-- Set context_label_template as a class attribute to display numerator/denominator under the value. It is a Python format string interpolated with the context dict. Integer/float values are auto-formatted. Example: context_label_template = "{b2b_wins}/{b2b_games} B2B"
+- Set `context_label_template` whenever the value is a rate/ratio — see its
+  dedicated section above for the rules.
 - Explicitly decide whether game drill-down is useful. If useful, implement
   `compute_qualifications()`; if not useful, omit it. Do not add it by default.
 - Base this decision on whether the metric corresponds to a clear, user-meaningful
@@ -430,6 +471,21 @@ CRITICAL — PBP score parsing:
 - To get single-quarter points, you MUST subtract the previous quarter's end score.
 - The score field is the SAME regardless of which team scored — do NOT filter by home_description or visitor_description to get per-team scores.
 - Always parse ALL periods' last score row, then compute per-period deltas.
+
+CRITICAL — per-quarter / per-period shot data:
+- For any metric that needs per-period FGM / FGA / 3PM / 3PA / FG% (e.g. "Q1 FG%",
+  "fourth quarter 3PT volume"), the ONLY correct source is ShotRecord filtered by
+  period: `ShotRecord.filter(ShotRecord.period == N, ShotRecord.shot_attempted.is_(True))`.
+  Count `shot_made` for FGM, total rows for FGA. Filter `shot_type == 3` (or the
+  equivalent field) for 3PM/3PA.
+- NEVER derive per-quarter FGM/FGA from whole-game TeamGameStats/PlayerGameStats
+  totals (e.g. subtracting whole-game fg3m/ftm from q1 points, or prorating
+  team_fga by quarter-points share). Those fields are whole-game sums; any
+  arithmetic that tries to pull out a single quarter's share is an estimate at
+  best and produces garbage when the denominator is small (commonly clamping to
+  100% because estimated_fga < estimated_fgm).
+- GameLineScore.q1_pts / q2_pts / q3_pts / q4_pts are valid for per-quarter
+  POINTS only. They do NOT give you FGM or FGA.
 
 CRITICAL — performance:
 - Follow the bulk-loading pattern described in "Data access in compute_season()" above.
