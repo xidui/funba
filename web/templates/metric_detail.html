@@ -1713,9 +1713,13 @@
                      alt="" loading="lazy" onerror="this.style.display='none'">
                 {% endif %}
                 <span>
-                  <span class="{% if road_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ road_abbr_txt }}</span>
-                  <span class="entity-team-sep">@</span>
-                  <span class="{% if home_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ home_abbr_txt }}</span>
+                  {% if subject_team_id %}
+                    <span class="{% if road_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ road_abbr_txt }}</span>
+                    <span class="entity-team-sep">@</span>
+                    <span class="{% if home_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ home_abbr_txt }}</span>
+                  {% else %}
+                    {{ road_abbr_txt }} @ {{ home_abbr_txt }}
+                  {% endif %}
                 </span>
                 {% if r.home_team_id %}
                 <img class="entity-thumb team{% if home_is_subject %} entity-thumb-subject{% endif %}" style="width:22px;height:22px;"
