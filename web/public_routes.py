@@ -1690,22 +1690,19 @@ def register_public_routes(
         return payload
 
     def _prewarm_notable_cache():
-        """Fire on worker boot so the first visitor never pays the cold
-        query. Runs in a daemon thread after a short delay."""
-        import time as _time
-
-        def _run():
-            _time.sleep(3)  # let the app finish initialising
-            try:
-                SessionLocal = get_session_local()
-                Team = get_team_model()
-                with SessionLocal() as session:
-                    team_lookup = {t.team_id: t for t in session.query(Team).all() if getattr(t, "team_id", None)}
-                _compute_recent_notable_metrics(team_lookup, store=True)
-            except Exception:
-                pass
-
-        threading.Thread(target=_run, daemon=True).start()
+        """Fill _notable_cache synchronously during app init so every
+        gunicorn worker inherits a populated cache via copy-on-write
+        after fork. Runs in the master under preload_app=True; the
+        ~15s compute cost is paid once at boot, not on every first
+        request to a cold worker."""
+        try:
+            SessionLocal = get_session_local()
+            Team = get_team_model()
+            with SessionLocal() as session:
+                team_lookup = {t.team_id: t for t in session.query(Team).all() if getattr(t, "team_id", None)}
+            _compute_recent_notable_metrics(team_lookup, store=True)
+        except Exception:
+            pass
 
     _prewarm_notable_cache()
 
