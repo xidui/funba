@@ -1049,6 +1049,7 @@
                 {% if m.season_badge_text and not m.all_badge_text %}<span class="rank-chip notable">{{ m.season_badge_text }}</span>{% endif %}
               </div>
               {% endif %}
+              {% if m.road_abbr and m.home_abbr %}
               <div class="tem-meta">
                 <span class="tem-meta-game">
                   <span class="tem-team{% if m.winner_id and m.winner_id == m.road_team_id|string %} tem-team-winner{% endif %}">{{ m.road_abbr }}</span>
@@ -1061,6 +1062,9 @@
                 </span>
                 {% if m.game_date %}<span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span>{% endif %}
               </div>
+              {% elif m.game_date %}
+              <div class="tem-meta"><span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span></div>
+              {% endif %}
             </div>
             {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
           </a>
