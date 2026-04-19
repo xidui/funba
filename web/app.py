@@ -23,7 +23,7 @@ import uuid as _uuid_mod
 from flask import Flask, abort, after_this_request, flash, g, get_flashed_messages, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 
-from sqlalchemy import and_, case, distinct, func, or_, text
+from sqlalchemy import and_, case, distinct, func, or_, text, tuple_
 from sqlalchemy.orm import sessionmaker
 from social_media.hupu.forums import normalize_hupu_forum
 from social_media.hupu.validation import validate_hupu_title
@@ -2405,22 +2405,22 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     if not trigger_keys:
         return {"player": [], "team": []}
 
-    # Fetch the current MetricResult value for every trigger pair in one
-    # query, then prune to the exact tuples we logged (metric_key +
-    # entity_id + season together).
-    candidate_rows = (
+    # Fetch the exact MetricResult rows for the logged trigger tuples.
+    # Row-value IN keeps the server-side filter aligned with trigger_keys;
+    # a naive metric_key IN (...) scan pulled ~1M rows just to discard >99%.
+    entity_rows = (
         session.query(MetricResultModel)
         .filter(
-            MetricResultModel.metric_key.in_(metric_keys),
-            MetricResultModel.entity_type.in_(("player", "team")),
+            tuple_(
+                MetricResultModel.metric_key,
+                MetricResultModel.entity_type,
+                MetricResultModel.entity_id,
+                MetricResultModel.season,
+            ).in_(trigger_keys),
             MetricResultModel.value_num.isnot(None),
         )
         .all()
     )
-    entity_rows = [
-        r for r in candidate_rows
-        if (r.metric_key, r.entity_type, r.entity_id, r.season) in trigger_keys
-    ]
     if not entity_rows:
         return {"player": [], "team": []}
 
