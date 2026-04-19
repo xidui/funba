@@ -1300,6 +1300,8 @@ def register_public_routes(
     _notable_cache: dict = {"ts": 0.0, "signature": None, "payload": {"cards": [], "game_dates": []}}
     _NOTABLE_TTL_SECONDS = 600  # 10 minutes — beyond this we refresh
     _NOTABLE_STALE_SECONDS = 6 * 3600  # 6 hours — serve stale rather than recompute sync
+    _NOTABLE_MAX_CARDS = 60
+    _NOTABLE_QUOTAS = {"game": 30, "player": 21, "team": 9}
     _notable_refresh_lock = threading.Lock()
 
     def _notable_compute_signature(session):
@@ -1664,14 +1666,13 @@ def register_public_routes(
         by_kind: dict[str, list[dict]] = {"game": [], "player": [], "team": []}
         for c in deduped:
             by_kind.setdefault(c.get("subject_kind", "game"), []).append(c)
-        quotas = {"game": 10, "player": 7, "team": 3}
         selected: list[dict] = []
-        for kind, limit in quotas.items():
+        for kind, limit in _NOTABLE_QUOTAS.items():
             selected.extend(by_kind.get(kind, [])[:limit])
         picked = {id(c) for c in selected}
         leftovers = [c for c in deduped if id(c) not in picked]
-        if len(selected) < 20:
-            selected.extend(leftovers[: 20 - len(selected)])
+        if len(selected) < _NOTABLE_MAX_CARDS:
+            selected.extend(leftovers[: _NOTABLE_MAX_CARDS - len(selected)])
 
         selected.sort(
             key=lambda c: (
@@ -1681,7 +1682,7 @@ def register_public_routes(
             )
         )
 
-        payload = {"cards": selected[:20], "game_dates": dates}
+        payload = {"cards": selected[:_NOTABLE_MAX_CARDS], "game_dates": dates}
         if store:
             _notable_cache["ts"] = time.monotonic()
             _notable_cache["signature"] = signature
