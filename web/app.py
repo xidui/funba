@@ -2577,6 +2577,8 @@ def _load_game_metrics_payload(game_id: str) -> dict:
     with SessionLocal() as session:
         game = session.query(Game).filter(Game.game_id == game_id).first()
         if game is None:
+            game = session.query(Game).filter(Game.slug == game_id).first()
+        if game is None:
             return {
                 "game_id": game_id,
                 "game_metrics": {"season": [], "season_extra": []},
