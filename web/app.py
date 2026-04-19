@@ -2395,6 +2395,13 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     if not runs:
         return {"player": [], "team": []}
 
+    runs = [
+        r for r in runs
+        if _story_metric_role(str(r.metric_key or ""), f"triggered_{r.entity_type}") != "suppress"
+    ]
+    if not runs:
+        return {"player": [], "team": []}
+
     trigger_keys = {(r.metric_key, r.entity_type, r.entity_id, r.season) for r in runs}
     metric_keys = {k[0] for k in trigger_keys}
 
@@ -2425,6 +2432,24 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         return {"player": [], "team": []}
 
     _asc_keys = _asc_metric_keys(session)
+    grouped_rows: dict[tuple[str, str], list[Any]] = defaultdict(list)
+    for row in entity_rows:
+        grouped_rows[(row.metric_key, row.entity_type)].append(row)
+
+    pruned_rows: list[Any] = []
+    for (metric_key, entity_type), rows_for_metric in grouped_rows.items():
+        reverse = metric_key not in _asc_keys
+        rows_for_metric.sort(
+            key=lambda r: (
+                r.value_num if r.value_num is not None else (float("-inf") if reverse else float("inf")),
+                r.entity_id,
+            ),
+            reverse=reverse,
+        )
+        per_metric_limit = 4 if entity_type == "player" else 6
+        pruned_rows.extend(rows_for_metric[:per_metric_limit])
+
+    entity_rows = pruned_rows
     target_ids = [r.id for r in entity_rows]
     MR = MetricResultModel
     e = MR.__table__.alias("e")
@@ -2552,8 +2577,12 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             card["team_abbr"] = tm.abbr
         result[r.entity_type].append(card)
 
-    for bucket in result.values():
+    for kind, bucket in result.items():
         bucket.sort(key=lambda c: (c["best_ratio"], c["rank"]))
+        if kind == "player":
+            del bucket[32:]
+        elif kind == "team":
+            del bucket[20:]
     return result
 
 
