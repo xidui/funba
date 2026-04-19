@@ -2854,13 +2854,138 @@ def _build_story_candidates(
     }
 
 
+def _get_game_metrics_payload(session, game_id: str, game_season: str | None) -> dict:
+    """Return the compact game-metrics payload used by game page + content API.
+
+    This avoids the much heavier generic metric-detail path, which computes
+    career/window/split structures the game page never renders.
+    """
+    if not game_season:
+        return {"season": [], "season_extra": []}
+
+    _asc_keys = _asc_metric_keys(session)
+    _disabled_keys = _disabled_metric_keys(session) if not is_admin() else set()
+
+    entity_rows = (
+        session.query(
+            MetricResultModel.id,
+            MetricResultModel.metric_key,
+            MetricResultModel.entity_id,
+            MetricResultModel.season,
+            MetricResultModel.rank_group,
+            MetricResultModel.value_num,
+            MetricResultModel.value_str,
+            MetricResultModel.context_json,
+            MetricResultModel.computed_at,
+        )
+        .filter(
+            MetricResultModel.entity_type == "game",
+            MetricResultModel.value_num.isnot(None),
+            MetricResultModel.season == game_season,
+            _game_entity_filter(MetricResultModel.entity_id, game_id),
+            MetricResultModel.metric_key.notin_(_disabled_keys) if _disabled_keys else True,
+        )
+        .all()
+    )
+    if not entity_rows:
+        return {"season": [], "season_extra": []}
+
+    target_ids = [r.id for r in entity_rows]
+    MR = MetricResultModel
+    e = MR.__table__.alias("e")
+    p = MR.__table__.alias("p")
+    if _asc_keys:
+        better_expr = case(
+            (e.c.metric_key.in_(_asc_keys), p.c.value_num < e.c.value_num),
+            else_=(p.c.value_num > e.c.value_num),
+        )
+    else:
+        better_expr = p.c.value_num > e.c.value_num
+
+    season_join = and_(
+        p.c.metric_key == e.c.metric_key,
+        p.c.entity_type == e.c.entity_type,
+        p.c.season == e.c.season,
+        func.coalesce(p.c.rank_group, "__all__") == func.coalesce(e.c.rank_group, "__all__"),
+        p.c.value_num.isnot(None),
+    )
+    season_rank_q = (
+        session.query(
+            e.c.id,
+            func.count(p.c.id).label("total"),
+            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        )
+        .select_from(e).join(p, season_join)
+        .filter(e.c.id.in_(target_ids))
+        .group_by(e.c.id)
+    )
+    season_rank_map = {r.id: (int(r.rank), int(r.total)) for r in season_rank_q.all()}
+
+    prefix = _season_type_prefix(game_season)
+    alltime_join = and_(
+        p.c.metric_key == e.c.metric_key,
+        p.c.entity_type == e.c.entity_type,
+        func.coalesce(p.c.rank_group, "__all__") == func.coalesce(e.c.rank_group, "__all__"),
+        p.c.value_num.isnot(None),
+        func.substr(p.c.season, 1, 1) == func.substr(e.c.season, 1, 1),
+    )
+    alltime_rank_q = (
+        session.query(
+            e.c.id,
+            func.count(p.c.id).label("total"),
+            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
+        )
+        .select_from(e).join(p, alltime_join)
+        .filter(e.c.id.in_(target_ids))
+    )
+    if prefix:
+        alltime_rank_q = alltime_rank_q.filter(func.substr(e.c.season, 1, 1) == prefix)
+    alltime_rank_q = alltime_rank_q.group_by(e.c.id)
+    alltime_rank_map = {r.id: (int(r.rank), int(r.total)) for r in alltime_rank_q.all()}
+
+    metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
+    db_templates = _load_context_label_templates(session, {family_base_key(r.metric_key) for r in entity_rows})
+
+    season_metrics: list[dict] = []
+    for r in entity_rows:
+        season_rank, season_total = season_rank_map.get(r.id, (1, 1))
+        all_rank, all_total = alltime_rank_map.get(r.id, (None, None))
+        try:
+            ctx = json.loads(r.context_json) if r.context_json else {}
+        except Exception:
+            ctx = {}
+        context_label = _resolve_context_label(family_base_key(r.metric_key), ctx, db_templates) if isinstance(ctx, dict) else None
+        if not context_label and isinstance(ctx, dict):
+            context_label = ctx.get("note")
+        season_metrics.append({
+            "metric_key": r.metric_key,
+            "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+            "entity_id": r.entity_id,
+            "season": r.season,
+            "value_num": r.value_num,
+            "value_str": r.value_str,
+            "context": ctx if isinstance(ctx, dict) else {},
+            "context_label": context_label,
+            "rank": season_rank,
+            "total": season_total,
+            "all_games_rank": all_rank,
+            "all_games_total": all_total,
+            "computed_at": r.computed_at,
+            "rank_group": r.rank_group,
+        })
+
+    _apply_game_metric_tiers(season_metrics)
+    visible, extra = _prepare_game_metric_cards(season_metrics)
+    return {"season": visible, "season_extra": extra}
+
+
 def _build_game_metrics_payload(
     session,
     game_id: str,
     game_season: str | None,
 ) -> dict:
     """Return the shared payload used by both game pages and content data API."""
-    game_metrics = _get_metric_results(session, "game", game_id, game_season)
+    game_metrics = _get_game_metrics_payload(session, game_id, game_season)
     triggered = _get_game_triggered_entity_metrics(session, game_id, game_season)
     story_candidates = _build_story_candidates(
         game_metrics,
