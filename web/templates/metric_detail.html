@@ -742,6 +742,23 @@
   }
   .rank-num.top3 { color: var(--accent); }
 
+  .entity-team-subject {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .entity-team-other {
+    color: var(--muted-2);
+    font-weight: 500;
+  }
+  .entity-team-sep {
+    color: var(--muted);
+    margin: 0 2px;
+    font-weight: 400;
+  }
+  .entity-thumb-subject {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+
   .entity-link {
     color: var(--text);
     text-decoration: none;
@@ -1683,15 +1700,25 @@
               <span class="ongoing-badge">ongoing</span>
               {% endif %}
             {% elif r.entity_type == 'game' %}
+              {% set _eid_parts = r.entity_id.split(':') %}
+              {% set subject_team_id = _eid_parts[1] if _eid_parts|length > 1 else None %}
+              {% set road_abbr_txt = team_abbr_for_year(r.road_team_id, season_year(r.season_raw or current_metric_season)) if r.road_team_id else (r.road_abbr or '') %}
+              {% set home_abbr_txt = team_abbr_for_year(r.home_team_id, season_year(r.season_raw or current_metric_season)) if r.home_team_id else (r.home_abbr or '') %}
+              {% set road_is_subject = subject_team_id and r.road_team_id and subject_team_id == r.road_team_id|string %}
+              {% set home_is_subject = subject_team_id and r.home_team_id and subject_team_id == r.home_team_id|string %}
               <a class="entity-link" href="{{ game_url(r.entity_id.split(':')[0]) }}" style="display:inline-flex;align-items:center;gap:5px;">
                 {% if r.road_team_id %}
-                <img class="entity-thumb team" style="width:22px;height:22px;"
+                <img class="entity-thumb team{% if road_is_subject %} entity-thumb-subject{% endif %}" style="width:22px;height:22px;"
                      src="{{ team_logo(r.road_team_id, season_year(r.season_raw or current_metric_season)) }}"
                      alt="" loading="lazy" onerror="this.style.display='none'">
                 {% endif %}
-                <span>{{ team_abbr_for_year(r.road_team_id, season_year(r.season_raw or current_metric_season)) if r.road_team_id else (r.road_abbr or '') }} @ {{ team_abbr_for_year(r.home_team_id, season_year(r.season_raw or current_metric_season)) if r.home_team_id else (r.home_abbr or '') }}</span>
+                <span>
+                  <span class="{% if road_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ road_abbr_txt }}</span>
+                  <span class="entity-team-sep">@</span>
+                  <span class="{% if home_is_subject %}entity-team-subject{% else %}entity-team-other{% endif %}">{{ home_abbr_txt }}</span>
+                </span>
                 {% if r.home_team_id %}
-                <img class="entity-thumb team" style="width:22px;height:22px;"
+                <img class="entity-thumb team{% if home_is_subject %} entity-thumb-subject{% endif %}" style="width:22px;height:22px;"
                      src="{{ team_logo(r.home_team_id, season_year(r.season_raw or current_metric_season)) }}"
                      alt="" loading="lazy" onerror="this.style.display='none'">
                 {% endif %}
