@@ -55,9 +55,10 @@
     </a>
   {% endmacro %}
 
-  {% macro triggered_card(m, kind) %}
+  {% macro triggered_card(m, kind, extra=False, extra_attr='') %}
     <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}">
+       href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}"
+       {% if extra %}{{ extra_attr }} style="display:none;"{% endif %}>
       {% if kind == 'player' %}
         {% if m.player_headshot_url %}
           <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
@@ -92,32 +93,30 @@
     </div>
     {% if extra_game_metric_list %}
     <div class="gmc-more-wrap">
-      <button type="button" id="show-more-game-metrics" class="gmc-more-btn">
+      <button type="button" class="gmc-more-btn" data-show-target="extra-game-metric">
         <span>{{ t('Show', '显示') }} {{ extra_game_metric_list|length }} {{ t('More Metrics ▼', '更多指标 ▼') }}</span>
       </button>
     </div>
-    <script>
-      (function () {
-        const btn = document.getElementById('show-more-game-metrics');
-        if (!btn) return;
-        btn.addEventListener('click', function () {
-          document.querySelectorAll('[data-extra-game-metric]').forEach((el) => {
-            el.style.display = '';
-          });
-          btn.parentElement.remove();
-        });
-      })();
-    </script>
     {% endif %}
   </div>
   {% endif %}
 
-  {% if triggered_player_metrics %}
+  {% set player_visible = triggered_player_metrics[:12] %}
+  {% set player_extra = triggered_player_metrics[12:32] %}
+  {% if player_visible %}
   <div class="tem-section">
     <h3 class="tem-section-h">{{ t('Player Highlights', '球员亮点') }}</h3>
     <div class="tem-grid">
-      {% for m in triggered_player_metrics[:12] %}{{ triggered_card(m, 'player') }}{% endfor %}
+      {% for m in player_visible %}{{ triggered_card(m, 'player') }}{% endfor %}
+      {% for m in player_extra %}{{ triggered_card(m, 'player', extra=True, extra_attr='data-extra-player-metric') }}{% endfor %}
     </div>
+    {% if player_extra %}
+    <div class="gmc-more-wrap">
+      <button type="button" class="gmc-more-btn" data-show-target="extra-player-metric">
+        <span>{{ t('Show', '显示') }} {{ player_extra|length }} {{ t('More Metrics ▼', '更多指标 ▼') }}</span>
+      </button>
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -125,9 +124,23 @@
   <div class="tem-section">
     <h3 class="tem-section-h">{{ t('Team Highlights', '球队亮点') }}</h3>
     <div class="tem-grid">
-      {% for m in triggered_team_metrics[:6] %}{{ triggered_card(m, 'team') }}{% endfor %}
+      {% for m in triggered_team_metrics[:20] %}{{ triggered_card(m, 'team') }}{% endfor %}
     </div>
   </div>
   {% endif %}
+
+  <script>
+    (function () {
+      document.querySelectorAll('.gmc-more-btn[data-show-target]').forEach((btn) => {
+        btn.addEventListener('click', function () {
+          const attr = 'data-' + btn.dataset.showTarget;
+          document.querySelectorAll('[' + attr + ']').forEach((el) => {
+            el.style.display = '';
+          });
+          btn.parentElement.remove();
+        });
+      });
+    })();
+  </script>
 </div>
 {% endif %}
