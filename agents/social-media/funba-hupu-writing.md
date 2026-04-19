@@ -103,6 +103,8 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
 
 1. Title
    - Every title must start with `智趣NBA:`
+   - Hupu composer title length is `4-40` characters (`请输入标题（4-40个字）`)
+   - Do not draft Hupu titles above 40 characters and do not assume the publisher should silently truncate them
 
 2. Length
    - Long-form Chinese forum post
@@ -125,7 +127,36 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
    - related metrics section
    - `funba` footer ad
 
-4. Career / historical framing
+4. Signal weighting for game-analysis posts
+   - Before drafting, sort candidate signals into:
+     - `P1` = most important
+     - `P2` = still useful
+     - `P3` = secondary
+   - Treat a current-season / current-playoff `#1` or tied `#1` as a `P1` candidate by default.
+   - `P1` does not mean automatic title lock. Promote it when it has real basketball meaning, fan relevance, and changes how the game should be read.
+   - If a `P1` signal is not the title hook, it should usually still appear early in the post with a dedicated sentence or paragraph.
+   - Use `P2` signals to sharpen the main story, not to compete with it.
+   - Keep `P3` signals out unless they clarify a stronger point.
+   - Freshness matters:
+     - first hit / newly tied / moved up = strong reason to feature the signal only when that movement is explicitly evidenced
+     - if freshness is unknown, write the signal as a current-state ranking fact, not as a movement claim
+     - do not keep recycling an old leaderboard fact into new game posts unless this game made that old fact newly meaningful and you can explain why
+
+5. Current-game fact vs season-context rule
+   - Split strong signal writing into two layers:
+     - layer 1 = what happened in this game
+     - layer 2 = why that number sits unusually high in the current season / playoffs / history
+   - Good pattern:
+     - `骑士这场三分32投16中。`
+     - `这16记把他们写到本届季后赛全队单场三分命中并列第一。`
+   - Also good when freshness is unknown:
+     - `这场之后，他在本赛季单场得分榜排并列第2。`
+   - Bad pattern:
+     - rewriting a season-record or leaderboard metric into a fake `今天` / `本场` stat line
+     - claiming `升到第2` or `首次来到第2` without explicit evidence
+   - If the sentence says `今天` / `本场` / `这场` / `G1` / `首战`, the number must come from the game facts, not from a metric ranking page
+
+6. Career / historical framing
    - If a post is built around a metric, do not stop at current-season ranking when deeper historical framing is available
    - Prefer:
      - a career variant of the metric
@@ -135,7 +166,7 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
      - how good is this today?
      - where does this sit in a longer historical context?
 
-5. Related metrics section
+7. Related metrics section
    - Include a short section near the end:
      - `你可能还想看：` or `相关数据：`
    - Add **6–8 metric links** — this section should be metric-focused
@@ -147,7 +178,7 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
    - Do NOT fill this section with game pages or player pages — those belong as inline links in the body text, not here
    - Keep it concise and natural, not a raw link dump
 
-6. Inline source linking
+8. Inline source linking
    - All `funba.app` links must use the Chinese site prefix `/cn/`: `https://funba.app/cn/metrics/...`, `https://funba.app/cn/players/...`, `https://funba.app/cn/games/...`. Do not link to the English paths.
    - Do not leave core metric references as unsupported plain text when a `funba` source page is available
    - In the main body, the first mention of each primary metric should use a natural inline `funba` link to the metric page
@@ -157,7 +188,7 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
    - The goal is that data-heavy claims in the article have visible nearby source paths, not only a link dump at the end
    - Because raw markdown links add many hidden URL characters, do not mistake raw storage length for visible正文 length
 
-7. Image placeholders
+9. Image placeholders
    - Add placeholders when rankings, leaderboards, charts, or game visuals clearly improve the story
    - Placeholder format:
      `[[IMAGE: type=<kind>; target=<funba url>; note=<what to capture>]]`
@@ -168,7 +199,7 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
      - game page / boxscore snapshot
      - metric detail chart/table
 
-8. Footer ad
+10. Footer ad
    - End with a short `funba` promo block
    - It should sound natural, not spammy
    - Mention that `funba.app` can查:

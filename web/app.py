@@ -2557,6 +2557,39 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     return result
 
 
+def _build_game_metrics_payload(
+    session,
+    game_id: str,
+    game_season: str | None,
+) -> dict:
+    """Return the shared payload used by both game pages and content data API."""
+    game_metrics = _get_metric_results(session, "game", game_id, game_season)
+    triggered = _get_game_triggered_entity_metrics(session, game_id, game_season)
+    return {
+        "game_id": game_id,
+        "game_metrics": game_metrics,
+        "triggered_player_metrics": triggered.get("player", []),
+        "triggered_team_metrics": triggered.get("team", []),
+    }
+
+
+def _load_game_metrics_payload(game_id: str) -> dict:
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            return {
+                "game_id": game_id,
+                "game_metrics": {"season": [], "season_extra": []},
+                "triggered_player_metrics": [],
+                "triggered_team_metrics": [],
+            }
+        return _build_game_metrics_payload(
+            session,
+            game.game_id,
+            game.season,
+        )
+
+
 def _prepare_game_metric_cards(
     season_metrics: list[dict],
     visible_limit: int = 4,
@@ -5430,6 +5463,7 @@ _detail_views = register_detail_routes(
     get_player_status=lambda: _player_status,
     get_fmt_minutes=lambda: _fmt_minutes,
     get_localized_url_for=lambda: _localized_url_for,
+    get_build_game_metrics_payload=lambda: _build_game_metrics_payload,
     get_metric_results=lambda: _get_metric_results,
     get_game_triggered_entity_metrics=lambda: _get_game_triggered_entity_metrics,
     get_season_start_year_label=lambda: _season_start_year_label,
@@ -6170,6 +6204,7 @@ _admin_misc_views = register_admin_misc_routes(
         time_module=lambda: time,
         box_score_source_label=lambda: _box_score_source_label,
         season_label=lambda: _season_label,
+        build_game_metrics_payload=lambda: _load_game_metrics_payload,
         logger=lambda: logger,
         page_view_model=lambda: PageView,
         user_model=lambda: User,

@@ -52,6 +52,7 @@ If the same story has been split across multiple posts only because of platform 
 For each issue:
 
 1. Read the issue description and comments.
+   - specifically look for the analyst's `Story Signals` note when reviewing game-analysis posts
 2. Read `agents/content-analyst/AGENTS.md` to refresh the analyst-side conventions.
 3. Inspect the post's enabled delivery platforms, then read the corresponding platform writing playbook(s) from `agents/social-media/`.
 4. Fetch the linked Funba post detail:
@@ -149,11 +150,14 @@ You must check at least these categories:
    - double-double wording
    - streak counts, rankings, totals, percentages
    - opponent / game context
+   - whether the draft ignored a clearly stronger `P1` signal from the game's triggered metrics without a good reason
+   - whether a season / playoff ranking was incorrectly rewritten as a `今天` / `本场` game fact
 
 2. Title quality
    - avoid repetitive high-frequency metric hooks
    - avoid overclaiming
    - avoid boring template titles when the body has a stronger angle
+   - enforce the destination platform's title constraints from the relevant playbook before sending a post to human review
 
 3. Link discipline
    - if the body mentions a metric or page, it should appear in the ending metric/page list
@@ -177,6 +181,19 @@ You must check at least these categories:
 6. Platform fit
    - if one variant is trying to serve incompatible platforms, split it or send it back for revision instead of compromising the copy
 
+7. Signal prioritization
+   - a current-season / current-playoff `#1` or tied `#1` should be treated as a `P1` candidate, not automatically as the title
+   - if the analyst chose not to headline a `P1` signal, check whether that judgment is defensible:
+     - weak basketball meaning
+     - redundant with a stronger angle
+     - low fan relevance despite the rank
+   - if a weaker `P2` / `P3` hook displaced a stronger `P1` without a good reason, rewrite or send back for revision
+   - if an image or metric page is flagged as mismatched with a `P1` paragraph, do not only disable the image — also fix or remove the paragraph it was supposed to support
+   - repeated leaderboard facts need a freshness check:
+     - only enforce first-hit / moved-up logic when that evidence is actually available from the issue, note, or APIs
+     - if freshness is unknown, the reviewer should not require movement language and should remove unsupported movement language if present
+     - if the draft is reusing a stale repeat signal as the main hook and the reviewer can see that it is stale from available context, push it down or send it back
+
 ## Validation Gate
 
 Funba now performs a backend validation check when a post moves from `ai_review` to `in_review`.
@@ -187,6 +204,7 @@ This validator currently catches some obvious contradictions such as:
 - made/attempt/pct mismatches
 - `准三双` used when the visible stat line is already a real triple-double
 - `三双` used when the visible stat line does not support it
+- platform-specific delivery constraint violations surfaced by the backend validator
 
 Treat validator failures as actionable review feedback, not as a handoff to humans.
 

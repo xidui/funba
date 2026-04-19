@@ -328,6 +328,7 @@ def register_detail_routes(
     get_player_status: Callable[[], Callable[[Any], str]],
     get_fmt_minutes: Callable[[], Callable[[int | None, int | None], str]],
     get_localized_url_for: Callable[[], Callable[..., str]],
+    get_build_game_metrics_payload: Callable[[], Callable[[Any, str, str | None], dict]],
     get_metric_results: Callable[[], Callable[[Any, str, str, str | None], dict]],
     get_game_triggered_entity_metrics: Callable[[], Callable[[Any, str, str | None], dict]],
     get_season_start_year_label: Callable[[], Callable[[int | None], str]],
@@ -1616,13 +1617,12 @@ def register_detail_routes(
             game = session.query(Game).filter(Game.slug == slug).first()
             if game is None:
                 abort(404)
-            game_metrics = get_metric_results()(session, "game", game.game_id, game.season)
-            triggered = get_game_triggered_entity_metrics()(session, game.game_id, game.season)
+            payload = get_build_game_metrics_payload()(session, game.game_id, game.season)
         return get_render_template()(
             "_game_metrics.html",
-            game_metrics=game_metrics,
-            triggered_player_metrics=triggered.get("player", []),
-            triggered_team_metrics=triggered.get("team", []),
+            game_metrics=payload["game_metrics"],
+            triggered_player_metrics=payload["triggered_player_metrics"],
+            triggered_team_metrics=payload["triggered_team_metrics"],
         )
 
     def api_game_period_stats(game_id: str):

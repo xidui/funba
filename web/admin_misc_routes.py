@@ -78,9 +78,8 @@ def register_admin_misc_routes(app, deps):
         denied = deps.require_admin_json()()
         if denied:
             return denied
-        from tasks.topics import get_game_metrics
-
-        return jsonify({"game_id": game_id, "metrics": get_game_metrics(game_id)})
+        payload = deps.build_game_metrics_payload()(game_id)
+        return jsonify(payload)
 
     def api_data_metric_top(metric_key: str):
         denied = deps.require_admin_json()()

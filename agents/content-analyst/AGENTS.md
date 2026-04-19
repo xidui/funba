@@ -68,13 +68,22 @@ For `Game content analysis` issues:
 1. Read `AGENTS.md` and `API.md` in the Funba repo.
 2. Use Funba localhost APIs to gather context:
    - `/api/data/games?date=...`
-   - `/api/data/games/{id}/metrics`
+   - `/api/data/games/{id}/metrics` as the primary shared payload for both page-equivalent game metrics and triggered player/team metrics
+     - read `game_metrics` for game-scope metric rows such as `top_scorer`
+     - read `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
    - `/api/data/games/{id}/boxscore`
    - `/api/data/games/{id}/pbp?period=4` when story detail matters
    - `/api/data/metrics/{key}/top?...` whenever rankings, season context, or historical framing matter
    - when linking game/player/team pages in copy, use canonical URLs returned by Funba data/admin APIs (or their `/cn/...` localized equivalents); never hand-compose `/games/<game_id>`, `/players/<player_id>`, or `/teams/<team_id>` links
-3. Stay scoped to that single game. Pick the single strongest post angle from that game only. Avoid low-signal filler and do not spawn multiple `SocialPost` records for one game-analysis ticket.
-4. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
+3. Before drafting, produce a short `story_signals` triage from the game's triggered metrics and box score. Record it in the Paperclip issue comments / ticket notes so downstream agents can see it; do not put it into the final post payload.
+   - classify each candidate signal as `P1`, `P2`, or `P3`
+   - record the claim source for each signal:
+     - `game_facts` = box score / game page / play-by-play facts about this specific game
+     - `season_context` = triggered metric or metric-top ranking that explains season / playoff / historical meaning
+   - never blur those two source classes together in the note or in the draft
+   - keep the note concise and structured so the reviewer can reuse it quickly
+4. Stay scoped to that single game. Pick the single strongest post angle from that game only. Avoid low-signal filler and do not spawn multiple `SocialPost` records for one game-analysis ticket.
+5. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
    Default target set inside that one post:
    - one Hupu general variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`)
    - one Hupu winning-team-forum variant (destination from the 30-team Hupu vocabulary) when the story genuinely benefits from a team-fan voice
@@ -88,10 +97,91 @@ For `Game content analysis` issues:
    - if multiple platforms are involved, create separate platform-native variants instead of reusing one platform's copy for another platform
    - Reddit variants must be written in English; read the Reddit writing playbook for tone, subreddit vocabulary, and formatting rules
    - Reddit team-subreddit variants should use the exact subreddit names from the Reddit writing playbook's vocabulary list
-5. When calling `POST /api/content/posts` for output created from this ticket, include `analysis_issue_identifier` set to the current Paperclip issue identifier so Funba can link the created posts back to this game-analysis ticket.
-6. Leave each post in Funba with `status: "ai_review"` so the Content Reviewer agent can audit and polish it before human review.
-7. Add a close-out comment that includes created post IDs and the required close-out contract fields (`Summary:` and `PR:`).
-8. Mark the daily analysis issue `done`.
+6. When calling `POST /api/content/posts` for output created from this ticket, include `analysis_issue_identifier` set to the current Paperclip issue identifier so Funba can link the created posts back to this game-analysis ticket.
+7. Leave each post in Funba with `status: "ai_review"` so the Content Reviewer agent can audit and polish it before human review.
+8. Add a close-out comment that includes created post IDs and the required close-out contract fields (`Summary:` and `PR:`).
+9. Mark the daily analysis issue `done`.
+
+## Game Signal Triage Contract
+
+For game-analysis tickets, do not jump from raw APIs straight into prose.
+
+First triage the game's candidate signals:
+
+- `P1` = most important
+  - current-season / current-playoff `#1` or tied `#1` triggered metric with real story value
+  - a milestone / streak / leaderboard move that materially changes how this game should be read
+  - a season-context signal that clearly explains why this game mattered beyond the final score
+  - treatment rule:
+    - every `P1` signal must be explicitly handled
+    - either build the post around it, or consciously demote it and note in the issue comment / ticket note why it was not chosen as the main angle
+    - if used in copy, give it early real estate: title, opening, or a dedicated early paragraph
+
+- `P2` = still useful
+  - top-3 / top-5 / highly notable triggered metrics that support the main angle but do not need to be the headline
+  - strong supporting context, lineup-shape context, or a secondary leaderboard movement
+  - treatment rule:
+    - use when it sharpens the main story, not by default
+    - usually belongs in a supporting paragraph or in the related-metrics framing, not necessarily the title
+
+- `P3` = secondary
+  - routine threshold triggers
+  - weak or noisy leaderboard placements
+  - metrics that are technically true but add little interpretive value for this game
+  - treatment rule:
+    - omit unless they help explain a stronger `P1` / `P2` point
+    - never let a `P3` signal crowd out a better `P1`
+
+Judgment rule:
+
+- not every current-season `#1` deserves the title
+- evaluate each signal by:
+  - rarity
+  - basketball meaning
+  - fan relevance
+  - whether it changes the reading of the game instead of merely decorating it
+
+Freshness rule:
+
+- only claim freshness when you have explicit evidence from one of:
+  - the current issue description or ticket notes
+  - the available Funba API response fields
+  - clearly documented prior-post context you can actually inspect
+- if the current APIs only tell you the post-game rank and do not expose prior rank / first-hit / movement, treat freshness as `unknown`
+- when freshness is `unknown`:
+  - do not claim `升到第X` / `冲到第X` / `首次来到第X` / `追平第X`
+  - do not assume the signal is newly reached just because it is currently ranked highly
+  - you may still use the signal as season context, but write it as a current-state fact, not as a movement claim
+- freshness can still be high-confidence when the issue or APIs explicitly show:
+  - first hit
+  - newly tied a mark
+  - moved higher than before
+  - or this game created a clearly new interpretive layer that you can defend from available evidence
+
+Source-discipline rule:
+
+- use `game_facts` for any sentence framed as `今天` / `本场` / `这场` / `G1` / `首战`
+- use `season_context` for any sentence framed as `本赛季` / `本届季后赛` / `排名` / `榜首` / `并列第一`
+- when a signal matters, prefer a two-step construction:
+  - sentence 1 = the concrete game fact
+  - sentence 2 = why that fact sits unusually high in the season / playoff / historical context
+- never rewrite a season-record metric into a fake current-game stat line
+
+Recommended note format:
+
+```md
+## Story Signals
+
+- P1: `most_team_threes_made` — Cavaliers 16 3PM this game (`game_facts`), tied #1 in 2025-26 playoffs (`season_context`). Use early.
+- P2: `best_single_game_plus_minus` — Dean Wade +20 this game (`game_facts`), best mark in current playoff sample (`season_context`). Support only.
+- P3: `routine threshold trigger` — technically true but low interpretive value for this matchup. Omit.
+
+Freshness:
+- `first_hit`: yes / no / unknown
+- `moved_up`: yes / no / unknown
+- `repeat_only`: yes / no / unknown
+- `why_now`: one short sentence
+```
 
 ## Metric Analysis Workflow
 

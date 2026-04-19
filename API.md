@@ -117,30 +117,25 @@ Get play-by-play for a specific period (last 30 plays).
 
 ### GET /api/data/games/{game_id}/metrics
 
-Get all metrics triggered by a single game, ranked by noteworthiness. Unlike `/api/data/metrics/triggered` (which deduplicates across all games on a date), this returns every triggered metric for the specific game.
+Get the shared game-metrics payload used by both the game page and the content pipeline.
+
+The response includes:
+
+- `game_metrics`: game-scope metric rows for this exact game (same data family shown in the game page metrics section)
+- `triggered_player_metrics`: player season-aggregate metrics this game advanced
+- `triggered_team_metrics`: team season-aggregate metrics this game advanced
 
 **Response:**
 
 ```json
 {
   "game_id": "0022501066",
-  "metrics": [
-    {
-      "metric_key": "ot_winner_max_deficit",
-      "metric_name": "OT Winner Max Deficit",
-      "scope": "game",
-      "entity": "Tyrese Haliburton",
-      "entity_id": "1630169",
-      "entity_type": "player",
-      "value": 15.0,
-      "value_str": "15",
-      "rank": 1,
-      "total": 42,
-      "rank_pct": 0.024,
-      "notable": true,
-      "metric_url": "https://funba.app/metrics/ot_winner_max_deficit"
-    }
-  ]
+  "game_metrics": {
+    "season": [...],
+    "season_extra": [...]
+  },
+  "triggered_player_metrics": [...],
+  "triggered_team_metrics": [...]
 }
 ```
 
