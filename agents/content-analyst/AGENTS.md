@@ -69,6 +69,7 @@ For `Game content analysis` issues:
 2. Use Funba localhost APIs to gather context:
    - `/api/data/games?date=...`
    - `/api/data/games/{id}/metrics` as the primary shared payload for both page-equivalent game metrics and triggered player/team metrics
+     - read `story_candidates` first for the pre-ranked editorial shortlist
      - read `game_metrics` for game-scope metric rows such as `top_scorer`
      - read `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
    - `/api/data/games/{id}/boxscore`
@@ -76,6 +77,8 @@ For `Game content analysis` issues:
    - `/api/data/metrics/{key}/top?...` whenever rankings, season context, or historical framing matter
    - when linking game/player/team pages in copy, use canonical URLs returned by Funba data/admin APIs (or their `/cn/...` localized equivalents); never hand-compose `/games/<game_id>`, `/players/<player_id>`, or `/teams/<team_id>` links
 3. Before drafting, produce a short `story_signals` triage from the game's triggered metrics and box score. Record it in the Paperclip issue comments / ticket notes so downstream agents can see it; do not put it into the final post payload.
+   - start from `story_candidates.lead_candidates` and `story_candidates.support_candidates`
+   - use `suppressed_candidates` as a warning list: do not resurrect those metrics into the draft without a concrete reason
    - classify each candidate signal as `P1`, `P2`, or `P3`
    - record the claim source for each signal:
      - `game_facts` = box score / game page / play-by-play facts about this specific game

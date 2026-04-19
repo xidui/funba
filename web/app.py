@@ -2557,6 +2557,303 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     return result
 
 
+_STORY_METRIC_OVERRIDES: dict[str, dict[str, object]] = {
+    "top_scorer": {"role": "lead_ok", "cluster": "scoring_peak", "score_bonus": 30},
+    "highest_score_by_player_in_a_game": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 8},
+    "highest_monthly_points": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 6},
+    "first_ten_games_total_points": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 6},
+    "bench_high_score": {"role": "lead_ok", "cluster": "bench_scoring", "score_bonus": 16},
+    "most_team_threes_made": {"role": "lead_ok", "cluster": "team_shooting", "score_bonus": 18},
+    "team_threes_made_ranking": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 10},
+    "game_total_three_pointers": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 8},
+    "most_threes_made_in_a_loss": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 8},
+    "game_margin": {"role": "lead_ok", "cluster": "game_control", "score_bonus": 14},
+    "largest_margin_of_victory": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
+    "largest_in_game_lead": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
+    "largest_winning_team_lead": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
+    "dominant_run_window": {"role": "lead_ok", "cluster": "game_control", "score_bonus": 16},
+    "multi_20pt_game": {"role": "support_only", "cluster": "scoring_depth", "score_bonus": 8},
+    "games_started": {"role": "suppress", "cluster": "availability"},
+    "total_games_played_team": {"role": "suppress", "cluster": "availability"},
+    "longest_1plus_3pm_streak": {"role": "suppress", "cluster": "routine"},
+    "max_consecutive_double_digit_games": {"role": "suppress", "cluster": "routine"},
+    "ten_plus_point_games": {"role": "suppress", "cluster": "routine"},
+    "fifteen_plus_point_games": {"role": "suppress", "cluster": "routine"},
+    "twenty_plus_point_games": {"role": "suppress", "cluster": "routine"},
+    "zero_turnover_games": {"role": "suppress", "cluster": "routine"},
+    "five_plus_assist_games": {"role": "suppress", "cluster": "routine"},
+    "ten_plus_rebound_games": {"role": "suppress", "cluster": "routine"},
+}
+
+
+def _story_metric_override(metric_key: str) -> dict[str, object]:
+    return dict(_STORY_METRIC_OVERRIDES.get(metric_key, {}))
+
+
+def _story_metric_cluster(metric_key: str, source: str) -> str:
+    override = _story_metric_override(metric_key)
+    if override.get("cluster"):
+        return str(override["cluster"])
+    if metric_key.startswith("game_") or source == "game_metric":
+        return "game_shape"
+    if "three" in metric_key or "threes" in metric_key:
+        return "shooting"
+    if "assist" in metric_key or metric_key.endswith("_ast"):
+        return "playmaking"
+    if "block" in metric_key or metric_key.endswith("_blk") or "rebound" in metric_key or metric_key.endswith("_reb"):
+        return "interior"
+    if "score" in metric_key or "point" in metric_key or "scoring" in metric_key:
+        return "scoring"
+    return "general"
+
+
+def _story_metric_role(metric_key: str, source: str) -> str:
+    override = _story_metric_override(metric_key)
+    role = override.get("role")
+    if role:
+        return str(role)
+    if source == "game_metric":
+        return "lead_ok"
+    return "support_ok"
+
+
+def _story_metric_bonus(metric_key: str) -> int:
+    override = _story_metric_override(metric_key)
+    return int(override.get("score_bonus", 0) or 0)
+
+
+def _story_metric_int(value) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _story_metric_float(value) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _story_metric_ratio(rank, total) -> float | None:
+    rank_int = _story_metric_int(rank)
+    total_int = _story_metric_int(total)
+    if rank_int is None or total_int in (None, 0):
+        return None
+    return rank_int / total_int
+
+
+def _story_metric_suppression_reason(metric_key: str, source: str, value_num) -> str | None:
+    role = _story_metric_role(metric_key, source)
+    if role == "suppress":
+        return "routine_metric"
+    numeric_value = _story_metric_float(value_num)
+    if source != "game_metric" and numeric_value is not None and numeric_value <= 1:
+        if metric_key.endswith("_games") or metric_key.endswith("_streak"):
+            return "low_sample_routine"
+    return None
+
+
+def _story_metric_score(candidate: dict) -> int:
+    score = 0
+    source = candidate["source"]
+    if source == "game_metric":
+        score += 35
+    elif source == "triggered_team":
+        score += 26
+    else:
+        score += 20
+
+    if candidate["entity_type"] == "game":
+        score += 10
+    if candidate.get("is_hero"):
+        score += 50
+    elif candidate.get("is_featured"):
+        score += 15
+
+    season_ratio = candidate.get("season_ratio")
+    if season_ratio is not None:
+        if season_ratio <= 0.01:
+            score += 25
+        elif season_ratio <= 0.05:
+            score += 18
+        elif season_ratio <= 0.10:
+            score += 12
+        elif season_ratio <= 0.25:
+            score += 6
+        elif season_ratio <= 0.40:
+            score += 2
+
+    all_ratio = candidate.get("all_ratio")
+    if all_ratio is not None:
+        if all_ratio <= 0.01:
+            score += 20
+        elif all_ratio <= 0.05:
+            score += 14
+        elif all_ratio <= 0.10:
+            score += 10
+        elif all_ratio <= 0.25:
+            score += 4
+
+    if candidate["role"] == "support_only":
+        score -= 8
+
+    score += _story_metric_bonus(candidate["metric_key"])
+    return score
+
+
+def _story_candidate_from_game_metric(entry: dict) -> dict:
+    metric_key = str(entry.get("metric_key") or "")
+    season_rank = entry.get("rank")
+    season_total = entry.get("total")
+    all_rank = entry.get("all_games_rank")
+    all_total = entry.get("all_games_total")
+    candidate = {
+        "metric_key": metric_key,
+        "metric_name": entry.get("metric_name"),
+        "source": "game_metric",
+        "entity_type": "game",
+        "entity_id": entry.get("entity_id"),
+        "season": entry.get("season"),
+        "value_num": entry.get("value_num"),
+        "value_str": entry.get("value_str"),
+        "context_label": entry.get("context_label"),
+        "season_rank": _story_metric_int(season_rank),
+        "season_total": _story_metric_int(season_total),
+        "season_ratio": _story_metric_ratio(season_rank, season_total),
+        "all_rank": _story_metric_int(all_rank),
+        "all_total": _story_metric_int(all_total),
+        "all_ratio": _story_metric_ratio(all_rank, all_total),
+        "is_featured": bool(entry.get("is_featured")),
+        "is_hero": bool(entry.get("is_hero")),
+    }
+    candidate["cluster"] = _story_metric_cluster(metric_key, candidate["source"])
+    candidate["role"] = _story_metric_role(metric_key, candidate["source"])
+    candidate["suppression_reason"] = _story_metric_suppression_reason(metric_key, candidate["source"], candidate["value_num"])
+    candidate["story_score"] = _story_metric_score(candidate)
+    return candidate
+
+
+def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
+    metric_key = str(entry.get("metric_key") or "")
+    season_rank = entry.get("rank")
+    season_total = entry.get("total")
+    all_rank = entry.get("all_rank")
+    all_total = entry.get("all_total")
+    label = entry.get("player_name") if source == "triggered_player" else entry.get("team_abbr")
+    candidate = {
+        "metric_key": metric_key,
+        "metric_name": entry.get("metric_name"),
+        "source": source,
+        "entity_type": entry.get("entity_type"),
+        "entity_id": entry.get("entity_id"),
+        "season": entry.get("season"),
+        "entity_label": label,
+        "value_num": entry.get("value_num"),
+        "value_str": entry.get("value_str"),
+        "context_label": entry.get("context_label"),
+        "season_rank": _story_metric_int(season_rank),
+        "season_total": _story_metric_int(season_total),
+        "season_ratio": _story_metric_ratio(season_rank, season_total),
+        "all_rank": _story_metric_int(all_rank),
+        "all_total": _story_metric_int(all_total),
+        "all_ratio": _story_metric_ratio(all_rank, all_total),
+        "is_featured": bool(entry.get("is_featured")),
+        "is_hero": bool(entry.get("is_hero")),
+    }
+    candidate["cluster"] = _story_metric_cluster(metric_key, source)
+    candidate["role"] = _story_metric_role(metric_key, source)
+    candidate["suppression_reason"] = _story_metric_suppression_reason(metric_key, source, candidate["value_num"])
+    candidate["story_score"] = _story_metric_score(candidate)
+    return candidate
+
+
+def _build_story_candidates(
+    game_metrics: dict | None,
+    triggered_player_metrics: list[dict] | None,
+    triggered_team_metrics: list[dict] | None,
+) -> dict:
+    raw: list[dict] = []
+    gm = game_metrics or {}
+    for entry in (gm.get("season") or []) + (gm.get("season_extra") or []):
+        raw.append(_story_candidate_from_game_metric(entry))
+    for entry in triggered_player_metrics or []:
+        raw.append(_story_candidate_from_triggered(entry, "triggered_player"))
+    for entry in triggered_team_metrics or []:
+        raw.append(_story_candidate_from_triggered(entry, "triggered_team"))
+
+    deduped: list[dict] = []
+    seen_pairs: set[tuple[str, str | None]] = set()
+    suppressed: list[dict] = []
+    for candidate in raw:
+        pair = (candidate["metric_key"], candidate.get("entity_id"))
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        if candidate.get("suppression_reason"):
+            suppressed.append(candidate)
+            continue
+        deduped.append(candidate)
+
+    deduped.sort(
+        key=lambda c: (
+            -c["story_score"],
+            c.get("season_ratio") if c.get("season_ratio") is not None else 99,
+            c["metric_key"],
+            c.get("entity_id") or "",
+        )
+    )
+
+    lead_candidates: list[dict] = []
+    support_candidates: list[dict] = []
+    seen_lead_clusters: set[str] = set()
+    seen_support_pairs: set[tuple[str, str | None]] = set()
+
+    for candidate in deduped:
+        cluster = candidate["cluster"]
+        pair = (candidate["metric_key"], candidate.get("entity_id"))
+        if candidate["role"] == "support_only":
+            continue
+        if cluster in seen_lead_clusters:
+            suppressed.append({**candidate, "suppression_reason": "duplicate_cluster"})
+            continue
+        lead_candidates.append(candidate)
+        seen_lead_clusters.add(cluster)
+        seen_support_pairs.add(pair)
+        if len(lead_candidates) == 3:
+            break
+
+    for candidate in deduped:
+        pair = (candidate["metric_key"], candidate.get("entity_id"))
+        if pair in seen_support_pairs:
+            continue
+        if candidate["role"] == "suppress":
+            continue
+        support_candidates.append(candidate)
+        seen_support_pairs.add(pair)
+        if len(support_candidates) == 6:
+            break
+
+    suppressed.sort(
+        key=lambda c: (
+            c.get("suppression_reason") or "",
+            -int(c.get("story_score") or 0),
+            c["metric_key"],
+        )
+    )
+
+    return {
+        "lead_candidates": lead_candidates,
+        "support_candidates": support_candidates,
+        "suppressed_candidates": suppressed[:12],
+    }
+
+
 def _build_game_metrics_payload(
     session,
     game_id: str,
@@ -2565,11 +2862,17 @@ def _build_game_metrics_payload(
     """Return the shared payload used by both game pages and content data API."""
     game_metrics = _get_metric_results(session, "game", game_id, game_season)
     triggered = _get_game_triggered_entity_metrics(session, game_id, game_season)
+    story_candidates = _build_story_candidates(
+        game_metrics,
+        triggered.get("player", []),
+        triggered.get("team", []),
+    )
     return {
         "game_id": game_id,
         "game_metrics": game_metrics,
         "triggered_player_metrics": triggered.get("player", []),
         "triggered_team_metrics": triggered.get("team", []),
+        "story_candidates": story_candidates,
     }
 
 
@@ -2584,6 +2887,11 @@ def _load_game_metrics_payload(game_id: str) -> dict:
                 "game_metrics": {"season": [], "season_extra": []},
                 "triggered_player_metrics": [],
                 "triggered_team_metrics": [],
+                "story_candidates": {
+                    "lead_candidates": [],
+                    "support_candidates": [],
+                    "suppressed_candidates": [],
+                },
             }
         return _build_game_metrics_payload(
             session,

@@ -80,6 +80,7 @@ def _import_helper():
 
     from web.app import (
         _apply_game_metric_tiers,
+        _build_story_candidates,
         _game_metric_badge_text,
         _prepare_game_metric_cards,
         _season_type_prefix,
@@ -110,10 +111,10 @@ def _import_helper():
     else:
         sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
-    return _apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
+    return _apply_game_metric_tiers, _build_story_candidates, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
 
 
-_apply_game_metric_tiers, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix = _import_helper()
+_apply_game_metric_tiers, _build_story_candidates, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix = _import_helper()
 
 
 def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
@@ -338,6 +339,81 @@ class TestGameMetricCardSelection(unittest.TestCase):
 
         self.assertEqual(len(visible), 5)
         self.assertTrue(all(card["is_featured"] for card in visible))
+
+
+class TestStoryCandidates(unittest.TestCase):
+    def test_story_candidates_prefers_top_scorer_as_lead_and_season_record_as_support(self):
+        payload = _build_story_candidates(
+            {
+                "season": [
+                    {
+                        "metric_key": "top_scorer",
+                        "metric_name": "Top Scorer",
+                        "entity_id": "004:test",
+                        "value_num": 85.0,
+                        "value_str": "Player X scored 85 pts",
+                        "rank": 2,
+                        "total": 10,
+                        "all_games_rank": 2,
+                        "all_games_total": 50000,
+                        "is_featured": True,
+                        "is_hero": False,
+                        "context_label": None,
+                    }
+                ],
+                "season_extra": [],
+            },
+            [
+                {
+                    "metric_key": "highest_score_by_player_in_a_game",
+                    "metric_name": "Highest Score by Player in a Game",
+                    "entity_type": "player",
+                    "entity_id": "123",
+                    "season": "22025",
+                    "player_name": "Player X",
+                    "value_num": 85.0,
+                    "value_str": "85",
+                    "rank": 2,
+                    "total": 500,
+                    "all_rank": 120,
+                    "all_total": 10000,
+                    "is_featured": True,
+                    "is_hero": False,
+                    "context_label": "85 pts",
+                }
+            ],
+            [],
+        )
+        self.assertEqual(payload["lead_candidates"][0]["metric_key"], "top_scorer")
+        self.assertEqual(payload["support_candidates"][0]["metric_key"], "highest_score_by_player_in_a_game")
+
+    def test_story_candidates_suppresses_routine_metrics(self):
+        payload = _build_story_candidates(
+            {"season": [], "season_extra": []},
+            [
+                {
+                    "metric_key": "games_started",
+                    "metric_name": "Games Started",
+                    "entity_type": "player",
+                    "entity_id": "123",
+                    "season": "22025",
+                    "player_name": "Player X",
+                    "value_num": 1.0,
+                    "value_str": "1",
+                    "rank": 1,
+                    "total": 50,
+                    "all_rank": 500,
+                    "all_total": 10000,
+                    "is_featured": True,
+                    "is_hero": False,
+                    "context_label": None,
+                }
+            ],
+            [],
+        )
+        self.assertEqual(payload["lead_candidates"], [])
+        self.assertEqual(payload["support_candidates"], [])
+        self.assertEqual(payload["suppressed_candidates"][0]["metric_key"], "games_started")
         self.assertEqual(extra, [])
 
 

@@ -9,6 +9,7 @@ Season: {season_label}
 
 Required work:
 1. Read this game's boxscore, shared game-metrics payload (`/api/data/games/{id}/metrics`), and game detail from Funba localhost APIs.
+   - use `story_candidates` as the first-pass editorial shortlist
    - use `game_metrics` for page-equivalent game-scope metrics
    - use `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
 2. Before drafting, triage the game's candidate signals into `P1` / `P2` / `P3` using the contract in `agents/content-analyst/AGENTS.md`.

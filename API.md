@@ -124,6 +124,7 @@ The response includes:
 - `game_metrics`: game-scope metric rows for this exact game (same data family shown in the game page metrics section)
 - `triggered_player_metrics`: player season-aggregate metrics this game advanced
 - `triggered_team_metrics`: team season-aggregate metrics this game advanced
+- `story_candidates`: pre-ranked editorial candidate pool derived from the three metric buckets above
 
 **Response:**
 
@@ -135,7 +136,12 @@ The response includes:
     "season_extra": [...]
   },
   "triggered_player_metrics": [...],
-  "triggered_team_metrics": [...]
+  "triggered_team_metrics": [...],
+  "story_candidates": {
+    "lead_candidates": [...],
+    "support_candidates": [...],
+    "suppressed_candidates": [...]
+  }
 }
 ```
 

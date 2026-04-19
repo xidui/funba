@@ -34,6 +34,11 @@ def _make_misc_app():
                 "game_metrics": {"season": [], "season_extra": []},
                 "triggered_player_metrics": [],
                 "triggered_team_metrics": [],
+                "story_candidates": {
+                    "lead_candidates": [],
+                    "support_candidates": [],
+                    "suppressed_candidates": [],
+                },
             }),
         ),
     )
@@ -52,3 +57,8 @@ def test_api_data_game_metrics_returns_shared_payload():
     assert payload["game_metrics"] == {"season": [], "season_extra": []}
     assert payload["triggered_player_metrics"] == []
     assert payload["triggered_team_metrics"] == []
+    assert payload["story_candidates"] == {
+        "lead_candidates": [],
+        "support_candidates": [],
+        "suppressed_candidates": [],
+    }
