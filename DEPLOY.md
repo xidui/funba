@@ -170,6 +170,8 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 | `GOOGLE_CLIENT_ID` | OAuth login |
 | `GOOGLE_CLIENT_SECRET` | OAuth login |
 | `FUNBA_CURL_ALLOWED_IPS` | Comma/space-separated IPs or CIDRs allowed to use `curl/` through Cloudflare |
+| `FUNBA_GAME_METRICS_CACHE_REDIS_URL` | Optional Redis URL for cached single-game highlight payloads; defaults to `CELERY_BROKER_URL` |
+| `FUNBA_GAME_METRICS_CACHE_TTL_SECONDS` | Optional TTL for cached single-game highlight payloads; defaults to 7 days |
 | `OPENAI_API_KEY` | Metric code generation |
 | `STRIPE_SECRET_KEY` | Subscription billing |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe frontend |

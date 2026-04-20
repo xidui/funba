@@ -398,6 +398,8 @@ def register_public_routes(
     get_t: Callable[[str, str | None], str],
     get_pct_fmt: Callable[[Any], str],
     get_attach_window_ranks: Callable[[], Callable] | None = None,
+    get_cached_game_metrics_payload: Callable[[str], dict | None] | None = None,
+    get_load_game_metrics_payload: Callable[[str], dict] | None = None,
 ):
     def _build_today_games(team_lookup: dict) -> list[dict]:
         """Build today's games with fixed stats for the home page."""
@@ -1304,6 +1306,93 @@ def register_public_routes(
     _NOTABLE_MAX_CARDS = 60
     _NOTABLE_QUOTAS = {"game": 30, "player": 21, "team": 9}
     _notable_refresh_lock = threading.Lock()
+    _recent_highlight_warm_lock = threading.Lock()
+
+    def _highlight_metric_ratio(card: dict) -> float:
+        for rank_key, total_key in (
+            ("all_games_rank", "all_games_total"),
+            ("all_rank", "all_total"),
+            ("rank", "total"),
+            ("last3_rank", "last3_total"),
+            ("last5_rank", "last5_total"),
+        ):
+            rank = card.get(rank_key)
+            total = card.get(total_key)
+            if rank is not None and total:
+                try:
+                    return int(rank) / int(total)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    continue
+        value = card.get("best_ratio") or card.get("ratio")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 1.0
+
+    def _game_metadata_for_highlight(game, team_lookup: dict) -> dict:
+        home_team = team_lookup.get(game.home_team_id)
+        road_team = team_lookup.get(game.road_team_id)
+        return {
+            "game_id": game.game_id,
+            "game_slug": game.slug,
+            "game_date": game.game_date,
+            "game_season": game.season,
+            "home_team_id": game.home_team_id,
+            "road_team_id": game.road_team_id,
+            "home_abbr": home_team.abbr if home_team else (game.home_team_id or ""),
+            "road_abbr": road_team.abbr if road_team else (game.road_team_id or ""),
+            "home_score": game.home_team_score,
+            "road_score": game.road_team_score,
+            "winner_id": str(game.wining_team_id) if getattr(game, "wining_team_id", None) else None,
+        }
+
+    def _home_highlight_cards_from_payload(game, payload: dict, team_lookup: dict, game_idx: int) -> list[dict]:
+        metadata = _game_metadata_for_highlight(game, team_lookup)
+        cards: list[dict] = []
+        game_metrics = ((payload or {}).get("game_metrics") or {}).get("season") or []
+        for metric in game_metrics:
+            card = dict(metric)
+            card.update(metadata)
+            card["subject_kind"] = "game"
+            card["ratio"] = _highlight_metric_ratio(card)
+            card["_sort"] = (game_idx, card["ratio"], int(card.get("best_rank") or card.get("rank") or 9999))
+            cards.append(card)
+
+        for metric in ((payload or {}).get("triggered_player_metrics") or [])[:1]:
+            card = dict(metric)
+            card.update(metadata)
+            card["subject_kind"] = "player"
+            card["ratio"] = _highlight_metric_ratio(card)
+            card["_sort"] = (game_idx, card["ratio"], int(card.get("rank") or 9999))
+            cards.append(card)
+
+        for metric in ((payload or {}).get("triggered_team_metrics") or [])[:1]:
+            card = dict(metric)
+            card.update(metadata)
+            card["subject_kind"] = "team"
+            card["ratio"] = _highlight_metric_ratio(card)
+            card["_sort"] = (game_idx, card["ratio"], int(card.get("rank") or 9999))
+            cards.append(card)
+
+        return cards
+
+    def _warm_recent_game_highlights_async(game_ids: list[str]) -> None:
+        if not game_ids or get_load_game_metrics_payload is None:
+            return
+        if not _recent_highlight_warm_lock.acquire(blocking=False):
+            return
+
+        def _run():
+            try:
+                for gid in game_ids:
+                    try:
+                        get_load_game_metrics_payload(gid)
+                    except Exception:
+                        continue
+            finally:
+                _recent_highlight_warm_lock.release()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _notable_compute_signature(session):
         """Cheap query: latest season, top 7 dates, season-year pattern."""
@@ -1351,41 +1440,46 @@ def register_public_routes(
         threading.Thread(target=_run, daemon=True).start()
 
     def _build_recent_notable_metrics(team_lookup: dict) -> dict:
-        """Stale-while-revalidate wrapper around the rank computation.
-
-        Callers get instant responses after the first warm-up: a hot cache
-        returns directly, a stale-but-matching cache returns immediately
-        and queues a background refresh, and only a completely cold cache
-        blocks on the ~4s window query.
-        """
-        import time
-
         SessionLocal = get_session_local()
         Game = get_game_model()
+        with SessionLocal() as session:
+            games = (
+                session.query(Game)
+                .filter(Game.home_team_score.isnot(None), Game.game_date.isnot(None))
+                .order_by(Game.game_date.desc(), Game.game_id.desc())
+                .limit(15)
+                .all()
+            )
+        cards: list[dict] = []
+        missing_game_ids: list[str] = []
+        sync_miss_budget = 1
+        for idx, game in enumerate(games):
+            payload = get_cached_game_metrics_payload(game.game_id) if get_cached_game_metrics_payload else None
+            if payload is None and not cards and sync_miss_budget and get_load_game_metrics_payload is not None:
+                try:
+                    payload = get_load_game_metrics_payload(game.game_id)
+                    sync_miss_budget -= 1
+                except Exception:
+                    payload = None
+            elif payload is None:
+                missing_game_ids.append(game.game_id)
+            if payload is None:
+                continue
+            cards.extend(_home_highlight_cards_from_payload(game, payload, team_lookup, idx))
 
-        try:
-            with SessionLocal() as session:
-                signature, _dates, _pattern = _notable_compute_signature(session)
-        except Exception:
-            signature = None
+        if missing_game_ids:
+            _warm_recent_game_highlights_async(missing_game_ids)
 
-        now = time.monotonic()
-        cached = _notable_cache
-        cached_payload = cached.get("payload") or {}
-        cached_has_payload = isinstance(cached_payload.get("cards"), list)
-
-        if signature is not None and cached.get("signature") == signature and cached_has_payload:
-            age = now - cached.get("ts", 0.0)
-            if age < _NOTABLE_TTL_SECONDS:
-                return cached_payload
-            if age < _NOTABLE_STALE_SECONDS:
-                _notable_refresh_async(team_lookup)
-                return cached_payload
-
-        # Cold / mismatched / too stale: keep the page responsive and refresh
-        # in the background. The home page can render without this section.
-        _notable_refresh_async(team_lookup)
-        return cached_payload if cached_has_payload else {"cards": [], "game_dates": []}
+        cards.sort(key=lambda c: c.get("_sort", (9999, 1.0, 9999)))
+        for card in cards:
+            card.pop("_sort", None)
+        dates = []
+        seen_dates = set()
+        for game in games:
+            if game.game_date and game.game_date not in seen_dates:
+                dates.append(game.game_date)
+                seen_dates.add(game.game_date)
+        return {"cards": cards[:_NOTABLE_MAX_CARDS], "game_dates": dates}
 
     def _compute_recent_notable_metrics(team_lookup: dict, *, store: bool) -> dict:
         """The expensive path: fetches games, ranks metrics, builds cards."""

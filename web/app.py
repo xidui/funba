@@ -124,6 +124,11 @@ _PBP_EVENT_TYPE_LABELS = {
     18: "Replay",
 }
 _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF = "metric_deep_dive_brief"
+_GAME_METRICS_CACHE_VERSION = "v2"
+_GAME_METRICS_CACHE_TTL_SECONDS = int(os.getenv("FUNBA_GAME_METRICS_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
+_GAME_METRICS_CACHE_REDIS_URL = os.getenv("FUNBA_GAME_METRICS_CACHE_REDIS_URL") or os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+_game_metrics_cache_client = None
+_game_metrics_cache_unavailable_until = 0.0
 
 
 def _make_draft_key(user_id: str, key: str) -> str:
@@ -2559,7 +2564,8 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     trigger_keys = {(r.metric_key, r.entity_type, r.entity_id, r.season) for r in runs}
     metric_keys = {k[0] for k in trigger_keys}
 
-    disabled = _disabled_metric_keys(session) if not is_admin() else set()
+    _is_admin_request = has_request_context() and is_admin()
+    disabled = _disabled_metric_keys(session) if not _is_admin_request else set()
     if disabled:
         metric_keys = metric_keys - disabled
         trigger_keys = {k for k in trigger_keys if k[0] in metric_keys}
@@ -3024,6 +3030,102 @@ def _build_story_candidates(
     }
 
 
+def _game_metrics_cache_key(game_id: str) -> str:
+    return f"funba:game-highlights:{_GAME_METRICS_CACHE_VERSION}:{game_id}"
+
+
+def _game_metrics_cache_json_default(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _game_metrics_payload_to_cache_json(payload: dict) -> str:
+    return json.dumps(
+        payload,
+        default=_game_metrics_cache_json_default,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _game_metrics_payload_from_cache_json(raw: str | bytes | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if not isinstance(payload.get("game_metrics"), dict):
+        return None
+    return payload
+
+
+def _game_metrics_cache_client_or_none():
+    global _game_metrics_cache_client, _game_metrics_cache_unavailable_until
+    now = time.monotonic()
+    if _game_metrics_cache_unavailable_until and now < _game_metrics_cache_unavailable_until:
+        return None
+    if _game_metrics_cache_client is not None:
+        return _game_metrics_cache_client
+    try:
+        import redis as _redis
+
+        _game_metrics_cache_client = _redis.Redis.from_url(
+            _GAME_METRICS_CACHE_REDIS_URL,
+            socket_timeout=1,
+            socket_connect_timeout=1,
+        )
+        return _game_metrics_cache_client
+    except Exception:
+        _game_metrics_cache_unavailable_until = now + 30
+        logger.exception("game metrics Redis cache unavailable")
+        return None
+
+
+def _cached_game_metrics_payload(game_id: str) -> dict | None:
+    global _game_metrics_cache_client, _game_metrics_cache_unavailable_until
+    client = _game_metrics_cache_client_or_none()
+    if client is None:
+        return None
+    try:
+        return _game_metrics_payload_from_cache_json(client.get(_game_metrics_cache_key(game_id)))
+    except Exception:
+        _game_metrics_cache_client = None
+        _game_metrics_cache_unavailable_until = time.monotonic() + 30
+        logger.exception("game metrics Redis cache read failed for %s", game_id)
+        return None
+
+
+def _write_game_metrics_payload_cache(game_id: str, payload: dict) -> None:
+    global _game_metrics_cache_client, _game_metrics_cache_unavailable_until
+    client = _game_metrics_cache_client_or_none()
+    if client is None:
+        return
+    try:
+        client.setex(
+            _game_metrics_cache_key(game_id),
+            _GAME_METRICS_CACHE_TTL_SECONDS,
+            _game_metrics_payload_to_cache_json(payload),
+        )
+    except Exception:
+        _game_metrics_cache_client = None
+        _game_metrics_cache_unavailable_until = time.monotonic() + 30
+        logger.exception("game metrics Redis cache write failed for %s", game_id)
+
+
+def _delete_game_metrics_payload_cache(game_id: str) -> None:
+    client = _game_metrics_cache_client_or_none()
+    if client is None:
+        return
+    try:
+        client.delete(_game_metrics_cache_key(game_id))
+    except Exception:
+        logger.exception("game metrics Redis cache delete failed for %s", game_id)
+
+
 def _get_game_metrics_payload(session, game_id: str, game_season: str | None) -> dict:
     """Return the compact game-metrics payload used by game page + content API.
 
@@ -3034,7 +3136,8 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
         return {"season": [], "season_extra": []}
 
     _asc_keys = _asc_metric_keys(session)
-    _disabled_keys = _disabled_metric_keys(session) if not is_admin() else set()
+    _is_admin_request = has_request_context() and is_admin()
+    _disabled_keys = _disabled_metric_keys(session) if not _is_admin_request else set()
 
     entity_rows = (
         session.query(
@@ -3132,6 +3235,22 @@ def _build_game_metrics_payload(
     }
 
 
+def _build_game_metrics_payload_cached(
+    session,
+    game_id: str,
+    game_season: str | None,
+    *,
+    force_refresh: bool = False,
+) -> dict:
+    if not force_refresh:
+        cached = _cached_game_metrics_payload(game_id)
+        if cached is not None:
+            return cached
+    payload = _build_game_metrics_payload(session, game_id, game_season)
+    _write_game_metrics_payload_cache(game_id, payload)
+    return payload
+
+
 def _load_game_metrics_payload(game_id: str) -> dict:
     with SessionLocal() as session:
         game = session.query(Game).filter(Game.game_id == game_id).first()
@@ -3149,7 +3268,7 @@ def _load_game_metrics_payload(game_id: str) -> dict:
                     "suppressed_candidates": [],
                 },
             }
-        return _build_game_metrics_payload(
+        return _build_game_metrics_payload_cached(
             session,
             game.game_id,
             game.season,
@@ -6035,6 +6154,8 @@ _public_views = register_public_routes(
     get_t=lambda: _t,
     get_pct_fmt=lambda: pct_fmt,
     get_attach_window_ranks=lambda: _attach_window_ranks,
+    get_cached_game_metrics_payload=_cached_game_metrics_payload,
+    get_load_game_metrics_payload=_load_game_metrics_payload,
 )
 home = _public_views.home
 news_page = _public_views.news_page
@@ -6081,7 +6202,7 @@ _detail_views = register_detail_routes(
     get_player_status=lambda: _player_status,
     get_fmt_minutes=lambda: _fmt_minutes,
     get_localized_url_for=lambda: _localized_url_for,
-    get_build_game_metrics_payload=lambda: _build_game_metrics_payload,
+    get_build_game_metrics_payload=lambda: _build_game_metrics_payload_cached,
     get_metric_results=lambda: _get_metric_results,
     get_game_triggered_entity_metrics=lambda: _get_game_triggered_entity_metrics,
     get_season_start_year_label=lambda: _season_start_year_label,

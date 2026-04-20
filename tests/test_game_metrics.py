@@ -10,6 +10,7 @@ Covers:
       hidden when no metrics
 """
 from pathlib import Path
+from datetime import datetime
 import sys
 import types
 import unittest
@@ -82,6 +83,8 @@ def _import_helper():
         _apply_game_metric_tiers,
         _build_story_candidates,
         _game_metric_badge_text,
+        _game_metrics_payload_from_cache_json,
+        _game_metrics_payload_to_cache_json,
         _prepare_game_metric_cards,
         _season_type_prefix,
     )
@@ -111,10 +114,26 @@ def _import_helper():
     else:
         sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
-    return _apply_game_metric_tiers, _build_story_candidates, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix
+    return (
+        _apply_game_metric_tiers,
+        _build_story_candidates,
+        _game_metric_badge_text,
+        _game_metrics_payload_from_cache_json,
+        _game_metrics_payload_to_cache_json,
+        _prepare_game_metric_cards,
+        _season_type_prefix,
+    )
 
 
-_apply_game_metric_tiers, _build_story_candidates, _game_metric_badge_text, _prepare_game_metric_cards, _season_type_prefix = _import_helper()
+(
+    _apply_game_metric_tiers,
+    _build_story_candidates,
+    _game_metric_badge_text,
+    _game_metrics_payload_from_cache_json,
+    _game_metrics_payload_to_cache_json,
+    _prepare_game_metric_cards,
+    _season_type_prefix,
+) = _import_helper()
 
 
 def _make_entry(metric_key, rank, total, ag_rank=None, ag_total=None):
@@ -234,7 +253,7 @@ class TestSortOrder(unittest.TestCase):
 
 
 class TestTemplateHeroRendering(unittest.TestCase):
-    """(d) _game_metrics.html partial renders hero CSS class and ★ prefix correctly."""
+    """(d) _game_metrics.html partial renders hero CSS class and star prefix correctly."""
 
     @classmethod
     def setUpClass(cls):
@@ -257,11 +276,11 @@ class TestTemplateHeroRendering(unittest.TestCase):
         tmpl = self.env.get_template("_game_metrics.html")
         return tmpl.render(game_metrics={"season": metrics, "season_extra": []})
 
-    def test_hero_entry_gets_gmc_hero_class(self):
+    def test_hero_entry_gets_tem_hero_class(self):
         hero = _make_entry("top_scorer", rank=1, total=100, ag_rank=1, ag_total=100)
         hero["is_hero"] = True
         html = self._render_section([hero])
-        self.assertIn("gmc-hero", html)
+        self.assertIn('class="tem-card tem-card-game tem-hero"', html)
 
     def test_hero_entry_gets_star_prefix(self):
         hero = _make_entry("top_scorer", rank=1, total=100, ag_rank=1, ag_total=100)
@@ -269,11 +288,12 @@ class TestTemplateHeroRendering(unittest.TestCase):
         html = self._render_section([hero])
         self.assertIn("★", html)
 
-    def test_non_hero_entry_no_gmc_hero_class(self):
+    def test_non_hero_entry_no_tem_hero_class(self):
         normal = _make_entry("lead_changes", rank=50, total=100, ag_rank=50, ag_total=100)
         normal["is_hero"] = False
         html = self._render_section([normal])
-        self.assertNotIn("gmc-hero", html)
+        self.assertIn('class="tem-card tem-card-game"', html)
+        self.assertNotIn('class="tem-card tem-card-game tem-hero"', html)
         self.assertNotIn("★", html)
 
     def test_hero_card_links_to_metric_detail(self):
@@ -414,7 +434,35 @@ class TestStoryCandidates(unittest.TestCase):
         self.assertEqual(payload["lead_candidates"], [])
         self.assertEqual(payload["support_candidates"], [])
         self.assertEqual(payload["suppressed_candidates"][0]["metric_key"], "games_started")
-        self.assertEqual(extra, [])
+
+
+class TestGameMetricsCacheJson(unittest.TestCase):
+    def test_cache_json_round_trips_payload_and_serializes_datetimes(self):
+        payload = {
+            "game_id": "0022501066",
+            "game_metrics": {
+                "season": [
+                    {
+                        "metric_key": "top_scorer",
+                        "computed_at": datetime(2026, 4, 20, 12, 30, 0),
+                    }
+                ],
+                "season_extra": [],
+            },
+            "triggered_player_metrics": [],
+            "triggered_team_metrics": [],
+            "story_candidates": {"lead_candidates": [], "support_candidates": [], "suppressed_candidates": []},
+        }
+
+        encoded = _game_metrics_payload_to_cache_json(payload)
+        decoded = _game_metrics_payload_from_cache_json(encoded)
+
+        self.assertEqual(decoded["game_id"], "0022501066")
+        self.assertEqual(decoded["game_metrics"]["season"][0]["computed_at"], "2026-04-20T12:30:00")
+
+    def test_cache_json_rejects_invalid_payloads(self):
+        self.assertIsNone(_game_metrics_payload_from_cache_json("not json"))
+        self.assertIsNone(_game_metrics_payload_from_cache_json('{"game_id":"x"}'))
 
 
 if __name__ == "__main__":
