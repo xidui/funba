@@ -112,7 +112,9 @@
     flex: 1 1 0;
     min-width: 0;
   }
-
+  .detail-header > .season-select {
+    flex-shrink: 0;
+  }
 
   .detail-back {
     display: inline-flex;
@@ -671,27 +673,20 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #60a5fa), var(--accent));
   }
 
-  .season-chips-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 20px;
+  .season-select {
+    padding: 6px 30px 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center;
+    appearance: none;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
   }
-  .season-chips-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .season-chips-type-label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
-    margin-right: 2px;
-    white-space: nowrap;
-  }
+  .season-select:hover, .season-select:focus { border-color: var(--accent); }
 
   /* Rankings table */
   .rankings-table-wrap { overflow-x: auto; margin-top: 20px; }
@@ -1309,34 +1304,37 @@
     </div>
     {% endif %}
   </div>
-</div>
 
-{% if season_groups %}
-<div class="season-chips-bar">
-  {% if not is_career_metric %}
-  {% for group in season_groups %}
-  <div class="season-chips-row">
-    <span class="season-chips-type-label">{{ group.type_name_plural }}</span>
-    <a class="metric-switch-link compact{% if show_all_seasons and all_season_type == group.type_code %} active{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}">{{ t('All', '全部') }}</a>
-    {% for s in group.seasons %}
-    <a class="metric-switch-link compact{% if not show_all_seasons and s == selected_season %} active{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">{{ fmt_season_short(s) }}</a>
+  {% if season_groups and not is_career_metric %}
+  <select class="season-select" onchange="location.href=this.value">
+    {% for group in season_groups %}
+    <optgroup label="{{ group.type_name }}">
+      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}"
+              {% if show_all_seasons and all_season_type == group.type_code %}selected{% endif %}>
+        {{ t('All', '全部') }} {{ group.type_name_plural }}
+      </option>
+      {% for s in group.seasons %}
+      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
+              {% if not show_all_seasons and s == selected_season %}selected{% endif %}>
+        {{ fmt_season(s) }}
+      </option>
+      {% endfor %}
+    </optgroup>
     {% endfor %}
-  </div>
-  {% endfor %}
-  {% else %}
-  <div class="season-chips-row">
+  </select>
+  {% elif season_groups and is_career_metric %}
+  <select class="season-select" onchange="location.href=this.value">
     {% for group in season_groups %}
     {% for s in group.seasons %}
-    <a class="metric-switch-link compact{% if s.value == selected_season %} active{% endif %}"
-       href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}">{{ s.label }}</a>
+    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}"
+            {% if s.value == selected_season %}selected{% endif %}>
+      {{ s.label }}
+    </option>
     {% endfor %}
     {% endfor %}
-  </div>
+  </select>
   {% endif %}
 </div>
-{% endif %}
 
 {# ── Simple progress view (all users) ── #}
 <div
