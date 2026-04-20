@@ -697,30 +697,54 @@
   .season-dropdown-btn.open svg { transform: rotate(180deg); }
   .season-dropdown-panel {
     display: none;
+    flex-direction: column;
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
-    min-width: 200px;
+    min-width: 220px;
     max-height: min(60vh, 480px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
     background: var(--surface);
     border: 1px solid var(--border-2);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     z-index: 200;
-    padding: 6px 0;
+    overflow: hidden;
   }
-  .season-dropdown-panel.open { display: block; }
-  .season-dropdown-group-label {
-    padding: 8px 14px 4px;
-    font-size: 10px;
+  .season-dropdown-panel.open { display: flex; }
+  .season-dropdown-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 4px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+    flex-shrink: 0;
+  }
+  .season-dropdown-tab {
+    flex: 1 1 0;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.1s, color 0.1s;
+    white-space: nowrap;
   }
-  .season-dropdown-group + .season-dropdown-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+  .season-dropdown-tab:hover { color: var(--text); }
+  .season-dropdown-tab.active {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+  .season-dropdown-body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 6px 0;
+  }
   .season-dropdown-option {
     display: block;
     padding: 7px 14px;
@@ -1358,35 +1382,46 @@
       {{ season_label }}
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
+    {% set active_type = all_season_type if show_all_seasons else (selected_season[0] if selected_season and selected_season|length == 5 else season_groups[0].type_code) %}
     <div class="season-dropdown-panel" id="season-dropdown-panel">
-      {% if not is_career_metric %}
-      {% for group in season_groups %}
-      <div class="season-dropdown-group">
-        <div class="season-dropdown-group-label">{{ group.type_name_plural }}</div>
-        <a class="season-dropdown-option{% if show_all_seasons and all_season_type == group.type_code %} active{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}">
-          {{ t('All', '全部') }} {{ group.type_name_plural }}
-        </a>
-        {% for s in group.seasons %}
-        <a class="season-dropdown-option{% if not show_all_seasons and s == selected_season %} active{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
-          {{ fmt_season_short(s) }}
-        </a>
-        {% endfor %}
-      </div>
-      {% endfor %}
-      {% else %}
-      <div class="season-dropdown-group">
+      {% if not is_career_metric and season_groups|length > 1 %}
+      <div class="season-dropdown-tabs">
         {% for group in season_groups %}
-        {% for s in group.seasons %}
-        <a class="season-dropdown-option{% if s.value == selected_season %} active{% endif %}"
-           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}">
-          {{ s.label }}
-        </a>
-        {% endfor %}
+        <button type="button" class="season-dropdown-tab{% if group.type_code == active_type %} active{% endif %}"
+                data-type="{{ group.type_code }}" onclick="selectSeasonTab(this)">{{ group.type_name }}</button>
         {% endfor %}
       </div>
       {% endif %}
+      <div class="season-dropdown-body">
+        {% if not is_career_metric %}
+        {% for group in season_groups %}
+        <div class="season-dropdown-group" data-type="{{ group.type_code }}"
+             {% if group.type_code != active_type %}style="display:none"{% endif %}>
+          <a class="season-dropdown-option{% if show_all_seasons and all_season_type == group.type_code %} active{% endif %}"
+             href="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}">
+            {{ t('All', '全部') }} {{ group.type_name_plural }}
+          </a>
+          {% for s in group.seasons %}
+          <a class="season-dropdown-option{% if not show_all_seasons and s == selected_season %} active{% endif %}"
+             href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
+            {{ fmt_season_short(s) }}
+          </a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="season-dropdown-group">
+          {% for group in season_groups %}
+          {% for s in group.seasons %}
+          <a class="season-dropdown-option{% if s.value == selected_season %} active{% endif %}"
+             href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}">
+            {{ s.label }}
+          </a>
+          {% endfor %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
   {% endif %}
@@ -2195,6 +2230,17 @@ function toggleSeasonDropdown() {
   const panel = document.getElementById('season-dropdown-panel');
   const open = panel.classList.toggle('open');
   btn.classList.toggle('open', open);
+}
+function selectSeasonTab(btn) {
+  const type = btn.dataset.type;
+  const panel = document.getElementById('season-dropdown-panel');
+  panel.querySelectorAll('.season-dropdown-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.type === type);
+  });
+  panel.querySelectorAll('.season-dropdown-group').forEach(g => {
+    g.style.display = g.dataset.type === type ? '' : 'none';
+  });
+  panel.querySelector('.season-dropdown-body').scrollTop = 0;
 }
 document.addEventListener('click', function(e) {
   const dd = document.getElementById('season-dropdown');
