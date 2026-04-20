@@ -35,12 +35,35 @@ Self-check before submitting any draft (initial or revised): read the entire pos
 
 Each story candidate now ships with four ranking windows: `season_rank` / `last3_rank` / `last5_rank` / `all_rank` (with matching `*_total` and `*_ratio` fields). Picking the right window is part of writing well — the wrong choice produces statements that sound impressive but mean nothing.
 
-Selection rules:
+Window-selection priority depends on the mode of the metric (the season prefix tells you which: `4*` = playoffs, `5*` = play-in, `2*` = regular season).
 
-- **Small-sample season is not scarcity.** When `season_total` is small (e.g. ≤ 30 — typical of early playoffs where only a handful of games have been played), do not present `season_rank` as evidence of difficulty or rarity. "本届第一" / "leads this playoff" out of an 8-row pool is a tautology, not an achievement. Use the season number as a current-state fact only, never as a rank-based hook.
-- **`last3_rank` and `last5_rank` are equal-priority baselines.** Both have large enough samples to be meaningful and recent enough to be era-comparable. Pick whichever reads more naturally for the sentence; if one window's pool is materially larger or the rank is materially better in one of them, you may cite both side-by-side.
-- **`all_rank` is for true historical claims only.** Use it when the rank itself is the story (e.g. top 1% of all-history) or when both `last3_total` and `last5_total` are unusually thin (< 100). Be wary that pace, rule, and era inflation make cross-decade comparisons misleading for many metrics.
+### Playoff mode (`season` prefix = `4`) and play-in mode (`5`)
+
+Per-season playoff samples are inherently small — a team plays at most 16–26 playoff games in a year. Even a fully-played playoff yields a rank-vs-the-current-sample number that says little about the player's or team's actual standing. Multi-season windows are the better baseline.
+
+Priority order (highest to lowest):
+
+1. **`last5_rank`** — the strongest baseline. ~80–130 team-games or several thousand player-games of recent same-mode comparison.
+2. **`last3_rank`** — close second. Use when the recency tightens the story (e.g. "since last finals") or when last5_total is unusually thin.
+3. **`all_rank`** — career / all-history. Use when the rank itself is the story (true top-1% of all-history) and accept the era / pace / rule-change caveat for cross-decade comparisons.
+4. **`season_rank`** — lowest priority **even when `season_total` looks large**. Treat the season number as a current-state fact ("they sit at X this playoff"), not as a rank-based hook. "本届季后赛第一" / "leads this playoff" almost never carries enough information to lead with, regardless of how many games are in the pool.
+
+### Regular-season mode (`season` prefix = `2`)
+
+Regular-season pools are large (1,200+ league-games per year, hundreds of player-game samples per metric), so `season_rank` becomes a meaningful baseline once the season is ≥ a few months in.
+
+Priority order (highest to lowest):
+
+1. **`season_rank`** — when `season_total` is large enough to be informative (rule of thumb: ≥ 100 rows in the pool).
+2. **`last5_rank`** / **`last3_rank`** — equal-priority recency baselines, useful for "career year" / "career low" framing or for comparing against the player/team's own recent track record.
+3. **`all_rank`** — for true historical hooks only.
+
+When `season_total` is small (≤ 30 — typical of the first weeks of a regular season), demote `season_rank` the same way you would in playoff mode and lean on `last5_rank` / `last3_rank`.
+
+### General rules (both modes)
+
 - **Don't list every window.** Pick 1, occasionally 2, ranks per metric mention. A paragraph that recites all four windows for the same metric reads like a leaderboard dump, not analysis.
+- **Cite the pool size when the rank is the hook.** "近 5 季 432 场季后赛里第 8 位" carries more weight than a bare "近 5 季第 8 位" — the reader can judge the rarity for themselves.
 
 ## Chinese-Language Conventions
 
