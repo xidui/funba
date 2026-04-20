@@ -203,6 +203,12 @@ def run_curator_for_game(session, game, *, model: str | None = None) -> dict:
     game.highlights_curated_at = datetime.now(timezone.utc)
     game.highlights_curated_model = curated.get("model")
     session.commit()
+    try:
+        from web.app import _delete_game_metrics_payload_cache
+
+        _delete_game_metrics_payload_cache(game.game_id)
+    except Exception:
+        logger.exception("failed to invalidate game metrics cache for %s", game.game_id)
     return curated
 
 

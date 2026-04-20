@@ -18,6 +18,8 @@
   .tem-card-game.tem-hero { border-left-color: var(--accent); }
   .tem-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .tem-name { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 13px; color: var(--heading, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tem-card-game.has-narrative .tem-name { white-space: normal; line-height: 1.35; }
+  .tem-card-game.has-narrative { align-items: flex-start; }
   .tem-metric { font-size: 11px; color: var(--muted-2, #9aa3b2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tem-value { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; color: var(--heading, #fff); flex-shrink: 0; }
   .tem-badges { display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
@@ -34,7 +36,7 @@
   {% macro game_card(m, extra=False) %}
     {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
     {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
-    <a class="tem-card tem-card-game{% if m.is_hero %} tem-hero{% endif %}"
+    <a class="tem-card tem-card-game{% if m.is_hero %} tem-hero{% endif %}{% if m.narrative %} has-narrative{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
        {% if extra %}data-extra-game-metric style="display:none;"{% endif %}>
       <div class="tem-body">
