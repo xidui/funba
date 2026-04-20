@@ -38,11 +38,16 @@
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
        {% if extra %}data-extra-game-metric style="display:none;"{% endif %}>
       <div class="tem-body">
-        <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
-        {% if m.context_label %}
-          <div class="tem-metric">{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
-        {% elif not val_short %}
-          <div class="tem-metric">{{ val_raw }}</div>
+        {% if m.narrative %}
+          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.narrative }}</div>
+          <div class="tem-metric">{{ m.metric_name }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
+        {% else %}
+          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
+          {% if m.context_label %}
+            <div class="tem-metric">{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
+          {% elif not val_short %}
+            <div class="tem-metric">{{ val_raw }}</div>
+          {% endif %}
         {% endif %}
         {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
         <div class="tem-badges">

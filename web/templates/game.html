@@ -2074,9 +2074,30 @@
         <div class="tab-bar">
           <button id="game-analysis-trigger-btn" class="tab-btn game-admin-action trigger" type="button">Check Existing</button>
           <button id="game-analysis-force-btn" class="tab-btn game-admin-action force" type="button">Force New</button>
+          <button id="game-curate-highlights-btn" class="tab-btn game-admin-action trigger" type="button" data-game-id="{{ game.game_id }}">Curate Highlights</button>
         </div>
       </div>
     </div>
+    <script>
+    (function(){
+      var btn = document.getElementById('game-curate-highlights-btn');
+      if (!btn) return;
+      btn.addEventListener('click', function(){
+        if (btn.disabled) return;
+        btn.disabled = true;
+        var label = btn.textContent;
+        btn.textContent = 'Curating…';
+        fetch('/api/admin/games/' + btn.dataset.gameId + '/curate-highlights', {method:'POST', headers:{'Content-Type':'application/json'}})
+          .then(function(r){ return r.json().then(function(j){ return {ok: r.ok, body: j}; }); })
+          .then(function(resp){
+            if (!resp.ok) { alert('Curate failed: ' + (resp.body.error || resp.body.detail || 'unknown')); btn.disabled = false; btn.textContent = label; return; }
+            btn.textContent = 'Done ✓ — reloading';
+            setTimeout(function(){ location.reload(); }, 400);
+          })
+          .catch(function(e){ alert('Curate error: ' + e); btn.disabled = false; btn.textContent = label; });
+      });
+    })();
+    </script>
 
     <div id="game-analysis-issue-list" class="game-admin-history"{% if not game_analysis_issues %} hidden{% endif %}>
       {% for issue in game_analysis_issues %}

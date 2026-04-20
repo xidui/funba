@@ -3127,16 +3127,14 @@ def _delete_game_metrics_payload_cache(game_id: str) -> None:
         logger.exception("game metrics Redis cache delete failed for %s", game_id)
 
 
-def _get_game_metrics_payload(session, game_id: str, game_season: str | None) -> dict:
-    """Return the compact game-metrics payload used by game page + content API.
+def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | None) -> list[dict]:
+    """Raw game-scope metric rows with ranks attached, no tiering applied.
 
-    This avoids the much heavier generic metric-detail path, which computes
-    career/window/split structures the game page never renders.
+    Shared by the page renderer and the LLM highlight curator.
     """
     if not game_season:
-        return {"season": [], "season_extra": []}
+        return []
 
-    _asc_keys = _asc_metric_keys(session)
     _is_admin_request = has_request_context() and is_admin()
     _disabled_keys = _disabled_metric_keys(session) if not _is_admin_request else set()
 
@@ -3163,7 +3161,7 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
         .all()
     )
     if not entity_rows:
-        return {"season": [], "season_extra": []}
+        return []
 
     rank_map = _attach_window_ranks(
         session,
@@ -3208,10 +3206,105 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
             "computed_at": r.computed_at,
             "rank_group": r.rank_group,
         })
+    return season_metrics
+
+
+def _get_game_metrics_payload(session, game_id: str, game_season: str | None) -> dict:
+    """Return the compact game-metrics payload used by game page + content API.
+
+    If the Game has a curated highlights JSON (from the LLM curator), prefer
+    those (with frozen value/rank snapshots). Otherwise fall back to the
+    rule-based ranking of the raw metric rows.
+    """
+    season_metrics = _build_game_raw_metric_candidates(session, game_id, game_season)
+    if not season_metrics:
+        return {"season": [], "season_extra": []}
+
+    game = session.query(Game).filter(Game.game_id == game_id).first()
+    if game is not None and game.highlights_curated_json:
+        try:
+            curated = json.loads(game.highlights_curated_json)
+        except Exception:
+            curated = None
+        if isinstance(curated, dict):
+            cards = _curated_highlights_to_cards(curated, season_metrics)
+            if cards:
+                return {"season": cards, "season_extra": []}
 
     _apply_game_metric_tiers(season_metrics)
     visible, extra = _prepare_game_metric_cards(season_metrics)
     return {"season": visible, "season_extra": extra}
+
+
+def _curated_highlights_to_cards(curated: dict, raw_candidates: list[dict]) -> list[dict]:
+    """Build render-ready card dicts from a frozen curator JSON payload.
+
+    Matches each curated entry (metric_key + entity_id) back to the raw row
+    for fallback fields (metric_name, url), but prefers the frozen snapshot
+    values/ranks so older games don't get rewritten by newer record breakers.
+    """
+    by_key: dict[tuple[str, str | None], dict] = {
+        (e["metric_key"], e.get("entity_id")): e for e in raw_candidates
+    }
+
+    def _badge(rank, total, label):
+        if rank is None or not total:
+            return None
+        if rank / total <= 0.25:
+            return f"#{rank} {label}"
+        return None
+
+    def _make(entry: dict, *, is_hero: bool) -> dict | None:
+        key = entry.get("metric_key")
+        entity_id = entry.get("entity_id")
+        raw = by_key.get((key, entity_id))
+        if raw is None:
+            return None
+        snap = entry.get("rank_snapshot") or {}
+        season_rank = snap.get("season")
+        season_total = snap.get("season_total")
+        all_rank = snap.get("alltime")
+        all_total = snap.get("alltime_total")
+        last3_rank = snap.get("last3")
+        last3_total = snap.get("last3_total")
+        last5_rank = snap.get("last5")
+        last5_total = snap.get("last5_total")
+        card = dict(raw)
+        card["entity_id"] = entity_id
+        card["value_num"] = entry.get("value_snapshot", raw.get("value_num"))
+        card["value_str"] = entry.get("value_str_snapshot") or raw.get("value_str")
+        card["context_label"] = entry.get("narrative") or entry.get("context_label_snapshot") or raw.get("context_label")
+        card["narrative"] = entry.get("narrative")
+        card["rank"] = season_rank if season_rank is not None else raw.get("rank")
+        card["total"] = season_total if season_total is not None else raw.get("total")
+        card["all_games_rank"] = all_rank if all_rank is not None else raw.get("all_games_rank")
+        card["all_games_total"] = all_total if all_total is not None else raw.get("all_games_total")
+        card["last3_rank"] = last3_rank if last3_rank is not None else raw.get("last3_rank")
+        card["last3_total"] = last3_total if last3_total is not None else raw.get("last3_total")
+        card["last5_rank"] = last5_rank if last5_rank is not None else raw.get("last5_rank")
+        card["last5_total"] = last5_total if last5_total is not None else raw.get("last5_total")
+        card["is_hero"] = is_hero
+        card["is_featured"] = True
+        card["is_notable"] = not is_hero
+        card["is_curated"] = True
+        card["best_ratio"] = _game_metric_best_ratio(card)
+        card["best_rank"] = _game_metric_best_rank(card)
+        card["season_badge_text"] = _badge(card["rank"], card["total"], "Season")
+        card["all_badge_text"] = _badge(card["all_games_rank"], card["all_games_total"], "All")
+        card["last3_badge_text"] = _badge(card["last3_rank"], card["last3_total"], "Last3")
+        card["last5_badge_text"] = _badge(card["last5_rank"], card["last5_total"], "Last5")
+        return card
+
+    cards: list[dict] = []
+    for entry in curated.get("hero", []) or []:
+        card = _make(entry, is_hero=True)
+        if card is not None:
+            cards.append(card)
+    for entry in curated.get("notable", []) or []:
+        card = _make(entry, is_hero=False)
+        if card is not None:
+            cards.append(card)
+    return cards
 
 
 def _build_game_metrics_payload(
@@ -7056,6 +7149,28 @@ api_admin_update_runtime_flags = _admin_misc_views.api_admin_update_runtime_flag
 admin_backfill = _admin_misc_views.admin_backfill
 game_shotchart_backfill = _admin_misc_views.game_shotchart_backfill
 game_shotchart_backfill_api = _admin_misc_views.game_shotchart_backfill_api
+
+
+@app.route("/api/admin/games/<game_id>/curate-highlights", methods=["POST"])
+def admin_curate_game_highlights(game_id: str):
+    denied = _require_admin_json()
+    if denied:
+        return denied
+    from metrics.highlights.curator import run_curator_for_game
+
+    with SessionLocal() as session:
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        if game is None:
+            game = session.query(Game).filter(Game.slug == game_id).first()
+        if game is None:
+            return jsonify({"error": "game_not_found"}), 404
+        try:
+            curated = run_curator_for_game(session, game)
+        except Exception as exc:
+            app.logger.exception("curator failed for game=%s", game.game_id)
+            return jsonify({"error": "curator_failed", "detail": str(exc)}), 500
+        _delete_game_metrics_payload_cache(game.game_id)
+        return jsonify({"ok": True, "curated": curated})
 
 
 if __name__ == "__main__":

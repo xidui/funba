@@ -156,6 +156,9 @@ class Game(Base):
     backfill_mismatch = Column(Boolean, nullable=False, default=False)
     backfill_mismatch_note = Column(Text)
     backfill_mismatch_updated_at = Column(DateTime)
+    highlights_curated_json = Column(Text, nullable=True)
+    highlights_curated_at = Column(DateTime, nullable=True)
+    highlights_curated_model = Column(String(64), nullable=True)
 
 
 class GameContentAnalysisIssue(Base):
