@@ -6148,6 +6148,7 @@ _admin_proxy_views = register_admin_proxy_routes(
         monitor_url=_admin_monitor_proxy_url,
         tickets_url=_admin_tickets_proxy_url,
         timeout_seconds=_admin_proxy_timeout_seconds,
+        limiter=lambda: limiter,
     ),
 )
 admin_monitor = _admin_proxy_views.admin_monitor

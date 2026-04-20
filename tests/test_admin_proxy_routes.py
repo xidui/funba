@@ -30,6 +30,31 @@ def _make_app(*, denied=None, monitor_url="http://127.0.0.1:19999", tickets_url=
     return app
 
 
+def test_admin_proxy_exempts_registered_views_from_limiter():
+    class FakeLimiter:
+        def __init__(self):
+            self.exempted = []
+
+        def exempt(self, view_func):
+            self.exempted.append(view_func.__name__)
+            return view_func
+
+    limiter = FakeLimiter()
+    app = Flask(__name__)
+    register_admin_proxy_routes(
+        app,
+        SimpleNamespace(
+            require_admin_page=lambda: (lambda: None),
+            monitor_url=lambda: "http://127.0.0.1:19999",
+            tickets_url=lambda: "https://paperclip.test/FUN/issues",
+            timeout_seconds=lambda: 3,
+            limiter=lambda: limiter,
+        ),
+    )
+
+    assert limiter.exempted == ["admin_monitor", "admin_tickets"]
+
+
 def test_admin_proxy_blocks_non_admin_before_upstream_request():
     app = _make_app(denied=Response("blocked", status=403))
 

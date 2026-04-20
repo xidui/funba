@@ -270,6 +270,7 @@ def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, tim
 
 def register_admin_proxy_routes(app, deps: SimpleNamespace):
     timeout_seconds = float(getattr(deps, "timeout_seconds", lambda: 30.0)())
+    limiter = getattr(deps, "limiter", lambda: None)()
 
     def admin_monitor(path: str = ""):
         denied = deps.require_admin_page()()
@@ -283,12 +284,16 @@ def register_admin_proxy_routes(app, deps: SimpleNamespace):
             return denied
         return _proxy_target(deps.tickets_url(), "/admin/tickets", path, timeout_seconds, root_mount=True)
 
-    app.add_url_rule("/admin/monitor", endpoint="admin_monitor", view_func=admin_monitor, defaults={"path": ""}, methods=_PROXY_METHODS)
-    app.add_url_rule("/admin/monitor/", endpoint="admin_monitor_slash", view_func=admin_monitor, defaults={"path": ""}, methods=_PROXY_METHODS)
-    app.add_url_rule("/admin/monitor/<path:path>", endpoint="admin_monitor_path", view_func=admin_monitor, methods=_PROXY_METHODS)
-    app.add_url_rule("/admin/tickets", endpoint="admin_tickets", view_func=admin_tickets, defaults={"path": ""}, methods=_PROXY_METHODS)
-    app.add_url_rule("/admin/tickets/", endpoint="admin_tickets_slash", view_func=admin_tickets, defaults={"path": ""}, methods=_PROXY_METHODS)
-    app.add_url_rule("/admin/tickets/<path:path>", endpoint="admin_tickets_path", view_func=admin_tickets, methods=_PROXY_METHODS)
+    exempt = getattr(limiter, "exempt", None)
+    admin_monitor_view = exempt(admin_monitor) if callable(exempt) else admin_monitor
+    admin_tickets_view = exempt(admin_tickets) if callable(exempt) else admin_tickets
+
+    app.add_url_rule("/admin/monitor", endpoint="admin_monitor", view_func=admin_monitor_view, defaults={"path": ""}, methods=_PROXY_METHODS)
+    app.add_url_rule("/admin/monitor/", endpoint="admin_monitor_slash", view_func=admin_monitor_view, defaults={"path": ""}, methods=_PROXY_METHODS)
+    app.add_url_rule("/admin/monitor/<path:path>", endpoint="admin_monitor_path", view_func=admin_monitor_view, methods=_PROXY_METHODS)
+    app.add_url_rule("/admin/tickets", endpoint="admin_tickets", view_func=admin_tickets_view, defaults={"path": ""}, methods=_PROXY_METHODS)
+    app.add_url_rule("/admin/tickets/", endpoint="admin_tickets_slash", view_func=admin_tickets_view, defaults={"path": ""}, methods=_PROXY_METHODS)
+    app.add_url_rule("/admin/tickets/<path:path>", endpoint="admin_tickets_path", view_func=admin_tickets_view, methods=_PROXY_METHODS)
 
     return SimpleNamespace(
         admin_monitor=admin_monitor,
