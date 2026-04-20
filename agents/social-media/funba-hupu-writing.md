@@ -254,6 +254,14 @@ High-frequency term anchors:
 - `back-to-back` -> `背靠背`
 - `clutch` in player/game context -> prefer natural Chinese phrasing such as `关键时刻`, `关键球`, `决胜时刻`
 
+Shooting and free-throw notation:
+
+- field goals / 3-pointers: always `<attempts>投<makes>中`. Examples: `90投45中`, `三分44投16中`, `三分23投4中`.
+- free throws: always `<attempts>罚<makes>中`. Examples: `17罚15中`, `6罚6中`.
+- do not use `<makes>中<attempts>` (e.g. `4中23`) — it is non-standard and ambiguous.
+- do not use `<attempts>中<makes>` (e.g. `23中4`, `44中16`) either — it omits the `投`/`罚` discriminator and reads inconsistently. Reviewers in earlier iterations flipped between the two reversed forms without solving the underlying ambiguity; lock to the `投/中` and `罚/中` forms instead.
+- Western fraction notation (`16/44`, `15/17`) is acceptable inline when natural, but the dominant form in Hupu prose should be `投/中` and `罚/中`.
+
 Self-check requirement:
 
 - after drafting, reread the post specifically for awkward wording
