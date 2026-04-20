@@ -8,22 +8,26 @@ Matchup: {matchup}
 Season: {season_label}
 
 Required work:
-1. Read this game's boxscore, shared game-metrics payload (`/api/data/games/{id}/metrics`), and game detail from Funba localhost APIs.
+1. Follow the Game Analysis Phase Protocol in `agents/content-analyst/AGENTS.md`. This ticket completes through Phase A / Phase B / Phase C cold-start invocations, not one long run.
+2. Phase A must read this game's boxscore, shared game-metrics payload (`/api/data/games/{id}/metrics`), and scoped same-date / duplicate-post context from Funba localhost APIs.
    - use `story_candidates` as the first-pass editorial shortlist
    - use `game_metrics` for page-equivalent game-scope metrics
    - use `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
-2. Before drafting, triage the game's candidate signals into `P1` / `P2` / `P3` using the contract in `agents/content-analyst/AGENTS.md`.
+   - write `agents/shared/artifacts/<ISSUE_ID>/phase_a_brief.json`
+   - request a fresh Paperclip self-wakeup for Phase B, then stop
+3. Before drafting, triage the game's candidate signals into `P1` / `P2` / `P3` using the contract in `agents/content-analyst/AGENTS.md`.
    - `P1`: most important, must be consciously handled
    - `P2`: useful support, use when it sharpens the main story
    - `P3`: secondary, omit unless it helps explain a stronger point
-   - post this triage into the issue comments / ticket notes so the reviewer and later agents can see it
-3. Create exactly 1 strong `SocialPost` for this single game only. Do not broaden into unrelated same-date games and do not split this game into multiple `SocialPost` records.
-4. Inside that single `SocialPost`, create variants for all platforms listed in the default target set in your role instructions (`agents/content-analyst/AGENTS.md`). Read the per-platform writing playbooks under `agents/social-media/` for tone, length, and formatting rules. Only create variants for currently enabled platforms: **{enabled_platforms}**. Skip any platform not in this list.
-5. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to this Paperclip issue's identifier so Funba can link the created posts back to this game-analysis ticket.
-6. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
-7. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.
-8. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.
-9. Do not publish to external platforms from this issue.
+   - include this triage in `phase_a_brief.json` and a concise Phase A handoff comment
+4. Phase B must prepare the image assets planned in `phase_a_brief.json`, write `agents/shared/artifacts/<ISSUE_ID>/asset_manifest.json`, request a fresh Paperclip self-wakeup for Phase C, then stop.
+5. Phase C must create exactly 1 strong `SocialPost` for this single game only. Do not broaden into unrelated same-date games and do not split this game into multiple `SocialPost` records.
+6. Inside that single `SocialPost`, create variants for all platforms listed in the default target set in your role instructions (`agents/content-analyst/AGENTS.md`). Read the per-platform writing playbooks under `agents/social-media/` for tone, length, and formatting rules only in Phase C. Only create variants for currently enabled platforms: **{enabled_platforms}**. Skip any platform not in this list.
+7. When calling `POST /api/content/posts`, include `analysis_issue_identifier` set to this Paperclip issue's identifier so Funba can link the created posts back to this game-analysis ticket.
+8. Avoid duplicate angles against existing posts for the same game via `GET /api/content/posts?date=YYYY-MM-DD`.
+9. End each post with 6-8 metric / page links. Every metric or page mentioned in the body should appear in that ending section.
+10. Leave the resulting posts in Funba in `ai_review` so the Content Reviewer agent can audit them before human review.
+11. Do not publish to external platforms from this issue.
 
 ## Topic Selection Rules
 

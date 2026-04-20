@@ -49,6 +49,12 @@ archive.zip
 funba.db
 
 # Agent run artifacts
+agents/shared/artifacts/
+# Legacy analyst-local artifacts; new shared phase artifacts use agents/shared/artifacts/.
+agents/content-analyst/artifacts/
+agents/content-analyst/assets/
+agents/content-analyst/context/
 agents/content-reviewer/*-review-pass.md
+agents/content-reviewer/context/
 agents/delivery-publisher/*.log
 agents/delivery-publisher/*.json

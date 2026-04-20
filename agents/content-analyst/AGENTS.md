@@ -5,9 +5,9 @@ Use repo-relative paths from the workspace root. Keep role-specific context unde
 When working on a project, read the project's `AGENTS.md` from the working directory for project-specific context. For Funba content work, also read:
 
 - `API.md` from the project root
-- `agents/social-media/README.md`, then the relevant platform writing playbook(s) for the destinations you are creating or revising
-- `skills/funba-capture/SKILL.md` before preparing Funba screenshots
-- `skills/funba-imagegen/SKILL.md` before preparing AI-generated supporting images
+- `agents/social-media/README.md`, then the relevant platform writing playbook(s) only when the active workflow phase is drafting or revising copy
+- `skills/funba-capture/SKILL.md` only before preparing Funba screenshots
+- `skills/funba-imagegen/SKILL.md` only before preparing AI-generated supporting images
 
 ## Role
 
@@ -48,8 +48,10 @@ You operate in different modes depending on the ticket type. Each mode has its o
 ### 赛后系列 (Game Analysis)
 Ticket pattern: `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
 - Read `content_pipeline/game_content_analysis_issue.md` for issue template rules
-- Read `agents/social-media/funba-*-writing.md` for platform writing playbooks
-- Read `skills/funba-capture/SKILL.md` and `skills/funba-imagegen/SKILL.md` for image tools
+- Follow the Phase Protocol below; it controls which documents can be loaded in each phase
+- In Phase A, read only destination vocabulary excerpts from platform playbooks when needed for `variant_plan`
+- In Phase B, read `skills/funba-capture/SKILL.md` and `skills/funba-imagegen/SKILL.md`
+- In Phase C, read `agents/social-media/funba-*-writing.md` for the platform writing playbooks needed by `variant_plan`
 
 ### 数据系列 (Metric Analysis)
 Ticket pattern: `Metric content analysis — funba — METRIC_KEY`
@@ -61,49 +63,302 @@ Ticket pattern: `Metric content analysis — funba — METRIC_KEY`
 Ticket pattern: `Funba content — YYYY-MM-DD — ...`
 - Read the linked post and review comments to understand what needs revision
 
+## Phase Protocol (Game Analysis)
+
+This protocol applies only to `Game content analysis` issues. Metric Analysis and Revision keep their existing workflows.
+
+Purpose: never carry a full game-analysis tool history from research through asset prep and final writing. Each Game Analysis invocation must complete exactly one phase, write the required artifact, request a fresh follow-up wake when another phase remains, then stop.
+
+### Cold-start Contract
+
+On every Game Analysis invocation:
+
+- Determine the active phase from artifacts under `agents/shared/artifacts/<ISSUE_ID>/`, not from old comments:
+  - missing `phase_a_brief.json` means run Phase A only
+  - existing `phase_a_brief.json` and missing `asset_manifest.json` means run Phase B only
+  - existing `asset_manifest.json` and missing `post_payload.json` means run Phase C only
+  - existing `post_payload.json` means stop; do not recreate or repost
+- Use the Paperclip issue identifier for `<ISSUE_ID>` when available, for example `FUN-185`. If only the task id is available, use `PAPERCLIP_TASK_ID`.
+- Read only the current issue description / wake payload, this file, and the artifacts required by the active phase.
+- Do not scroll the prior comment thread or replay previous phase tool output. Scrolling re-imports the context noise this protocol is designed to drop.
+- Do not re-execute a completed phase unless a human explicitly asks for a rerun. If rerunning, write a new artifact with a clear suffix and explain why in the issue comment.
+- If a required prior artifact is missing, malformed, or internally inconsistent, mark the issue `blocked` with the exact artifact problem and stop.
+
+### Phase Handoff
+
+After Phase A or Phase B, do all of the following and then stop immediately:
+
+1. Write the required artifact under `agents/shared/artifacts/<ISSUE_ID>/`.
+2. Post the phase handoff comment on the Paperclip issue.
+3. Request a fresh self-wakeup for the next phase using the Paperclip API.
+4. Do not begin the next phase in the same invocation.
+
+Use `X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID` on Paperclip issue comments or issue status updates. Do not mark the issue `done` in Phase A or Phase B.
+
+Handoff comment template:
+
+```md
+Phase <A|B> complete.
+Next phase: <B (Asset Prep)|C (Compose, Submit, Close-out)>
+Next owner: Content Analyst (self)
+Why this owner: the next phase continues the same Game Analysis workflow on the same ticket.
+Artifact: agents/shared/artifacts/<ISSUE_ID>/<artifact_file>.json
+Secondary artifacts: <none|agents/shared/artifacts/<ISSUE_ID>/phase_a_brief.json>
+Story Signals: <Phase A only: 3-5 concise P1/P2/P3 bullets; Phase B: omit>
+Cold-start instructions: read only the current issue description / wake payload and the artifacts listed above; do not scroll prior comments.
+```
+
+Fresh self-wakeup request:
+
+```bash
+# Use NEXT_PHASE="B" after Phase A and NEXT_PHASE="C" after Phase B.
+NEXT_PHASE="B"
+curl -sS -X POST "$PAPERCLIP_API_URL/api/agents/$PAPERCLIP_AGENT_ID/wakeup" \
+  -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "on_demand",
+    "triggerDetail": "manual",
+    "reason": "game_analysis_phase_handoff",
+    "payload": {
+      "issueId": "'"$PAPERCLIP_TASK_ID"'",
+      "workflow": "game_analysis",
+      "nextPhase": "'"$NEXT_PHASE"'"
+    },
+    "forceFreshSession": true
+  }'
+```
+
+If `PAPERCLIP_AGENT_ID`, `PAPERCLIP_API_URL`, `PAPERCLIP_API_KEY`, or `PAPERCLIP_TASK_ID` is missing, or if the wakeup request fails, post a blocked comment with the exact missing variable or HTTP error and stop. Do not continue into the next phase without a fresh wake.
+
+### Phase A: Research & Brief
+
+Goal: choose one angle and write down everything downstream phases need. Do not prepare assets and do not draft variants.
+
+Allowed reads:
+
+- issue description / wake payload
+- `AGENTS.md`, `API.md`, and `content_pipeline/game_content_analysis_issue.md`
+- `/api/data/games/{id}/metrics`, starting from `story_candidates`
+- `/api/data/games/{id}/boxscore`, extracting only score, team result, and top performers needed for the angle
+- `/api/data/games?date=...`, at most one call for same-day context
+- `/api/content/posts?date=YYYY-MM-DD`, at most one call to avoid duplicate same-game angles
+- `/api/data/metrics/{key}/top?...`, at most two metric keys and only when directly supporting the chosen angle
+- canonical game/player/team/metric URLs returned by Funba APIs
+- destination vocabulary sections only from the relevant platform writing playbooks; do not load full writing guidance until Phase C
+
+Forbidden in Phase A:
+
+- `funba_capture`
+- `funba_imagegen`
+- web image search
+- `/api/admin/content` writes
+- play-by-play queries unless the issue explicitly requires them
+- exploratory metric scanning beyond the cap above
+- final prose drafting
+
+Output: `agents/shared/artifacts/<ISSUE_ID>/phase_a_brief.json`
+
+Required shape:
+
+```json
+{
+  "phase": "A",
+  "game": {
+    "id": "...",
+    "date": "...",
+    "season": "...",
+    "matchup": "...",
+    "score": "...",
+    "winner": "...",
+    "loser": "..."
+  },
+  "story_signals": [
+    {
+      "priority": "P1",
+      "metric_key": "...",
+      "claim_source": ["game_facts", "season_context"],
+      "fact": "...",
+      "treatment": "headline|early_support|support|omit",
+      "reason": "..."
+    }
+  ],
+  "freshness": {
+    "first_hit": "yes|no|unknown",
+    "moved_up": "yes|no|unknown",
+    "repeat_only": "yes|no|unknown",
+    "why_now": "..."
+  },
+  "angle": {
+    "headline_in_chinese": "...",
+    "primary_metric_key": "...",
+    "why_this_angle": "...",
+    "supporting_facts": ["...", "..."],
+    "key_players": [{ "id": "...", "name": "...", "line": "..." }]
+  },
+  "duplicate_check": {
+    "query": "...",
+    "conflicting_post_ids": [],
+    "avoid_repetition_with": ["..."]
+  },
+  "asset_plan": {
+    "real_photos_needed": 3,
+    "real_photo_search_queries": ["...", "..."],
+    "screenshot_captures": [
+      { "panel": "game-boxscore", "args": { "game-id": "..." } },
+      { "panel": "game-metrics", "args": { "game-id": "..." } },
+      { "panel": "player-metrics", "args": { "player-id": "...", "scope": "season", "season": "..." } },
+      { "panel": "metric-page", "args": { "metric-key": "...", "season": "...", "top-n": 5 } }
+    ],
+    "ai_image_prompt": "..."
+  },
+  "variant_plan": {
+    "enabled_platforms": ["..."],
+    "variants": [
+      { "audience_hint": "...", "platform": "...", "destination": "...", "language": "zh|en" }
+    ]
+  },
+  "link_plan": [
+    { "label": "...", "url": "...", "source": "game|player|team|metric" }
+  ]
+}
+```
+
+### Phase B: Asset Prep
+
+Goal: execute the Phase A asset plan. Do not revisit the angle and do not draft text.
+
+Allowed reads:
+
+- issue description / wake payload
+- `phase_a_brief.json`
+- `skills/funba-capture/SKILL.md`
+- `skills/funba-imagegen/SKILL.md`
+- the Image Asset Rule in this file
+
+Allowed actions:
+
+- `python -m social_media.funba_capture <panel>` once per `asset_plan.screenshot_captures` entry
+- web image search for the real game/arena/action photos specified in `asset_plan.real_photo_search_queries`
+- `python -m social_media.funba_imagegen generate` once for the planned AI supporting image
+- file writes under `agents/shared/artifacts/<ISSUE_ID>/assets/`
+
+Forbidden in Phase B:
+
+- any `/api/data/*` queries
+- angle changes
+- variant drafting
+- `/api/admin/content` writes
+- reading prior phase tool output or old comments
+
+Output: `agents/shared/artifacts/<ISSUE_ID>/asset_manifest.json`
+
+Required shape:
+
+```json
+{
+  "phase": "B",
+  "brief_ref": "agents/shared/artifacts/<ISSUE_ID>/phase_a_brief.json",
+  "assets": [
+    {
+      "slot": "img1",
+      "file_path": "agents/shared/artifacts/<ISSUE_ID>/assets/real_01.jpg",
+      "type": "web_search",
+      "query": "...",
+      "verified_for_game": true,
+      "caption_or_source": "..."
+    },
+    {
+      "slot": "img4",
+      "file_path": "agents/shared/artifacts/<ISSUE_ID>/assets/game_boxscore.png",
+      "type": "screenshot",
+      "panel": "game-boxscore",
+      "captured_at": "..."
+    },
+    {
+      "slot": "img8",
+      "file_path": "agents/shared/artifacts/<ISSUE_ID>/assets/ai_support.png",
+      "type": "ai_generated",
+      "prompt": "...",
+      "reference_images": ["...", "..."]
+    }
+  ],
+  "meets_minimum_bar": {
+    "total": 8,
+    "real_photos": 3,
+    "screenshots": 4,
+    "ai_generated": 1,
+    "passes": true
+  }
+}
+```
+
+If the minimum image bar cannot be met, mark the issue `blocked` with the exact missing asset class and stop. Do not request Phase C.
+
+### Phase C: Compose, Submit, Close-out
+
+Goal: turn the Phase A brief and Phase B manifest into one `SocialPost`, verify it, and close the Game Analysis ticket.
+
+Allowed reads:
+
+- issue description / wake payload
+- `phase_a_brief.json`
+- `asset_manifest.json`
+- `API.md`
+- `agents/social-media/README.md`
+- platform writing playbooks needed by `variant_plan`
+
+Allowed actions:
+
+- compose variants in memory
+- write `agents/shared/artifacts/<ISSUE_ID>/post_payload.json`
+- `POST /api/content/posts` exactly once
+- `GET /api/admin/content/{post_id}` once for verification
+- final close-out comment
+- mark the issue `done`
+
+Forbidden in Phase C:
+
+- `funba_capture`
+- `funba_imagegen`
+- web image search
+- additional `/api/data/*` queries
+- reopening angle decisions
+- creating multiple `SocialPost` records for the same story angle
+
+Output:
+
+- existing `agents/shared/artifacts/<ISSUE_ID>/post_payload.json`
+- optional `agents/shared/artifacts/<ISSUE_ID>/post_result.json` with created `post_id` and verification result
+- close-out comment with created post IDs and the required `Summary:`, `PR:`, and `Deployment:` fields
+
 ## Game Analysis Workflow
 
 For `Game content analysis` issues:
 
-1. Read `AGENTS.md` and `API.md` in the Funba repo.
-2. Use Funba localhost APIs to gather context:
-   - `/api/data/games?date=...`
-   - `/api/data/games/{id}/metrics` as the primary shared payload for both page-equivalent game metrics and triggered player/team metrics
-     - read `story_candidates` first for the pre-ranked editorial shortlist
-     - read `game_metrics` for game-scope metric rows such as `top_scorer`
-     - read `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
-   - `/api/data/games/{id}/boxscore`
-   - `/api/data/games/{id}/pbp?period=4` when story detail matters
-   - `/api/data/metrics/{key}/top?...` whenever rankings, season context, or historical framing matter
-   - when linking game/player/team pages in copy, use canonical URLs returned by Funba data/admin APIs (or their `/cn/...` localized equivalents); never hand-compose `/games/<game_id>`, `/players/<player_id>`, or `/teams/<team_id>` links
-3. Before drafting, produce a short `story_signals` triage from the game's triggered metrics and box score. Record it in the Paperclip issue comments / ticket notes so downstream agents can see it; do not put it into the final post payload.
+1. Apply the Phase Protocol above. One invocation may run only Phase A, Phase B, or Phase C.
+2. Phase A performs scoped data gathering, signal triage, angle selection, duplicate-angle checking, asset planning, variant planning, and link planning.
+3. Phase A must produce `story_signals` before selecting the final angle:
    - start from `story_candidates.lead_candidates` and `story_candidates.support_candidates`
-   - use `suppressed_candidates` as a warning list: do not resurrect those metrics into the draft without a concrete reason
+   - use `suppressed_candidates` as a warning list; do not resurrect them without a concrete reason
    - classify each candidate signal as `P1`, `P2`, or `P3`
-   - record the claim source for each signal:
-     - `game_facts` = box score / game page / play-by-play facts about this specific game
-     - `season_context` = triggered metric or metric-top ranking that explains season / playoff / historical meaning
-   - never blur those two source classes together in the note or in the draft
-   - keep the note concise and structured so the reviewer can reuse it quickly
-4. Stay scoped to that single game. Pick the single strongest post angle from that game only. Avoid low-signal filler and do not spawn multiple `SocialPost` records for one game-analysis ticket.
-5. Create exactly one `SocialPost` for that game, then express platform/audience differences through variants inside that post instead of splitting the game into multiple posts.
-   Default target set inside that one post:
+   - record each claim source as `game_facts`, `season_context`, or both
+   - never blur those two source classes together
+4. Phase A must stay scoped to one game and pick the single strongest post angle from that game only. Avoid low-signal filler and do not plan multiple `SocialPost` records for one game-analysis ticket.
+5. Phase A's `variant_plan` must express platform/audience differences inside one post. Default target set:
    - one Hupu general variant (`audience_hint=general nba`, destination `hupu/湿乎乎的话题`)
-   - one Hupu winning-team-forum variant (destination from the 30-team Hupu vocabulary) when the story genuinely benefits from a team-fan voice
-   - one Hupu losing-team-forum variant (destination from the 30-team Hupu vocabulary) — write from the losing team fan perspective; if the data story for the losing side is thin, keep this variant shorter but still include it
+   - one Hupu winning-team-forum variant when the story genuinely benefits from a team-fan voice
+   - one Hupu losing-team-forum variant from the losing-team fan perspective; keep it shorter if the losing-side data story is thin
    - one Xiaohongshu variant (`audience_hint=xiaohongshu nba note`, destination `xiaohongshu/graph_note`)
    - one Reddit general variant (`audience_hint=r/nba english`, destination `reddit/nba`)
-   - one Reddit team-subreddit variant (destination from the Reddit writing playbook subreddit vocabulary)
+   - one Reddit team-subreddit variant from the Reddit writing playbook vocabulary
    - optional extra variants only when they add real review value
-   - **important**: if the issue description specifies an `enabled_platforms` list, only create variants for platforms in that list — skip any platform not listed, even if it appears in the default target set above
-   - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for both Hupu team forums and Reddit team subreddits
-   - if multiple platforms are involved, create separate platform-native variants instead of reusing one platform's copy for another platform
-   - Reddit variants must be written in English; read the Reddit writing playbook for tone, subreddit vocabulary, and formatting rules
-   - Reddit team-subreddit variants should use the exact subreddit names from the Reddit writing playbook's vocabulary list
-6. When calling `POST /api/content/posts` for output created from this ticket, include `analysis_issue_identifier` set to the current Paperclip issue identifier so Funba can link the created posts back to this game-analysis ticket.
-7. Leave each post in Funba with `status: "ai_review"` so the Content Reviewer agent can audit and polish it before human review.
-8. Add a close-out comment that includes created post IDs and the required close-out contract fields (`Summary:` and `PR:`).
-9. Mark the daily analysis issue `done`.
+   - if the issue description specifies `enabled_platforms`, include only those platforms
+   - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for Hupu team forums and Reddit team subreddits
+   - Reddit variants must be written in English
+6. Phase B prepares the image pool only. It must meet the Image Asset Rule below before requesting Phase C.
+7. Phase C creates exactly one `SocialPost`, sets `analysis_issue_identifier` to the current Paperclip issue identifier, and leaves the post in `ai_review`.
+8. Phase C must add the close-out comment with created post IDs and the required close-out contract fields, then mark the issue `done`.
 
 ## Game Signal Triage Contract
 
