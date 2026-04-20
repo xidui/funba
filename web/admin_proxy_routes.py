@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
-from flask import Response, request
+from flask import Response, redirect, request
 
 
 _PROXY_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
@@ -49,7 +49,13 @@ _ABS_URL_ATTR_RE = re.compile(
     re.IGNORECASE,
 )
 _ABS_CSS_URL_RE = re.compile(r"(?P<prefix>url\(\s*['\"]?)(?P<url>https?://[^'\")\s]*)", re.IGNORECASE)
-_QUOTED_ROOT_URL_RE = re.compile(r"(?P<prefix>['\"`])(?P<url>/(?!/)[^'\"`\\\s<>)]*)")
+_JS_BARE_IMPORT_RE = re.compile(r"(?P<prefix>\bimport\s*['\"`])(?P<url>/(?!/)[^'\"`\s]*)")
+_JS_DYNAMIC_IMPORT_RE = re.compile(r"(?P<prefix>\bimport\s*\(\s*['\"`])(?P<url>/(?!/)[^'\"`\s]*)")
+_JS_FROM_IMPORT_RE = re.compile(r"(?P<prefix>\bfrom\s*['\"`])(?P<url>/(?!/)[^'\"`\s]*)")
+_JS_API_URL_RE = re.compile(r"(?P<prefix>['\"`])(?P<url>/api(?:/[^'\"`\s<>)]*)?)")
+_JS_SERVICE_WORKER_RE = re.compile(r"(?P<prefix>\bserviceWorker\.register\(\s*['\"`])(?P<url>/(?!/)[^'\"`\s]*)")
+_JS_WS_HOST_API_RE = re.compile(r"(?P<prefix>\$\{(?:window\.)?location\.host\})(?P<url>/api/)")
+_BROWSER_ROUTER_RE = re.compile(r"(?P<prefix>\b(?:jsxDEV|jsx|jsxs)\(\s*BrowserRouter\s*,\s*\{\s*)(?P<next>children\s*:)")
 
 
 def _is_mounted_url(mount_prefix: str, url: str) -> bool:
@@ -81,7 +87,7 @@ def _join_query(base_query: str, request_query: bytes) -> str:
     return base_query or current_query
 
 
-def _target_url(entry_url: str, route_path: str) -> str:
+def _target_url(entry_url: str, route_path: str, *, root_mount: bool = False) -> str:
     parsed, entry_path = _entry_parts(entry_url)
     clean_route_path = (route_path or "").lstrip("/")
 
@@ -91,6 +97,10 @@ def _target_url(entry_url: str, route_path: str) -> str:
     elif clean_route_path == _ROOT_MARKER or clean_route_path.startswith(f"{_ROOT_MARKER}/"):
         root_path = clean_route_path[len(_ROOT_MARKER) :].lstrip("/")
         target_path = f"/{quote(root_path, safe='/:@!$&()*+,;=-._~')}" if root_path else "/"
+        target_query = request.query_string.decode("utf-8", errors="ignore")
+    elif root_mount:
+        quoted_path = quote(clean_route_path, safe="/:@!$&()*+,;=-._~")
+        target_path = f"/{quoted_path}"
         target_query = request.query_string.decode("utf-8", errors="ignore")
     else:
         quoted_path = quote(clean_route_path, safe="/:@!$&()*+,;=-._~")
@@ -110,12 +120,15 @@ def _request_headers() -> dict[str, str]:
     return headers
 
 
-def _mounted_url_for_upstream_path(entry_url: str, mount_prefix: str, upstream_url: str) -> str:
+def _mounted_url_for_upstream_path(entry_url: str, mount_prefix: str, upstream_url: str, *, root_mount: bool = False) -> str:
     parsed_url = urlsplit(upstream_url)
     _, entry_path = _entry_parts(entry_url)
     upstream_path = parsed_url.path or "/"
 
-    if entry_path != "/" and (upstream_path == entry_path or upstream_path.startswith(f"{entry_path}/")):
+    if root_mount:
+        root_path = upstream_path.lstrip("/")
+        mounted = f"{mount_prefix}/{root_path}" if root_path else mount_prefix
+    elif entry_path != "/" and (upstream_path == entry_path or upstream_path.startswith(f"{entry_path}/")):
         mounted_path = upstream_path[len(entry_path) :].lstrip("/")
         mounted = f"{mount_prefix}/{mounted_path}" if mounted_path else mount_prefix
     else:
@@ -132,7 +145,7 @@ def _mounted_url_for_upstream_path(entry_url: str, mount_prefix: str, upstream_u
     return mounted
 
 
-def _rewrite_location(entry_url: str, mount_prefix: str, location: str) -> str:
+def _rewrite_location(entry_url: str, mount_prefix: str, location: str, *, root_mount: bool = False) -> str:
     raw_location = str(location or "")
     if not raw_location:
         return raw_location
@@ -144,17 +157,17 @@ def _rewrite_location(entry_url: str, mount_prefix: str, location: str) -> str:
 
     if loc.scheme or loc.netloc:
         if loc.scheme == entry.scheme and loc.netloc == entry.netloc:
-            return _mounted_url_for_upstream_path(entry_url, mount_prefix, raw_location)
+            return _mounted_url_for_upstream_path(entry_url, mount_prefix, raw_location, root_mount=root_mount)
         return raw_location
 
     if raw_location.startswith("/"):
         absolute = urlunsplit((entry.scheme, entry.netloc, loc.path, loc.query, loc.fragment))
-        return _mounted_url_for_upstream_path(entry_url, mount_prefix, absolute)
+        return _mounted_url_for_upstream_path(entry_url, mount_prefix, absolute, root_mount=root_mount)
 
     return raw_location
 
 
-def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: str | None) -> bytes:
+def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: str | None, *, root_mount: bool = False) -> bytes:
     charset = encoding or "utf-8"
     try:
         text = content.decode(charset)
@@ -162,13 +175,26 @@ def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: s
         text = content.decode("utf-8", errors="replace")
 
     def replace_root_attr(match: re.Match[str]) -> str:
-        return f"{match.group('prefix')}{_rewrite_location(entry_url, mount_prefix, match.group('url'))}"
+        return f"{match.group('prefix')}{_rewrite_location(entry_url, mount_prefix, match.group('url'), root_mount=root_mount)}"
+
+    def replace_host_api(match: re.Match[str]) -> str:
+        return f"{match.group('prefix')}{mount_prefix}/api/"
+
+    def add_browser_router_basename(match: re.Match[str]) -> str:
+        return f'{match.group("prefix")}basename: "{mount_prefix}", {match.group("next")}'
 
     text = _URL_ATTR_RE.sub(replace_root_attr, text)
     text = _CSS_URL_RE.sub(replace_root_attr, text)
     text = _ABS_URL_ATTR_RE.sub(replace_root_attr, text)
     text = _ABS_CSS_URL_RE.sub(replace_root_attr, text)
-    text = _QUOTED_ROOT_URL_RE.sub(replace_root_attr, text)
+    text = _JS_BARE_IMPORT_RE.sub(replace_root_attr, text)
+    text = _JS_DYNAMIC_IMPORT_RE.sub(replace_root_attr, text)
+    text = _JS_FROM_IMPORT_RE.sub(replace_root_attr, text)
+    text = _JS_API_URL_RE.sub(replace_root_attr, text)
+    text = _JS_SERVICE_WORKER_RE.sub(replace_root_attr, text)
+    text = _JS_WS_HOST_API_RE.sub(replace_host_api, text)
+    if root_mount:
+        text = _BROWSER_ROUTER_RE.sub(add_browser_router_basename, text)
 
     return text.encode(charset, errors="replace")
 
@@ -188,19 +214,19 @@ def _should_rewrite_body(content_type: str) -> bool:
     )
 
 
-def _response_headers(upstream_response: requests.Response, entry_url: str, mount_prefix: str) -> list[tuple[str, str]]:
+def _response_headers(upstream_response: requests.Response, entry_url: str, mount_prefix: str, *, root_mount: bool = False) -> list[tuple[str, str]]:
     headers: list[tuple[str, str]] = []
     for key, value in upstream_response.headers.items():
         lower_key = key.lower()
         if lower_key in _RESPONSE_HEADER_BLOCKLIST:
             continue
         if lower_key == "location":
-            value = _rewrite_location(entry_url, mount_prefix, value)
+            value = _rewrite_location(entry_url, mount_prefix, value, root_mount=root_mount)
         headers.append((key, value))
     return headers
 
 
-def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, timeout_seconds: float) -> Response:
+def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, timeout_seconds: float, *, root_mount: bool = False):
     try:
         validated_url = _validated_entry_url(entry_url)
     except ValueError as exc:
@@ -209,7 +235,15 @@ def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, tim
     if not validated_url:
         return Response("Admin proxy target is not configured.", status=503, content_type="text/plain; charset=utf-8")
 
-    target_url = _target_url(validated_url, route_path)
+    if root_mount and not (route_path or "").lstrip("/"):
+        _, entry_path = _entry_parts(validated_url)
+        if entry_path != "/":
+            target = f"{mount_prefix}{entry_path}"
+            if request.query_string:
+                target = f"{target}?{request.query_string.decode('utf-8', errors='ignore')}"
+            return redirect(target)
+
+    target_url = _target_url(validated_url, route_path, root_mount=root_mount)
     try:
         upstream = requests.request(
             request.method,
@@ -225,12 +259,12 @@ def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, tim
     content = upstream.content
     content_type = upstream.headers.get("Content-Type", "")
     if _should_rewrite_body(content_type):
-        content = _rewrite_body(validated_url, mount_prefix, content, upstream.encoding)
+        content = _rewrite_body(validated_url, mount_prefix, content, upstream.encoding, root_mount=root_mount)
 
     return Response(
         content,
         status=upstream.status_code,
-        headers=_response_headers(upstream, validated_url, mount_prefix),
+        headers=_response_headers(upstream, validated_url, mount_prefix, root_mount=root_mount),
     )
 
 
@@ -247,7 +281,7 @@ def register_admin_proxy_routes(app, deps: SimpleNamespace):
         denied = deps.require_admin_page()()
         if denied:
             return denied
-        return _proxy_target(deps.tickets_url(), "/admin/tickets", path, timeout_seconds)
+        return _proxy_target(deps.tickets_url(), "/admin/tickets", path, timeout_seconds, root_mount=True)
 
     app.add_url_rule("/admin/monitor", endpoint="admin_monitor", view_func=admin_monitor, defaults={"path": ""}, methods=_PROXY_METHODS)
     app.add_url_rule("/admin/monitor/", endpoint="admin_monitor_slash", view_func=admin_monitor, defaults={"path": ""}, methods=_PROXY_METHODS)

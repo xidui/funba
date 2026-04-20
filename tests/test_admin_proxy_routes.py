@@ -67,15 +67,16 @@ def test_admin_tickets_root_uses_configured_entry_path():
     with patch("web.admin_proxy_routes.requests.request", return_value=_upstream_response()) as request_mock:
         response = app.test_client().get("/admin/tickets")
 
-    assert response.status_code == 200
-    assert request_mock.call_args.args[:2] == ("GET", "https://paperclip.test/FUN/issues")
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/admin/tickets/FUN/issues"
+    request_mock.assert_not_called()
 
 
-def test_admin_tickets_clean_subpaths_are_relative_to_entry_path():
+def test_admin_tickets_full_subpaths_are_relative_to_upstream_root():
     app = _make_app(tickets_url="https://paperclip.test/FUN/issues")
 
     with patch("web.admin_proxy_routes.requests.request", return_value=_upstream_response()) as request_mock:
-        response = app.test_client().get("/admin/tickets/FUN-208")
+        response = app.test_client().get("/admin/tickets/FUN/issues/FUN-208")
 
     assert response.status_code == 200
     assert request_mock.call_args.args[:2] == ("GET", "https://paperclip.test/FUN/issues/FUN-208")
@@ -99,16 +100,16 @@ def test_admin_tickets_rewrites_root_relative_html_links_and_redirects():
     )
 
     with patch("web.admin_proxy_routes.requests.request", return_value=upstream):
-        response = app.test_client().get("/admin/tickets")
+        response = app.test_client().get("/admin/tickets/FUN/issues")
 
     assert response.status_code == 200
     body = response.get_data(as_text=True)
-    assert 'href="/admin/tickets/FUN-209"' in body
-    assert 'href="/admin/tickets/FUN-211"' in body
+    assert 'href="/admin/tickets/FUN/issues/FUN-209"' in body
+    assert 'href="/admin/tickets/FUN/issues/FUN-211"' in body
     assert 'href="https://external.test/path"' in body
-    assert 'from "/admin/tickets/__root/@react-refresh"' in body
-    assert 'src="/admin/tickets/__root/assets/app.js"' in body
-    assert response.headers["Location"] == "/admin/tickets/FUN-210"
+    assert 'from "/admin/tickets/@react-refresh"' in body
+    assert 'src="/admin/tickets/assets/app.js"' in body
+    assert response.headers["Location"] == "/admin/tickets/FUN/issues/FUN-210"
     assert "Set-Cookie" not in response.headers
 
 
@@ -119,20 +120,24 @@ def test_admin_proxy_rewrites_javascript_root_imports_and_fetches():
             b'import "/@vite/client";\n'
             b'import mod from "/src/main.tsx";\n'
             b'fetch("/api/issues");\n'
-            b'const already = "/admin/tickets/__root/src/ready.ts";'
+            b'const route = "/agents/all";\n'
+            b'jsxDEV(BrowserRouter, { children: app });\n'
+            b'const ws = `${protocol}://${window.location.host}/api/companies/id/events/ws`;'
         ),
         headers={"Content-Type": "text/javascript"},
     )
 
     with patch("web.admin_proxy_routes.requests.request", return_value=upstream):
-        response = app.test_client().get("/admin/tickets/__root/src/main.tsx")
+        response = app.test_client().get("/admin/tickets/src/main.tsx")
 
     assert response.status_code == 200
     body = response.get_data(as_text=True)
-    assert 'import "/admin/tickets/__root/@vite/client";' in body
-    assert 'from "/admin/tickets/__root/src/main.tsx";' in body
-    assert 'fetch("/admin/tickets/__root/api/issues");' in body
-    assert '"/admin/tickets/__root/src/ready.ts"' in body
+    assert 'import "/admin/tickets/@vite/client";' in body
+    assert 'from "/admin/tickets/src/main.tsx";' in body
+    assert 'fetch("/admin/tickets/api/issues");' in body
+    assert 'const route = "/agents/all";' in body
+    assert 'jsxDEV(BrowserRouter, { basename: "/admin/tickets", children: app });' in body
+    assert "`${protocol}://${window.location.host}/admin/tickets/api/companies/id/events/ws`" in body
 
 
 def test_admin_proxy_reports_missing_target_config():
