@@ -4524,6 +4524,22 @@ def _require_admin_page():
     return None
 
 
+def _admin_proxy_rate_limit_exempt() -> bool:
+    path = request.path or ""
+    if not (
+        path == "/admin/monitor"
+        or path.startswith("/admin/monitor/")
+        or path == "/admin/tickets"
+        or path.startswith("/admin/tickets/")
+    ):
+        return False
+    return is_admin()
+
+
+if hasattr(limiter, "request_filter"):
+    limiter.request_filter(_admin_proxy_rate_limit_exempt)
+
+
 def is_pro() -> bool:
     """True if the current user has Pro subscription access.
 
