@@ -9,7 +9,7 @@ Season: {season_label}
 
 Required work:
 1. Follow the Game Analysis Phase Protocol in `agents/content-analyst/AGENTS.md`. This ticket completes through Phase A / Phase B / Phase C cold-start invocations, not one long run.
-2. Phase A must read this game's boxscore, shared game-metrics payload (`/api/data/games/{id}/metrics`), and scoped same-date / duplicate-post context from Funba localhost APIs.
+2. Phase A must read this game's boxscore, shared game-metrics payload (`/api/data/games/{game_id}/metrics`), and scoped same-date / duplicate-post context from Funba localhost APIs.
    - use `story_candidates` as the first-pass editorial shortlist
    - use `game_metrics` for page-equivalent game-scope metrics
    - use `triggered_player_metrics` / `triggered_team_metrics` for season-aggregate signals this game advanced
