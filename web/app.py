@@ -6153,7 +6153,6 @@ _public_views = register_public_routes(
     get_localized_url_for=lambda: _localized_url_for,
     get_t=lambda: _t,
     get_pct_fmt=lambda: pct_fmt,
-    get_attach_window_ranks=lambda: _attach_window_ranks,
     get_cached_game_metrics_payload=_cached_game_metrics_payload,
     get_load_game_metrics_payload=_load_game_metrics_payload,
 )
