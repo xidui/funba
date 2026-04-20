@@ -49,6 +49,11 @@ _ABS_URL_ATTR_RE = re.compile(
     re.IGNORECASE,
 )
 _ABS_CSS_URL_RE = re.compile(r"(?P<prefix>url\(\s*['\"]?)(?P<url>https?://[^'\")\s]*)", re.IGNORECASE)
+_QUOTED_ROOT_URL_RE = re.compile(r"(?P<prefix>['\"`])(?P<url>/(?!/)[^'\"`\\\s<>)]*)")
+
+
+def _is_mounted_url(mount_prefix: str, url: str) -> bool:
+    return url == mount_prefix or url.startswith(f"{mount_prefix}/") or url.startswith(f"{mount_prefix}?") or url.startswith(f"{mount_prefix}#")
 
 
 def _validated_entry_url(raw_url: str | None) -> str | None:
@@ -131,6 +136,8 @@ def _rewrite_location(entry_url: str, mount_prefix: str, location: str) -> str:
     raw_location = str(location or "")
     if not raw_location:
         return raw_location
+    if _is_mounted_url(mount_prefix, raw_location):
+        return raw_location
 
     entry = urlsplit(entry_url)
     loc = urlsplit(raw_location)
@@ -161,8 +168,24 @@ def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: s
     text = _CSS_URL_RE.sub(replace_root_attr, text)
     text = _ABS_URL_ATTR_RE.sub(replace_root_attr, text)
     text = _ABS_CSS_URL_RE.sub(replace_root_attr, text)
+    text = _QUOTED_ROOT_URL_RE.sub(replace_root_attr, text)
 
     return text.encode(charset, errors="replace")
+
+
+def _should_rewrite_body(content_type: str) -> bool:
+    normalized = (content_type or "").lower()
+    return any(
+        kind in normalized
+        for kind in (
+            "text/html",
+            "text/css",
+            "text/javascript",
+            "application/javascript",
+            "application/x-javascript",
+            "application/ecmascript",
+        )
+    )
 
 
 def _response_headers(upstream_response: requests.Response, entry_url: str, mount_prefix: str) -> list[tuple[str, str]]:
@@ -201,7 +224,7 @@ def _proxy_target(entry_url: str | None, mount_prefix: str, route_path: str, tim
 
     content = upstream.content
     content_type = upstream.headers.get("Content-Type", "")
-    if any(kind in content_type.lower() for kind in ("text/html", "text/css")):
+    if _should_rewrite_body(content_type):
         content = _rewrite_body(validated_url, mount_prefix, content, upstream.encoding)
 
     return Response(

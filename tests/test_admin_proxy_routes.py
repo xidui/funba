@@ -85,6 +85,7 @@ def test_admin_tickets_rewrites_root_relative_html_links_and_redirects():
     app = _make_app(tickets_url="https://paperclip.test/FUN/issues")
     upstream = _upstream_response(
         (
+            b'<script type="module">import x from "/@react-refresh";</script>'
             b'<a href="/FUN/issues/FUN-209">next</a>'
             b'<a href="https://paperclip.test/FUN/issues/FUN-211">absolute</a>'
             b'<a href="https://external.test/path">external</a>'
@@ -105,9 +106,33 @@ def test_admin_tickets_rewrites_root_relative_html_links_and_redirects():
     assert 'href="/admin/tickets/FUN-209"' in body
     assert 'href="/admin/tickets/FUN-211"' in body
     assert 'href="https://external.test/path"' in body
+    assert 'from "/admin/tickets/__root/@react-refresh"' in body
     assert 'src="/admin/tickets/__root/assets/app.js"' in body
     assert response.headers["Location"] == "/admin/tickets/FUN-210"
     assert "Set-Cookie" not in response.headers
+
+
+def test_admin_proxy_rewrites_javascript_root_imports_and_fetches():
+    app = _make_app(tickets_url="https://paperclip.test/FUN/issues")
+    upstream = _upstream_response(
+        (
+            b'import "/@vite/client";\n'
+            b'import mod from "/src/main.tsx";\n'
+            b'fetch("/api/issues");\n'
+            b'const already = "/admin/tickets/__root/src/ready.ts";'
+        ),
+        headers={"Content-Type": "text/javascript"},
+    )
+
+    with patch("web.admin_proxy_routes.requests.request", return_value=upstream):
+        response = app.test_client().get("/admin/tickets/__root/src/main.tsx")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'import "/admin/tickets/__root/@vite/client";' in body
+    assert 'from "/admin/tickets/__root/src/main.tsx";' in body
+    assert 'fetch("/admin/tickets/__root/api/issues");' in body
+    assert '"/admin/tickets/__root/src/ready.ts"' in body
 
 
 def test_admin_proxy_reports_missing_target_config():
