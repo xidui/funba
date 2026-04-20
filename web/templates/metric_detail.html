@@ -673,20 +673,64 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #60a5fa), var(--accent));
   }
 
-  .season-select {
-    padding: 6px 30px 6px 12px;
+  .season-dropdown { position: relative; flex-shrink: 0; }
+  .season-dropdown-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
     border-radius: 8px;
+    border: 1px solid var(--border-2);
+    background: var(--surface);
+    color: var(--text);
     font-size: 13px;
     font-weight: 600;
-    border: 1px solid var(--border-2);
-    color: var(--text);
-    background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center;
-    appearance: none;
+    font-family: inherit;
     cursor: pointer;
     outline: none;
     transition: border-color 0.15s;
+    white-space: nowrap;
   }
-  .season-select:hover, .season-select:focus { border-color: var(--accent); }
+  .season-dropdown-btn:hover, .season-dropdown-btn.open { border-color: var(--accent); color: var(--accent); }
+  .season-dropdown-btn svg { transition: transform 0.15s; flex-shrink: 0; }
+  .season-dropdown-btn.open svg { transform: rotate(180deg); }
+  .season-dropdown-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 200;
+    overflow: hidden;
+    padding: 6px 0;
+  }
+  .season-dropdown-panel.open { display: block; }
+  .season-dropdown-group-label {
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .season-dropdown-group + .season-dropdown-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+  .season-dropdown-option {
+    display: block;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.1s, color 0.1s;
+    cursor: pointer;
+  }
+  .season-dropdown-option:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+  .season-dropdown-option.active { color: var(--accent); font-weight: 700; }
+  .season-dropdown-option.active::before { content: '▸ '; }
 
   /* Rankings table */
   .rankings-table-wrap { overflow-x: auto; margin-top: 20px; }
@@ -1305,34 +1349,43 @@
     {% endif %}
   </div>
 
-  {% if season_groups and not is_career_metric %}
-  <select class="season-select" onchange="location.href=this.value">
-    {% for group in season_groups %}
-    <optgroup label="{{ group.type_name }}">
-      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}"
-              {% if show_all_seasons and all_season_type == group.type_code %}selected{% endif %}>
-        {{ t('All', '全部') }} {{ group.type_name_plural }}
-      </option>
-      {% for s in group.seasons %}
-      <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
-              {% if not show_all_seasons and s == selected_season %}selected{% endif %}>
-        {{ fmt_season(s) }}
-      </option>
+  {% if season_groups %}
+  <div class="season-dropdown" id="season-dropdown">
+    <button type="button" class="season-dropdown-btn" id="season-dropdown-btn" onclick="toggleSeasonDropdown()">
+      {{ season_label }}
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="season-dropdown-panel" id="season-dropdown-panel">
+      {% if not is_career_metric %}
+      {% for group in season_groups %}
+      <div class="season-dropdown-group">
+        <div class="season-dropdown-group-label">{{ group.type_name_plural }}</div>
+        <a class="season-dropdown-option{% if show_all_seasons and all_season_type == group.type_code %} active{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}">
+          {{ t('All', '全部') }} {{ group.type_name_plural }}
+        </a>
+        {% for s in group.seasons %}
+        <a class="season-dropdown-option{% if not show_all_seasons and s == selected_season %} active{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
+          {{ fmt_season(s) }}
+        </a>
+        {% endfor %}
+      </div>
       {% endfor %}
-    </optgroup>
-    {% endfor %}
-  </select>
-  {% elif season_groups and is_career_metric %}
-  <select class="season-select" onchange="location.href=this.value">
-    {% for group in season_groups %}
-    {% for s in group.seasons %}
-    <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}"
-            {% if s.value == selected_season %}selected{% endif %}>
-      {{ s.label }}
-    </option>
-    {% endfor %}
-    {% endfor %}
-  </select>
+      {% else %}
+      <div class="season-dropdown-group">
+        {% for group in season_groups %}
+        {% for s in group.seasons %}
+        <a class="season-dropdown-option{% if s.value == selected_season %} active{% endif %}"
+           href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}">
+          {{ s.label }}
+        </a>
+        {% endfor %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
   {% endif %}
 </div>
 
@@ -2133,6 +2186,20 @@ function toggleMetricEnabled(metricKey) {
     })
     .catch(() => { alert('Request failed'); btn.disabled = false; });
 }
+
+function toggleSeasonDropdown() {
+  const btn = document.getElementById('season-dropdown-btn');
+  const panel = document.getElementById('season-dropdown-panel');
+  const open = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('season-dropdown');
+  if (dd && !dd.contains(e.target)) {
+    document.getElementById('season-dropdown-panel').classList.remove('open');
+    document.getElementById('season-dropdown-btn').classList.remove('open');
+  }
+});
 
 function toggleRelatedMore(btn) {
   const wrap = btn.closest('.related-chips');
