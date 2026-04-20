@@ -63,6 +63,10 @@ Avoid obvious Hupu carryover such as:
 - long `你可能还想看` link dumps
 - long `funba` ad blocks
 
+## Write for the Reader, Not the Reviewer
+
+This rule is cross-platform. See `agents/social-media/writing-principles.md`. Xiaohongshu-specific note: the body budget is already tight, so any sentence wasted on rebutting the reviewer directly displaces the real data story — violating this rule is more costly on Xiaohongshu than on longer-form platforms.
+
 ## Suggested Structure
 
 For a normal Xiaohongshu NBA data note:

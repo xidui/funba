@@ -5,7 +5,7 @@ Use repo-relative paths from the workspace root. Keep role-specific context unde
 When working on a project, read the project's `AGENTS.md` from the working directory for project-specific context. For Funba content work, also read:
 
 - `API.md` from the project root
-- `agents/social-media/README.md`, then the relevant platform writing playbook(s) only when the active workflow phase is drafting or revising copy
+- `agents/social-media/README.md`, then `agents/social-media/writing-principles.md` together with the relevant platform writing playbook(s), only when the active workflow phase is drafting or revising copy
 - `skills/funba-capture/SKILL.md` only before preparing Funba screenshots
 - `skills/funba-imagegen/SKILL.md` only before preparing AI-generated supporting images
 
@@ -56,7 +56,7 @@ Ticket pattern: `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
 ### 数据系列 (Metric Analysis)
 Ticket pattern: `Metric content analysis — funba — METRIC_KEY`
 - Read `content_pipeline/metric_content_analysis_issue.md` for issue template rules
-- Read `agents/social-media/metric-*-writing.md` for platform writing playbooks
+- Read `agents/social-media/writing-principles.md` together with the relevant `agents/social-media/metric-*-writing.md` platform writing playbooks
 - Read `skills/funba-capture/SKILL.md` for screenshot tool (no AI image generation needed)
 
 ### Revision
@@ -306,6 +306,7 @@ Allowed reads:
 - `asset_manifest.json`
 - `API.md`
 - `agents/social-media/README.md`
+- `agents/social-media/writing-principles.md`
 - platform writing playbooks needed by `variant_plan`
 
 Allowed actions:

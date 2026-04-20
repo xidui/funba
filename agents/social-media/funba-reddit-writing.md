@@ -108,6 +108,10 @@ For ranking/leaderboard stories, follow the same expansion rule as Hupu: look at
 - bad: `Game recap: Thunder beat Lakers 121-105`
 - use `[OC]` tag when the post is original analysis
 
+## Write for the Reader, Not the Reviewer
+
+This rule is cross-platform. See `agents/social-media/writing-principles.md`. No Reddit-specific additions.
+
 ## Suggested Structure
 
 For a normal Reddit NBA analysis post:

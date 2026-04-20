@@ -6,9 +6,14 @@ Scaling rule:
 
 - keep role-level `AGENTS.md` files platform-agnostic whenever possible
 - put platform-specific writing and delivery constraints only in per-platform playbooks here
+- put writing rules that apply to two or more platforms in `writing-principles.md`, not duplicated into each platform playbook
 - when adding a new platform, add one new writing playbook and/or one new delivery playbook instead of editing existing platform rules to special-case the new platform
 
 Current documents:
+
+### Cross-Platform
+
+- `writing-principles.md` — platform-agnostic writing discipline that applies to every writing playbook (game series and metric series alike)
 
 ### Game Analysis Series (赛后系列)
 

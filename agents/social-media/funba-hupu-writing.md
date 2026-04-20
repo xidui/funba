@@ -209,6 +209,10 @@ Do not force top-3 fan variants when the ranking is weak, redundant, or the lowe
      - metric rankings
      - deeper NBA data
 
+## Write for the Reader, Not the Reviewer
+
+This rule is cross-platform. See `agents/social-media/writing-principles.md`. No Hupu-specific additions.
+
 ## Formatting Constraints For Hupu
 
 Hupu editor and delivery tooling currently handle prose, lists, bold text, and links more reliably than markdown tables.
