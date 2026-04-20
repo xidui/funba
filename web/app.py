@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 import inspect
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -4778,6 +4779,8 @@ _BOT_SIGNATURES = (
     "go-http-client", "java/", "okhttp", "axios/", "node-fetch",
     "scrapy", "headlesschrome", "phantomjs", "selenium",
 )
+_CURL_USER_AGENT_SIGNATURES = ("curl/",)
+_CURL_ALLOWED_IPS_ENV = "FUNBA_CURL_ALLOWED_IPS"
 
 # Bare or too-short UAs are almost never real browsers
 _MIN_REAL_UA_LENGTH = 40
@@ -4817,6 +4820,42 @@ def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
 
 def _is_allowlisted_crawler_name(crawler_name: str | None) -> bool:
     return bool(crawler_name and crawler_name in _ALLOWLISTED_CRAWLER_NAMES)
+
+
+def _is_curl_user_agent(user_agent: str | None = None) -> bool:
+    ua = ((request.user_agent.string if user_agent is None else user_agent) or "").lower().strip()
+    return any(sig in ua for sig in _CURL_USER_AGENT_SIGNATURES)
+
+
+def _ip_matches_allowlist(ip_address: str | None, allowlist: str | None) -> bool:
+    value = (ip_address or "").strip()
+    raw_allowlist = (allowlist or "").strip()
+    if not value or not raw_allowlist:
+        return False
+    try:
+        client_ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    for entry in re.split(r"[,\s]+", raw_allowlist):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            if "/" in candidate:
+                if client_ip in ipaddress.ip_network(candidate, strict=False):
+                    return True
+            elif client_ip == ipaddress.ip_address(candidate):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _is_allowed_curl_request() -> bool:
+    return _is_curl_user_agent() and _ip_matches_allowlist(
+        _real_ip(),
+        os.getenv(_CURL_ALLOWED_IPS_ENV),
+    )
 
 
 def _probe_crawler_name_for_path(path: str | None) -> str | None:
@@ -4964,6 +5003,9 @@ def _block_bots():
         return
     # Exempt only direct localhost requests, not Cloudflare-tunneled traffic.
     if request.remote_addr in ("127.0.0.1", "::1") and _real_ip() in ("127.0.0.1", "::1"):
+        return
+    # Allow curl only from explicitly configured local/admin IPs.
+    if _is_allowed_curl_request():
         return
     # Exempt AI coding tools (Claude Code, Codex) by User-Agent
     ua = (request.user_agent.string or "").lower().strip()

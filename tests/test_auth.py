@@ -301,6 +301,51 @@ class TestCrawlerTracking(unittest.TestCase):
         self.assertTrue(captured[0]["is_crawler"])
         self.assertEqual(captured[0]["crawler_name"], "meta-webindexer")
 
+    def test_direct_localhost_curl_is_allowed(self):
+        with self.app.test_request_context(
+            "/",
+            headers={"User-Agent": "curl/8.7.1"},
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        ):
+            self.assertIsNone(self.web_app._block_bots())
+
+    def test_configured_curl_ip_is_allowed_through_cloudflare_tunnel(self):
+        with patch.dict("os.environ", {"FUNBA_CURL_ALLOWED_IPS": "203.0.113.5"}, clear=False):
+            with self.app.test_request_context(
+                "/",
+                headers={
+                    "User-Agent": "curl/8.7.1",
+                    "CF-Connecting-IP": "203.0.113.5",
+                },
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            ):
+                self.assertIsNone(self.web_app._block_bots())
+
+    def test_unconfigured_external_curl_is_blocked(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with patch.dict("os.environ", {"FUNBA_CURL_ALLOWED_IPS": "203.0.113.5"}, clear=False):
+            with self.app.test_request_context(
+                "/",
+                headers={
+                    "User-Agent": "curl/8.7.1",
+                    "CF-Connecting-IP": "198.51.100.8",
+                },
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            ):
+                with patch("web.app.PageView", FakePageView), \
+                     patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                    response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "other-bot")
+
     def test_googlebot_is_allowed_and_recorded_as_crawler(self):
         captured = []
 

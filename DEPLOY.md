@@ -169,6 +169,7 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 | `FLASK_SECRET_KEY` | Session signing |
 | `GOOGLE_CLIENT_ID` | OAuth login |
 | `GOOGLE_CLIENT_SECRET` | OAuth login |
+| `FUNBA_CURL_ALLOWED_IPS` | Comma/space-separated IPs or CIDRs allowed to use `curl/` through Cloudflare |
 | `OPENAI_API_KEY` | Metric code generation |
 | `STRIPE_SECRET_KEY` | Subscription billing |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe frontend |
