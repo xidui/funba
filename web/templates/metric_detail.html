@@ -1316,7 +1316,7 @@
       {% for s in group.seasons %}
       <option value="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}"
               {% if not show_all_seasons and s == selected_season %}selected{% endif %}>
-        {{ fmt_season_short(s) }}
+        {{ fmt_season(s) }}
       </option>
       {% endfor %}
     </optgroup>
