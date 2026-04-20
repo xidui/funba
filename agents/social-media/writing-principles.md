@@ -30,3 +30,21 @@ Hard rules:
 - If multiple variants in the same post — or multiple paragraphs in the same variant — use the same negation-then-pivot frame, treat that as a defect. It is performing-the-feedback, not writing for the reader. Rewrite each lead and each pivot independently.
 
 Self-check before submitting any draft (initial or revised): read the entire post as if you had never seen the prior draft or the review thread. If any sentence — opening, mid-body, or closing — only makes sense to someone who knows what was rejected, rewrite it.
+
+## Chinese-Language Conventions
+
+These rules apply only to Chinese-language drafts (Hupu, Xiaohongshu, and any future Chinese platform). Reddit and other English destinations can ignore them.
+
+### Player Name Lookup
+
+`web/i18n/player_names_zh.py` is the canonical source for Chinese player names. Before writing any player's full Chinese name in a draft (title, body, image notes, related-link anchors), look up the player there — do not transliterate by ear or guess.
+
+The reason this matters: many NBA players have multiple Chinese transliterations in active circulation that share the same Mandarin pronunciation but use different characters, and the wrong character is silently wrong (the meaning changes; the pinyin doesn't). Examples of confusables Funba has been bitten by:
+
+- Victor Wembanyama → `文班亚马` (correct), NOT `温班亚马` (wrong — same `wēn`/`wén` sound)
+
+Operationally:
+
+- For each player you reference by full Chinese name, grep `web/i18n/player_names_zh.py` for the player's `player_id` or English name and use the value found there.
+- If the player is not in the file, fall back to the most widely-circulated Chinese basketball community spelling — but flag it in the draft so a human or follow-up patch can add the player to the canonical mapping.
+- Player nicknames or abbreviations widely recognized in the Chinese basketball community are still allowed (per each platform playbook's own player-name guidance), but the **full** Chinese name on first mention should match the canonical source.
