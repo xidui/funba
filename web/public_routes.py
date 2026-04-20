@@ -1372,9 +1372,9 @@ def register_public_routes(
         now = time.monotonic()
         cached = _notable_cache
         cached_payload = cached.get("payload") or {}
-        cached_has_cards = cached_payload.get("cards") is not None
+        cached_has_payload = isinstance(cached_payload.get("cards"), list)
 
-        if signature is not None and cached.get("signature") == signature and cached_has_cards:
+        if signature is not None and cached.get("signature") == signature and cached_has_payload:
             age = now - cached.get("ts", 0.0)
             if age < _NOTABLE_TTL_SECONDS:
                 return cached_payload
@@ -1382,8 +1382,10 @@ def register_public_routes(
                 _notable_refresh_async(team_lookup)
                 return cached_payload
 
-        # Cold / mismatched / too stale — compute synchronously.
-        return _compute_recent_notable_metrics(team_lookup, store=True)
+        # Cold / mismatched / too stale: keep the page responsive and refresh
+        # in the background. The home page can render without this section.
+        _notable_refresh_async(team_lookup)
+        return cached_payload if cached_has_payload else {"cards": [], "game_dates": []}
 
     def _compute_recent_notable_metrics(team_lookup: dict, *, store: bool) -> dict:
         """The expensive path: fetches games, ranks metrics, builds cards."""
@@ -1764,23 +1766,6 @@ def register_public_routes(
             _notable_cache["signature"] = signature
             _notable_cache["payload"] = payload
         return payload
-
-    def _prewarm_notable_cache():
-        """Fill _notable_cache synchronously during app init so every
-        gunicorn worker inherits a populated cache via copy-on-write
-        after fork. Runs in the master under preload_app=True; the
-        ~15s compute cost is paid once at boot, not on every first
-        request to a cold worker."""
-        try:
-            SessionLocal = get_session_local()
-            Team = get_team_model()
-            with SessionLocal() as session:
-                team_lookup = {t.team_id: t for t in session.query(Team).all() if getattr(t, "team_id", None)}
-            _compute_recent_notable_metrics(team_lookup, store=True)
-        except Exception:
-            pass
-
-    _prewarm_notable_cache()
 
     def news_page():
         SessionLocal = get_session_local()
