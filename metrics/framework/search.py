@@ -192,11 +192,13 @@ def _prerank_with_embeddings(
         return candidates
     try:
         # Pull in any keys we haven't seen yet (new metrics created in another
-        # worker). Skip virtual career siblings — they have no DB row and
-        # fall back to the base metric's vector below.
+        # worker). Skip virtual window siblings (_career/_last3/_last5) —
+        # they have no DB row and reuse the base metric's vector below.
+        _VIRTUAL_SUFFIXES = ("_career", "_last3", "_last5")
         missing_real = [
             c["key"] for c in candidates
-            if c["key"] not in _embedding_vectors and not c["key"].endswith("_career")
+            if c["key"] not in _embedding_vectors
+            and not any(c["key"].endswith(s) for s in _VIRTUAL_SUFFIXES)
         ]
         if missing_real:
             _load_embeddings_for_keys(session, missing_real)
@@ -207,11 +209,11 @@ def _prerank_with_embeddings(
     for cand in candidates:
         key = cand["key"]
         vec = _embedding_vectors.get(key)
-        if vec is None and key.endswith("_career"):
-            # Virtual career sibling — reuse the base metric's vector.
-            # The career variant's name/description differ only by a "Career"
-            # suffix, so the semantic meaning is essentially identical.
-            vec = _embedding_vectors.get(key[: -len("_career")])
+        if vec is None:
+            for suffix in ("_career", "_last3", "_last5"):
+                if key.endswith(suffix):
+                    vec = _embedding_vectors.get(key[: -len(suffix)])
+                    break
         if vec is None:
             continue
         # both vectors are unnormalized; cosine = dot / (|a| * |b|)

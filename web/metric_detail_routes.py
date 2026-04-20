@@ -5,7 +5,13 @@ from flask import abort, request
 from sqlalchemy import and_, func, or_
 from types import SimpleNamespace
 
-from metrics.framework.family import family_base_key, family_window_key, window_type_from_key
+from metrics.framework.family import (
+    derive_window_description,
+    derive_window_name,
+    family_base_key,
+    family_window_key,
+    window_type_from_key,
+)
 
 
 def register_metric_detail_routes(app, deps):
@@ -143,6 +149,40 @@ def register_metric_detail_routes(app, deps):
             current_metric_season = None
 
             current_window_type = window_type_from_key(metric_key)
+
+            # Game-scope last3/last5 are virtual windows: rows live under the
+            # base metric key and we filter to the most recent N distinct
+            # seasons of the selected season-type at query time. No sibling
+            # MetricResult rows get stored.
+            is_virtual_game_window = (
+                current_window_type in ("last3", "last5")
+                and runtime_metric is None
+                and db_metric is not None
+                and db_metric.scope == "game"
+            )
+            query_metric_key = base_metric_key if is_virtual_game_window else metric_key
+
+            if is_virtual_game_window:
+                window_n = 3 if current_window_type == "last3" else 5
+                base_name_en = getattr(metric_def, "name_en", "") or ""
+                base_name_zh = getattr(metric_def, "name_zh", "") or ""
+                base_desc_en = getattr(metric_def, "description_en", "") or ""
+                base_desc_zh = getattr(metric_def, "description_zh", "") or ""
+                name_en = derive_window_name(base_name_en, current_window_type)
+                name_zh = f"{base_name_zh}（近 {window_n} 季）" if base_name_zh else ""
+                desc_en = derive_window_description(base_desc_en, current_window_type)
+                desc_zh = f"近 {window_n} 季{base_desc_zh}" if base_desc_zh else ""
+                metric_def.name_en = name_en
+                metric_def.name_zh = name_zh
+                metric_def.description_en = desc_en
+                metric_def.description_zh = desc_zh
+                # deps.is_zh() reflects the current request language; use it
+                # to recompute the localized display strings the template uses.
+                is_zh = deps.is_zh()
+                metric_def.name = name_zh if (is_zh and name_zh) else name_en
+                metric_def.description = desc_zh if (is_zh and desc_zh) else desc_en
+                metric_def.key = metric_key
+
             window_tabs: list[dict] = []
 
             def _has_results_for(key: str) -> bool:
@@ -154,7 +194,8 @@ def register_metric_detail_routes(app, deps):
                     is not None
                 )
 
-            if _has_results_for(base_metric_key):
+            base_has_results = _has_results_for(base_metric_key)
+            if base_has_results:
                 window_tabs.append(
                     {
                         "window_type": "season",
@@ -163,9 +204,19 @@ def register_metric_detail_routes(app, deps):
                         "is_current": base_metric_key == metric_key,
                     }
                 )
+            is_game_scope = db_metric is not None and db_metric.scope == "game"
             for candidate_window in ("last3", "last5", "career"):
                 candidate_key = family_window_key(base_metric_key, candidate_window)
-                if not _has_results_for(candidate_key):
+                # Game-scope window tabs are virtual — their rows share the
+                # base key, so _has_results_for won't find them. Fall back to
+                # the base's result existence instead. Career is still skipped
+                # for game scope (redundant with the All-<type> selector).
+                if is_game_scope and candidate_window in ("last3", "last5"):
+                    if not base_has_results:
+                        continue
+                elif not _has_results_for(candidate_key):
+                    continue
+                elif is_game_scope and candidate_window == "career":
                     continue
                 window_tabs.append(
                     {
@@ -185,11 +236,24 @@ def register_metric_detail_routes(app, deps):
 
             season_rows = (
                 session.query(MetricResultModel.season)
-                .filter(MetricResultModel.metric_key == metric_key, MetricResultModel.season.isnot(None))
+                .filter(MetricResultModel.metric_key == query_metric_key, MetricResultModel.season.isnot(None))
                 .distinct()
                 .all()
             )
             season_values = [r.season for r in season_rows]
+
+            virtual_window_seasons: list[str] | None = None
+            if is_virtual_game_window:
+                show_all_seasons = True
+                if not all_season_type:
+                    all_season_type = "2"
+                window_n = 3 if current_window_type == "last3" else 5
+                type_seasons = sorted(
+                    [s for s in season_values if s and len(s) == 5 and s.isdigit() and s[0] == all_season_type],
+                    reverse=True,
+                )
+                virtual_window_seasons = type_seasons[:window_n]
+                selected_season = f"all_{all_season_type}"
             if is_career_metric:
                 show_all_seasons = False
                 window_type = window_type_from_key(metric_key) or "career"
@@ -216,6 +280,47 @@ def register_metric_detail_routes(app, deps):
                         ],
                     }
                 ]
+            elif is_virtual_game_window:
+                # Only expose one "All <type>" option per season-type that has
+                # at least one game in the last N seasons of that type.
+                from collections import defaultdict
+
+                type_buckets = defaultdict(list)
+                for s in season_values:
+                    if s and len(s) == 5 and s.isdigit():
+                        type_buckets[s[0]].append(s)
+                season_options = [f"all_{code}" for code in ["2", "4", "5", "1", "3"] if code in type_buckets]
+                season_groups = []
+                for type_code in ["2", "4", "5", "1", "3"]:
+                    if type_code not in type_buckets:
+                        continue
+                    season_groups.append(
+                        {
+                            "type_code": type_code,
+                            "type_name": deps.t()(
+                                deps.season_type_names().get(type_code, type_code),
+                                {
+                                    "Regular Season": "常规赛",
+                                    "Playoffs": "季后赛",
+                                    "PlayIn": "附加赛",
+                                    "Pre Season": "季前赛",
+                                    "All Star": "全明星",
+                                }.get(deps.season_type_names().get(type_code, type_code), deps.season_type_names().get(type_code, type_code)),
+                            ),
+                            "type_name_plural": deps.t()(
+                                deps.season_type_plural().get(type_code, type_code),
+                                {
+                                    "Regular Seasons": "常规赛",
+                                    "Playoffs": "季后赛",
+                                    "PlayIn": "附加赛",
+                                    "Pre Seasons": "季前赛",
+                                    "All Star": "全明星",
+                                }.get(deps.season_type_plural().get(type_code, type_code), deps.season_type_plural().get(type_code, type_code)),
+                            ),
+                            "all_value": f"all_{type_code}",
+                            "seasons": [],
+                        }
+                    )
             elif is_season_scope:
                 show_all_seasons = True
                 if not all_season_type:
@@ -300,21 +405,26 @@ def register_metric_detail_routes(app, deps):
                 if not show_all_seasons and not selected_season and season_options:
                     selected_season = season_options[0]
 
-            filtered_q = session.query(MetricResultModel).filter(MetricResultModel.metric_key == metric_key, MetricResultModel.value_num.isnot(None))
-            if show_all_seasons and all_season_type:
+            filtered_q = session.query(MetricResultModel).filter(MetricResultModel.metric_key == query_metric_key, MetricResultModel.value_num.isnot(None))
+            if is_virtual_game_window:
+                if virtual_window_seasons:
+                    filtered_q = filtered_q.filter(MetricResultModel.season.in_(virtual_window_seasons))
+                else:
+                    filtered_q = filtered_q.filter(False)
+            elif show_all_seasons and all_season_type:
                 filtered_q = filtered_q.filter(MetricResultModel.season.like(f"{all_season_type}%"))
             elif not show_all_seasons and selected_season:
                 filtered_q = filtered_q.filter(MetricResultModel.season == selected_season)
 
             has_sub_keys = (
                 session.query(MetricResultModel.id)
-                .filter(MetricResultModel.metric_key == metric_key, MetricResultModel.sub_key != "")
+                .filter(MetricResultModel.metric_key == query_metric_key, MetricResultModel.sub_key != "")
                 .limit(1)
                 .first()
             ) is not None
 
             if has_sub_keys and not expand and not entity_filter_id and not sub_key_filter:
-                is_asc_dedup = deps.metric_rank_order()(session, metric_key) == "asc"
+                is_asc_dedup = deps.metric_rank_order()(session, query_metric_key) == "asc"
                 dedup_order = MetricResultModel.value_num.asc() if is_asc_dedup else MetricResultModel.value_num.desc()
                 dedup_rn = func.row_number().over(
                     partition_by=[MetricResultModel.entity_type, MetricResultModel.entity_id, MetricResultModel.season],
@@ -328,7 +438,7 @@ def register_metric_detail_routes(app, deps):
                 )
 
             rank_partition = func.coalesce(MetricResultModel.rank_group, "__all__")
-            is_asc = deps.metric_rank_order()(session, metric_key) == "asc"
+            is_asc = deps.metric_rank_order()(session, query_metric_key) == "asc"
             detail_rank_val = -MetricResultModel.value_num if is_asc else MetricResultModel.value_num
             rank_group_fields = [MetricResultModel.metric_key, rank_partition]
             if not show_all_seasons:
@@ -579,8 +689,8 @@ def register_metric_detail_routes(app, deps):
                 )
             show_rank_group = any(r["rank_group_label"] for r in result_rows)
 
-            _, backfill = deps.build_metric_backfill_status()(session, metric_key)
-            dd_key = metric_key
+            _, backfill = deps.build_metric_backfill_status()(session, query_metric_key)
+            dd_key = query_metric_key
             if is_career_metric and window_type_from_key(metric_key) is not None:
                 from metrics.framework.runtime import _metric_declares_career_reducer as _mcr
                 if runtime_metric and _mcr(runtime_metric):
@@ -591,7 +701,7 @@ def register_metric_detail_routes(app, deps):
                 .limit(1)
                 .first()
             ) is not None
-            metric_deep_dive = deps.metric_deep_dive_state()(session, metric_key)
+            metric_deep_dive = deps.metric_deep_dive_state()(session, query_metric_key)
             feature_access = deps.get_feature_access_config()(session)
 
             metric_perf_samples = []
