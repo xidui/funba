@@ -39,9 +39,7 @@ These rules apply only to Chinese-language drafts (Hupu, Xiaohongshu, and any fu
 
 `web/i18n/player_names_zh.py` is the canonical source for Chinese player names. Before writing any player's full Chinese name in a draft (title, body, image notes, related-link anchors), look up the player there — do not transliterate by ear or guess.
 
-The reason this matters: many NBA players have multiple Chinese transliterations in active circulation that share the same Mandarin pronunciation but use different characters, and the wrong character is silently wrong (the meaning changes; the pinyin doesn't). Examples of confusables Funba has been bitten by:
-
-- Victor Wembanyama → `文班亚马` (correct), NOT `温班亚马` (wrong — same `wēn`/`wén` sound)
+The reason this matters: many NBA players have multiple Chinese transliterations in active circulation that share the same Mandarin pronunciation but use different characters. The wrong character is silently wrong — the pinyin still matches, so it sounds right when read aloud, but it is not the name Funba has standardized on, and downstream search / linking / branding all break. Homophone confusables across the player pool are common; do not assume the cases you happen to remember are the only ones.
 
 Operationally:
 
