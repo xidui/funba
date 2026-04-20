@@ -98,6 +98,7 @@ from web.auth_routes import _safe_redirect_url, create_oauth, register_auth_rout
 from web.billing_routes import register_billing_routes
 from web.admin_content_routes import register_admin_content_routes
 from web.admin_misc_routes import register_admin_misc_routes
+from web.admin_proxy_routes import register_admin_proxy_routes
 from web.detail_routes import register_detail_routes
 from web.feedback_routes import register_feedback_routes
 from web.metric_detail_routes import register_metric_detail_routes
@@ -6111,6 +6112,46 @@ _feedback_views = register_feedback_routes(
 )
 submit_feedback = _feedback_views.submit_feedback
 admin_feedback = _feedback_views.admin_feedback
+
+
+# ── Admin proxy routes ───────────────────────────────────────────────────────
+
+def _admin_monitor_proxy_url() -> str | None:
+    return os.getenv("FUNBA_ADMIN_MONITOR_URL", "http://127.0.0.1:19999")
+
+
+def _admin_tickets_proxy_url() -> str | None:
+    configured = os.getenv("FUNBA_ADMIN_TICKETS_URL")
+    if configured:
+        return configured
+    try:
+        with SessionLocal() as session:
+            return get_paperclip_issue_base_url(session)
+    except Exception:
+        logger.warning("Failed to load Paperclip issue base URL for admin tickets proxy", exc_info=True)
+        return None
+
+
+def _admin_proxy_timeout_seconds() -> float:
+    raw_value = os.getenv("FUNBA_ADMIN_PROXY_TIMEOUT_SECONDS", "30")
+    try:
+        return float(raw_value)
+    except ValueError:
+        logger.warning("Invalid FUNBA_ADMIN_PROXY_TIMEOUT_SECONDS=%r; using 30 seconds", raw_value)
+        return 30.0
+
+
+_admin_proxy_views = register_admin_proxy_routes(
+    app,
+    SimpleNamespace(
+        require_admin_page=lambda: _require_admin_page,
+        monitor_url=_admin_monitor_proxy_url,
+        tickets_url=_admin_tickets_proxy_url,
+        timeout_seconds=_admin_proxy_timeout_seconds,
+    ),
+)
+admin_monitor = _admin_proxy_views.admin_monitor
+admin_tickets = _admin_proxy_views.admin_tickets
 
 
 # ── Page routes ───────────────────────────────────────────────────────────────

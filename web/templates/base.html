@@ -1317,7 +1317,7 @@
           {# Language toggle moved next to theme toggle #}
           {% if is_admin %}
           <div class="admin-menu-wrap" id="admin-menu-wrap">
-            <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback', 'admin_settings', 'admin_users') }}" id="admin-menu-btn">
+            <a href="#" class="nav-link {{ 'active' if request.endpoint in ('admin_pipeline', 'admin_content', 'admin_feedback', 'admin_settings', 'admin_users', 'admin_monitor', 'admin_monitor_slash', 'admin_monitor_path', 'admin_tickets', 'admin_tickets_slash', 'admin_tickets_path') }}" id="admin-menu-btn">
               Admin
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-left:3px;vertical-align:middle;opacity:0.5;">
                 <path d="M2 3.5l3 3 3-3"/>
@@ -1326,6 +1326,8 @@
             <div class="admin-dropdown" id="admin-dropdown">
               <a href="{{ url_for('admin_pipeline') }}">Pipeline Status</a>
               <a href="{{ url_for('admin_settings') }}">Settings</a>
+              <a href="{{ url_for('admin_monitor') }}">Monitor</a>
+              <a href="{{ url_for('admin_tickets') }}">Tickets</a>
               <a href="{{ url_for('admin_content') }}">Content Pipeline</a>
               <a href="{{ url_for('admin_users') }}">Users</a>
               <a href="{{ url_for('admin_feedback') }}">User Feedback</a>
@@ -1409,6 +1411,8 @@
             <div class="mobile-nav-section">
               <a href="{{ url_for('admin_pipeline') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_pipeline' }}" role="menuitem">Pipeline Status</a>
               <a href="{{ url_for('admin_settings') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_settings' }}" role="menuitem">Settings</a>
+              <a href="{{ url_for('admin_monitor') }}" class="mobile-nav-link {{ 'active' if request.endpoint in ('admin_monitor', 'admin_monitor_slash', 'admin_monitor_path') }}" role="menuitem">Monitor</a>
+              <a href="{{ url_for('admin_tickets') }}" class="mobile-nav-link {{ 'active' if request.endpoint in ('admin_tickets', 'admin_tickets_slash', 'admin_tickets_path') }}" role="menuitem">Tickets</a>
               <a href="{{ url_for('admin_content') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_content' }}" role="menuitem">Content Pipeline</a>
               <a href="{{ url_for('admin_users') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_users' }}" role="menuitem">Users</a>
               <a href="{{ url_for('admin_feedback') }}" class="mobile-nav-link {{ 'active' if request.endpoint == 'admin_feedback' }}" role="menuitem">User Feedback</a>

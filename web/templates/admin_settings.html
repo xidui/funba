@@ -259,6 +259,8 @@
 <nav style="display:flex;gap:6px;margin-bottom:1rem;">
   <a href="{{ url_for('admin_pipeline') }}" class="cov-toggle {{ 'active' if request.endpoint == 'admin_pipeline' else '' }}">Pipeline</a>
   <a href="{{ url_for('admin_settings') }}" class="cov-toggle {{ 'active' if request.endpoint == 'admin_settings' else '' }}">Settings</a>
+  <a href="{{ url_for('admin_monitor') }}" class="cov-toggle {{ 'active' if request.endpoint in ('admin_monitor', 'admin_monitor_slash', 'admin_monitor_path') else '' }}">Monitor</a>
+  <a href="{{ url_for('admin_tickets') }}" class="cov-toggle {{ 'active' if request.endpoint in ('admin_tickets', 'admin_tickets_slash', 'admin_tickets_path') else '' }}">Tickets</a>
 </nav>
 
 <div style="margin-bottom:1.25rem;">
