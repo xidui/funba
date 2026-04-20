@@ -6140,6 +6140,12 @@ def _admin_tickets_proxy_url() -> str | None:
     configured = os.getenv("FUNBA_ADMIN_TICKETS_URL")
     if configured:
         return configured
+    paperclip_ui_url = os.getenv("PAPERCLIP_UI_URL")
+    if paperclip_ui_url:
+        return paperclip_ui_url.rstrip("/") + "/FUN/issues"
+    paperclip_api_url = os.getenv("PAPERCLIP_API_URL")
+    if paperclip_api_url:
+        return paperclip_api_url.rstrip("/") + "/FUN/issues"
     try:
         with SessionLocal() as session:
             return get_paperclip_issue_base_url(session)
