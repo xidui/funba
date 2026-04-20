@@ -1368,7 +1368,7 @@
         {% for s in group.seasons %}
         <a class="season-dropdown-option{% if not show_all_seasons and s == selected_season %} active{% endif %}"
            href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">
-          {{ fmt_season(s) }}
+          {{ fmt_season_short(s) }}
         </a>
         {% endfor %}
       </div>
