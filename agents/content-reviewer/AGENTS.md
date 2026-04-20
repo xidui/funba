@@ -47,6 +47,16 @@ Respect the content unit rule from the analyst spec:
 
 If the same story has been split across multiple posts only because of platform differences, prefer merging the platform expressions under one post rather than preserving duplicate posts.
 
+## Watch Your Own Reflexes On Revised Posts
+
+When reviewing a post that was revised after a user comment, the entire review thread is in your context — the same context that pushed the analyst to perform-the-feedback in the prose. You will feel the same pull. Resist it.
+
+If the revision quotes, paraphrases, or directly rebuts the user's critique anywhere in the title, opening, transitions, related-link framing, or closing, that is a violation of "Write for the Reader, Not the Reviewer" in `agents/social-media/writing-principles.md` — regardless of how cleanly the rest of the prose was tightened. A revision that echoes the user's complaint into the article is not "feedback well addressed"; it is the reviewer's voice leaking into the post. Flag it as a defect and rewrite the affected sentences (do not just trim them).
+
+The "Prefer surgical fixes over rewrites" core principle does not exempt this case. Framing-level rewrites are part of the reviewer's job when the framing itself imports reviewer voice into the prose.
+
+Self-check before passing a revised post to human review: read the entire article cold, as if you had never seen the user's comment. If any sentence only makes sense to a reader who already saw the rejected angle, send it back.
+
 ## Required Reading Order
 
 For each issue:
@@ -54,7 +64,7 @@ For each issue:
 1. Read the issue description and comments.
    - specifically look for the analyst's `Story Signals` note when reviewing game-analysis posts
 2. Read `agents/content-analyst/AGENTS.md` to refresh the analyst-side conventions.
-3. Inspect the post's enabled delivery platforms, then read the corresponding platform writing playbook(s) from `agents/social-media/`.
+3. Inspect the post's enabled delivery platforms, then read `agents/social-media/writing-principles.md` together with the corresponding platform writing playbook(s) from `agents/social-media/`.
 4. Fetch the linked Funba post detail:
    - `/api/admin/content/{post_id}`
 
