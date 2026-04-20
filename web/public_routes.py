@@ -397,6 +397,7 @@ def register_public_routes(
     get_localized_url_for: Callable[..., str],
     get_t: Callable[[str, str | None], str],
     get_pct_fmt: Callable[[Any], str],
+    get_attach_window_ranks: Callable[[], Callable] | None = None,
 ):
     def _build_today_games(team_lookup: dict) -> list[dict]:
         """Build today's games with fixed stats for the home page."""
@@ -1508,6 +1509,7 @@ def register_public_routes(
                             "subject_kind": "game",
                             "metric_key": r.metric_key,
                             "metric_name": name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+                            "entity_id": r.entity_id,
                             "value_num": r.value_num,
                             "value_str": r.value_str,
                             "rank": rank,
@@ -1605,6 +1607,7 @@ def register_public_routes(
                             "subject_kind": subject_kind,
                             "metric_key": r.metric_key,
                             "metric_name": name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+                            "entity_id": r.entity_id,
                             "value_num": r.value_num,
                             "value_str": r.value_str,
                             "rank": rank,
@@ -1638,6 +1641,79 @@ def register_public_routes(
                                 "team_name": tm.full_name,
                             })
                         all_cards.append(card)
+
+                # Enrich each card with last3 / last5 sliding-window ranks so
+                # the home page surfaces the same recency baseline that the
+                # game page and AI content payload now use.
+                attach_fn = get_attach_window_ranks() if get_attach_window_ranks else None
+                if attach_fn and all_cards:
+                    def _entity_type_for_card(c):
+                        sk = c.get("subject_kind")
+                        return "game" if sk == "game" else sk
+                    tuples_needed = []
+                    for c in all_cards:
+                        et = _entity_type_for_card(c)
+                        if not et:
+                            continue
+                        season = c.get("game_season") or c.get("season")
+                        eid = c.get("entity_id")
+                        if eid is None:
+                            # Source A doesn't store entity_id on the card; reconstruct.
+                            if c.get("subject_kind") == "game":
+                                gid = c.get("game_id")
+                                if gid is not None:
+                                    eid = str(gid)
+                            elif c.get("subject_kind") == "player":
+                                eid = c.get("player_id")
+                            elif c.get("subject_kind") == "team":
+                                eid = c.get("team_id")
+                        if eid is None or not season:
+                            continue
+                        tuples_needed.append((c["metric_key"], et, str(eid), str(season)))
+                    if tuples_needed:
+                        from sqlalchemy import tuple_ as _sql_tuple
+                        rows_for_ranks = (
+                            session.query(MetricResultModel)
+                            .filter(
+                                _sql_tuple(
+                                    MetricResultModel.metric_key,
+                                    MetricResultModel.entity_type,
+                                    MetricResultModel.entity_id,
+                                    MetricResultModel.season,
+                                ).in_(set(tuples_needed))
+                            )
+                            .all()
+                        )
+                        rank_map = attach_fn(session, rows_for_ranks, windows=("last3", "last5"))
+                        ranks_by_tuple: dict[tuple, dict] = {}
+                        for r in rows_for_ranks:
+                            ranks_by_tuple[(r.metric_key, r.entity_type, str(r.entity_id), str(r.season))] = rank_map.get(r.id, {})
+                        # Fallback: also key by entity_id-as-game-prefix for source A
+                        # cards that may store entity_id like "gameId:subId".
+                        for c in all_cards:
+                            et = _entity_type_for_card(c)
+                            if not et:
+                                continue
+                            season = c.get("game_season") or c.get("season")
+                            eid = (
+                                c.get("entity_id")
+                                or (str(c.get("game_id")) if c.get("subject_kind") == "game" and c.get("game_id") is not None else None)
+                                or (c.get("player_id") if c.get("subject_kind") == "player" else None)
+                                or (c.get("team_id") if c.get("subject_kind") == "team" else None)
+                            )
+                            if eid is None or not season:
+                                continue
+                            ranks = ranks_by_tuple.get((c["metric_key"], et, str(eid), str(season)), {})
+                            l3r, l3t = ranks.get("last3", (None, None))
+                            l5r, l5t = ranks.get("last5", (None, None))
+                            c["last3_rank"] = l3r
+                            c["last3_total"] = l3t
+                            c["last5_rank"] = l5r
+                            c["last5_total"] = l5t
+                            if l3r is not None and l3t and (l3r <= 10 or l3r / l3t <= 0.25):
+                                c["last3_badge_text"] = f"#{l3r} Last3"
+                            if l5r is not None and l5t and (l5r <= 10 or l5r / l5t <= 0.25):
+                                c["last5_badge_text"] = f"#{l5r} Last5"
         except Exception:
             return {"cards": [], "game_dates": []}
 

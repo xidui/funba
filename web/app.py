@@ -1800,14 +1800,19 @@ def _catalog_metric_entries_for_row(
 
 
 def _catalog_eligible_window_types(row, *, search_fields: dict) -> list[str]:
-    if (
-        row.status != "published"
-        or search_fields.get("career")
-        or not search_fields.get("supports_career")
-    ):
+    if row.status != "published" or search_fields.get("career"):
         return []
     scope = search_fields.get("scope", row.scope)
-    if scope in ("game", "season"):
+    if scope == "season":
+        return []
+    if scope == "game":
+        # Game-scope windows (last3/last5) are virtual views computed by
+        # filtering base-metric rows to the most recent N seasons of the same
+        # type, so they don't require supports_career or a season trigger.
+        # A "career" view would be redundant with the existing All-<type>
+        # dropdown option on the base metric page.
+        return ["last5", "last3"]
+    if not search_fields.get("supports_career"):
         return []
     window_types = ["career"]
     trigger = str(search_fields.get("trigger") or "game").strip().lower()
@@ -2363,6 +2368,154 @@ def _game_metric_best_rank(entry: dict) -> int:
     return min(ranks) if ranks else 10**9
 
 
+_PREFIX_TO_PSEUDO_KIND = {
+    "2": "regular",
+    "4": "playoffs",
+    "5": "playin",
+}
+
+
+def _attach_window_ranks(
+    session,
+    rows,
+    *,
+    windows: tuple[str, ...] = ("season", "last3", "last5", "alltime"),
+    rank_group_aware: bool = True,
+):
+    """For each MetricResult row, compute (rank, total) in each named window pool.
+
+    Returns: ``{row.id: {window_name: (rank, total)}}``. Missing data → (None, None).
+
+    Windows:
+    - ``season``: rank within (metric_key, entity_type, season) pool.
+    - ``alltime``: rank within (metric_key, entity_type, same season-prefix) pool.
+    - ``last3`` / ``last5``:
+        * For player/team/player_franchise rows: looks up the entity's pseudo-season
+          aggregate row (season = ``last3_<kind>`` / ``last5_<kind>``) and ranks
+          that aggregate's value vs the pseudo-season pool.
+        * For game-scope rows: ranks this row's value vs game-scope rows in the
+          last 3 or 5 distinct seasons sharing the same prefix.
+
+    ``rank_group_aware`` keeps NULL/non-NULL ``rank_group`` rows in separate pools
+    via COALESCE("__all__") matching, mirroring the existing game-metrics path.
+    """
+    out: dict[int, dict[str, tuple[int | None, int | None]]] = {
+        r.id: {w: (None, None) for w in windows} for r in rows
+    }
+    if not rows:
+        return out
+
+    MR = MetricResultModel
+    asc_keys = _asc_metric_keys(session)
+    target_ids = [r.id for r in rows]
+
+    def _better(e_alias, p_alias):
+        if asc_keys:
+            return case(
+                (e_alias.c.metric_key.in_(asc_keys), p_alias.c.value_num < e_alias.c.value_num),
+                else_=(p_alias.c.value_num > e_alias.c.value_num),
+            )
+        return p_alias.c.value_num > e_alias.c.value_num
+
+    def _rank_group_match(e_alias, p_alias):
+        if not rank_group_aware:
+            return None
+        return func.coalesce(p_alias.c.rank_group, "__all__") == func.coalesce(e_alias.c.rank_group, "__all__")
+
+    def _run_self_join(e_alias, p_alias, extra_join_clauses, id_filter):
+        clauses = [
+            p_alias.c.metric_key == e_alias.c.metric_key,
+            p_alias.c.entity_type == e_alias.c.entity_type,
+            p_alias.c.value_num.isnot(None),
+        ]
+        rg = _rank_group_match(e_alias, p_alias)
+        if rg is not None:
+            clauses.append(rg)
+        clauses.extend(extra_join_clauses)
+        q = (
+            session.query(
+                e_alias.c.id,
+                func.count(p_alias.c.id).label("total"),
+                (func.sum(case((_better(e_alias, p_alias), 1), else_=0)) + 1).label("rank"),
+            )
+            .select_from(e_alias).join(p_alias, and_(*clauses))
+            .filter(id_filter)
+            .group_by(e_alias.c.id)
+        )
+        return {r.id: (int(r.rank), int(r.total)) for r in q.all()}
+
+    if "season" in windows:
+        e = MR.__table__.alias("e_win_season")
+        p = MR.__table__.alias("p_win_season")
+        result_map = _run_self_join(e, p, [p.c.season == e.c.season], e.c.id.in_(target_ids))
+        for rid, val in result_map.items():
+            out[rid]["season"] = val
+
+    if "alltime" in windows:
+        e = MR.__table__.alias("e_win_alltime")
+        p = MR.__table__.alias("p_win_alltime")
+        result_map = _run_self_join(
+            e, p,
+            [func.substr(p.c.season, 1, 1) == func.substr(e.c.season, 1, 1)],
+            e.c.id.in_(target_ids),
+        )
+        for rid, val in result_map.items():
+            out[rid]["alltime"] = val
+
+    last_windows = [w for w in windows if w in ("last3", "last5")]
+    if not last_windows:
+        return out
+
+    rows_by_prefix: dict[str, list] = defaultdict(list)
+    for r in rows:
+        if not r.season:
+            continue
+        prefix_char = str(r.season)[:1]
+        if prefix_char not in _PREFIX_TO_PSEUDO_KIND:
+            continue
+        rows_by_prefix[prefix_char].append(r)
+
+    last_n_seasons_cache: dict[str, list[str]] = {}
+
+    def _last_n_seasons(prefix_char: str, n: int) -> list[str]:
+        cache_key = f"{prefix_char}:{n}"
+        if cache_key in last_n_seasons_cache:
+            return last_n_seasons_cache[cache_key]
+        seasons = (
+            session.query(distinct(Game.season))
+            .filter(Game.season.like(f"{prefix_char}%"))
+            .order_by(Game.season.desc())
+            .limit(n)
+            .all()
+        )
+        result = [str(s[0]) for s in seasons]
+        last_n_seasons_cache[cache_key] = result
+        return result
+
+    # Sliding-window ranking: for each row, rank its value against all rows
+    # of the same metric_key + entity_type in the last N concrete seasons of
+    # the same prefix. Same SQL shape as season/alltime; we just substitute
+    # `season IN (last_n)` for the pool join clause.
+    for window_name in last_windows:
+        n = 3 if window_name == "last3" else 5
+        for prefix_char, grp_rows in rows_by_prefix.items():
+            last_n = _last_n_seasons(prefix_char, n)
+            if not last_n:
+                continue
+            grp_ids = [r.id for r in grp_rows]
+            e = MR.__table__.alias(f"e_{window_name}_{prefix_char}")
+            p = MR.__table__.alias(f"p_{window_name}_{prefix_char}")
+            result_map = _run_self_join(
+                e, p,
+                [p.c.season.in_(last_n)],
+                e.c.id.in_(grp_ids),
+            )
+            for rid, val in result_map.items():
+                out[rid][window_name] = val
+
+    return out
+
+
 def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
     """Return player + team metrics that this specific game advanced.
 
@@ -2450,57 +2603,11 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         pruned_rows.extend(rows_for_metric[:per_metric_limit])
 
     entity_rows = pruned_rows
-    target_ids = [r.id for r in entity_rows]
-    MR = MetricResultModel
-    e = MR.__table__.alias("e")
-    p = MR.__table__.alias("p")
-    if _asc_keys:
-        better_expr = case(
-            (e.c.metric_key.in_(_asc_keys), p.c.value_num < e.c.value_num),
-            else_=(p.c.value_num > e.c.value_num),
-        )
-    else:
-        better_expr = p.c.value_num > e.c.value_num
-
-    # Season rank — same (metric_key, entity_type, season) pool.
-    season_join = and_(
-        p.c.metric_key == e.c.metric_key,
-        p.c.entity_type == e.c.entity_type,
-        p.c.season == e.c.season,
-        p.c.value_num.isnot(None),
+    rank_map = _attach_window_ranks(
+        session,
+        entity_rows,
+        windows=("season", "last3", "last5", "alltime"),
     )
-    season_rank_q = (
-        session.query(
-            e.c.id,
-            func.count(p.c.id).label("total"),
-            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
-        )
-        .select_from(e).join(p, season_join)
-        .filter(e.c.id.in_(target_ids))
-        .group_by(e.c.id)
-    )
-    season_rank_map = {r.id: (int(r.rank), int(r.total)) for r in season_rank_q.all()}
-
-    # All-time rank — same (metric_key, entity_type, season_prefix) pool.
-    prefix_p = func.substr(p.c.season, 1, 1)
-    prefix_e = func.substr(e.c.season, 1, 1)
-    alltime_join = and_(
-        p.c.metric_key == e.c.metric_key,
-        p.c.entity_type == e.c.entity_type,
-        prefix_p == prefix_e,
-        p.c.value_num.isnot(None),
-    )
-    alltime_rank_q = (
-        session.query(
-            e.c.id,
-            func.count(p.c.id).label("total"),
-            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
-        )
-        .select_from(e).join(p, alltime_join)
-        .filter(e.c.id.in_(target_ids))
-        .group_by(e.c.id)
-    )
-    alltime_rank_map = {r.id: (int(r.rank), int(r.total)) for r in alltime_rank_q.all()}
 
     metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
     base_keys = {family_base_key(r.metric_key) for r in entity_rows}
@@ -2515,11 +2622,16 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
 
     result: dict[str, list[dict]] = {"player": [], "team": []}
     for r in entity_rows:
-        season_rank, season_total = season_rank_map.get(r.id, (1, 1))
-        all_rank, all_total = alltime_rank_map.get(r.id, (None, None))
+        ranks = rank_map.get(r.id, {})
+        season_rank, season_total = ranks.get("season", (1, 1))
+        all_rank, all_total = ranks.get("alltime", (None, None))
+        last3_rank, last3_total = ranks.get("last3", (None, None))
+        last5_rank, last5_total = ranks.get("last5", (None, None))
         season_ratio = (season_rank / season_total) if season_total else 1.0
         all_ratio = (all_rank / all_total) if (all_rank is not None and all_total) else None
-        best_ratio = min(x for x in (season_ratio, all_ratio) if x is not None)
+        last3_ratio = (last3_rank / last3_total) if (last3_rank is not None and last3_total) else None
+        last5_ratio = (last5_rank / last5_total) if (last5_rank is not None and last5_total) else None
+        best_ratio = min(x for x in (season_ratio, all_ratio, last3_ratio, last5_ratio) if x is not None)
 
         is_hero = (all_ratio is not None and all_ratio <= 0.01) or season_ratio <= 0.01
         is_featured = (
@@ -2553,14 +2665,22 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             "total": season_total,
             "all_rank": all_rank,
             "all_total": all_total,
+            "last3_rank": last3_rank,
+            "last3_total": last3_total,
+            "last5_rank": last5_rank,
+            "last5_total": last5_total,
             "ratio": season_ratio,
             "all_ratio": all_ratio,
+            "last3_ratio": last3_ratio,
+            "last5_ratio": last5_ratio,
             "best_ratio": best_ratio,
             "is_featured": is_featured,
             "is_hero": is_hero,
             "context_label": context_label,
             "season_badge_text": _game_metric_badge_text(season_rank, season_total, "Season"),
             "all_badge_text": _game_metric_badge_text(all_rank, all_total, "All"),
+            "last3_badge_text": _game_metric_badge_text(last3_rank, last3_total, "Last3"),
+            "last5_badge_text": _game_metric_badge_text(last5_rank, last5_total, "Last5"),
         }
         if r.entity_type == "player":
             pl = player_map.get(r.entity_id)
@@ -2742,6 +2862,10 @@ def _story_candidate_from_game_metric(entry: dict) -> dict:
     season_total = entry.get("total")
     all_rank = entry.get("all_games_rank")
     all_total = entry.get("all_games_total")
+    last3_rank = entry.get("last3_rank")
+    last3_total = entry.get("last3_total")
+    last5_rank = entry.get("last5_rank")
+    last5_total = entry.get("last5_total")
     candidate = {
         "metric_key": metric_key,
         "metric_name": entry.get("metric_name"),
@@ -2755,6 +2879,12 @@ def _story_candidate_from_game_metric(entry: dict) -> dict:
         "season_rank": _story_metric_int(season_rank),
         "season_total": _story_metric_int(season_total),
         "season_ratio": _story_metric_ratio(season_rank, season_total),
+        "last3_rank": _story_metric_int(last3_rank),
+        "last3_total": _story_metric_int(last3_total),
+        "last3_ratio": _story_metric_ratio(last3_rank, last3_total),
+        "last5_rank": _story_metric_int(last5_rank),
+        "last5_total": _story_metric_int(last5_total),
+        "last5_ratio": _story_metric_ratio(last5_rank, last5_total),
         "all_rank": _story_metric_int(all_rank),
         "all_total": _story_metric_int(all_total),
         "all_ratio": _story_metric_ratio(all_rank, all_total),
@@ -2774,6 +2904,10 @@ def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
     season_total = entry.get("total")
     all_rank = entry.get("all_rank")
     all_total = entry.get("all_total")
+    last3_rank = entry.get("last3_rank")
+    last3_total = entry.get("last3_total")
+    last5_rank = entry.get("last5_rank")
+    last5_total = entry.get("last5_total")
     label = entry.get("player_name") if source == "triggered_player" else entry.get("team_abbr")
     candidate = {
         "metric_key": metric_key,
@@ -2789,6 +2923,12 @@ def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
         "season_rank": _story_metric_int(season_rank),
         "season_total": _story_metric_int(season_total),
         "season_ratio": _story_metric_ratio(season_rank, season_total),
+        "last3_rank": _story_metric_int(last3_rank),
+        "last3_total": _story_metric_int(last3_total),
+        "last3_ratio": _story_metric_ratio(last3_rank, last3_total),
+        "last5_rank": _story_metric_int(last5_rank),
+        "last5_total": _story_metric_int(last5_total),
+        "last5_ratio": _story_metric_ratio(last5_rank, last5_total),
         "all_rank": _story_metric_int(all_rank),
         "all_total": _story_metric_int(all_total),
         "all_ratio": _story_metric_ratio(all_rank, all_total),
@@ -2899,6 +3039,7 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
         session.query(
             MetricResultModel.id,
             MetricResultModel.metric_key,
+            MetricResultModel.entity_type,
             MetricResultModel.entity_id,
             MetricResultModel.season,
             MetricResultModel.rank_group,
@@ -2919,66 +3060,22 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
     if not entity_rows:
         return {"season": [], "season_extra": []}
 
-    target_ids = [r.id for r in entity_rows]
-    MR = MetricResultModel
-    e = MR.__table__.alias("e")
-    p = MR.__table__.alias("p")
-    if _asc_keys:
-        better_expr = case(
-            (e.c.metric_key.in_(_asc_keys), p.c.value_num < e.c.value_num),
-            else_=(p.c.value_num > e.c.value_num),
-        )
-    else:
-        better_expr = p.c.value_num > e.c.value_num
-
-    season_join = and_(
-        p.c.metric_key == e.c.metric_key,
-        p.c.entity_type == e.c.entity_type,
-        p.c.season == e.c.season,
-        func.coalesce(p.c.rank_group, "__all__") == func.coalesce(e.c.rank_group, "__all__"),
-        p.c.value_num.isnot(None),
+    rank_map = _attach_window_ranks(
+        session,
+        entity_rows,
+        windows=("season", "last3", "last5", "alltime"),
     )
-    season_rank_q = (
-        session.query(
-            e.c.id,
-            func.count(p.c.id).label("total"),
-            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
-        )
-        .select_from(e).join(p, season_join)
-        .filter(e.c.id.in_(target_ids))
-        .group_by(e.c.id)
-    )
-    season_rank_map = {r.id: (int(r.rank), int(r.total)) for r in season_rank_q.all()}
-
-    prefix = _season_type_prefix(game_season)
-    alltime_join = and_(
-        p.c.metric_key == e.c.metric_key,
-        p.c.entity_type == e.c.entity_type,
-        func.coalesce(p.c.rank_group, "__all__") == func.coalesce(e.c.rank_group, "__all__"),
-        p.c.value_num.isnot(None),
-        func.substr(p.c.season, 1, 1) == func.substr(e.c.season, 1, 1),
-    )
-    alltime_rank_q = (
-        session.query(
-            e.c.id,
-            func.count(p.c.id).label("total"),
-            (func.sum(case((better_expr, 1), else_=0)) + 1).label("rank"),
-        )
-        .select_from(e).join(p, alltime_join)
-        .filter(e.c.id.in_(target_ids))
-    )
-    if prefix:
-        alltime_rank_q = alltime_rank_q.filter(func.substr(e.c.season, 1, 1) == prefix)
-    alltime_rank_q = alltime_rank_q.group_by(e.c.id)
-    alltime_rank_map = {r.id: (int(r.rank), int(r.total)) for r in alltime_rank_q.all()}
 
     metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
     db_templates = _load_context_label_templates(session, {family_base_key(r.metric_key) for r in entity_rows})
 
     season_metrics: list[dict] = []
     for r in entity_rows:
-        season_rank, season_total = season_rank_map.get(r.id, (1, 1))
-        all_rank, all_total = alltime_rank_map.get(r.id, (None, None))
+        ranks = rank_map.get(r.id, {})
+        season_rank, season_total = ranks.get("season", (1, 1))
+        all_rank, all_total = ranks.get("alltime", (None, None))
+        last3_rank, last3_total = ranks.get("last3", (None, None))
+        last5_rank, last5_total = ranks.get("last5", (None, None))
         try:
             ctx = json.loads(r.context_json) if r.context_json else {}
         except Exception:
@@ -2999,6 +3096,10 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
             "total": season_total,
             "all_games_rank": all_rank,
             "all_games_total": all_total,
+            "last3_rank": last3_rank,
+            "last3_total": last3_total,
+            "last5_rank": last5_rank,
+            "last5_total": last5_total,
             "computed_at": r.computed_at,
             "rank_group": r.rank_group,
         })
@@ -3074,6 +3175,16 @@ def _prepare_game_metric_cards(
             card.get("all_games_rank"),
             card.get("all_games_total"),
             "All",
+        )
+        card["last3_badge_text"] = _game_metric_badge_text(
+            card.get("last3_rank"),
+            card.get("last3_total"),
+            "Last3",
+        )
+        card["last5_badge_text"] = _game_metric_badge_text(
+            card.get("last5_rank"),
+            card.get("last5_total"),
+            "Last5",
         )
         cards.append(card)
 
@@ -5881,6 +5992,7 @@ _public_views = register_public_routes(
     get_localized_url_for=lambda: _localized_url_for,
     get_t=lambda: _t,
     get_pct_fmt=lambda: pct_fmt,
+    get_attach_window_ranks=lambda: _attach_window_ranks,
 )
 home = _public_views.home
 news_page = _public_views.news_page

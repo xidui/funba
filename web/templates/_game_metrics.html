@@ -44,9 +44,11 @@
         {% elif not val_short %}
           <div class="tem-metric">{{ val_raw }}</div>
         {% endif %}
-        {% if m.season_badge_text or m.all_badge_text %}
+        {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
         <div class="tem-badges">
           {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
+          {% if m.last3_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.last3_badge_text }}</span>{% endif %}
+          {% if m.last5_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.last5_badge_text }}</span>{% endif %}
           {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
         </div>
         {% endif %}
@@ -73,9 +75,11 @@
           {% if m.is_hero %}★ {% endif %}{% if kind == 'player' %}{{ m.player_name }}{% else %}{{ m.team_abbr }}{% endif %}
         </div>
         <div class="tem-metric">{{ m.metric_name }}{% if m.context_label %} · {{ m.context_label }}{% endif %}</div>
-        {% if m.season_badge_text or m.all_badge_text %}
+        {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
         <div class="tem-badges">
           {% if m.season_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.season_badge_text }}</span>{% endif %}
+          {% if m.last3_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.last3_badge_text }}</span>{% endif %}
+          {% if m.last5_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.last5_badge_text }}</span>{% endif %}
           {% if m.all_badge_text %}<span class="rank-chip{% if m.is_featured %} notable{% endif %}">{{ m.all_badge_text }}</span>{% endif %}
         </div>
         {% endif %}
