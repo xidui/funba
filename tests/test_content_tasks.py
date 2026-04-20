@@ -13,7 +13,10 @@ if str(REPO_ROOT) not in sys.path:
 
 
 from content_pipeline.game_analysis_issues import _game_analysis_issue_creation_lock  # noqa: E402
+from content_pipeline.game_analysis_issues import build_game_analysis_issue_description  # noqa: E402
+from content_pipeline.game_analysis_issues import build_game_analysis_issue_title  # noqa: E402
 from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
+from content_pipeline.game_analysis_issues import load_game_analysis_issue_template  # noqa: E402
 from tasks.content import ensure_daily_content_analysis_issue  # noqa: E402
 from web.paperclip_bridge import PaperclipBridgeConfig  # noqa: E402
 
@@ -364,6 +367,28 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(result["issue_identifier"], "XIX-999")
         self.assertEqual(result["db_issue_record_id"], 9)
         mock_client.create_issue.assert_not_called()
+
+
+class TestGameAnalysisIssueTemplate(unittest.TestCase):
+    @patch(
+        "content_pipeline.game_analysis_issues.game_context",
+        return_value={"game_id": "0042500101", "matchup": "ORL @ DET", "season": "42025"},
+    )
+    def test_description_renders_without_stray_placeholders(self, _mock_context):
+        # Guards against unescaped {foo} tokens in the markdown template —
+        # str.format raises KeyError and kills the beat task if a placeholder
+        # slips in that build_game_analysis_issue_description does not pass.
+        load_game_analysis_issue_template.cache_clear()
+        target = date.fromisoformat("2026-04-19")
+
+        title = build_game_analysis_issue_title(target, "0042500101")
+        body = build_game_analysis_issue_description(target, "0042500101")
+
+        self.assertIn("0042500101", title)
+        self.assertIn("ORL @ DET", title)
+        self.assertIn("0042500101", body)
+        self.assertIn("ORL @ DET", body)
+        self.assertIn("42025", body)
 
 
 if __name__ == "__main__":
