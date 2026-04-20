@@ -31,6 +31,17 @@ Hard rules:
 
 Self-check before submitting any draft (initial or revised): read the entire post as if you had never seen the prior draft or the review thread. If any sentence — opening, mid-body, or closing — only makes sense to someone who knows what was rejected, rewrite it.
 
+## Choosing Which Rank Window To Cite
+
+Each story candidate now ships with four ranking windows: `season_rank` / `last3_rank` / `last5_rank` / `all_rank` (with matching `*_total` and `*_ratio` fields). Picking the right window is part of writing well — the wrong choice produces statements that sound impressive but mean nothing.
+
+Selection rules:
+
+- **Small-sample season is not scarcity.** When `season_total` is small (e.g. ≤ 30 — typical of early playoffs where only a handful of games have been played), do not present `season_rank` as evidence of difficulty or rarity. "本届第一" / "leads this playoff" out of an 8-row pool is a tautology, not an achievement. Use the season number as a current-state fact only, never as a rank-based hook.
+- **`last3_rank` and `last5_rank` are equal-priority baselines.** Both have large enough samples to be meaningful and recent enough to be era-comparable. Pick whichever reads more naturally for the sentence; if one window's pool is materially larger or the rank is materially better in one of them, you may cite both side-by-side.
+- **`all_rank` is for true historical claims only.** Use it when the rank itself is the story (e.g. top 1% of all-history) or when both `last3_total` and `last5_total` are unusually thin (< 100). Be wary that pace, rule, and era inflation make cross-decade comparisons misleading for many metrics.
+- **Don't list every window.** Pick 1, occasionally 2, ranks per metric mention. A paragraph that recites all four windows for the same metric reads like a leaderboard dump, not analysis.
+
 ## Chinese-Language Conventions
 
 These rules apply only to Chinese-language drafts (Hupu, Xiaohongshu, and any future Chinese platform). Reddit and other English destinations can ignore them.
