@@ -833,12 +833,12 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
 
     if season and str(season).startswith(("2", "4", "5")):
         try:
-            from tasks.content import ensure_recent_content_analysis_for_season_task
+            from tasks.content import curate_then_analyze_for_season_task
 
-            ensure_recent_content_analysis_for_season_task.delay(season)
+            curate_then_analyze_for_season_task.delay(season)
         except Exception as exc:
             logger.warning(
-                "compute_season_metric: failed to enqueue content readiness check for season=%s: %s",
+                "compute_season_metric: failed to enqueue curate+analyze chain for season=%s: %s",
                 season,
                 exc,
             )
