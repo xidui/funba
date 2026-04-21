@@ -586,7 +586,9 @@ def _call_llm_with_system(
 
     if provider == "openai":
         import openai
-        client = openai.OpenAI()
+        # max_retries=0 — avoid silent retries that re-pay full reasoning
+        # token cost on reasoning models if the first attempt times out.
+        client = openai.OpenAI(max_retries=0, timeout=300)
         kwargs: dict = {
             "model": selected_model,
             "messages": [
