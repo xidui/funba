@@ -2523,6 +2523,88 @@ def _attach_window_ranks(
     return out
 
 
+def _curated_triggered_to_cards(curated: dict, kind: str) -> list[dict]:
+    """Rebuild triggered card dicts from a frozen curator JSON payload.
+
+    `kind` is "player" or "team". Cards keep entity identity (player name,
+    headshot, team abbr) from the snapshot so old games don't bleed in
+    current-day metadata.
+    """
+    use_zh = _is_zh()
+
+    def _pick_narrative(entry: dict) -> str | None:
+        zh = entry.get("narrative_zh") or entry.get("narrative")
+        en = entry.get("narrative_en")
+        return (zh or en) if use_zh else (en or zh)
+
+    def _badge(rank, total, label):
+        if rank is None or not total:
+            return None
+        if rank / total <= 0.25:
+            return f"#{rank} {label}"
+        return None
+
+    def _make(entry: dict, *, is_hero: bool) -> dict | None:
+        snap = entry.get("rank_snapshot") or {}
+        season_rank = snap.get("season")
+        season_total = snap.get("season_total")
+        all_rank = snap.get("alltime")
+        all_total = snap.get("alltime_total")
+        last3_rank = snap.get("last3")
+        last3_total = snap.get("last3_total")
+        last5_rank = snap.get("last5")
+        last5_total = snap.get("last5_total")
+        narrative = _pick_narrative(entry)
+        card: dict = {
+            "metric_key": entry.get("metric_key"),
+            "metric_name": entry.get("metric_name_snapshot") or entry.get("metric_key", "").replace("_", " ").title(),
+            "entity_type": kind,
+            "entity_id": entry.get("entity_id"),
+            "season": entry.get("season"),
+            "value_num": entry.get("value_snapshot"),
+            "value_str": entry.get("value_str_snapshot"),
+            "rank": season_rank,
+            "total": season_total,
+            "all_rank": all_rank,
+            "all_total": all_total,
+            "last3_rank": last3_rank,
+            "last3_total": last3_total,
+            "last5_rank": last5_rank,
+            "last5_total": last5_total,
+            "is_hero": is_hero,
+            "is_featured": True,
+            "is_notable": not is_hero,
+            "is_curated": True,
+            "context_label": narrative or entry.get("context_label_snapshot"),
+            "narrative": narrative,
+            "season_badge_text": _badge(season_rank, season_total, "Season"),
+            "all_badge_text": _badge(all_rank, all_total, "All"),
+            "last3_badge_text": _badge(last3_rank, last3_total, "Last3"),
+            "last5_badge_text": _badge(last5_rank, last5_total, "Last5"),
+        }
+        if kind == "player":
+            pid = entry.get("player_id") or entry.get("entity_id")
+            card["player_id"] = pid
+            card["player_name"] = entry.get("player_name")
+            card["player_headshot_url"] = _player_headshot_url(pid) if pid else None
+        else:
+            tid = entry.get("team_id") or entry.get("entity_id")
+            card["team_id"] = tid
+            card["team_abbr"] = entry.get("team_abbr")
+        return card
+
+    cards: list[dict] = []
+    for entry in curated.get("hero", []) or []:
+        c = _make(entry, is_hero=True)
+        if c is not None:
+            cards.append(c)
+    for entry in curated.get("notable", []) or []:
+        c = _make(entry, is_hero=False)
+        if c is not None:
+            cards.append(c)
+    return cards
+
+
 def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
     """Return player + team metrics that this specific game advanced.
 
@@ -2711,6 +2793,21 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             del bucket[32:]
         elif kind == "team":
             del bucket[20:]
+
+    game_row = session.query(Game).filter(Game.game_id == game_id).first()
+    if game_row is not None:
+        for kind, col in (("player", "highlights_curated_player_json"), ("team", "highlights_curated_team_json")):
+            raw_json = getattr(game_row, col, None)
+            if not raw_json:
+                continue
+            try:
+                curated = _json.loads(raw_json)
+            except Exception:
+                continue
+            if isinstance(curated, dict):
+                cards = _curated_triggered_to_cards(curated, kind)
+                if cards:
+                    result[kind] = cards
     return result
 
 

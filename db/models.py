@@ -159,6 +159,8 @@ class Game(Base):
     highlights_curated_json = Column(Text, nullable=True)
     highlights_curated_at = Column(DateTime, nullable=True)
     highlights_curated_model = Column(String(64), nullable=True)
+    highlights_curated_player_json = Column(Text, nullable=True)
+    highlights_curated_team_json = Column(Text, nullable=True)
 
 
 class GameContentAnalysisIssue(Base):

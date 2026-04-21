@@ -57,20 +57,67 @@ def prefilter_candidates(
     *,
     max_candidates: int = MAX_CANDIDATES,
     notable_ratio: float = NOTABLE_RATIO,
+    session=None,
+    tied_drop_threshold: int = 3,
 ) -> list[dict]:
     """Keep only reasonably noteworthy entries, sorted by best rank ratio.
 
     Drops:
-    - Entries whose best rank window has ratio > notable_ratio (not even top 25%)
+    - Entries whose best rank window has ratio > notable_ratio
     - Entries with no rank data at all
+    - Entries where the top rank is meaningless due to ties (when `session`
+      is provided): if the candidate sits at rank <= 3 and at least
+      `tied_drop_threshold` other entities share its exact value in the
+      same pool, the rank is an artifact (e.g., "1 loss, rank 1" early in
+      season with 20 teams also at 1 loss).
 
     Caps at max_candidates after sorting.
     """
+    entries_list = [e for e in entries]
+
+    tied_counts: dict[tuple, int] = {}
+    if session is not None:
+        from db.models import MetricResult as MetricResultModel
+
+        tie_keys: set[tuple] = set()
+        for e in entries_list:
+            ranks = [
+                e.get("rank"), e.get("all_games_rank"),
+                e.get("last3_rank"), e.get("last5_rank"),
+            ]
+            ranks = [r for r in ranks if r is not None]
+            best_rank = min(ranks) if ranks else None
+            if best_rank is not None and best_rank <= 3 and e.get("value_num") is not None and e.get("season"):
+                tie_keys.add((e["metric_key"], "game", e["season"], float(e["value_num"])))
+        for mk, et, season, val in tie_keys:
+            cnt = (
+                session.query(MetricResultModel)
+                .filter(
+                    MetricResultModel.metric_key == mk,
+                    MetricResultModel.entity_type == et,
+                    MetricResultModel.season == season,
+                    MetricResultModel.value_num == val,
+                )
+                .count()
+            )
+            tied_counts[(mk, et, season, val)] = cnt
+
     scored: list[tuple[float, dict]] = []
-    for e in entries:
+    for e in entries_list:
         ratio = _best_ratio(e)
         if ratio > notable_ratio:
             continue
+        if tied_counts:
+            ranks = [
+                e.get("rank"), e.get("all_games_rank"),
+                e.get("last3_rank"), e.get("last5_rank"),
+            ]
+            ranks = [r for r in ranks if r is not None]
+            best_rank = min(ranks) if ranks else None
+            if best_rank is not None and best_rank <= 3 and e.get("value_num") is not None and e.get("season"):
+                key = (e["metric_key"], "game", e["season"], float(e["value_num"]))
+                if tied_counts.get(key, 0) >= tied_drop_threshold:
+                    continue
         scored.append((ratio, e))
     scored.sort(key=lambda pair: pair[0])
     return [e for _, e in scored[:max_candidates]]

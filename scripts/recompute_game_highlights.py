@@ -64,9 +64,15 @@ def main() -> None:
                 continue
             try:
                 result = run_curator_for_game(session, game, model=args.model)
-                n_hero = len(result.get("hero") or [])
-                n_notable = len(result.get("notable") or [])
-                print(f"[{i}/{len(games)}] {game.game_id}  hero={n_hero} notable={n_notable}")
+                counts = {
+                    scope: (
+                        len(result.get(scope, {}).get("hero") or []),
+                        len(result.get(scope, {}).get("notable") or []),
+                    )
+                    for scope in ("game", "player", "team")
+                }
+                summary = "  ".join(f"{s}={h}+{n}" for s, (h, n) in counts.items())
+                print(f"[{i}/{len(games)}] {game.game_id}  {summary}")
             except Exception as exc:
                 logger.exception("curator failed for %s", game.game_id)
                 print(f"[{i}/{len(games)}] {game.game_id}  FAILED: {exc}")
