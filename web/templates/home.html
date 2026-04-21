@@ -1020,7 +1020,8 @@
           {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
           {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
           {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
-          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if m.narrative %} has-narrative{% endif %}"
+          {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
+          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
              href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
             {% if m.subject_kind == 'player' %}
               {% if m.player_headshot_url %}
@@ -1032,8 +1033,8 @@
               <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
             <div class="tem-body">
-              {% if m.narrative %}
-                <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.narrative }}</div>
+              {% if narrative %}
+                <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
                 <div class="tem-metric">{{ m.metric_name }}</div>
               {% else %}
               <div class="tem-name">

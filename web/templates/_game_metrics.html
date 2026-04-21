@@ -36,12 +36,13 @@
   {% macro game_card(m, extra=False) %}
     {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
     {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
-    <a class="tem-card tem-card-game{% if m.is_hero %} tem-hero{% endif %}{% if m.narrative %} has-narrative{% endif %}"
+    {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
+    <a class="tem-card tem-card-game{% if m.is_hero %} tem-hero{% endif %}{% if narrative %} has-narrative{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key) }}"
        {% if extra %}data-extra-game-metric style="display:none;"{% endif %}>
       <div class="tem-body">
-        {% if m.narrative %}
-          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.narrative }}</div>
+        {% if narrative %}
+          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
           <div class="tem-metric">{{ m.metric_name }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
         {% else %}
           <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
@@ -65,7 +66,8 @@
   {% endmacro %}
 
   {% macro triggered_card(m, kind, extra=False, extra_attr='') %}
-    <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if m.narrative %} has-narrative{% endif %}"
+    {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
+    <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if narrative %} has-narrative{% endif %}"
        href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}"
        {% if extra %}{{ extra_attr }} style="display:none;"{% endif %}>
       {% if kind == 'player' %}
@@ -78,8 +80,8 @@
         <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
       {% endif %}
       <div class="tem-body">
-        {% if m.narrative %}
-          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.narrative }}</div>
+        {% if narrative %}
+          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
           <div class="tem-metric">{{ m.metric_name }}</div>
         {% else %}
         <div class="tem-name">

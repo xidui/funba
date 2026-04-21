@@ -3231,19 +3231,20 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
 _CURATED_BADGE_LABELS = ("Season", "All", "Last3", "Last5")
 
 
-def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool, use_zh: bool) -> None:
+def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool) -> None:
     """Enrich a rule-based card in-place with curator narrative + frozen ranks.
 
     Card retains all its existing fields; we only override the rank / value
     with the curator snapshot (so old games don't get overwritten by new
     record-breakers) and add narrative + is_curated markers.
+
+    Both zh and en narratives are stored on the card; the template picks the
+    right one at render time based on the current locale so a single cached
+    payload serves both languages.
     """
     snap = entry.get("rank_snapshot") or {}
-    narrative = (
-        (entry.get("narrative_zh") or entry.get("narrative") or entry.get("narrative_en"))
-        if use_zh
-        else (entry.get("narrative_en") or entry.get("narrative_zh") or entry.get("narrative"))
-    )
+    narrative_zh = entry.get("narrative_zh") or entry.get("narrative")
+    narrative_en = entry.get("narrative_en")
 
     value_snapshot = entry.get("value_snapshot")
     if value_snapshot is not None:
@@ -3268,7 +3269,8 @@ def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool, use_
     _apply("last5_rank", "last5")
     _apply("last5_total", "last5_total")
 
-    card["narrative"] = narrative
+    card["narrative_zh"] = narrative_zh
+    card["narrative_en"] = narrative_en
     card["is_curated"] = True
     card["is_hero"] = is_hero
     card["is_featured"] = True
@@ -3296,8 +3298,6 @@ def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool, use_
 def _merge_curated_into_cards(
     cards: list[dict],
     curated: dict | None,
-    *,
-    use_zh: bool,
 ) -> list[dict]:
     """Merge a curator JSON into a list of rule-based cards.
 
@@ -3320,7 +3320,7 @@ def _merge_curated_into_cards(
             card = by_key.get(key)
             if card is None:
                 continue
-            _apply_curated_entry_to_card(card, entry, is_hero=is_hero, use_zh=use_zh)
+            _apply_curated_entry_to_card(card, entry, is_hero=is_hero)
             matched.append(card)
 
     matched_ids = {id(c) for c in matched}
@@ -3336,8 +3336,6 @@ def _merge_curated_narratives(payload: dict, game) -> dict:
     if game is None:
         payload["_curated_merged"] = False
         return payload
-
-    use_zh = _is_zh()
 
     def _parse(blob: str | None) -> dict | None:
         if not blob:
@@ -3359,7 +3357,7 @@ def _merge_curated_narratives(payload: dict, game) -> dict:
         visible = game_metrics.get("season") or []
         extra = game_metrics.get("season_extra") or []
         visible_limit = max(len(visible), 4)
-        combined = _merge_curated_into_cards(visible + extra, game_curated, use_zh=use_zh)
+        combined = _merge_curated_into_cards(visible + extra, game_curated)
         curated_cards = [c for c in combined if c.get("is_curated")]
         rest = [c for c in combined if not c.get("is_curated")]
         if len(curated_cards) >= visible_limit:
@@ -3375,11 +3373,11 @@ def _merge_curated_narratives(payload: dict, game) -> dict:
 
     if player_curated:
         payload["triggered_player_metrics"] = _merge_curated_into_cards(
-            payload.get("triggered_player_metrics") or [], player_curated, use_zh=use_zh
+            payload.get("triggered_player_metrics") or [], player_curated
         )
     if team_curated:
         payload["triggered_team_metrics"] = _merge_curated_into_cards(
-            payload.get("triggered_team_metrics") or [], team_curated, use_zh=use_zh
+            payload.get("triggered_team_metrics") or [], team_curated
         )
 
     payload["_curated_merged"] = any([game_curated, player_curated, team_curated])
