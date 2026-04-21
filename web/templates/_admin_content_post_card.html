@@ -1,6 +1,6 @@
 {% set _expanded = expanded if expanded is defined else false %}
 {% set _active_variant_id = active_variant_id if active_variant_id is defined else (p.variants[0].id if p.variants else none) %}
-<div class="post-card{% if _expanded %} expanded{% endif %}" id="post-{{ p.id }}" onclick="togglePost(event, {{ p.id }})">
+<div class="post-card{% if _expanded %} expanded{% endif %}" id="post-{{ p.id }}"{% if not _expanded %} onclick="navigateToPost(event, {{ p.id }})"{% endif %}>
   <div class="post-top">
     <span class="post-topic">{{ p.topic }}</span>
     <span class="post-badge {{ p.status }}">{{ p.status.replace('_', ' ') }}</span>

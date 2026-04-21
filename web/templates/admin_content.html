@@ -50,7 +50,8 @@
     padding: 16px 18px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.15s;
   }
   .post-card:hover { border-color: var(--accent); }
-  .post-card.expanded { cursor: pointer; }
+  .post-card.expanded { cursor: default; }
+  .post-card.expanded:hover { border-color: var(--border); }
 
   .post-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .post-topic { font-weight: 700; font-size: 14px; color: var(--heading); flex: 1; }
@@ -313,12 +314,9 @@
 const CURRENT_STATUS_FILTER = {{ status_filter|tojson }};
 const IMAGE_POOL_ENABLED_ONLY = {};
 
-function togglePost(e, id) {
-  const card = document.getElementById('post-' + id);
-  if (!card) return;
-  if (e.target.closest('.post-detail')) return;
-  card.classList.toggle('expanded');
-  if (card.classList.contains('expanded')) syncPaperclip(id);
+function navigateToPost(e, id) {
+  if (e.target.closest('a, button, input, select, textarea, label, details, summary')) return;
+  window.location.href = '/admin/content/' + id;
 }
 
 function triggerDailyAnalysis() {
