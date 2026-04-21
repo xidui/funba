@@ -503,7 +503,7 @@ def _prefilter_triggered(
     session,
     cards: list[dict],
     *,
-    max_candidates: int = 15,
+    max_candidates: int = 20,
     tied_drop_threshold: int = 3,
 ) -> list[dict]:
     """Pick the most notable cards (by best rank ratio) up to max_candidates.
@@ -554,7 +554,20 @@ def _prefilter_triggered(
                 continue
         kept.append(c)
 
-    kept.sort(key=lambda c: (c.get("best_ratio", 1.0), c.get("rank") or 10**9))
+    from metrics.framework.base import is_career_season
+
+    def _tier(card: dict) -> int:
+        # Career milestone crossings > in-season milestones > runlog cards.
+        # Without this, a rare career crossing (severity 0.70, best_ratio 0.03)
+        # loses the prefilter cap to a runlog percentile card at 0.02 and
+        # never reaches the curator.
+        if card.get("source") == "milestone":
+            if is_career_season(card.get("season")):
+                return 0
+            return 1
+        return 2
+
+    kept.sort(key=lambda c: (_tier(c), c.get("best_ratio", 1.0), c.get("rank") or 10**9))
     return kept[:max_candidates]
 
 
