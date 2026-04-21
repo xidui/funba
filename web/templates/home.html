@@ -1020,7 +1020,7 @@
           {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
           {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
           {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
-          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}"
+          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if m.narrative %} has-narrative{% endif %}"
              href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
             {% if m.subject_kind == 'player' %}
               {% if m.player_headshot_url %}
@@ -1032,6 +1032,10 @@
               <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
             {% endif %}
             <div class="tem-body">
+              {% if m.narrative %}
+                <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.narrative }}</div>
+                <div class="tem-metric">{{ m.metric_name }}</div>
+              {% else %}
               <div class="tem-name">
                 {% if m.is_hero %}★ {% endif %}
                 {% if m.subject_kind == 'player' %}{{ m.player_name }}
@@ -1043,6 +1047,7 @@
                 {% elif m.context_label %}{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}
                 {% elif not val_short %}{{ val_raw }}{% endif %}
               </div>
+              {% endif %}
               {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
               <div class="tem-badges">
                 {% if m.all_badge_text %}<span class="rank-chip notable">{{ m.all_badge_text }}</span>{% endif %}
@@ -1213,6 +1218,8 @@
   .tem-card-game.tem-hero { border-left-color: var(--accent); }
   .tem-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .tem-name { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 13px; color: var(--heading, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tem-card.has-narrative .tem-name { white-space: normal; line-height: 1.35; }
+  .tem-card.has-narrative { align-items: flex-start; }
   .tem-metric { font-size: 11px; color: var(--muted-2, #9aa3b2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tem-metric:empty { display: none; }
   .tem-value { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; color: var(--heading, #fff); flex-shrink: 0; }
