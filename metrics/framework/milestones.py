@@ -813,21 +813,64 @@ def _record_provider_game(
         record_fn(session, game_id, metric_key, season, deltas, game_counts, min_sample)
 
 
-def _rank_prestige(rank: int | None) -> float:
+SEASON_CROSSING_VALUE_FLOORS: dict[str, float] = {
+    "season_total": 30.0,
+    "count_threshold": 3.0,
+    "count_combo": 2.0,
+    "count_exact": 2.0,
+    "games_played": 5.0,
+    "games_started": 5.0,
+    "count": 3.0,
+}
+RANK_PRESTIGE_POOL_FULL_SCALE = 20  # pools at or above this size are not attenuated
+RANK_PRESTIGE_POOL_MIN_SCALE = 0.5  # floor for pathological tiny pools (tests, synthetic data)
+
+
+def _rank_prestige(rank: int | None, pool_size: int | None = None) -> float:
+    """Return a rank-position prestige score.
+
+    The value-floor is the primary noise filter for in-season crossings; this
+    function just caps severity in extremely tiny pools (<20 entities, usually
+    synthetic/test data) so a rank of #1 there can't mint a hero-tier event.
+    Realistic NBA pools (30+ players in a playoff round, hundreds league-wide,
+    thousands career) are unaffected.
+    """
     if rank is None:
         return 0.0
     rank = int(rank)
     if rank == 1:
-        return 0.95
-    if rank <= 5:
-        return 0.85
-    if rank <= 10:
-        return 0.70
-    if rank <= 25:
-        return 0.50
-    if rank <= 100:
-        return 0.30
-    return 0.10
+        base = 0.95
+    elif rank <= 5:
+        base = 0.85
+    elif rank <= 10:
+        base = 0.70
+    elif rank <= 25:
+        base = 0.50
+    elif rank <= 100:
+        base = 0.30
+    else:
+        base = 0.10
+    if pool_size is None or pool_size >= RANK_PRESTIGE_POOL_FULL_SCALE:
+        return base
+    scale = max(RANK_PRESTIGE_POOL_MIN_SCALE, float(pool_size) / RANK_PRESTIGE_POOL_FULL_SCALE)
+    return base * scale
+
+
+def _season_crossing_value_floor(metric) -> float:
+    """Minimum meaningful target value to emit a season-scope rank_crossing.
+
+    Prevents the early-playoffs cascade where a player with 1 game "crosses"
+    dozens of tied players with 0-1 games. Overridable per-metric by setting
+    `season_crossing_min_target_value`.
+    """
+    explicit = getattr(metric, "season_crossing_min_target_value", None)
+    if explicit is not None:
+        try:
+            return float(explicit)
+        except (TypeError, ValueError):
+            pass
+    kind = str(_metric_attr(metric, "metric_kind", "") or "")
+    return SEASON_CROSSING_VALUE_FLOORS.get(kind, 0.0)
 
 
 def _player_payloads(session: Session, player_ids: Sequence[str]) -> dict[str, dict]:
@@ -1061,9 +1104,10 @@ def _build_crossing_event(
         target_payload["gap"] = _display_number((target_value - new_value) if target_value is not None else None)
         target_payload["rank"] = _rank_in_pool(current_pool, target_id)
 
+    pool_size = len(current_pool) if current_pool else None
     severity = max(
-        _rank_prestige(new_rank),
-        _rank_prestige(passed_payload.get("new_rank")),
+        _rank_prestige(new_rank, pool_size=pool_size),
+        _rank_prestige(passed_payload.get("new_rank"), pool_size=pool_size),
     )
 
     if severity < SEVERITY_MIN_EMIT:
@@ -1138,7 +1182,8 @@ def _build_approaching_event(
     target_payload["prev_gap"] = _display_number(prev_gap)
     target_payload["rank"] = _rank_in_pool(current_pool, target_id)
 
-    severity = _rank_prestige(target_payload.get("rank")) * _gap_tightness(new_gap)
+    pool_size = len(current_pool) if current_pool else None
+    severity = _rank_prestige(target_payload.get("rank"), pool_size=pool_size) * _gap_tightness(new_gap)
     if severity < SEVERITY_MIN_EMIT:
         return None
 
@@ -1389,6 +1434,11 @@ def detect_milestones_for_metric(
     stat_field = _metric_attr(metric, "value_field", None) or _metric_attr(metric, "stat_field", None)
     stat_label, stat_label_en = STAT_LABELS.get(str(stat_field or ""), (getattr(metric, "name_zh", None) or getattr(metric, "name", metric_key), getattr(metric, "name", metric_key)))
 
+    # Non-career (concrete season) pools suppress crossings against targets
+    # with trivially small pre-game values. Career/alltime pools don't need
+    # this because their values are always meaningful.
+    season_value_floor = 0.0 if is_career_season(season) else _season_crossing_value_floor(metric)
+
     all_deltas, game_counts = _load_game_metric_deltas(session, game, metric)
     event_deltas = {player_id: delta for player_id, delta in all_deltas.items() if delta > 0}
     if not event_deltas:
@@ -1430,6 +1480,8 @@ def detect_milestones_for_metric(
                 target_prev_value = _clean_number(prev_pool.get(target_id, current_pool.get(target_id)))
                 target_new_value = _clean_number(current_pool.get(target_id, prev_pool.get(target_id)))
                 if target_prev_value <= 0 and target_new_value <= 0:
+                    continue
+                if season_value_floor > 0 and target_prev_value < season_value_floor:
                     continue
 
                 crossed_target = prev_value <= target_prev_value and new_value > target_new_value

@@ -2655,11 +2655,15 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
             "last3_total": None,
             "last5_rank": None,
             "last5_total": None,
-            "ratio": 1.0 - severity,
-            "all_ratio": 1.0 - severity if is_career_season(row.season) else None,
+            # best_ratio drives the final sort against runlog cards whose ratios
+            # come from percentile (can be as low as 0.001 for a league-#1).
+            # Scale milestone severity into the same competitive range so a
+            # career rank-crossing doesn't lose to every runlog percentile card.
+            "ratio": max(0.001, (1.0 - severity) / 10.0),
+            "all_ratio": max(0.001, (1.0 - severity) / 10.0) if is_career_season(row.season) else None,
             "last3_ratio": None,
             "last5_ratio": None,
-            "best_ratio": 1.0 - severity,
+            "best_ratio": max(0.001, (1.0 - severity) / 10.0),
             "is_featured": severity >= 0.55,
             "is_hero": severity >= 0.85,
             "context_label": (ctx or {}).get("threshold_crossed") if isinstance(ctx, dict) else None,

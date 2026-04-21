@@ -194,6 +194,67 @@ def test_milestone_detection_is_idempotent_and_stat_corrections_update_row():
     assert session.query(MetricMilestone).filter(MetricMilestone.game_id == "g2").count() == row_count
 
 
+def test_season_scope_crossing_suppressed_when_target_below_value_floor():
+    """count_threshold / season_total 等 metric 在 concrete season 上，
+    target 的 prev_value 小于 floor 时,不 emit crossing event —— 避免早
+    playoff 阶段一堆球员并列低值触发的级联噪音。Career-scope 仍保持原行为。"""
+    session = _session()
+    session.add_all(
+        [
+            Player(player_id="hero", full_name="Hero"),
+            Player(player_id="t1", full_name="T1"),
+            Player(player_id="t2", full_name="T2"),
+            Game(game_id="g1", season="42024", game_date=date(2024, 4, 1), home_team_score=100, road_team_score=90),
+            Game(game_id="g2", season="42024", game_date=date(2024, 4, 2), home_team_score=100, road_team_score=90),
+        ]
+    )
+    # 英雄 g1: 0 次助攻 (不 qualify, 忽略)
+    # t1 g1: 1 次助攻, t2 g1: 1 次助攻 (都是 1, 作为被穿越的低值目标)
+    # 英雄 g2: 5 次助攻 → 累计 5 (crossing value floor 对 count_threshold=3 是 3, 对 season_total=30 是 30)
+    _add_stat(session, "g1", "t1", 1)
+    _add_stat(session, "g1", "t2", 1)
+    _add_stat(session, "g2", "hero", 5)
+    session.commit()
+
+    # season_total 场景: floor=30, target prev_value=1 < 30 → 不 emit
+    metric_season_total = _metric()
+    metric_season_total.key = "season_total_assists"
+    metric_season_total.absolute_thresholds = []
+    provider = InMemoryBatchProvider(event_lookup_authoritative=True)
+    with patch("metrics.framework.milestones.get_metric", return_value=metric_season_total):
+        events_concrete = detect_milestones_for_metric(
+            session, "g1", metric_season_total.key, "42024",
+            prev_values_provider=provider,
+        )
+        events_concrete_g2 = detect_milestones_for_metric(
+            session, "g2", metric_season_total.key, "42024",
+            prev_values_provider=provider,
+        )
+    # g2 应该没有 rank_crossing 事件（target prev=1 < 30 floor）
+    assert [e for e in events_concrete_g2 if e["event_type"] == "rank_crossing"] == [], \
+        f"concrete season 不应 emit crossing: {events_concrete_g2}"
+
+    # Career 场景: 同样的数据, 但 season=all_playoffs, floor=0 (career) → emit
+    # 清掉前一次测试写入的行, 换用新 provider
+    session.query(MetricMilestone).delete()
+    session.commit()
+    metric_career = _metric()  # metric_kind=season_total, supports career
+    provider_career = InMemoryBatchProvider(event_lookup_authoritative=True)
+    with patch("metrics.framework.milestones.get_metric", return_value=metric_career):
+        detect_milestones_for_metric(
+            session, "g1", metric_career.key, "all_playoffs",
+            prev_values_provider=provider_career,
+        )
+        events_career_g2 = detect_milestones_for_metric(
+            session, "g2", metric_career.key, "all_playoffs",
+            prev_values_provider=provider_career,
+        )
+    # Career scope 应该仍 emit crossing (2 个 target 都被穿过)
+    career_crossings = [e for e in events_career_g2 if e["event_type"] == "rank_crossing"]
+    assert len(career_crossings) == 2, \
+        f"career scope 应 emit crossing: {events_career_g2}"
+
+
 def test_absolute_threshold_and_approaching_absolute_events_emit_once():
     session = _session()
     session.add_all(
