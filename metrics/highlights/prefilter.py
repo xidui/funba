@@ -135,6 +135,10 @@ def build_llm_input(entries: Iterable[dict]) -> list[dict]:
         out.append({
             "metric_key": e["metric_key"],
             "metric_name": e.get("metric_name") or e["metric_key"],
+            "metric_description": e.get("metric_description"),
+            "metric_description_zh": e.get("metric_description_zh"),
+            "metric_window": e.get("metric_window"),
+            "season": e.get("season"),
             "entity_id": e.get("entity_id"),
             "value": e.get("value_str") or (
                 str(e.get("value_num")) if e.get("value_num") is not None else None
