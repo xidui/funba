@@ -1367,16 +1367,32 @@ def register_public_routes(
             card["_sort"] = (game_idx, 0 if card.get("is_hero") else 1, card["ratio"], int(card.get("best_rank") or card.get("rank") or 9999))
             cards.append(card)
 
-        for metric in (payload or {}).get("triggered_player_metrics") or []:
-            if not metric.get("is_curated"):
-                continue
+        # Two player slots per game so a career milestone (e.g. surpassing a
+        # Hall-of-Famer on a career leaderboard) can ride alongside a season
+        # hero (e.g. a game-high scoring outburst).
+        player_slots_remaining = 2
+        player_candidates = [m for m in ((payload or {}).get("triggered_player_metrics") or []) if m.get("is_curated")]
+
+        def _player_sort_key(metric: dict) -> tuple:
+            from metrics.framework.base import is_career_season
+            is_career = bool(metric.get("season") and is_career_season(metric.get("season")))
+            return (
+                0 if metric.get("is_hero") else 1,
+                0 if is_career else 1,  # prefer career milestones within a tier
+                _highlight_metric_ratio(metric),
+                int(metric.get("rank") or 9999),
+            )
+
+        for metric in sorted(player_candidates, key=_player_sort_key):
+            if player_slots_remaining <= 0:
+                break
             card = dict(metric)
             card.update(metadata)
             card["subject_kind"] = "player"
             card["ratio"] = _highlight_metric_ratio(card)
             card["_sort"] = (game_idx, 0 if card.get("is_hero") else 1, card["ratio"], int(card.get("rank") or 9999))
             cards.append(card)
-            break  # one player card per game
+            player_slots_remaining -= 1
 
         for metric in (payload or {}).get("triggered_team_metrics") or []:
             if not metric.get("is_curated"):
