@@ -231,7 +231,10 @@ _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _parse_llm_json(text: str) -> dict:
-    stripped = text.strip()
+    stripped = (text or "").strip()
+    if not stripped:
+        logger.warning("LLM returned empty content (likely ran out of tokens during reasoning)")
+        raise ValueError("empty LLM response")
     if stripped.startswith("```"):
         # strip code fence
         stripped = stripped.strip("`")
@@ -243,6 +246,7 @@ def _parse_llm_json(text: str) -> dict:
         match = _JSON_BLOCK.search(stripped)
         if match:
             return json.loads(match.group(0))
+        logger.warning("LLM returned non-JSON content (first 500 chars): %r", stripped[:500])
         raise
 
 
@@ -302,7 +306,7 @@ def curate_game_highlights(
         SYSTEM_PROMPT,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=8192,
+        max_tokens=16384,
         reasoning_effort=reasoning_effort,
     )
 
@@ -441,7 +445,7 @@ def curate_triggered_highlights(
         system,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=8192,
+        max_tokens=16384,
         reasoning_effort=reasoning_effort,
     )
     parsed = _parse_llm_json(raw_response)
