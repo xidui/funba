@@ -202,6 +202,8 @@ def _validate_code_metric_ast(code: str) -> None:
 
 
 def _validate_metric_instance(metric: MetricDefinition) -> None:
+    metric.validate()
+
     missing = [
         attr for attr in ("key", "name", "description", "scope", "category")
         if not getattr(metric, attr, None)
@@ -222,6 +224,18 @@ def _validate_metric_instance(metric: MetricDefinition) -> None:
         metric.season_types = normalize_metric_season_types(getattr(metric, "season_types", None))
     except ValueError as exc:
         raise ValueError(f"Generated metric has invalid season_types: {exc}") from exc
+
+    if bool(getattr(metric, "additive_accumulator", False)):
+        kind = str(getattr(metric, "metric_kind", "") or "").lower()
+        bad_kinds = {"ratio", "win_pct", "per_game", "split_avg", "per_36", "streak", "single_game_record"}
+        if kind in bad_kinds:
+            raise ValueError(
+                f"Generated metric {metric.key!r} cannot set additive_accumulator=True for metric_kind={kind!r}"
+            )
+        if not getattr(metric, "approaching_thresholds", None):
+            raise ValueError(f"Generated metric {metric.key!r} sets additive_accumulator=True without approaching_thresholds")
+        if getattr(metric, "absolute_approach_thresholds", None) and not getattr(metric, "absolute_thresholds", None):
+            raise ValueError(f"Generated metric {metric.key!r} sets absolute_approach_thresholds without absolute_thresholds")
 
     metric_cls = type(metric)
     if trigger == "season":
@@ -746,6 +760,10 @@ class RuleMetricDefinition(MetricDefinition):
         self.base_metric_key = getattr(row, "base_metric_key", None)
         self.managed_family = bool(getattr(row, "managed_family", False))
         self.definition = json.loads(row.definition_json or "{}")
+        self.additive_accumulator = False
+        self.approaching_thresholds = []
+        self.absolute_thresholds = []
+        self.absolute_approach_thresholds = []
         self.trigger = str(self.definition.get("trigger") or "game").strip().lower()
         self.time_scope = str(self.definition.get("time_scope") or "season").strip().lower()
         self.supports_career = rule_supports_career(self.definition, row.scope)
@@ -911,6 +929,10 @@ class CodeMetricDefinition(MetricDefinition):
         self.career_max_keys = tuple(getattr(self._inner, "career_max_keys", ()) or ())
         self.career_min_keys = tuple(getattr(self._inner, "career_min_keys", ()) or ())
         self.career_group_by_sub_key = bool(getattr(self._inner, "career_group_by_sub_key", False))
+        self.additive_accumulator = bool(getattr(self._inner, "additive_accumulator", False))
+        self.approaching_thresholds = list(getattr(self._inner, "approaching_thresholds", []) or [])
+        self.absolute_thresholds = list(getattr(self._inner, "absolute_thresholds", []) or [])
+        self.absolute_approach_thresholds = list(getattr(self._inner, "absolute_approach_thresholds", []) or [])
         self.season_types = normalize_metric_season_types(getattr(self._inner, "season_types", None))
         self.context_label_template = getattr(self._inner, "context_label_template", None)
         self.trigger = getattr(self._inner, "trigger", "game")

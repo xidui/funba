@@ -17,6 +17,7 @@ WEB_APP_DB_MODEL_NAMES = (
     "MagicToken",
     "MetricComputeRun",
     "MetricDefinition",
+    "MetricMilestone",
     "MetricPerfLog",
     "MetricResult",
     "MetricRunLog",

@@ -173,11 +173,13 @@ def enqueue_season_metric_refresh(
     seasons: list[str] | set[str],
     *,
     metrics: list | None = None,
+    game_ids: list[str] | set[str] | None = None,
 ) -> dict:
     from metrics.framework.base import WINDOW_DISPATCH_ORDER, WINDOW_SEASONS, season_matches_metric_types, season_type_for
     from metrics.framework.runtime import get_all_metrics
 
     affected_seasons = sorted({season for season in seasons if season})
+    affected_game_ids = sorted({str(game_id) for game_id in (game_ids or []) if game_id})
     if not affected_seasons:
         return {"status": "no_seasons"}
 
@@ -225,6 +227,7 @@ def enqueue_season_metric_refresh(
                     metric_key=m.key,
                     run_id=run_id,
                     buckets=eligible_career_buckets,
+                    game_ids=affected_game_ids,
                 )
             )
             enqueued += len(season_tasks)
@@ -244,6 +247,7 @@ def enqueue_season_metric_refresh(
     )
     return {
         "seasons": affected_seasons,
+        "game_ids": affected_game_ids,
         "career_buckets": career_buckets,
         "metrics": scheduled_metrics,
         "enqueued": enqueued,
@@ -831,18 +835,6 @@ def compute_season_metric_task(self, metric_key: str, season: str, run_id: str |
     if run_id:
         _increment_compute_run_progress(run_id)
 
-    if season and str(season).startswith(("2", "4", "5")):
-        try:
-            from tasks.content import curate_then_analyze_for_season_task
-
-            curate_then_analyze_for_season_task.delay(season)
-        except Exception as exc:
-            logger.warning(
-                "compute_season_metric: failed to enqueue curate+analyze chain for season=%s: %s",
-                season,
-                exc,
-            )
-
     return {"metric_key": metric_key, "season": season, "results_written": count}
 
 
@@ -860,6 +852,7 @@ def enqueue_career_metric_family_task(
     metric_key: str,
     run_id: str | None = None,
     buckets: list[str] | tuple[str, ...] | None = None,
+    game_ids: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
     """Enqueue all pseudo-season window buckets after concrete seasons finish."""
     from metrics.framework.base import WINDOW_DISPATCH_ORDER, WINDOW_SEASONS, season_matches_metric_types, window_type_from_season
@@ -880,6 +873,7 @@ def enqueue_career_metric_family_task(
         if buckets is not None
         else [bucket for window_type in WINDOW_DISPATCH_ORDER for bucket in WINDOW_SEASONS[window_type]]
     )
+    career_tasks = []
     for bucket in candidate_buckets:
         window_type = window_type_from_season(bucket)
         if window_type is None:
@@ -892,9 +886,21 @@ def enqueue_career_metric_family_task(
             continue
         if not season_matches_metric_types(bucket, getattr(window_metric, "season_types", None)):
             continue
-        compute_season_metric_task.delay(window_key, bucket, run_id=run_id)
+        task_sig = compute_season_metric_task.s(window_key, bucket, run_id=run_id)
+        career_tasks.append(task_sig)
         dispatched_metric_keys.add(window_key)
         enqueued += 1
+
+    if career_tasks and game_ids:
+        chord(career_tasks)(
+            enqueue_milestone_detection_for_games_task.s(
+                game_ids=sorted({str(game_id) for game_id in game_ids if game_id}),
+                metric_keys=sorted({metric_key, *dispatched_metric_keys}),
+            )
+        )
+    else:
+        for task_sig in career_tasks:
+            task_sig.apply_async()
 
     logger.info(
         "enqueue_career_metric_family: metric=%s window_metrics=%s enqueued %d bucket(s)",
@@ -907,6 +913,135 @@ def enqueue_career_metric_family_task(
         "window_metrics": sorted(dispatched_metric_keys),
         "enqueued": enqueued,
     }
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.detect_milestones_for_game",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="metrics",
+    ignore_result=False,
+)
+def detect_milestones_for_game_task(
+    self,
+    game_id: str,
+    metric_keys: list[str] | tuple[str, ...] | None = None,
+) -> dict:
+    from metrics.framework.milestones import BoxScoreSliceProvider, detect_milestones_for_game
+
+    try:
+        with _session_factory()() as session:
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                return {"game_id": game_id, "events": 0, "skipped": True, "reason": "missing_game"}
+            events = detect_milestones_for_game(
+                session,
+                game_id,
+                prev_values_provider=BoxScoreSliceProvider(game),
+                metric_keys=list(metric_keys or []) or None,
+            )
+            session.commit()
+            return {"game_id": game_id, "events": len(events)}
+    except Exception as exc:
+        logger.warning("detect_milestones_for_game failed game=%s: %s", game_id, exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=30)
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.detect_milestones_for_games",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="metrics",
+    ignore_result=False,
+)
+def detect_milestones_for_games_task(
+    self,
+    game_ids: list[str] | tuple[str, ...],
+    metric_keys: list[str] | tuple[str, ...] | None = None,
+) -> dict:
+    from metrics.framework.milestones import detect_batch_incremental
+
+    game_ids = sorted({str(game_id) for game_id in (game_ids or []) if game_id})
+    if not game_ids:
+        return {"games": 0, "events": 0}
+    try:
+        with _session_factory()() as session:
+            events = detect_batch_incremental(session, game_ids, metric_keys=list(metric_keys or []) or None)
+            session.commit()
+            milestone_detection_complete_task.delay(game_ids=game_ids)
+            return {"games": len(game_ids), "events": len(events)}
+    except Exception as exc:
+        logger.warning("detect_milestones_for_games failed games=%s: %s", game_ids, exc, exc_info=True)
+        raise self.retry(exc=exc, countdown=30)
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.enqueue_milestone_detection_for_games",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="metrics",
+    ignore_result=True,
+)
+def enqueue_milestone_detection_for_games_task(
+    self,
+    results: list,
+    game_ids: list[str] | tuple[str, ...],
+    metric_keys: list[str] | tuple[str, ...] | None = None,
+) -> dict:
+    game_ids = sorted({str(game_id) for game_id in (game_ids or []) if game_id})
+    if not game_ids:
+        return {"status": "no_games"}
+    detect_milestones_for_games_task.delay(game_ids=game_ids, metric_keys=list(metric_keys or []) or None)
+    return {"status": "enqueued", "games": len(game_ids), "metric_keys": list(metric_keys or [])}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.metrics.milestone_detection_complete",
+    max_retries=1,
+    default_retry_delay=30,
+    queue="ingest",
+    ignore_result=True,
+)
+def milestone_detection_complete_task(self, results: list, game_ids: list[str] | tuple[str, ...]) -> dict:
+    game_ids = sorted({str(game_id) for game_id in (game_ids or []) if game_id})
+    seasons: set[str] = set()
+    active_runs = 0
+    try:
+        with _session_factory()() as session:
+            seasons = {
+                str(row[0])
+                for row in session.query(Game.season)
+                .filter(Game.game_id.in_(game_ids), Game.season.isnot(None))
+                .distinct()
+                .all()
+            }
+            active_runs = (
+                session.query(func.count(MetricComputeRun.id))
+                .filter(MetricComputeRun.status.in_((_RUN_STATUS_MAPPING, _RUN_STATUS_REDUCING)))
+                .scalar()
+                or 0
+            )
+    except Exception:
+        logger.warning("milestone_detection_complete: failed to load seasons for games=%s", game_ids, exc_info=True)
+    if active_runs:
+        logger.info(
+            "milestone_detection_complete: deferred curator for games=%s because %d metric run(s) are still active",
+            game_ids,
+            active_runs,
+        )
+        return {"status": "deferred", "games": len(game_ids), "active_runs": int(active_runs)}
+    for season in sorted(seasons):
+        try:
+            from tasks.content import curate_then_analyze_for_season_task
+
+            curate_then_analyze_for_season_task.delay(season, force_curator=False)
+        except Exception:
+            logger.warning("milestone_detection_complete: failed to enqueue curator season=%s", season, exc_info=True)
+    return {"status": "complete", "games": len(game_ids), "seasons": sorted(seasons)}
 
 
 @shared_task(
@@ -1000,4 +1135,4 @@ def refresh_current_season_metrics(self, ingest_results: list | None = None) -> 
 
     if not affected_seasons:
         return {"status": "no_seasons"}
-    return enqueue_season_metric_refresh(affected_seasons)
+    return enqueue_season_metric_refresh(affected_seasons, game_ids=game_ids)

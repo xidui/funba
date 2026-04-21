@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import BLOB, DATE, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import BLOB, DATE, BigInteger, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import declarative_base, deferred
 
 from db.config import get_database_url
@@ -161,6 +161,10 @@ class Game(Base):
     highlights_curated_model = Column(String(64), nullable=True)
     highlights_curated_player_json = Column(Text, nullable=True)
     highlights_curated_team_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('ix_Game_season_game_date', 'season', 'game_date'),
+    )
 
 
 class GameContentAnalysisIssue(Base):
@@ -413,6 +417,48 @@ class MetricResult(Base):
         Index('uq_MetricResult_key_entity_season_subkey', 'metric_key', 'entity_type', 'entity_id', 'season', 'sub_key', unique=True),
         Index('ix_MetricResult_entity', 'entity_type', 'entity_id', 'season'),
         Index('ix_MetricResult_ranking', 'metric_key', 'season', 'rank_group', 'value_num'),
+    )
+
+
+class MetricMilestone(Base):
+    __tablename__ = 'MetricMilestone'
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    metric_key = Column(String(128), nullable=False)
+    entity_type = Column(String(16), nullable=False)
+    entity_id = Column(String(50), nullable=False)
+    season = Column(String(16), nullable=False)
+    game_id = Column(String(50), nullable=False)
+    event_type = Column(String(32), nullable=False)
+    event_key = Column(String(128), nullable=False, default='rank_crossing')
+    prev_rank = Column(Integer, nullable=True)
+    new_rank = Column(Integer, nullable=True)
+    prev_value = Column(Float, nullable=True)
+    new_value = Column(Float, nullable=True)
+    value_delta = Column(Float, nullable=True)
+    thresholds_json = Column(Text, nullable=True)
+    passed_json = Column(Text, nullable=True)
+    target_json = Column(Text, nullable=True)
+    context_json = Column(Text, nullable=True)
+    severity = Column(Float, nullable=False, default=0.0)
+    computed_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'metric_key',
+            'entity_type',
+            'entity_id',
+            'season',
+            'game_id',
+            'event_type',
+            'event_key',
+            name='uq_milestone',
+        ),
+        Index('ix_MetricMilestone_game', 'game_id'),
+        Index('ix_MetricMilestone_metric_season', 'metric_key', 'season'),
+        Index('ix_MetricMilestone_entity', 'entity_type', 'entity_id', 'season'),
+        Index('ix_MetricMilestone_event_lookup', 'metric_key', 'entity_type', 'entity_id', 'season', 'event_type', 'event_key'),
+        Index('ix_MetricMilestone_severity', 'severity'),
     )
 
 

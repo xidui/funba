@@ -83,6 +83,58 @@ def test_player_box_metrics_define_required_career_aggregation_keys():
     assert best_single_game_reb.career_max_keys == ("best_value",)
 
 
+def test_season_total_counters_are_additive_accumulators():
+    specs_by_key = {spec.key: spec for spec in build_metric_specs()}
+    additive_keys = {
+        spec.key
+        for spec in specs_by_key.values()
+        if spec.key.startswith("season_total_") and spec.additive_accumulator
+    }
+
+    assert additive_keys == {
+        "season_total_points",
+        "season_total_assists",
+        "season_total_rebounds",
+        "season_total_offensive_rebounds",
+        "season_total_defensive_rebounds",
+        "season_total_steals",
+        "season_total_blocks",
+        "season_total_turnovers",
+        "season_total_fouls",
+        "season_total_field_goals_made",
+        "season_total_field_goal_attempts",
+        "season_total_three_pointers_made",
+        "season_total_three_point_attempts",
+        "season_total_free_throws_made",
+        "season_total_free_throw_attempts",
+    }
+    assert load_code_metric(specs_by_key["season_total_assists"].code_python).additive_accumulator is True
+    assert load_code_metric(specs_by_key["season_total_turnovers"].code_python).additive_accumulator is True
+
+
+def test_core_season_total_counters_define_metric_specific_approach_thresholds():
+    specs_by_key = {spec.key: spec for spec in build_metric_specs()}
+
+    assert load_code_metric(specs_by_key["season_total_points"].code_python).approaching_thresholds == [5, 20, 50, 100]
+    assert load_code_metric(specs_by_key["season_total_assists"].code_python).approaching_thresholds == [1, 3, 10, 30]
+    assert load_code_metric(specs_by_key["season_total_rebounds"].code_python).approaching_thresholds == [3, 10, 25, 50]
+    assert load_code_metric(specs_by_key["season_total_steals"].code_python).approaching_thresholds == [1, 3, 5, 10]
+    assert load_code_metric(specs_by_key["season_total_blocks"].code_python).approaching_thresholds == [1, 3, 5, 10]
+
+
+def test_core_season_total_counters_define_absolute_thresholds():
+    specs_by_key = {spec.key: spec for spec in build_metric_specs()}
+
+    points = load_code_metric(specs_by_key["season_total_points"].code_python)
+    assists = load_code_metric(specs_by_key["season_total_assists"].code_python)
+    threes = load_code_metric(specs_by_key["season_total_three_pointers_made"].code_python)
+
+    assert points.absolute_thresholds == [1000, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000]
+    assert points.absolute_approach_thresholds == [1, 5, 20, 50, 100]
+    assert assists.absolute_thresholds == [500, 1000, 2500, 5000, 7500, 10000, 12500, 15000]
+    assert threes.absolute_thresholds == [100, 500, 1000, 1500, 2000, 2500, 3000, 4000]
+
+
 def test_threshold_metric_emits_qualifying_games():
     specs_by_key = {spec.key: spec for spec in build_metric_specs()}
     metric = load_code_metric(specs_by_key["fifteen_plus_rebound_games"].code_python)

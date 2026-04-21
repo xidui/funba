@@ -244,6 +244,28 @@ class MetricDefinition(ABC):
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)
     rank_order: str = "desc"
 
+    # True only for strict additive counters where previous values can be
+    # reconstructed as current_value - game_delta.
+    additive_accumulator: bool = False
+    approaching_thresholds: list[int] = []
+    absolute_thresholds: list[int] = []
+    absolute_approach_thresholds: list[int] = []
+
+    @classmethod
+    def validate(cls) -> None:
+        if bool(getattr(cls, "additive_accumulator", False)) and not getattr(cls, "approaching_thresholds", None):
+            key = getattr(cls, "key", cls.__name__)
+            raise ValueError(f"{key}: additive_accumulator=True requires approaching_thresholds")
+        if (
+            bool(getattr(cls, "absolute_thresholds", None) or getattr(cls, "absolute_approach_thresholds", None))
+            and not bool(getattr(cls, "additive_accumulator", False))
+        ):
+            key = getattr(cls, "key", cls.__name__)
+            raise ValueError(f"{key}: absolute thresholds require additive_accumulator=True")
+        if bool(getattr(cls, "absolute_approach_thresholds", None)) and not bool(getattr(cls, "absolute_thresholds", None)):
+            key = getattr(cls, "key", cls.__name__)
+            raise ValueError(f"{key}: absolute_approach_thresholds requires absolute_thresholds")
+
     # Supported season families for season-triggered code metrics.
     # Defaults to regular season, playoffs, and play-in.
     season_types: tuple[str, ...] = METRIC_SEASON_TYPE_OPTIONS

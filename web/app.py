@@ -54,7 +54,7 @@ from db.paperclip_settings import (
     set_paperclip_issue_base_url,
 )
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
-from db.models import Award, Feedback, Game, GameContentAnalysisIssuePost, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameContentAnalysisIssuePost, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricMilestone, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from content_pipeline.game_analysis_issues import (
     ensure_game_content_analysis_issue_for_game,
@@ -1347,6 +1347,10 @@ def _code_metric_metadata_from_code(
         "trigger": getattr(metric, "trigger", "game"),
         "incremental": bool(getattr(metric, "incremental", True)),
         "rank_order": getattr(metric, "rank_order", "desc"),
+        "additive_accumulator": bool(getattr(metric, "additive_accumulator", False)),
+        "approaching_thresholds": list(getattr(metric, "approaching_thresholds", []) or []),
+        "absolute_thresholds": list(getattr(metric, "absolute_thresholds", []) or []),
+        "absolute_approach_thresholds": list(getattr(metric, "absolute_approach_thresholds", []) or []),
         "season_types": list(getattr(metric, "season_types", ("regular", "playoffs", "playin")) or ()),
         "context_label_template": getattr(metric, "context_label_template", None),
         "max_results_per_season": getattr(metric, "max_results_per_season", None),
@@ -2526,6 +2530,241 @@ def _attach_window_ranks(
     return out
 
 
+def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
+    import json as _json
+    from metrics.framework.base import is_career_season
+
+    rows = (
+        session.query(MetricMilestone)
+        .filter(MetricMilestone.game_id == game_id)
+        .order_by(MetricMilestone.severity.desc(), MetricMilestone.new_rank.asc())
+        .all()
+    )
+    if not rows:
+        return {"player": [], "team": []}
+
+    _is_admin_request = has_request_context() and is_admin()
+    disabled = _disabled_metric_keys(session) if not _is_admin_request else set()
+    rows = [row for row in rows if row.metric_key not in disabled]
+    if not rows:
+        return {"player": [], "team": []}
+
+    metric_name_cache = _batch_metric_names(session, {row.metric_key for row in rows})
+    player_ids = {row.entity_id for row in rows if row.entity_type == "player"}
+    team_ids = {row.entity_id for row in rows if row.entity_type == "team"}
+    player_map = {
+        player.player_id: player
+        for player in session.query(Player).filter(Player.player_id.in_(player_ids)).all()
+    } if player_ids else {}
+    team_map = _team_map(session) if team_ids else {}
+
+    def _display_name(payload: dict | None, *, zh: bool = False) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        return (
+            payload.get("name_zh" if zh else "name_en")
+            or payload.get("name_en")
+            or payload.get("abbr")
+            or payload.get("player_id")
+            or payload.get("team_id")
+        )
+
+    def _fallback_narrative(row, ctx: dict, passed: list, target: dict | None) -> tuple[str | None, str | None]:
+        actor = _display_name((ctx or {}).get("player"), zh=False)
+        actor_zh = _display_name((ctx or {}).get("player"), zh=True) or actor
+        stat = (ctx or {}).get("stat_label") or "数据"
+        stat_en = (ctx or {}).get("stat_label_en") or "total"
+        delta = (ctx or {}).get("game_delta")
+        value = row.new_value
+        rank = row.new_rank
+        if row.event_type == "rank_crossing" and passed:
+            first = passed[0]
+            passed_name = _display_name(first, zh=False)
+            passed_name_zh = _display_name(first, zh=True) or passed_name
+            zh = f"{actor_zh}{stat}+{delta}到{int(value) if value is not None else '?'}，升至第{rank}并超越{passed_name_zh}"
+            en = f"{actor} added {delta} {stat_en}, reached No. {rank} and passed {passed_name}"
+            if target:
+                target_name = _display_name(target, zh=False)
+                target_name_zh = _display_name(target, zh=True) or target_name
+                gap = target.get("gap")
+                if target_name_zh and gap is not None:
+                    zh += f"，距{target_name_zh}差{gap}"
+                    en += f", now {gap} behind {target_name}"
+            return zh, en
+        if row.event_type == "approaching_target" and target:
+            target_name = _display_name(target, zh=False)
+            target_name_zh = _display_name(target, zh=True) or target_name
+            gap = target.get("gap")
+            zh = f"{actor_zh}{stat}+{delta}到{int(value) if value is not None else '?'}，距{target_name_zh}差{gap}"
+            en = f"{actor} added {delta} {stat_en}, now {gap} behind {target_name}"
+            return zh, en
+        if row.event_type == "absolute_threshold":
+            label_zh = (ctx or {}).get("threshold_label_zh")
+            label_en = (ctx or {}).get("threshold_label_en")
+            count_before = (ctx or {}).get("count_reached_before_this_game")
+            zh = f"{actor_zh}{stat}+{delta}到{int(value) if value is not None else '?'}，突破{label_zh}"
+            en = f"{actor} reached {label_en} {stat_en}"
+            if count_before is not None:
+                zh += f"，此前{count_before}人达成"
+                en += f", after {count_before} players had reached it"
+            return zh, en
+        if row.event_type == "approaching_absolute":
+            label_zh = (ctx or {}).get("threshold_label_zh")
+            label_en = (ctx or {}).get("threshold_label_en")
+            gap = (ctx or {}).get("new_gap")
+            zh = f"{actor_zh}{stat}+{delta}到{int(value) if value is not None else '?'}，距{label_zh}差{gap}"
+            en = f"{actor} is {gap} {stat_en} away from {label_en}"
+            return zh, en
+        return None, None
+
+    result: dict[str, list[dict]] = {"player": [], "team": []}
+    for row in rows:
+        try:
+            ctx = _json.loads(row.context_json) if row.context_json else {}
+        except Exception:
+            ctx = {}
+        try:
+            passed = _json.loads(row.passed_json) if row.passed_json else []
+        except Exception:
+            passed = []
+        try:
+            target = _json.loads(row.target_json) if row.target_json else None
+        except Exception:
+            target = None
+        try:
+            thresholds = _json.loads(row.thresholds_json) if row.thresholds_json else []
+        except Exception:
+            thresholds = []
+
+        severity = float(row.severity or 0.0)
+        fallback_zh, fallback_en = _fallback_narrative(row, ctx if isinstance(ctx, dict) else {}, passed if isinstance(passed, list) else [], target if isinstance(target, dict) else None)
+        card = {
+            "source": "milestone",
+            "metric_key": row.metric_key,
+            "metric_name": metric_name_cache.get(row.metric_key, row.metric_key.replace("_", " ").title()),
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "season": row.season,
+            "value_num": row.new_value,
+            "value_str": str(int(row.new_value)) if row.new_value is not None and abs(row.new_value - round(row.new_value)) < 1e-9 else (str(row.new_value) if row.new_value is not None else None),
+            "rank": row.new_rank,
+            "total": None,
+            "all_rank": row.new_rank if is_career_season(row.season) else None,
+            "all_total": None,
+            "last3_rank": None,
+            "last3_total": None,
+            "last5_rank": None,
+            "last5_total": None,
+            "ratio": 1.0 - severity,
+            "all_ratio": 1.0 - severity if is_career_season(row.season) else None,
+            "last3_ratio": None,
+            "last5_ratio": None,
+            "best_ratio": 1.0 - severity,
+            "is_featured": severity >= 0.55,
+            "is_hero": severity >= 0.85,
+            "context_label": (ctx or {}).get("threshold_crossed") if isinstance(ctx, dict) else None,
+            "context_json": ctx if isinstance(ctx, dict) else {},
+            "fallback_narrative_zh": fallback_zh,
+            "fallback_narrative_en": fallback_en,
+            "event_type": row.event_type,
+            "event_key": row.event_key,
+            "severity": severity,
+            "passed": passed,
+            "target": target,
+            "thresholds": thresholds,
+            "season_badge_text": _game_metric_badge_text(row.new_rank, None, "Career" if is_career_season(row.season) else "Season"),
+            "all_badge_text": _game_metric_badge_text(row.new_rank, None, "Career") if is_career_season(row.season) else None,
+            "last3_badge_text": None,
+            "last5_badge_text": None,
+        }
+        if row.entity_type == "player":
+            player = player_map.get(row.entity_id)
+            if player is None:
+                continue
+            card["player_id"] = player.player_id
+            card["player_name"] = player.full_name
+            card["player_headshot_url"] = _player_headshot_url(player.player_id)
+        elif row.entity_type == "team":
+            team = team_map.get(row.entity_id)
+            if team is None:
+                continue
+            card["team_id"] = team.team_id
+            card["team_abbr"] = team.abbr
+        else:
+            continue
+        result[row.entity_type].append(card)
+    return result
+
+
+def _dedupe_triggered_cards(cards: list[dict], game_id: str) -> list[dict]:
+    from metrics.framework.base import is_career_season
+
+    def _priority(card: dict) -> tuple:
+        source_score = 0
+        if card.get("source") == "milestone":
+            source_score = 2 if is_career_season(card.get("season")) else 1
+        event_priority = {
+            "absolute_threshold": 4,
+            "rank_crossing": 3,
+            "approaching_target": 2,
+            "approaching_absolute": 1,
+        }.get(str(card.get("event_type") or ""), 0)
+        rank = card.get("rank") if card.get("rank") is not None else 10**9
+        return (
+            source_score,
+            float(card.get("severity") or 0.0),
+            event_priority,
+            -int(rank),
+            float(card.get("value_num") or 0.0),
+        )
+
+    grouped: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
+    for card in cards:
+        grouped[(
+            family_base_key(str(card.get("metric_key") or "")),
+            str(card.get("entity_type") or ""),
+            str(card.get("entity_id") or ""),
+            game_id,
+        )].append(card)
+
+    winners: list[dict] = []
+    for group in grouped.values():
+        group.sort(key=_priority, reverse=True)
+        winner = group[0]
+        related = group[1:]
+        if related:
+            ctx = winner.get("context_json") if isinstance(winner.get("context_json"), dict) else {}
+            ctx = dict(ctx)
+            ctx["related_milestones"] = [
+                {
+                    "source": c.get("source"),
+                    "metric_key": c.get("metric_key"),
+                    "season": c.get("season"),
+                    "event_type": c.get("event_type"),
+                    "event_key": c.get("event_key"),
+                    "severity": c.get("severity"),
+                    "rank": c.get("rank"),
+                    "value_num": c.get("value_num"),
+                    "context_json": c.get("context_json"),
+                }
+                for c in related
+            ]
+            winner["context_json"] = ctx
+        winners.append(winner)
+    return winners
+
+
+def _finalize_triggered_result(result: dict[str, list[dict]], game_id: str) -> dict[str, list[dict]]:
+    for kind in ("player", "team"):
+        result[kind] = _dedupe_triggered_cards(result.get(kind) or [], game_id)
+        result[kind].sort(key=lambda c: (c.get("best_ratio", 1.0), c.get("rank") or 10**9))
+        if kind == "player":
+            del result[kind][32:]
+        else:
+            del result[kind][20:]
+    return result
+
+
 def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
     """Return player + team metrics that this specific game advanced.
 
@@ -2541,6 +2780,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     import json as _json
     from db.models import MetricRunLog, Player as _Player
 
+    milestone_result = _milestone_cards_for_game(session, game_id)
     runs = (
         session.query(
             MetricRunLog.metric_key,
@@ -2556,14 +2796,14 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         .all()
     )
     if not runs:
-        return {"player": [], "team": []}
+        return _finalize_triggered_result(milestone_result, game_id)
 
     runs = [
         r for r in runs
         if _story_metric_role(str(r.metric_key or ""), f"triggered_{r.entity_type}") != "suppress"
     ]
     if not runs:
-        return {"player": [], "team": []}
+        return _finalize_triggered_result(milestone_result, game_id)
 
     trigger_keys = {(r.metric_key, r.entity_type, r.entity_id, r.season) for r in runs}
     metric_keys = {k[0] for k in trigger_keys}
@@ -2574,7 +2814,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         metric_keys = metric_keys - disabled
         trigger_keys = {k for k in trigger_keys if k[0] in metric_keys}
     if not trigger_keys:
-        return {"player": [], "team": []}
+        return _finalize_triggered_result(milestone_result, game_id)
 
     # Fetch the exact MetricResult rows for the logged trigger tuples.
     # Row-value IN keeps the server-side filter aligned with trigger_keys;
@@ -2593,7 +2833,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         .all()
     )
     if not entity_rows:
-        return {"player": [], "team": []}
+        return _finalize_triggered_result(milestone_result, game_id)
 
     _asc_keys = _asc_metric_keys(session)
     grouped_rows: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -2693,6 +2933,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             "last3_badge_text": _game_metric_badge_text(last3_rank, last3_total, "Last3"),
             "last5_badge_text": _game_metric_badge_text(last5_rank, last5_total, "Last5"),
         }
+        card["source"] = "runlog"
         if r.entity_type == "player":
             pl = player_map.get(r.entity_id)
             if pl is None:
@@ -2708,13 +2949,10 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             card["team_abbr"] = tm.abbr
         result[r.entity_type].append(card)
 
-    for kind, bucket in result.items():
-        bucket.sort(key=lambda c: (c["best_ratio"], c["rank"]))
-        if kind == "player":
-            del bucket[32:]
-        elif kind == "team":
-            del bucket[20:]
-    return result
+    for kind in ("player", "team"):
+        result[kind].extend(milestone_result.get(kind) or [])
+
+    return _finalize_triggered_result(result, game_id)
 
 
 _STORY_METRIC_OVERRIDES: dict[str, dict[str, object]] = {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 
@@ -37,6 +37,10 @@ class MetricSpec:
     max_results_per_season: int
     code_python: str
     context_label_template: str | None = None
+    additive_accumulator: bool = False
+    approaching_thresholds: tuple[int, ...] = ()
+    absolute_thresholds: tuple[int, ...] = ()
+    absolute_approach_thresholds: tuple[int, ...] = ()
 
 
 PLAYER_STAT_META = {
@@ -181,6 +185,10 @@ def render_player_box_metric(
     career_min_keys: tuple[str, ...] = (),
     value_suffix: str = "",
     context_label_template: str | None = None,
+    additive_accumulator: bool = False,
+    approaching_thresholds: tuple[int, ...] = (),
+    absolute_thresholds: tuple[int, ...] = (),
+    absolute_approach_thresholds: tuple[int, ...] = (),
 ) -> str:
     if supports_career:
         default_sum_keys, default_max_keys, default_min_keys = _default_player_box_career_keys(metric_kind)
@@ -218,6 +226,10 @@ def render_player_box_metric(
             incremental = False
             supports_career = {supports_career!r}
             rank_order = {rank_order!r}
+            additive_accumulator = {additive_accumulator!r}
+            approaching_thresholds = {list(approaching_thresholds or ())!r}
+            absolute_thresholds = {list(absolute_thresholds or ())!r}
+            absolute_approach_thresholds = {list(absolute_approach_thresholds or ())!r}
             max_results_per_season = {DEFAULT_LIMIT}
             group_key = {group_key!r}
             context_label_template = {context_label_template!r}
@@ -850,6 +862,10 @@ def render_team_metric(
     ratio_denominator: tuple[tuple[str, float], ...] = (),
     ratio_multiplier: float = 1.0,
     context_label_template: str | None = None,
+    additive_accumulator: bool = False,
+    approaching_thresholds: tuple[int, ...] = (),
+    absolute_thresholds: tuple[int, ...] = (),
+    absolute_approach_thresholds: tuple[int, ...] = (),
 ) -> str:
     return dedent(
         f"""
@@ -874,6 +890,10 @@ def render_team_metric(
             incremental = False
             supports_career = {supports_career!r}
             rank_order = {rank_order!r}
+            additive_accumulator = {additive_accumulator!r}
+            approaching_thresholds = {list(approaching_thresholds or ())!r}
+            absolute_thresholds = {list(absolute_thresholds or ())!r}
+            absolute_approach_thresholds = {list(absolute_approach_thresholds or ())!r}
             max_results_per_season = {DEFAULT_LIMIT}
             group_key = {group_key!r}
             context_label_template = {context_label_template!r}
@@ -1757,6 +1777,10 @@ def build_metric_spec(
     supports_career: bool,
     code_python: str,
     context_label_template: str | None = None,
+    additive_accumulator: bool = False,
+    approaching_thresholds: tuple[int, ...] = (),
+    absolute_thresholds: tuple[int, ...] = (),
+    absolute_approach_thresholds: tuple[int, ...] = (),
 ) -> MetricSpec:
     return MetricSpec(
         key=key,
@@ -1772,6 +1796,10 @@ def build_metric_spec(
         max_results_per_season=DEFAULT_LIMIT,
         code_python=code_python,
         context_label_template=context_label_template,
+        additive_accumulator=additive_accumulator,
+        approaching_thresholds=approaching_thresholds,
+        absolute_thresholds=absolute_thresholds,
+        absolute_approach_thresholds=absolute_approach_thresholds,
     )
 
 
@@ -1790,6 +1818,7 @@ def make_player_threshold_specs() -> list[MetricSpec]:
     for field, thresholds, category, group_key in families:
         label = _player_label(field)
         label_zh = _player_label_zh(field)
+        abs_thresholds = (1, 10, 25, 50) if field in {"stl", "blk"} else (10, 50, 100, 250, 500, 1000, 1500) if field in {"pts", "reb"} else (10, 50, 100, 250, 500)
         for threshold in thresholds:
             word, zh_num = NUMBER_WORDS[threshold]
             key = f"{word}_plus_{PLAYER_STEMS[field]}_games"
@@ -1809,6 +1838,10 @@ def make_player_threshold_specs() -> list[MetricSpec]:
                     group_key=group_key,
                     min_sample=1,
                     supports_career=True,
+                    additive_accumulator=True,
+                    approaching_thresholds=(1, 3, 5, 10),
+                    absolute_thresholds=abs_thresholds,
+                    absolute_approach_thresholds=(1, 5) if field in {"pts", "reb", "ast", "fg3m", "ftm", "fta"} else (1, 3),
                     code_python=render_player_box_metric(
                         class_name=camelize(key),
                         key=key,
@@ -1820,6 +1853,10 @@ def make_player_threshold_specs() -> list[MetricSpec]:
                         group_key=group_key,
                         min_sample=1,
                         supports_career=True,
+                        additive_accumulator=True,
+                        approaching_thresholds=(1, 3, 5, 10),
+                        absolute_thresholds=abs_thresholds,
+                        absolute_approach_thresholds=(1, 5) if field in {"pts", "reb", "ast", "fg3m", "ftm", "fta"} else (1, 3),
                         metric_kind="count_threshold",
                         criteria=((field, float(threshold)),),
                     ),
@@ -1882,6 +1919,55 @@ def make_player_average_specs() -> list[MetricSpec]:
 
 def make_player_total_specs() -> list[MetricSpec]:
     specs: list[MetricSpec] = []
+    approaching_thresholds_by_field = {
+        "pts": (5, 20, 50, 100),
+        "ast": (1, 3, 10, 30),
+        "reb": (3, 10, 25, 50),
+        "oreb": (1, 3, 10, 30),
+        "dreb": (3, 10, 25, 50),
+        "stl": (1, 3, 5, 10),
+        "blk": (1, 3, 5, 10),
+        "tov": (1, 3, 5, 10),
+        "pf": (1, 3, 5, 10),
+        "fgm": (3, 10, 25, 50),
+        "fga": (5, 20, 50, 100),
+        "fg3m": (1, 3, 10, 30),
+        "fg3a": (3, 10, 25, 50),
+        "ftm": (1, 3, 10, 30),
+        "fta": (3, 10, 25, 50),
+    }
+    absolute_thresholds_by_field = {
+        "pts": (1000, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000),
+        "ast": (500, 1000, 2500, 5000, 7500, 10000, 12500, 15000),
+        "reb": (1000, 5000, 10000, 15000, 20000, 25000),
+        "oreb": (500, 1000, 2500, 5000, 7500),
+        "dreb": (1000, 5000, 10000, 15000, 20000),
+        "stl": (100, 500, 1000, 1500, 2000, 2500, 3000),
+        "blk": (100, 500, 1000, 1500, 2000, 2500, 3000, 3500),
+        "tov": (1000, 2500, 5000),
+        "pf": (1000, 2500, 5000),
+        "fgm": (1000, 5000, 10000, 12500, 15000),
+        "fga": (1000, 5000, 10000, 15000, 20000, 25000, 30000),
+        "fg3m": (100, 500, 1000, 1500, 2000, 2500, 3000, 4000),
+        "fg3a": (500, 1000, 2500, 5000, 7500, 10000),
+        "ftm": (1000, 2500, 5000, 7500, 10000),
+        "fta": (1000, 2500, 5000, 7500, 10000),
+    }
+    absolute_approach_by_field = {
+        "pts": (1, 5, 20, 50, 100),
+        "ast": (1, 3, 10, 30),
+        "reb": (1, 5, 20, 50),
+        "oreb": (1, 3, 10, 30),
+        "dreb": (1, 5, 20, 50),
+        "stl": (1, 3, 10),
+        "blk": (1, 3, 10),
+        "fgm": (1, 5, 20, 50),
+        "fga": (5, 20, 50, 100),
+        "fg3m": (1, 5, 20, 50),
+        "fg3a": (5, 20, 50),
+        "ftm": (1, 5, 20),
+        "fta": (1, 5, 20),
+    }
     for field in ["pts", "ast", "reb", "oreb", "dreb", "stl", "blk", "tov", "fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "pf"]:
         key = {
             "pts": "season_total_points",
@@ -1900,6 +1986,10 @@ def make_player_total_specs() -> list[MetricSpec]:
             "fta": "season_total_free_throw_attempts",
             "pf": "season_total_fouls",
         }[field]
+        additive_accumulator = True
+        approaching_thresholds = approaching_thresholds_by_field.get(field, ())
+        absolute_thresholds = absolute_thresholds_by_field.get(field, ())
+        absolute_approach_thresholds = absolute_approach_by_field.get(field, ())
         name = f"Season Total {_player_label(field)}"
         name_zh = f"赛季总{_player_label_zh(field)}"
         description = f"Total {_player_label(field).lower()} recorded across a season."
@@ -1916,6 +2006,10 @@ def make_player_total_specs() -> list[MetricSpec]:
                 group_key="season_totals",
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=additive_accumulator,
+                approaching_thresholds=approaching_thresholds,
+                absolute_thresholds=absolute_thresholds,
+                absolute_approach_thresholds=absolute_approach_thresholds,
                 code_python=render_player_box_metric(
                     class_name=camelize(key),
                     key=key,
@@ -1927,6 +2021,10 @@ def make_player_total_specs() -> list[MetricSpec]:
                     group_key="season_totals",
                     min_sample=1,
                     supports_career=True,
+                    additive_accumulator=additive_accumulator,
+                    approaching_thresholds=approaching_thresholds,
+                    absolute_thresholds=absolute_thresholds,
+                    absolute_approach_thresholds=absolute_approach_thresholds,
                     metric_kind="season_total",
                     value_field=field,
                 ),
@@ -2044,6 +2142,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
             group_key="efficiency_rates",
             min_sample=1,
             supports_career=True,
+            additive_accumulator=True,
+            approaching_thresholds=(1, 3, 5, 10),
+            absolute_thresholds=(10, 50, 100, 250, 500),
+            absolute_approach_thresholds=(1, 5),
             code_python=render_player_box_metric(
                 class_name="ZeroTurnoverGames",
                 key="zero_turnover_games",
@@ -2055,6 +2157,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
                 group_key="efficiency_rates",
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=True,
+                approaching_thresholds=(1, 3, 5, 10),
+                absolute_thresholds=(10, 50, 100, 250, 500),
+                absolute_approach_thresholds=(1, 5),
                 metric_kind="count_exact",
                 comparator="==",
                 criteria=(("tov", 0.0),),
@@ -2073,6 +2179,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
             group_key="per_game_averages",
             min_sample=1,
             supports_career=True,
+            additive_accumulator=True,
+            approaching_thresholds=(1, 3, 5, 10),
+            absolute_thresholds=(10, 50, 100, 250, 500, 1000, 1500),
+            absolute_approach_thresholds=(1, 5),
             code_python=render_player_box_metric(
                 class_name="GamesPlayed",
                 key="games_played",
@@ -2084,6 +2194,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
                 group_key="per_game_averages",
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=True,
+                approaching_thresholds=(1, 3, 5, 10),
+                absolute_thresholds=(10, 50, 100, 250, 500, 1000, 1500),
+                absolute_approach_thresholds=(1, 5),
                 metric_kind="games_played",
             ),
         )
@@ -2100,6 +2214,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
             group_key="per_game_averages",
             min_sample=1,
             supports_career=True,
+            additive_accumulator=True,
+            approaching_thresholds=(1, 3, 5, 10),
+            absolute_thresholds=(10, 50, 100, 250, 500, 1000),
+            absolute_approach_thresholds=(1, 5),
             code_python=render_player_box_metric(
                 class_name="GamesStarted",
                 key="games_started",
@@ -2111,6 +2229,10 @@ def make_player_ratio_specs() -> list[MetricSpec]:
                 group_key="per_game_averages",
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=True,
+                approaching_thresholds=(1, 3, 5, 10),
+                absolute_thresholds=(10, 50, 100, 250, 500, 1000),
+                absolute_approach_thresholds=(1, 5),
                 metric_kind="games_started",
             ),
         )
@@ -2174,6 +2296,10 @@ def make_player_combo_specs() -> list[MetricSpec]:
                 group_key="combo_stats",
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=True,
+                approaching_thresholds=(1, 3, 5, 10),
+                absolute_thresholds=(1, 10, 25, 50),
+                absolute_approach_thresholds=(1, 3),
                 code_python=render_player_box_metric(
                     class_name=camelize(key),
                     key=key,
@@ -2185,6 +2311,10 @@ def make_player_combo_specs() -> list[MetricSpec]:
                     group_key="combo_stats",
                     min_sample=1,
                     supports_career=True,
+                    additive_accumulator=True,
+                    approaching_thresholds=(1, 3, 5, 10),
+                    absolute_thresholds=(1, 10, 25, 50),
+                    absolute_approach_thresholds=(1, 3),
                     metric_kind="count_combo",
                     criteria=criteria,
                 ),
@@ -2592,6 +2722,10 @@ def make_team_specs() -> list[MetricSpec]:
                 group_key=group_key,
                 min_sample=1,
                 supports_career=True,
+                additive_accumulator=rank_order == "desc",
+                approaching_thresholds=(1, 3, 5, 10) if rank_order == "desc" else (),
+                absolute_thresholds=(100, 500, 1000, 2000, 2500, 3000) if key == "wins_total" else (10, 50, 100, 250, 500) if rank_order == "desc" else (),
+                absolute_approach_thresholds=(1, 10) if key == "wins_total" else (),
                 code_python=render_team_metric(
                     class_name=camelize(key),
                     key=key,
@@ -2604,6 +2738,10 @@ def make_team_specs() -> list[MetricSpec]:
                     min_sample=1,
                     supports_career=True,
                     rank_order=rank_order,
+                    additive_accumulator=rank_order == "desc",
+                    approaching_thresholds=(1, 3, 5, 10) if rank_order == "desc" else (),
+                    absolute_thresholds=(100, 500, 1000, 2000, 2500, 3000) if key == "wins_total" else (10, 50, 100, 250, 500) if rank_order == "desc" else (),
+                    absolute_approach_thresholds=(1, 10) if key == "wins_total" else (),
                     metric_kind="count",
                     stat_field=stat_field,
                     threshold=threshold,
@@ -2892,7 +3030,7 @@ def existing_rows_by_key(session) -> dict[str, MetricDefinitionModel]:
 
 
 def insert_specs(specs: list[MetricSpec]) -> tuple[list[str], list[str], list[str]]:
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     inserted: list[str] = []
     updated: list[str] = []
     skipped: list[str] = []

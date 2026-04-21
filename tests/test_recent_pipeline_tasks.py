@@ -347,7 +347,7 @@ def test_ingest_game_retries_when_artifacts_still_incomplete():
     assert "Core artifacts not ready" in str(retry_mock.call_args.kwargs["exc"])
 
 
-def test_compute_season_metric_queues_recent_content_check():
+def test_compute_season_metric_waits_for_milestone_chain_before_content_check():
     session = _ctx(MagicMock())
     session_factory = MagicMock(return_value=session)
     outer_ctx = _ctx(session_factory)
@@ -369,11 +369,11 @@ def test_compute_season_metric_queues_recent_content_check():
         result = metrics_tasks.compute_season_metric_task.run("metric_a", "22025", run_id="run-1")
 
     progress_mock.assert_called_once_with("run-1")
-    delay_mock.assert_called_once_with("22025")
+    delay_mock.assert_not_called()
     assert result == {"metric_key": "metric_a", "season": "22025", "results_written": 7}
 
 
-def test_compute_season_metric_queues_recent_content_check_for_playin():
+def test_compute_season_metric_waits_for_milestone_chain_before_playin_content_check():
     session = _ctx(MagicMock())
     session_factory = MagicMock(return_value=session)
     outer_ctx = _ctx(session_factory)
@@ -395,7 +395,7 @@ def test_compute_season_metric_queues_recent_content_check_for_playin():
         result = metrics_tasks.compute_season_metric_task.run("metric_a", "52025", run_id="run-1")
 
     progress_mock.assert_called_once_with("run-1")
-    delay_mock.assert_called_once_with("52025")
+    delay_mock.assert_not_called()
     assert result == {"metric_key": "metric_a", "season": "52025", "results_written": 7}
 
 
@@ -473,6 +473,7 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
 
     assert result == {
         "seasons": ["22025", "42025", "52025"],
+        "game_ids": ["g1"],
         "career_buckets": [
             "all_regular",
             "all_playoffs",
@@ -499,6 +500,7 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     assert callback_sig.kwargs["metric_key"] == "playoff_points"
     assert callback_sig.kwargs["run_id"] == "run-playoffs"
     assert callback_sig.kwargs["buckets"] == ["all_playoffs", "last5_playoffs", "last3_playoffs"]
+    assert callback_sig.kwargs["game_ids"] == ["g1"]
 
 
 def test_sync_schedule_games_enables_unplayed_upsert_mode():

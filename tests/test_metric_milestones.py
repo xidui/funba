@@ -1,0 +1,239 @@
+from datetime import date
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+from db.models import Base, Game, MetricMilestone, Player, PlayerGameStats
+from metrics.framework.milestones import (
+    BoxScoreSliceProvider,
+    InMemoryBatchProvider,
+    aggregate_pool_as_of,
+    detect_milestones_for_metric,
+)
+
+
+def _session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine)()
+
+
+def _metric():
+    return SimpleNamespace(
+        key="season_total_assists_career",
+        scope="player",
+        metric_kind="season_total",
+        value_field="ast",
+        split_key=None,
+        rank_order="desc",
+        additive_accumulator=True,
+        approaching_thresholds=[1, 3, 10, 30],
+        absolute_thresholds=[],
+        absolute_approach_thresholds=[],
+        min_sample=1,
+        supports_career=False,
+    )
+
+
+def _add_stat(session, game_id, player_id, ast):
+    session.add(
+        PlayerGameStats(
+            game_id=game_id,
+            team_id="t1",
+            player_id=player_id,
+            min=30,
+            sec=0,
+            pts=0,
+            reb=0,
+            ast=ast,
+            stl=0,
+            blk=0,
+            fgm=0,
+            fga=0,
+            fg3m=0,
+            fg3a=0,
+            ftm=0,
+            fta=0,
+        )
+    )
+
+
+def test_box_score_slice_matches_in_memory_batch_provider_for_crossing_event():
+    session = _session()
+    session.add_all(
+        [
+            Player(player_id="p1", full_name="Player One"),
+            Player(player_id="p2", full_name="Player Two"),
+            Game(game_id="g1", season="42024", game_date=date(2024, 4, 1), home_team_score=100, road_team_score=90),
+            Game(game_id="g2", season="42024", game_date=date(2024, 4, 2), home_team_score=101, road_team_score=91),
+        ]
+    )
+    _add_stat(session, "g1", "p1", 8)
+    _add_stat(session, "g1", "p2", 10)
+    _add_stat(session, "g2", "p1", 5)
+    _add_stat(session, "g2", "p2", 0)
+    session.commit()
+
+    metric = _metric()
+    statements = []
+
+    def _record_sql(*args):
+        statements.append(args[2])
+
+    event.listen(session.bind, "before_cursor_execute", _record_sql)
+    pre_g2_pool = aggregate_pool_as_of(session, metric, "all_playoffs", date(2024, 4, 2), "g2")
+    event.remove(session.bind, "before_cursor_execute", _record_sql)
+    assert pre_g2_pool == {"p1": 8.0, "p2": 10.0}
+    assert len(statements) == 1
+
+    batch_provider = InMemoryBatchProvider(event_lookup_authoritative=True)
+    with patch("metrics.framework.milestones.get_metric", return_value=metric):
+        detect_milestones_for_metric(
+            session,
+            "g1",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=batch_provider,
+        )
+        batch_events = detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=batch_provider,
+        )
+        session.flush()
+
+        g2 = session.query(Game).filter(Game.game_id == "g2").one()
+        slice_events = detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=BoxScoreSliceProvider(g2),
+        )
+
+    batch_crossings = [
+        (e["event_type"], e["event_key"], e["prev_value"], e["new_value"], e["prev_rank"], e["new_rank"])
+        for e in batch_events
+        if e["event_type"] == "rank_crossing"
+    ]
+    slice_crossings = [
+        (e["event_type"], e["event_key"], e["prev_value"], e["new_value"], e["prev_rank"], e["new_rank"])
+        for e in slice_events
+        if e["event_type"] == "rank_crossing"
+    ]
+    assert batch_crossings == slice_crossings == [("rank_crossing", "cross_p2", 8.0, 13.0, 2, 1)]
+
+    rows = session.query(MetricMilestone).filter(MetricMilestone.game_id == "g2").all()
+    assert {(row.event_type, row.event_key) for row in rows} == {("rank_crossing", "cross_p2")}
+
+
+def test_milestone_detection_is_idempotent_and_stat_corrections_update_row():
+    session = _session()
+    session.add_all(
+        [
+            Player(player_id="p1", full_name="Player One"),
+            Player(player_id="p2", full_name="Player Two"),
+            Game(game_id="g1", season="42024", game_date=date(2024, 4, 1), home_team_score=100, road_team_score=90),
+            Game(game_id="g2", season="42024", game_date=date(2024, 4, 2), home_team_score=101, road_team_score=91),
+        ]
+    )
+    _add_stat(session, "g1", "p1", 8)
+    _add_stat(session, "g1", "p2", 10)
+    _add_stat(session, "g2", "p1", 5)
+    _add_stat(session, "g2", "p2", 0)
+    session.commit()
+
+    metric = _metric()
+    g2 = session.query(Game).filter(Game.game_id == "g2").one()
+    with patch("metrics.framework.milestones.get_metric", return_value=metric):
+        detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=BoxScoreSliceProvider(g2),
+        )
+        session.commit()
+        first = session.query(MetricMilestone).filter_by(game_id="g2", event_key="cross_p2").one()
+        assert first.new_value == 13.0
+        row_count = session.query(MetricMilestone).filter(MetricMilestone.game_id == "g2").count()
+
+        detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=BoxScoreSliceProvider(g2),
+        )
+        session.commit()
+        assert session.query(MetricMilestone).filter(MetricMilestone.game_id == "g2").count() == row_count
+
+        corrected = (
+            session.query(PlayerGameStats)
+            .filter(PlayerGameStats.game_id == "g2", PlayerGameStats.player_id == "p1")
+            .one()
+        )
+        corrected.ast = 6
+        session.commit()
+        detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=BoxScoreSliceProvider(g2),
+        )
+        session.commit()
+
+    updated = session.query(MetricMilestone).filter_by(game_id="g2", event_key="cross_p2").one()
+    assert updated.prev_value == 8.0
+    assert updated.new_value == 14.0
+    assert session.query(MetricMilestone).filter(MetricMilestone.game_id == "g2").count() == row_count
+
+
+def test_absolute_threshold_and_approaching_absolute_events_emit_once():
+    session = _session()
+    session.add_all(
+        [
+            Player(player_id="p1", full_name="Player One"),
+            Game(game_id="g1", season="42024", game_date=date(2024, 4, 1), home_team_score=100, road_team_score=90),
+            Game(game_id="g2", season="42024", game_date=date(2024, 4, 2), home_team_score=101, road_team_score=91),
+        ]
+    )
+    _add_stat(session, "g1", "p1", 8)
+    _add_stat(session, "g2", "p1", 5)
+    session.commit()
+
+    metric = _metric()
+    metric.absolute_thresholds = [10, 15]
+    metric.absolute_approach_thresholds = [1, 3]
+    provider = InMemoryBatchProvider(event_lookup_authoritative=True)
+    with patch("metrics.framework.milestones.get_metric", return_value=metric):
+        g1_events = detect_milestones_for_metric(
+            session,
+            "g1",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=provider,
+        )
+        g2_events = detect_milestones_for_metric(
+            session,
+            "g2",
+            metric.key,
+            "all_playoffs",
+            prev_values_provider=provider,
+        )
+
+    assert [
+        (event["event_type"], event["event_key"])
+        for event in g1_events
+        if event["event_type"] == "approaching_absolute"
+    ] == [("approaching_absolute", "approach_abs_10_thr3")]
+    assert [
+        (event["event_type"], event["event_key"])
+        for event in g2_events
+        if event["event_type"] == "absolute_threshold"
+    ] == [("absolute_threshold", "reach_10")]
