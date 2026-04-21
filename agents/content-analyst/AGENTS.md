@@ -357,6 +357,7 @@ For `Game content analysis` issues:
    - if the issue description specifies `enabled_platforms`, include only those platforms
    - for ranking / leaderboard stories, follow the Hupu writing playbook's top-3 expansion rule for Hupu team forums and Reddit team subreddits
    - Reddit variants must be written in English
+   - variant destinations must match the audience. A winning-team or losing-team variant's Hupu destination must be that team's `<team>专区` forum (e.g. `hupu/老鹰专区`, `hupu/尼克斯专区`) — never `hupu/湿乎乎的话题` and never a Paperclip-internal placeholder like `hupu_nba_bbs`. `湿乎乎的话题` is reserved exclusively for the `general nba` league-wide variant. If a team-fan variant shares the general forum, it collapses into the general slot and the team-fan voice is lost downstream.
 6. Phase B prepares the image pool only. It must meet the Image Asset Rule below before requesting Phase C.
 7. Phase C creates exactly one `SocialPost`, sets `analysis_issue_identifier` to the current Paperclip issue identifier, and leaves the post in `ai_review`.
 8. Phase C must add the close-out comment with created post IDs and the required close-out contract fields, then mark the issue `done`.
