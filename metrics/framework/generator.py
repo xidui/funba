@@ -570,6 +570,7 @@ def _call_llm_with_system(
     model: str | None = None,
     max_tokens: int = 4096,
     usage_recorder: Callable[[dict], None] | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Call OpenAI or Anthropic with an explicit system prompt."""
     selected_model = model or env_default_llm_model()
@@ -582,15 +583,20 @@ def _call_llm_with_system(
     if provider == "openai":
         import openai
         client = openai.OpenAI()
-        response = client.chat.completions.create(
-            model=selected_model,
-            max_completion_tokens=max_tokens,
-            temperature=0,
-            messages=[
+        kwargs: dict = {
+            "model": selected_model,
+            "max_completion_tokens": max_tokens,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 *messages,
             ],
-        )
+        }
+        if reasoning_effort:
+            # Reasoning-enabled GPT-5.4 models reject temperature=0, so skip it.
+            kwargs["reasoning_effort"] = reasoning_effort
+        else:
+            kwargs["temperature"] = 0
+        response = client.chat.completions.create(**kwargs)
         if usage_recorder:
             usage_recorder(extract_provider_usage(provider, response, selected_model))
         return response.choices[0].message.content.strip()

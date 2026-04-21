@@ -429,14 +429,20 @@ def register_admin_misc_routes(app, deps):
             return denied
         SessionLocal = deps.session_local()
         with SessionLocal() as session:
-            return jsonify(
-                {
-                    "default_model": deps.get_default_llm_model_for_ui()(session),
-                    "search_model": deps.get_llm_model_for_purpose()(session, "search"),
-                    "generate_model": deps.get_llm_model_for_purpose()(session, "generate"),
-                    "available_models": deps.available_llm_models()(),
-                }
-            )
+            payload = {
+                "default_model": deps.get_default_llm_model_for_ui()(session),
+                "search_model": deps.get_llm_model_for_purpose()(session, "search"),
+                "generate_model": deps.get_llm_model_for_purpose()(session, "generate"),
+                "curator_model": deps.get_llm_model_for_purpose()(session, "curator"),
+                "available_models": deps.available_llm_models()(),
+            }
+            get_curator_reasoning = getattr(deps, "get_curator_reasoning_effort", None)
+            if callable(get_curator_reasoning):
+                payload["curator_reasoning"] = get_curator_reasoning()(session)
+            available_reasoning = getattr(deps, "available_reasoning_efforts", None)
+            if callable(available_reasoning):
+                payload["available_reasoning_efforts"] = list(available_reasoning()())
+            return jsonify(payload)
 
     def api_admin_paperclip_config():
         denied = deps.require_admin_json()()
@@ -476,6 +482,12 @@ def register_admin_misc_routes(app, deps):
                     result["search_model"] = deps.set_llm_model_for_purpose()(session, "search", body["search_model"])
                 if "generate_model" in body:
                     result["generate_model"] = deps.set_llm_model_for_purpose()(session, "generate", body["generate_model"])
+                if "curator_model" in body:
+                    result["curator_model"] = deps.set_llm_model_for_purpose()(session, "curator", body["curator_model"])
+                if "curator_reasoning" in body:
+                    setter = getattr(deps, "set_curator_reasoning_effort", None)
+                    if callable(setter):
+                        result["curator_reasoning"] = setter()(session, body["curator_reasoning"])
                 if "default_model" in body:
                     result["default_model"] = deps.set_default_llm_model()(session, body["default_model"])
                 session.commit()

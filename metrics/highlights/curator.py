@@ -22,11 +22,37 @@ from metrics.highlights.prefilter import build_llm_input
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
-DEFAULT_MODEL = "gpt-5.4-nano"
+DEFAULT_MODEL = "gpt-5.4"
+DEFAULT_REASONING_EFFORT = "xhigh"
 MAX_HERO = 2
 MAX_NOTABLE = 6
 MAX_TRIGGERED_HERO = 2
 MAX_TRIGGERED_NOTABLE = 8
+
+
+def _resolve_curator_settings(session, model_override: str | None = None) -> tuple[str, str]:
+    """Return (model, reasoning_effort) for the curator.
+
+    Admin settings take precedence; CLI --model override wins over settings.
+    Falls back to package defaults when nothing is stored.
+    """
+    from db.llm_models import (
+        get_curator_reasoning_effort,
+        get_llm_model_for_purpose,
+    )
+
+    model = model_override
+    if not model:
+        try:
+            model = get_llm_model_for_purpose(session, "curator")
+        except Exception:
+            model = DEFAULT_MODEL
+    effort: str
+    try:
+        effort = get_curator_reasoning_effort(session)
+    except Exception:
+        effort = DEFAULT_REASONING_EFFORT
+    return model or DEFAULT_MODEL, effort or DEFAULT_REASONING_EFFORT
 
 
 SYSTEM_PROMPT = """你是 NBA 比赛精华编辑。你的工作是从候选指标（metric）里挑出最值得告诉读者的本场"看点"，并为每条写一句简短的中文解说。
@@ -248,6 +274,7 @@ def curate_game_highlights(
     game_context: dict,
     candidates: list[dict],
     model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Run the LLM curator for a single game.
 
@@ -275,7 +302,8 @@ def curate_game_highlights(
         SYSTEM_PROMPT,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=2048,
+        max_tokens=8192,
+        reasoning_effort=reasoning_effort,
     )
 
     parsed = _parse_llm_json(raw_response)
@@ -371,6 +399,7 @@ def curate_triggered_highlights(
     game_context: dict,
     candidates: list[dict],
     model: str | None = None,
+    reasoning_effort: str | None = None,
     max_hero: int = MAX_TRIGGERED_HERO,
     max_notable: int = MAX_TRIGGERED_NOTABLE,
 ) -> dict:
@@ -412,7 +441,8 @@ def curate_triggered_highlights(
         system,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=2048,
+        max_tokens=8192,
+        reasoning_effort=reasoning_effort,
     )
     parsed = _parse_llm_json(raw_response)
 
@@ -500,14 +530,26 @@ def _prefilter_triggered(
     return kept[:max_candidates]
 
 
-def run_curator_for_game(session, game, *, model: str | None = None) -> dict:
+def run_curator_for_game(
+    session,
+    game,
+    *,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> dict:
     """End-to-end: build candidates for game + player + team, call LLM for each,
     persist all three on the Game row.
 
-    Returns a dict with keys game/player/team each holding the curated payload.
+    `model` and `reasoning_effort` default to the admin-configured values
+    (or package defaults) when not passed explicitly. Returns a dict with
+    keys game/player/team each holding the curated payload.
     """
     from db.models import Team
     from web.app import _build_game_raw_metric_candidates, _get_game_triggered_entity_metrics
+
+    resolved_model, resolved_effort = _resolve_curator_settings(session, model)
+    if reasoning_effort is None:
+        reasoning_effort = resolved_effort
 
     raw_game = _build_game_raw_metric_candidates(session, game.game_id, game.season)
     from metrics.highlights.prefilter import prefilter_candidates
@@ -519,7 +561,8 @@ def run_curator_for_game(session, game, *, model: str | None = None) -> dict:
     game_curated = curate_game_highlights(
         game_context=ctx,
         candidates=game_candidates,
-        model=model,
+        model=resolved_model,
+        reasoning_effort=reasoning_effort,
     )
 
     triggered = _get_game_triggered_entity_metrics(session, game.game_id, game.season)
@@ -530,13 +573,15 @@ def run_curator_for_game(session, game, *, model: str | None = None) -> dict:
         kind="player",
         game_context=ctx,
         candidates=player_candidates,
-        model=model,
+        model=resolved_model,
+        reasoning_effort=reasoning_effort,
     )
     team_curated = curate_triggered_highlights(
         kind="team",
         game_context=ctx,
         candidates=team_candidates,
-        model=model,
+        model=resolved_model,
+        reasoning_effort=reasoning_effort,
     )
 
     now = datetime.now(timezone.utc)

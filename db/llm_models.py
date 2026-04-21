@@ -4,9 +4,12 @@ import os
 from datetime import datetime
 
 AVAILABLE_LLM_MODELS = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")
+AVAILABLE_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
 SEARCH_LLM_MODEL_SETTING_KEY = "llm_model_search"
 GENERATE_LLM_MODEL_SETTING_KEY = "llm_model_generate"
+CURATOR_LLM_MODEL_SETTING_KEY = "llm_model_curator"
+CURATOR_REASONING_SETTING_KEY = "llm_reasoning_curator"
 
 _MODEL_PROVIDER = {
     "gpt-5.4": "openai",
@@ -106,12 +109,19 @@ def get_default_llm_model_for_ui(session) -> str:
     return env_default_llm_model() or AVAILABLE_LLM_MODELS[0]
 
 
+_PURPOSE_KEYS = {
+    "search": SEARCH_LLM_MODEL_SETTING_KEY,
+    "generate": GENERATE_LLM_MODEL_SETTING_KEY,
+    "curator": CURATOR_LLM_MODEL_SETTING_KEY,
+}
+
+
 def get_llm_model_for_purpose(session, purpose: str) -> str:
-    """Get the configured model for a specific purpose (search or generate).
+    """Get the configured model for a specific purpose.
 
     Falls back to the global default if no purpose-specific setting exists.
     """
-    key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
+    key = _PURPOSE_KEYS.get(purpose, GENERATE_LLM_MODEL_SETTING_KEY)
     stored = _get_setting(session, key)
     if stored:
         return stored
@@ -119,8 +129,40 @@ def get_llm_model_for_purpose(session, purpose: str) -> str:
 
 
 def set_llm_model_for_purpose(session, purpose: str, model: str) -> str:
-    key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
+    key = _PURPOSE_KEYS.get(purpose, GENERATE_LLM_MODEL_SETTING_KEY)
     return _set_setting(session, key, model)
+
+
+def get_curator_reasoning_effort(session) -> str:
+    """Return the configured reasoning_effort for the highlight curator.
+
+    Defaults to 'xhigh' when no setting is stored.
+    """
+    setting_model = _setting_model()
+    if setting_model is None:
+        return "xhigh"
+    row = session.get(setting_model, CURATOR_REASONING_SETTING_KEY)
+    if row is None:
+        return "xhigh"
+    value = str(row.value or "").strip().lower()
+    return value if value in AVAILABLE_REASONING_EFFORTS else "xhigh"
+
+
+def set_curator_reasoning_effort(session, effort: str) -> str:
+    normalized = str(effort or "").strip().lower()
+    if normalized not in AVAILABLE_REASONING_EFFORTS:
+        raise ValueError(f"Unsupported reasoning_effort: {effort}")
+    setting_model = _setting_model()
+    if setting_model is None:
+        raise RuntimeError("Setting model is unavailable")
+    row = session.get(setting_model, CURATOR_REASONING_SETTING_KEY)
+    if row is None:
+        row = setting_model(key=CURATOR_REASONING_SETTING_KEY, value=normalized, updated_at=datetime.utcnow())
+        session.add(row)
+    else:
+        row.value = normalized
+        row.updated_at = datetime.utcnow()
+    return normalized
 
 
 def resolve_llm_model(session, requested_model: str | None = None, purpose: str | None = None) -> str:
@@ -128,10 +170,11 @@ def resolve_llm_model(session, requested_model: str | None = None, purpose: str 
         return ensure_model_available(requested_model)
 
     if purpose:
-        key = SEARCH_LLM_MODEL_SETTING_KEY if purpose == "search" else GENERATE_LLM_MODEL_SETTING_KEY
-        stored = _get_setting(session, key)
-        if stored:
-            return ensure_model_available(stored)
+        key = _PURPOSE_KEYS.get(purpose)
+        if key:
+            stored = _get_setting(session, key)
+            if stored:
+                return ensure_model_available(stored)
 
     stored = get_stored_default_llm_model(session)
     if stored:

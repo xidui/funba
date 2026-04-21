@@ -298,6 +298,18 @@
         <option>Loading...</option>
       </select>
     </div>
+    <div class="llm-settings-row" style="margin-top:8px;">
+      <label class="llm-settings-label" for="llm-curator-model">Game Highlight Curator</label>
+      <select id="llm-curator-model" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+    </div>
+    <div class="llm-settings-row" style="margin-top:8px;">
+      <label class="llm-settings-label" for="llm-curator-reasoning">Curator Reasoning Effort</label>
+      <select id="llm-curator-reasoning" class="llm-settings-select" disabled>
+        <option>Loading...</option>
+      </select>
+    </div>
     <div style="margin-top:10px;">
       <button id="llm-model-save" class="llm-settings-save" aria-label="Save model settings">Save</button>
     </div>
@@ -543,17 +555,19 @@
   (function () {
     const searchSelect = document.getElementById('llm-search-model');
     const generateSelect = document.getElementById('llm-generate-model');
+    const curatorSelect = document.getElementById('llm-curator-model');
+    const reasoningSelect = document.getElementById('llm-curator-reasoning');
     const saveBtn = document.getElementById('llm-model-save');
     const status = document.getElementById('llm-model-status');
     let clearTimer = null;
 
-    function renderOptions(selectEl, models, selected) {
+    function renderOptions(selectEl, values, selected) {
       selectEl.innerHTML = '';
-      models.forEach((model) => {
+      values.forEach((value) => {
         const option = document.createElement('option');
-        option.value = model;
-        option.textContent = model;
-        option.selected = model === selected;
+        option.value = value;
+        option.textContent = value;
+        option.selected = value === selected;
         selectEl.appendChild(option);
       });
     }
@@ -570,45 +584,57 @@
       }
     }
 
+    function setDisabled(disabled) {
+      [searchSelect, generateSelect, curatorSelect, reasoningSelect].forEach((el) => { if (el) el.disabled = disabled; });
+      saveBtn.disabled = disabled;
+    }
+
     async function loadConfig() {
-      searchSelect.disabled = generateSelect.disabled = true;
-      saveBtn.disabled = true;
+      setDisabled(true);
       setStatus('');
       try {
         const res = await fetch('/api/admin/model-config');
         const data = await res.json();
         if (!res.ok) throw new Error((data && data.error) || 'Failed to load.');
         const models = data.available_models || {{ llm_available_models | tojson }};
+        const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
         renderOptions(searchSelect, models, data.search_model);
         renderOptions(generateSelect, models, data.generate_model);
-        searchSelect.disabled = generateSelect.disabled = false;
-        saveBtn.disabled = false;
+        renderOptions(curatorSelect, models, data.curator_model);
+        renderOptions(reasoningSelect, efforts, data.curator_reasoning);
+        setDisabled(false);
       } catch (err) {
         setStatus(err.message || 'Failed to load.', 'error');
       }
     }
 
     async function saveConfig() {
-      searchSelect.disabled = generateSelect.disabled = true;
-      saveBtn.disabled = true;
+      setDisabled(true);
       setStatus('');
       try {
         const res = await fetch('/api/admin/model-config', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({search_model: searchSelect.value, generate_model: generateSelect.value}),
+          body: JSON.stringify({
+            search_model: searchSelect.value,
+            generate_model: generateSelect.value,
+            curator_model: curatorSelect.value,
+            curator_reasoning: reasoningSelect.value,
+          }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
         const models = data.available_models || {{ llm_available_models | tojson }};
+        const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
         if (data.search_model) renderOptions(searchSelect, models, data.search_model);
         if (data.generate_model) renderOptions(generateSelect, models, data.generate_model);
+        if (data.curator_model) renderOptions(curatorSelect, models, data.curator_model);
+        if (data.curator_reasoning) renderOptions(reasoningSelect, efforts, data.curator_reasoning);
         setStatus('Saved', 'success');
       } catch (err) {
         setStatus(err.message || 'Failed to save.', 'error');
       } finally {
-        searchSelect.disabled = generateSelect.disabled = false;
-        saveBtn.disabled = false;
+        setDisabled(false);
       }
     }
 
