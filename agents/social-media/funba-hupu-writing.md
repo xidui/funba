@@ -20,6 +20,12 @@ Write variants from the destination forum backward:
 
 If tone and forum diverge, treat that as an exception, not the default.
 
+### Destination routing (enforced)
+
+- `湿乎乎的话题` is reserved exclusively for the `general nba` league-wide variant.
+- A winning-team or losing-team variant must be routed to that team's `<team>专区` forum (for example `hupu/老鹰专区`, `hupu/尼克斯专区`), never to `hupu/湿乎乎的话题`. A team-fan variant sharing `湿乎乎的话题` collapses into the general slot and the team-fan voice is lost downstream.
+- Emit the exact Chinese forum string from the Hupu Forum Vocabulary section below. Do not emit Paperclip-internal placeholders or short codes such as `hupu_nba_bbs`, `nba`, or English team keys like `hawks` — none of these are valid Hupu forums.
+
 ## Hupu Forum Vocabulary
 
 For Funba content generation, treat the Hupu destination vocabulary as:
