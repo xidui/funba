@@ -1,8 +1,14 @@
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
 from flask import Flask, Response
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from web.admin_proxy_routes import register_admin_proxy_routes
 
@@ -163,6 +169,28 @@ def test_admin_proxy_rewrites_javascript_root_imports_and_fetches():
     assert 'const route = "/agents/all";' in body
     assert 'jsxDEV(BrowserRouter, { basename: "/admin/tickets", children: app });' in body
     assert "`${protocol}://${window.location.host}/admin/tickets/api/companies/id/events/ws`" in body
+
+
+def test_admin_monitor_keeps_agent_api_url_concatenated_paths_single_mounted():
+    app = _make_app()
+    upstream = _upstream_response(
+        (
+            b'return fetch(window.envSettings.agentApiUrl + "/api/v1/registry?action=hello");\n'
+            b'return fetch(`${window.envSettings.agentApiUrl}/api/v3/info`);\n'
+            b'return cloudRequest("/api/v3/spaces");'
+        ),
+        headers={"Content-Type": "text/javascript"},
+    )
+
+    with patch("web.admin_proxy_routes.requests.request", return_value=upstream):
+        response = app.test_client().get("/admin/monitor")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'agentApiUrl + "/api/v1/registry?action=hello"' in body
+    assert '`${window.envSettings.agentApiUrl}/api/v3/info`' in body
+    assert 'cloudRequest("/admin/monitor/api/v3/spaces")' in body
+    assert "/admin/monitor/admin/monitor/api" not in body
 
 
 def test_admin_proxy_reports_missing_target_config():

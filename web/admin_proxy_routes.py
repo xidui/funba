@@ -180,6 +180,13 @@ def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: s
     def replace_host_api(match: re.Match[str]) -> str:
         return f"{match.group('prefix')}{mount_prefix}/api/"
 
+    def replace_js_api(match: re.Match[str]) -> str:
+        prefix_start = match.start("prefix")
+        before = text[max(0, prefix_start - 120) : prefix_start]
+        if re.search(r"\bagentApiUrl\b\s*\+\s*$", before):
+            return match.group(0)
+        return replace_root_attr(match)
+
     def add_browser_router_basename(match: re.Match[str]) -> str:
         return f'{match.group("prefix")}basename: "{mount_prefix}", {match.group("next")}'
 
@@ -190,7 +197,7 @@ def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: s
     text = _JS_BARE_IMPORT_RE.sub(replace_root_attr, text)
     text = _JS_DYNAMIC_IMPORT_RE.sub(replace_root_attr, text)
     text = _JS_FROM_IMPORT_RE.sub(replace_root_attr, text)
-    text = _JS_API_URL_RE.sub(replace_root_attr, text)
+    text = _JS_API_URL_RE.sub(replace_js_api, text)
     text = _JS_SERVICE_WORKER_RE.sub(replace_root_attr, text)
     text = _JS_WS_HOST_API_RE.sub(replace_host_api, text)
     if root_mount:
