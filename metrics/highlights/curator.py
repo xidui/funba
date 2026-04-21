@@ -562,31 +562,40 @@ def run_curator_for_game(
     team_lookup = {t.team_id: t.full_name for t in session.query(Team).all()}
     ctx = build_game_context(game, team_lookup)
 
-    game_curated = curate_game_highlights(
-        game_context=ctx,
-        candidates=game_candidates,
-        model=resolved_model,
-        reasoning_effort=reasoning_effort,
-    )
-
     triggered = _get_game_triggered_entity_metrics(session, game.game_id, game.season)
     player_candidates = _prefilter_triggered(session, triggered.get("player") or [])
     team_candidates = _prefilter_triggered(session, triggered.get("team") or [])
 
-    player_curated = curate_triggered_highlights(
-        kind="player",
-        game_context=ctx,
-        candidates=player_candidates,
-        model=resolved_model,
-        reasoning_effort=reasoning_effort,
-    )
-    team_curated = curate_triggered_highlights(
-        kind="team",
-        game_context=ctx,
-        candidates=team_candidates,
-        model=resolved_model,
-        reasoning_effort=reasoning_effort,
-    )
+    # Fan out the 3 LLM calls in parallel — each is IO-bound and independent.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_game = pool.submit(
+            curate_game_highlights,
+            game_context=ctx,
+            candidates=game_candidates,
+            model=resolved_model,
+            reasoning_effort=reasoning_effort,
+        )
+        fut_player = pool.submit(
+            curate_triggered_highlights,
+            kind="player",
+            game_context=ctx,
+            candidates=player_candidates,
+            model=resolved_model,
+            reasoning_effort=reasoning_effort,
+        )
+        fut_team = pool.submit(
+            curate_triggered_highlights,
+            kind="team",
+            game_context=ctx,
+            candidates=team_candidates,
+            model=resolved_model,
+            reasoning_effort=reasoning_effort,
+        )
+        game_curated = fut_game.result()
+        player_curated = fut_player.result()
+        team_curated = fut_team.result()
 
     now = datetime.now(timezone.utc)
     game.highlights_curated_json = json.dumps(game_curated, ensure_ascii=False)
