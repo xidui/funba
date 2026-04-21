@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import datetime
 from types import SimpleNamespace
@@ -10,6 +11,11 @@ from sqlalchemy import case, func, text
 
 from db.game_status import GAME_STATUS_COMPLETED, GAME_STATUS_LIVE, GAME_STATUS_UPCOMING, get_game_status
 from web.live_game_data import build_live_game_stub, fetch_live_card, fetch_live_game_detail, fetch_live_scoreboard_map
+
+
+def _request_line_score_backfill_enabled() -> bool:
+    value = os.getenv("FUNBA_ENABLE_REQUEST_LINE_SCORE_BACKFILL", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _format_tipoff_et(iso_et: str | None) -> str | None:
@@ -1084,8 +1090,6 @@ def register_detail_routes(
         ShotRecord = get_shot_record_model()
 
         with SessionLocal() as session:
-            from db.backfill_nba_game_line_score import has_game_line_score
-
             persisted_game = _lookup_by_slug_or_id(session, Game, slug, id_attr="game_id", prefix="game-")
             if persisted_game is not None and getattr(persisted_game, "slug", None) and persisted_game.slug != slug:
                 redirect_params = request.args.to_dict(flat=True)
@@ -1136,10 +1140,12 @@ def register_detail_routes(
             else:
                 live_payload = None
 
-            if persisted_game is not None and not has_game_line_score(session, game_id):
+            if persisted_game is not None and _request_line_score_backfill_enabled():
                 try:
-                    from db.backfill_nba_game_line_score import back_fill_game_line_score
-                    back_fill_game_line_score(session, game_id, commit=True)
+                    from db.backfill_nba_game_line_score import back_fill_game_line_score, has_game_line_score
+
+                    if not has_game_line_score(session, game_id):
+                        back_fill_game_line_score(session, game_id, commit=True)
                 except Exception:
                     get_logger().exception("inline line-score fetch failed for game_id=%s", game_id)
 

@@ -23,13 +23,13 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 @retry(
-    wait=wait_exponential(multiplier=1, max=60),
-    stop=stop_after_attempt(10),
-    retry=retry_if_exception_type((ConnectionError, Timeout, Exception)),
+    wait=wait_exponential(multiplier=1, max=5),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type((ConnectionError, Timeout)),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def fetch_game_line_score_payload(game_id: str) -> dict:
-    response = boxscoresummaryv3.BoxScoreSummaryV3(game_id=game_id)
+    response = boxscoresummaryv3.BoxScoreSummaryV3(game_id=game_id, timeout=10)
     return response.get_dict().get("boxScoreSummary", {})
 
 

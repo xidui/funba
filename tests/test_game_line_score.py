@@ -2,10 +2,13 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import db.backfill_nba_game_line_score as line_score_module
 from db.backfill_nba_game_line_score import normalize_game_line_score_payload
 
 
@@ -95,3 +98,23 @@ def test_normalize_game_line_score_payload_ot_overflow_to_json():
     assert away["ot2_pts"] == 12
     assert away["ot3_pts"] == 8
     assert away["ot_extra_json"] == "[12]"
+
+
+def test_fetch_game_line_score_payload_does_not_retry_parser_errors(monkeypatch):
+    calls = []
+
+    class FakeBoxScoreSummaryV3:
+        def __init__(self, *, game_id, timeout):
+            calls.append((game_id, timeout))
+            raise KeyError("boxScoreSummary")
+
+    monkeypatch.setattr(
+        line_score_module.boxscoresummaryv3,
+        "BoxScoreSummaryV3",
+        FakeBoxScoreSummaryV3,
+    )
+
+    with pytest.raises(KeyError):
+        line_score_module.fetch_game_line_score_payload("0025000024")
+
+    assert calls == [("0025000024", 10)]
