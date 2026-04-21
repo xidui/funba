@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, text
 from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlalchemy.exc import ProgrammingError as SAProgrammingError
 from sqlalchemy.orm import sessionmaker
@@ -135,12 +135,25 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
             }
 
         game_ids = [game.game_id for game in games]
-        computed_game_ids = {
-            row.game_id
-            for row in session.query(MetricRunLog.game_id)
-            .filter(MetricRunLog.game_id.in_(game_ids))
-            .distinct()
+        # A game is considered "metrics-complete" only when its per-entity
+        # pipeline has clearly fired. Earlier we only checked "any MetricRunLog
+        # entry", which was a bug: if ingest partially fails (e.g. period-stats
+        # fetch throws NoneType and metric_tasks_enqueued=0), only the season-
+        # scope season_total / season_blowout rows land and the game slips
+        # through, so tickets get created for games whose player/team metrics
+        # never ran. Require a minimum count of entity-scope runs instead.
+        entity_metric_counts = dict(
+            session.query(MetricRunLog.game_id, func.count(func.distinct(MetricRunLog.metric_key)))
+            .filter(
+                MetricRunLog.game_id.in_(game_ids),
+                MetricRunLog.entity_type.in_(("player", "team")),
+            )
+            .group_by(MetricRunLog.game_id)
             .all()
+        )
+        _METRICS_COMPLETE_MIN = 20
+        computed_game_ids = {
+            gid for gid, cnt in entity_metric_counts.items() if (cnt or 0) >= _METRICS_COMPLETE_MIN
         }
 
         ready_game_ids: list[str] = []
