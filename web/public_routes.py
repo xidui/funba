@@ -1341,37 +1341,53 @@ def register_public_routes(
         }
 
     def _home_highlight_cards_from_payload(game, payload: dict, team_lookup: dict, game_idx: int) -> list[dict]:
+        """Homepage notable-stats strip: curator-picked entries only.
+
+        The homepage has no room for raw rule-based noise (tied ranks, early-
+        season "1 loss = rank 1" artifacts, etc.), so we limit it to cards the
+        LLM curator explicitly selected. Games that haven't been curated yet
+        contribute nothing here. The full rule-based view still shows up on
+        the individual game page.
+        """
+        curated_flag = bool((payload or {}).get("_curated_merged"))
+        if not curated_flag:
+            return []
+
         metadata = _game_metadata_for_highlight(game, team_lookup)
         cards: list[dict] = []
 
-        def _curated_bias(card: dict) -> float:
-            # Curated cards sort before non-curated for the same game
-            return 0.0 if card.get("is_curated") else 1.0
-
         game_metrics = ((payload or {}).get("game_metrics") or {}).get("season") or []
         for metric in game_metrics:
+            if not metric.get("is_curated"):
+                continue
             card = dict(metric)
             card.update(metadata)
             card["subject_kind"] = "game"
             card["ratio"] = _highlight_metric_ratio(card)
-            card["_sort"] = (game_idx, _curated_bias(card), card["ratio"], int(card.get("best_rank") or card.get("rank") or 9999))
+            card["_sort"] = (game_idx, 0 if card.get("is_hero") else 1, card["ratio"], int(card.get("best_rank") or card.get("rank") or 9999))
             cards.append(card)
 
-        for metric in ((payload or {}).get("triggered_player_metrics") or [])[:1]:
+        for metric in (payload or {}).get("triggered_player_metrics") or []:
+            if not metric.get("is_curated"):
+                continue
             card = dict(metric)
             card.update(metadata)
             card["subject_kind"] = "player"
             card["ratio"] = _highlight_metric_ratio(card)
-            card["_sort"] = (game_idx, _curated_bias(card), card["ratio"], int(card.get("rank") or 9999))
+            card["_sort"] = (game_idx, 0 if card.get("is_hero") else 1, card["ratio"], int(card.get("rank") or 9999))
             cards.append(card)
+            break  # one player card per game
 
-        for metric in ((payload or {}).get("triggered_team_metrics") or [])[:1]:
+        for metric in (payload or {}).get("triggered_team_metrics") or []:
+            if not metric.get("is_curated"):
+                continue
             card = dict(metric)
             card.update(metadata)
             card["subject_kind"] = "team"
             card["ratio"] = _highlight_metric_ratio(card)
-            card["_sort"] = (game_idx, _curated_bias(card), card["ratio"], int(card.get("rank") or 9999))
+            card["_sort"] = (game_idx, 0 if card.get("is_hero") else 1, card["ratio"], int(card.get("rank") or 9999))
             cards.append(card)
+            break  # one team card per game
 
         return cards
 
