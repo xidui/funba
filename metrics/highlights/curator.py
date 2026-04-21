@@ -688,20 +688,26 @@ def _prefilter_triggered(
         kept.append(c)
 
     def _tier(card: dict) -> int:
-        # Order narrative richness: career > last5 > last3 > concrete season > runlog.
-        # Concrete-season pools in early playoff/regular-season windows are
-        # noisy (a few games only, dense ties at low counts), so the career
-        # and recent-form windows should outrank them for headline space.
-        if card.get("source") == "milestone":
-            metric_key = str(card.get("metric_key") or "")
-            if metric_key.endswith("_career"):
-                return 0
-            if metric_key.endswith("_last5"):
-                return 1
-            if metric_key.endswith("_last3"):
-                return 2
-            return 3  # base metric in a concrete season
-        return 4  # runlog
+        # Tier by **window scope**, not source:
+        #   0: career (historical)
+        #   1: last5 (recent 5 seasons)
+        #   2: last3 (recent 3 seasons)
+        #   3: concrete season / current game (everything else)
+        #
+        # Previously runlog and season-milestone were separate tiers, but that
+        # pushed genuinely narrative runlog cards (single-game league-best FG%,
+        # season-top steals) below noisy "累计 42 分升第 8" milestones. Within
+        # the concrete-season tier, `best_ratio` decides: a rank-1 runlog card
+        # will beat a rank-50 milestone.
+        metric_key = str(card.get("metric_key") or "")
+        season = str(card.get("season") or "")
+        if metric_key.endswith("_career") or season in ("all_regular", "all_playoffs", "all_playin"):
+            return 0
+        if metric_key.endswith("_last5") or season.startswith("last5_"):
+            return 1
+        if metric_key.endswith("_last3") or season.startswith("last3_"):
+            return 2
+        return 3
 
     kept.sort(key=lambda c: (_tier(c), c.get("best_ratio", 1.0), c.get("rank") or 10**9))
     return kept[:max_candidates]
