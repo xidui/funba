@@ -2526,88 +2526,6 @@ def _attach_window_ranks(
     return out
 
 
-def _curated_triggered_to_cards(curated: dict, kind: str) -> list[dict]:
-    """Rebuild triggered card dicts from a frozen curator JSON payload.
-
-    `kind` is "player" or "team". Cards keep entity identity (player name,
-    headshot, team abbr) from the snapshot so old games don't bleed in
-    current-day metadata.
-    """
-    use_zh = _is_zh()
-
-    def _pick_narrative(entry: dict) -> str | None:
-        zh = entry.get("narrative_zh") or entry.get("narrative")
-        en = entry.get("narrative_en")
-        return (zh or en) if use_zh else (en or zh)
-
-    def _badge(rank, total, label):
-        if rank is None or not total:
-            return None
-        if rank / total <= 0.25:
-            return f"#{rank} {label}"
-        return None
-
-    def _make(entry: dict, *, is_hero: bool) -> dict | None:
-        snap = entry.get("rank_snapshot") or {}
-        season_rank = snap.get("season")
-        season_total = snap.get("season_total")
-        all_rank = snap.get("alltime")
-        all_total = snap.get("alltime_total")
-        last3_rank = snap.get("last3")
-        last3_total = snap.get("last3_total")
-        last5_rank = snap.get("last5")
-        last5_total = snap.get("last5_total")
-        narrative = _pick_narrative(entry)
-        card: dict = {
-            "metric_key": entry.get("metric_key"),
-            "metric_name": entry.get("metric_name_snapshot") or entry.get("metric_key", "").replace("_", " ").title(),
-            "entity_type": kind,
-            "entity_id": entry.get("entity_id"),
-            "season": entry.get("season"),
-            "value_num": entry.get("value_snapshot"),
-            "value_str": entry.get("value_str_snapshot"),
-            "rank": season_rank,
-            "total": season_total,
-            "all_rank": all_rank,
-            "all_total": all_total,
-            "last3_rank": last3_rank,
-            "last3_total": last3_total,
-            "last5_rank": last5_rank,
-            "last5_total": last5_total,
-            "is_hero": is_hero,
-            "is_featured": True,
-            "is_notable": not is_hero,
-            "is_curated": True,
-            "context_label": narrative or entry.get("context_label_snapshot"),
-            "narrative": narrative,
-            "season_badge_text": _badge(season_rank, season_total, "Season"),
-            "all_badge_text": _badge(all_rank, all_total, "All"),
-            "last3_badge_text": _badge(last3_rank, last3_total, "Last3"),
-            "last5_badge_text": _badge(last5_rank, last5_total, "Last5"),
-        }
-        if kind == "player":
-            pid = entry.get("player_id") or entry.get("entity_id")
-            card["player_id"] = pid
-            card["player_name"] = entry.get("player_name")
-            card["player_headshot_url"] = _player_headshot_url(pid) if pid else None
-        else:
-            tid = entry.get("team_id") or entry.get("entity_id")
-            card["team_id"] = tid
-            card["team_abbr"] = entry.get("team_abbr")
-        return card
-
-    cards: list[dict] = []
-    for entry in curated.get("hero", []) or []:
-        c = _make(entry, is_hero=True)
-        if c is not None:
-            cards.append(c)
-    for entry in curated.get("notable", []) or []:
-        c = _make(entry, is_hero=False)
-        if c is not None:
-            cards.append(c)
-    return cards
-
-
 def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
     """Return player + team metrics that this specific game advanced.
 
@@ -2796,21 +2714,6 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             del bucket[32:]
         elif kind == "team":
             del bucket[20:]
-
-    game_row = session.query(Game).filter(Game.game_id == game_id).first()
-    if game_row is not None:
-        for kind, col in (("player", "highlights_curated_player_json"), ("team", "highlights_curated_team_json")):
-            raw_json = getattr(game_row, col, None)
-            if not raw_json:
-                continue
-            try:
-                curated = _json.loads(raw_json)
-            except Exception:
-                continue
-            if isinstance(curated, dict):
-                cards = _curated_triggered_to_cards(curated, kind)
-                if cards:
-                    result[kind] = cards
     return result
 
 
@@ -3312,109 +3215,175 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
 def _get_game_metrics_payload(session, game_id: str, game_season: str | None) -> dict:
     """Return the compact game-metrics payload used by game page + content API.
 
-    If the Game has a curated highlights JSON (from the LLM curator), prefer
-    those (with frozen value/rank snapshots). Otherwise fall back to the
-    rule-based ranking of the raw metric rows.
+    Always returns the full rule-based set (`season` + `season_extra`).
+    Curated highlights are layered in later by `_merge_curated_narratives`
+    as enrichment — they don't replace the rule-based cards.
     """
     season_metrics = _build_game_raw_metric_candidates(session, game_id, game_season)
     if not season_metrics:
         return {"season": [], "season_extra": []}
-
-    game = session.query(Game).filter(Game.game_id == game_id).first()
-    if game is not None and game.highlights_curated_json:
-        try:
-            curated = json.loads(game.highlights_curated_json)
-        except Exception:
-            curated = None
-        if isinstance(curated, dict):
-            cards = _curated_highlights_to_cards(curated, season_metrics)
-            if cards:
-                return {"season": cards, "season_extra": []}
 
     _apply_game_metric_tiers(season_metrics)
     visible, extra = _prepare_game_metric_cards(season_metrics)
     return {"season": visible, "season_extra": extra}
 
 
-def _curated_highlights_to_cards(curated: dict, raw_candidates: list[dict]) -> list[dict]:
-    """Build render-ready card dicts from a frozen curator JSON payload.
+_CURATED_BADGE_LABELS = ("Season", "All", "Last3", "Last5")
 
-    Matches each curated entry (metric_key + entity_id) back to the raw row
-    for fallback fields (metric_name, url), but prefers the frozen snapshot
-    values/ranks so older games don't get rewritten by newer record breakers.
+
+def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool, use_zh: bool) -> None:
+    """Enrich a rule-based card in-place with curator narrative + frozen ranks.
+
+    Card retains all its existing fields; we only override the rank / value
+    with the curator snapshot (so old games don't get overwritten by new
+    record-breakers) and add narrative + is_curated markers.
     """
-    by_key: dict[tuple[str, str | None], dict] = {
-        (e["metric_key"], e.get("entity_id")): e for e in raw_candidates
-    }
+    snap = entry.get("rank_snapshot") or {}
+    narrative = (
+        (entry.get("narrative_zh") or entry.get("narrative") or entry.get("narrative_en"))
+        if use_zh
+        else (entry.get("narrative_en") or entry.get("narrative_zh") or entry.get("narrative"))
+    )
+
+    value_snapshot = entry.get("value_snapshot")
+    if value_snapshot is not None:
+        card["value_num"] = value_snapshot
+    value_str_snapshot = entry.get("value_str_snapshot")
+    if value_str_snapshot:
+        card["value_str"] = value_str_snapshot
+
+    def _apply(key: str, snap_key: str) -> None:
+        if snap.get(snap_key) is not None:
+            card[key] = snap[snap_key]
+
+    _apply("rank", "season")
+    _apply("total", "season_total")
+    # Game-scope cards use all_games_*; triggered cards use all_*. Overwrite both safely.
+    _apply("all_games_rank", "alltime")
+    _apply("all_games_total", "alltime_total")
+    _apply("all_rank", "alltime")
+    _apply("all_total", "alltime_total")
+    _apply("last3_rank", "last3")
+    _apply("last3_total", "last3_total")
+    _apply("last5_rank", "last5")
+    _apply("last5_total", "last5_total")
+
+    card["narrative"] = narrative
+    card["is_curated"] = True
+    card["is_hero"] = is_hero
+    card["is_featured"] = True
+    card["is_notable"] = not is_hero
+
+    # Refresh derived fields after rank overrides
+    card["best_ratio"] = _game_metric_best_ratio(card)
+    card["best_rank"] = _game_metric_best_rank(card)
 
     def _badge(rank, total, label):
         if rank is None or not total:
             return None
-        if rank / total <= 0.25:
-            return f"#{rank} {label}"
-        return None
+        return f"#{rank} {label}" if rank / total <= 0.25 else None
+
+    card["season_badge_text"] = _badge(card.get("rank"), card.get("total"), "Season")
+    card["all_badge_text"] = _badge(
+        card.get("all_games_rank", card.get("all_rank")),
+        card.get("all_games_total", card.get("all_total")),
+        "All",
+    )
+    card["last3_badge_text"] = _badge(card.get("last3_rank"), card.get("last3_total"), "Last3")
+    card["last5_badge_text"] = _badge(card.get("last5_rank"), card.get("last5_total"), "Last5")
+
+
+def _merge_curated_into_cards(
+    cards: list[dict],
+    curated: dict | None,
+    *,
+    use_zh: bool,
+) -> list[dict]:
+    """Merge a curator JSON into a list of rule-based cards.
+
+    Cards matching a curator entry (by metric_key + entity_id) get enriched
+    in place and moved to the front of the list (hero first, notable next),
+    preserving their internal ordering. Non-matching cards keep their
+    original order after the curated block.
+    """
+    if not curated or not cards:
+        return cards
+
+    by_key: dict[tuple[str, str | None], dict] = {
+        (c.get("metric_key"), c.get("entity_id")): c for c in cards
+    }
+    matched: list[dict] = []
+
+    for is_hero, section in ((True, "hero"), (False, "notable")):
+        for entry in curated.get(section) or []:
+            key = (entry.get("metric_key"), entry.get("entity_id"))
+            card = by_key.get(key)
+            if card is None:
+                continue
+            _apply_curated_entry_to_card(card, entry, is_hero=is_hero, use_zh=use_zh)
+            matched.append(card)
+
+    matched_ids = {id(c) for c in matched}
+    rest = [c for c in cards if id(c) not in matched_ids]
+    return matched + rest
+
+
+def _merge_curated_narratives(payload: dict, game) -> dict:
+    """Walk a full payload and enrich any cards that match the game's curated
+    JSON (game + triggered_player + triggered_team). Returns the same payload
+    with `_curated_merged: True` on top-level, safe to cache.
+    """
+    if game is None:
+        payload["_curated_merged"] = False
+        return payload
 
     use_zh = _is_zh()
 
-    def _pick_narrative(entry: dict) -> str | None:
-        zh = entry.get("narrative_zh") or entry.get("narrative")
-        en = entry.get("narrative_en")
-        if use_zh:
-            return zh or en
-        return en or zh
-
-    def _make(entry: dict, *, is_hero: bool) -> dict | None:
-        key = entry.get("metric_key")
-        entity_id = entry.get("entity_id")
-        raw = by_key.get((key, entity_id))
-        if raw is None:
+    def _parse(blob: str | None) -> dict | None:
+        if not blob:
             return None
-        snap = entry.get("rank_snapshot") or {}
-        season_rank = snap.get("season")
-        season_total = snap.get("season_total")
-        all_rank = snap.get("alltime")
-        all_total = snap.get("alltime_total")
-        last3_rank = snap.get("last3")
-        last3_total = snap.get("last3_total")
-        last5_rank = snap.get("last5")
-        last5_total = snap.get("last5_total")
-        narrative = _pick_narrative(entry)
-        card = dict(raw)
-        card["entity_id"] = entity_id
-        card["value_num"] = entry.get("value_snapshot", raw.get("value_num"))
-        card["value_str"] = entry.get("value_str_snapshot") or raw.get("value_str")
-        card["context_label"] = narrative or entry.get("context_label_snapshot") or raw.get("context_label")
-        card["narrative"] = narrative
-        card["rank"] = season_rank if season_rank is not None else raw.get("rank")
-        card["total"] = season_total if season_total is not None else raw.get("total")
-        card["all_games_rank"] = all_rank if all_rank is not None else raw.get("all_games_rank")
-        card["all_games_total"] = all_total if all_total is not None else raw.get("all_games_total")
-        card["last3_rank"] = last3_rank if last3_rank is not None else raw.get("last3_rank")
-        card["last3_total"] = last3_total if last3_total is not None else raw.get("last3_total")
-        card["last5_rank"] = last5_rank if last5_rank is not None else raw.get("last5_rank")
-        card["last5_total"] = last5_total if last5_total is not None else raw.get("last5_total")
-        card["is_hero"] = is_hero
-        card["is_featured"] = True
-        card["is_notable"] = not is_hero
-        card["is_curated"] = True
-        card["best_ratio"] = _game_metric_best_ratio(card)
-        card["best_rank"] = _game_metric_best_rank(card)
-        card["season_badge_text"] = _badge(card["rank"], card["total"], "Season")
-        card["all_badge_text"] = _badge(card["all_games_rank"], card["all_games_total"], "All")
-        card["last3_badge_text"] = _badge(card["last3_rank"], card["last3_total"], "Last3")
-        card["last5_badge_text"] = _badge(card["last5_rank"], card["last5_total"], "Last5")
-        return card
+        try:
+            value = json.loads(blob)
+        except Exception:
+            return None
+        return value if isinstance(value, dict) else None
 
-    cards: list[dict] = []
-    for entry in curated.get("hero", []) or []:
-        card = _make(entry, is_hero=True)
-        if card is not None:
-            cards.append(card)
-    for entry in curated.get("notable", []) or []:
-        card = _make(entry, is_hero=False)
-        if card is not None:
-            cards.append(card)
-    return cards
+    game_curated = _parse(getattr(game, "highlights_curated_json", None))
+    player_curated = _parse(getattr(game, "highlights_curated_player_json", None))
+    team_curated = _parse(getattr(game, "highlights_curated_team_json", None))
+
+    if game_curated:
+        game_metrics = payload.get("game_metrics") or {}
+        # Merge the combined pool, then re-split so every curated card lands in
+        # `season` (visible) even if it was originally in `season_extra`.
+        visible = game_metrics.get("season") or []
+        extra = game_metrics.get("season_extra") or []
+        visible_limit = max(len(visible), 4)
+        combined = _merge_curated_into_cards(visible + extra, game_curated, use_zh=use_zh)
+        curated_cards = [c for c in combined if c.get("is_curated")]
+        rest = [c for c in combined if not c.get("is_curated")]
+        if len(curated_cards) >= visible_limit:
+            new_visible = curated_cards
+            new_extra = rest
+        else:
+            need = visible_limit - len(curated_cards)
+            new_visible = curated_cards + rest[:need]
+            new_extra = rest[need:]
+        game_metrics["season"] = new_visible
+        game_metrics["season_extra"] = new_extra
+        payload["game_metrics"] = game_metrics
+
+    if player_curated:
+        payload["triggered_player_metrics"] = _merge_curated_into_cards(
+            payload.get("triggered_player_metrics") or [], player_curated, use_zh=use_zh
+        )
+    if team_curated:
+        payload["triggered_team_metrics"] = _merge_curated_into_cards(
+            payload.get("triggered_team_metrics") or [], team_curated, use_zh=use_zh
+        )
+
+    payload["_curated_merged"] = any([game_curated, player_curated, team_curated])
+    return payload
 
 
 def _build_game_metrics_payload(
@@ -3446,11 +3415,51 @@ def _build_game_metrics_payload_cached(
     *,
     force_refresh: bool = False,
 ) -> dict:
+    """Orchestrated cache + curator merge read:
+
+    1. Cache hit, already curated-merged → return
+    2. Cache hit, non-curated → check DB for curator JSON
+         - DB has curated → merge into cached payload, write back, return
+         - DB no curated → return cached as-is
+    3. Cache miss → build rule-based, merge curator if present, write, return
+    """
+    game = None
+
+    def _load_game() -> object | None:
+        nonlocal game
+        if game is not None:
+            return game
+        game = session.query(Game).filter(Game.game_id == game_id).first()
+        return game
+
+    def _has_curated(g) -> bool:
+        return bool(
+            g is not None
+            and (
+                getattr(g, "highlights_curated_json", None)
+                or getattr(g, "highlights_curated_player_json", None)
+                or getattr(g, "highlights_curated_team_json", None)
+            )
+        )
+
     if not force_refresh:
         cached = _cached_game_metrics_payload(game_id)
         if cached is not None:
+            if cached.get("_curated_merged"):
+                return cached
+            g = _load_game()
+            if _has_curated(g):
+                merged = _merge_curated_narratives(cached, g)
+                _write_game_metrics_payload_cache(game_id, merged)
+                return merged
             return cached
+
     payload = _build_game_metrics_payload(session, game_id, game_season)
+    g = _load_game()
+    if _has_curated(g):
+        payload = _merge_curated_narratives(payload, g)
+    else:
+        payload["_curated_merged"] = False
     _write_game_metrics_payload_cache(game_id, payload)
     return payload
 
