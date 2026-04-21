@@ -306,7 +306,7 @@ def curate_game_highlights(
         SYSTEM_PROMPT,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=16384,
+        max_tokens=None,
         reasoning_effort=reasoning_effort,
     )
 
@@ -445,7 +445,7 @@ def curate_triggered_highlights(
         system,
         [{"role": "user", "content": user_message}],
         model=selected_model,
-        max_tokens=16384,
+        max_tokens=None,
         reasoning_effort=reasoning_effort,
     )
     parsed = _parse_llm_json(raw_response)

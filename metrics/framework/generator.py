@@ -568,11 +568,15 @@ def _call_llm_with_system(
     system_prompt: str,
     messages: list[dict],
     model: str | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int | None = 4096,
     usage_recorder: Callable[[dict], None] | None = None,
     reasoning_effort: str | None = None,
 ) -> str:
-    """Call OpenAI or Anthropic with an explicit system prompt."""
+    """Call OpenAI or Anthropic with an explicit system prompt.
+
+    Pass ``max_tokens=None`` to omit the cap entirely (useful for reasoning
+    models where the caller would rather the provider default limit apply).
+    """
     selected_model = model or env_default_llm_model()
     if not selected_model:
         raise ValueError("No AI API key set — set OPENAI_API_KEY.")
@@ -585,12 +589,13 @@ def _call_llm_with_system(
         client = openai.OpenAI()
         kwargs: dict = {
             "model": selected_model,
-            "max_completion_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 *messages,
             ],
         }
+        if max_tokens is not None:
+            kwargs["max_completion_tokens"] = max_tokens
         if reasoning_effort:
             # Reasoning-enabled GPT-5.4 models reject temperature=0, so skip it.
             kwargs["reasoning_effort"] = reasoning_effort
