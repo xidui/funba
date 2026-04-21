@@ -92,6 +92,28 @@ def test_admin_monitor_proxies_subpath_query_and_filters_sensitive_headers():
     assert "Cookie" not in kwargs["headers"]
 
 
+def test_admin_proxy_disables_browser_caching_of_rewritten_responses():
+    app = _make_app()
+    upstream = _upstream_response(
+        b"ok",
+        headers={
+            "Content-Type": "text/html",
+            "Cache-Control": "public",
+            "Expires": "Wed, 22 Apr 2026 08:22:36 GMT",
+            "ETag": "upstream",
+        },
+    )
+
+    with patch("web.admin_proxy_routes.requests.request", return_value=upstream):
+        response = app.test_client().get("/admin/monitor")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+    assert "ETag" not in response.headers
+
+
 def test_admin_tickets_root_uses_configured_entry_path():
     app = _make_app(tickets_url="https://paperclip.test/FUN/issues")
 

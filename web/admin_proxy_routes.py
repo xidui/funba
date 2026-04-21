@@ -30,6 +30,11 @@ _RESPONSE_HEADER_BLOCKLIST = {
     "connection",
     "content-encoding",
     "content-length",
+    "cache-control",
+    "etag",
+    "expires",
+    "last-modified",
+    "pragma",
     "content-security-policy",
     "proxy-authenticate",
     "set-cookie",
@@ -230,6 +235,13 @@ def _response_headers(upstream_response: requests.Response, entry_url: str, moun
         if lower_key == "location":
             value = _rewrite_location(entry_url, mount_prefix, value, root_mount=root_mount)
         headers.append((key, value))
+    headers.extend(
+        [
+            ("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"),
+            ("Pragma", "no-cache"),
+            ("Expires", "0"),
+        ]
+    )
     return headers
 
 
