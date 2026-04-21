@@ -3254,6 +3254,15 @@ def _curated_highlights_to_cards(curated: dict, raw_candidates: list[dict]) -> l
             return f"#{rank} {label}"
         return None
 
+    use_zh = _is_zh()
+
+    def _pick_narrative(entry: dict) -> str | None:
+        zh = entry.get("narrative_zh") or entry.get("narrative")
+        en = entry.get("narrative_en")
+        if use_zh:
+            return zh or en
+        return en or zh
+
     def _make(entry: dict, *, is_hero: bool) -> dict | None:
         key = entry.get("metric_key")
         entity_id = entry.get("entity_id")
@@ -3269,12 +3278,13 @@ def _curated_highlights_to_cards(curated: dict, raw_candidates: list[dict]) -> l
         last3_total = snap.get("last3_total")
         last5_rank = snap.get("last5")
         last5_total = snap.get("last5_total")
+        narrative = _pick_narrative(entry)
         card = dict(raw)
         card["entity_id"] = entity_id
         card["value_num"] = entry.get("value_snapshot", raw.get("value_num"))
         card["value_str"] = entry.get("value_str_snapshot") or raw.get("value_str")
-        card["context_label"] = entry.get("narrative") or entry.get("context_label_snapshot") or raw.get("context_label")
-        card["narrative"] = entry.get("narrative")
+        card["context_label"] = narrative or entry.get("context_label_snapshot") or raw.get("context_label")
+        card["narrative"] = narrative
         card["rank"] = season_rank if season_rank is not None else raw.get("rank")
         card["total"] = season_total if season_total is not None else raw.get("total")
         card["all_games_rank"] = all_rank if all_rank is not None else raw.get("all_games_rank")
