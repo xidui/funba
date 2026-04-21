@@ -1374,11 +1374,20 @@ def register_public_routes(
         player_candidates = [m for m in ((payload or {}).get("triggered_player_metrics") or []) if m.get("is_curated")]
 
         def _player_sort_key(metric: dict) -> tuple:
-            from metrics.framework.base import is_career_season
-            is_career = bool(metric.get("season") and is_career_season(metric.get("season")))
+            # career > last5 > last3 > concrete season. Within a window tier,
+            # hero beats notable, then by rank ratio.
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key.endswith("_career"):
+                window_tier = 0
+            elif metric_key.endswith("_last5"):
+                window_tier = 1
+            elif metric_key.endswith("_last3"):
+                window_tier = 2
+            else:
+                window_tier = 3
             return (
+                window_tier,
                 0 if metric.get("is_hero") else 1,
-                0 if is_career else 1,  # prefer career milestones within a tier
                 _highlight_metric_ratio(metric),
                 int(metric.get("rank") or 9999),
             )

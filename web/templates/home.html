@@ -1035,16 +1035,16 @@
             <div class="tem-body">
               {% if narrative %}
                 <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
-                <div class="tem-metric">{{ m.metric_name }}</div>
+                <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}</div>
               {% else %}
               <div class="tem-name">
                 {% if m.is_hero %}★ {% endif %}
                 {% if m.subject_kind == 'player' %}{{ m.player_name }}
                 {% elif m.subject_kind == 'team' %}{{ m.team_abbr }}
-                {% else %}{{ m.metric_name }}{% endif %}
+                {% else %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% endif %}
               </div>
               <div class="tem-metric">
-                {% if is_entity %}{{ m.metric_name }}{% if m.context_label %} · {{ m.context_label }}{% endif %}
+                {% if is_entity %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% if m.context_label %} · {{ m.context_label }}{% endif %}
                 {% elif m.context_label %}{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}
                 {% elif not val_short %}{{ val_raw }}{% endif %}
               </div>

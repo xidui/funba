@@ -1079,8 +1079,14 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
     )
 
 
-def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
-    """Batch-load localized metric names for a set of keys (1 query)."""
+def _batch_metric_names_bilingual(session, metric_keys: set[str]) -> dict[str, tuple[str, str | None]]:
+    """Batch-load (en, zh) metric name pairs for a set of keys (1 query).
+
+    Both forms are returned so cached card payloads stay locale-neutral —
+    templates pick the right form at render time based on the current
+    language. Locale-dependent caches would otherwise lock in whichever
+    language first populated the payload.
+    """
     from metrics.framework.runtime import get_metric as _get_metric
 
     if not metric_keys:
@@ -1099,7 +1105,7 @@ def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
     )
     db_by_key = {r.key: r for r in db_rows}
 
-    result = {}
+    result: dict[str, tuple[str, str | None]] = {}
     for mk in metric_keys:
         base_key = family_base_key(mk)
         db_metric = db_by_key.get(mk) or db_by_key.get(base_key)
@@ -1109,9 +1115,16 @@ def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
 
         name = getattr(db_metric, "name", None) or getattr(runtime_metric, "name", None) or base_key.replace("_", " ").title()
         name_zh = getattr(db_metric, "name_zh", None) or getattr(runtime_metric, "name_zh", None)
-        localized = _localized_metric_name(name, name_zh)
-        result[mk] = localized
+        result[mk] = (name, name_zh)
     return result
+
+
+def _batch_metric_names(session, metric_keys: set[str]) -> dict[str, str]:
+    """Locale-aware single-name cache. Use `_batch_metric_names_bilingual`
+    for anything persisted in a locale-neutral cache (game metrics payload).
+    """
+    pairs = _batch_metric_names_bilingual(session, metric_keys)
+    return {mk: _localized_metric_name(name, name_zh) for mk, (name, name_zh) in pairs.items()}
 
 
 def _metric_name_for_key(session, metric_key: str) -> str:
@@ -2549,7 +2562,7 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
     if not rows:
         return {"player": [], "team": []}
 
-    metric_name_cache = _batch_metric_names(session, {row.metric_key for row in rows})
+    metric_name_cache = _batch_metric_names_bilingual(session, {row.metric_key for row in rows})
     player_ids = {row.entity_id for row in rows if row.entity_type == "player"}
     team_ids = {row.entity_id for row in rows if row.entity_type == "team"}
     player_map = {
@@ -2638,10 +2651,13 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
 
         severity = float(row.severity or 0.0)
         fallback_zh, fallback_en = _fallback_narrative(row, ctx if isinstance(ctx, dict) else {}, passed if isinstance(passed, list) else [], target if isinstance(target, dict) else None)
+        name_pair = metric_name_cache.get(row.metric_key, (row.metric_key.replace("_", " ").title(), None))
+        name_en, name_zh = name_pair if isinstance(name_pair, tuple) else (name_pair, None)
         card = {
             "source": "milestone",
             "metric_key": row.metric_key,
-            "metric_name": metric_name_cache.get(row.metric_key, row.metric_key.replace("_", " ").title()),
+            "metric_name": name_en,
+            "metric_name_zh": name_zh,
             "entity_type": row.entity_type,
             "entity_id": row.entity_id,
             "season": row.season,
@@ -2864,7 +2880,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         windows=("season", "last3", "last5", "alltime"),
     )
 
-    metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
+    metric_name_cache = _batch_metric_names_bilingual(session, {r.metric_key for r in entity_rows})
     base_keys = {family_base_key(r.metric_key) for r in entity_rows}
     db_templates = _load_context_label_templates(session, base_keys)
 
@@ -2908,9 +2924,12 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             if not context_label:
                 context_label = ctx.get("note")
 
+        name_pair = metric_name_cache.get(r.metric_key, (r.metric_key.replace("_", " ").title(), None))
+        name_en, name_zh = name_pair if isinstance(name_pair, tuple) else (name_pair, None)
         card = {
             "metric_key": r.metric_key,
-            "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+            "metric_name": name_en,
+            "metric_name_zh": name_zh,
             "entity_type": r.entity_type,
             "entity_id": r.entity_id,
             "season": r.season,
@@ -3414,7 +3433,7 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
         windows=("season", "last3", "last5", "alltime"),
     )
 
-    metric_name_cache = _batch_metric_names(session, {r.metric_key for r in entity_rows})
+    metric_name_cache = _batch_metric_names_bilingual(session, {r.metric_key for r in entity_rows})
     db_templates = _load_context_label_templates(session, {family_base_key(r.metric_key) for r in entity_rows})
 
     season_metrics: list[dict] = []
@@ -3431,9 +3450,12 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
         context_label = _resolve_context_label(family_base_key(r.metric_key), ctx, db_templates) if isinstance(ctx, dict) else None
         if not context_label and isinstance(ctx, dict):
             context_label = ctx.get("note")
+        name_pair = metric_name_cache.get(r.metric_key, (r.metric_key.replace("_", " ").title(), None))
+        name_en, name_zh = name_pair if isinstance(name_pair, tuple) else (name_pair, None)
         season_metrics.append({
             "metric_key": r.metric_key,
-            "metric_name": metric_name_cache.get(r.metric_key, r.metric_key.replace("_", " ").title()),
+            "metric_name": name_en,
+            "metric_name_zh": name_zh,
             "entity_id": r.entity_id,
             "season": r.season,
             "value_num": r.value_num,

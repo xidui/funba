@@ -43,9 +43,9 @@
       <div class="tem-body">
         {% if narrative %}
           <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
-          <div class="tem-metric">{{ m.metric_name }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
+          <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
         {% else %}
-          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ m.metric_name }}</div>
+          <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}</div>
           {% if m.context_label %}
             <div class="tem-metric">{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}</div>
           {% elif not val_short %}
@@ -82,12 +82,12 @@
       <div class="tem-body">
         {% if narrative %}
           <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
-          <div class="tem-metric">{{ m.metric_name }}</div>
+          <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}</div>
         {% else %}
         <div class="tem-name">
           {% if m.is_hero %}★ {% endif %}{% if kind == 'player' %}{{ m.player_name }}{% else %}{{ m.team_abbr }}{% endif %}
         </div>
-        <div class="tem-metric">{{ m.metric_name }}{% if m.context_label %} · {{ m.context_label }}{% endif %}</div>
+        <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% if m.context_label %} · {{ m.context_label }}{% endif %}</div>
         {% endif %}
         {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
         <div class="tem-badges">
