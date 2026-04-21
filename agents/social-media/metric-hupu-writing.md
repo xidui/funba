@@ -21,6 +21,7 @@ Short-to-medium: 500–1000 Chinese characters. This is NOT the 1800–2000 char
 ## Title
 
 Use the `智趣NBA:` prefix, followed by a clear data finding.
+Keep the final Hupu title within `4-40` characters because the live composer enforces `请输入标题（4-40个字）`.
 
 Good examples:
 - `智趣NBA: 本赛季已出现10场140+得分的比赛，历史最多`

@@ -70,11 +70,14 @@ class TestContentReviewValidation(unittest.TestCase):
 
         variant_query = MagicMock()
         variant_query.filter.return_value.all.return_value = [
-            ("雷霆全场55投102中，命中率53.9%。塔图姆25分18篮板11助攻的准三双。",)
+            (11, "智趣NBA: 合法标题", "雷霆全场55投102中，命中率53.9%。塔图姆25分18篮板11助攻的准三双。")
         ]
 
+        delivery_query = MagicMock()
+        delivery_query.filter.return_value.all.return_value = []
+
         session = _session_ctx(MagicMock())
-        session.query.side_effect = [post_query, variant_query]
+        session.query.side_effect = [post_query, variant_query, delivery_query]
 
         with self.web_app.app.test_client() as client:
             with patch.object(self.web_app, "SessionLocal", return_value=session), \
@@ -93,6 +96,42 @@ class TestContentReviewValidation(unittest.TestCase):
         joined = "\n".join(payload["details"])
         self.assertIn("Shot line looks inverted or impossible", joined)
         self.assertIn("准三双", joined)
+
+    def test_ai_review_to_in_review_blocks_overlong_hupu_title(self):
+        post = SimpleNamespace(id=1, status="ai_review", topic="Long Hupu title", priority=10)
+        comments = []
+
+        post_query = MagicMock()
+        post_query.filter.return_value.first.return_value = post
+
+        variant_query = MagicMock()
+        variant_query.filter.return_value.all.return_value = [
+            (21, "智趣NBA: 魔术附加赛首战赢31分，贝恩+30领跑本届单场正负值榜，黄蜂首节就被打穿", "正文正常。")
+        ]
+
+        delivery_query = MagicMock()
+        delivery_query.filter.return_value.all.return_value = [(21,)]
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [post_query, variant_query, delivery_query]
+
+        with self.web_app.app.test_client() as client:
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch.object(self.web_app, "_require_admin_json", return_value=None), \
+                 patch.object(self.web_app, "_social_post_comments", return_value=comments):
+                resp = client.post(
+                    "/api/admin/content/1/update",
+                    json={"status": "in_review"},
+                    headers={"User-Agent": "Mozilla/5.0 test browser long enough"},
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                )
+
+        self.assertEqual(resp.status_code, 400)
+        payload = resp.get_json()
+        self.assertEqual(payload["error"], "ai_review_validation_failed")
+        joined = "\n".join(payload["details"])
+        self.assertIn("Hupu title length must be 4-40 characters", joined)
+        self.assertIn("current: 43", joined)
 
     def test_delivery_status_rejects_hupu_compose_url_false_positive(self):
         delivery = SimpleNamespace(

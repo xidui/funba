@@ -16,6 +16,13 @@ import scripts.funba_xiaohongshu_publish as xhs_publish  # noqa: E402
 
 
 class TestPublishAgeGuards(unittest.TestCase):
+    def test_hupu_title_guard_rejects_overlong_title(self):
+        error = hupu_publish._hupu_title_guard_error(
+            "智趣NBA: 魔术附加赛首战赢31分，贝恩+30领跑本届单场正负值榜，黄蜂首节就被打穿"
+        )
+        self.assertIn("4-40", error)
+        self.assertIn("current: 43", error)
+
     def test_hupu_missing_thread_url_after_submit_is_retryable(self):
         self.assertTrue(
             hupu_publish._is_retryable_hupu_publish_failure(

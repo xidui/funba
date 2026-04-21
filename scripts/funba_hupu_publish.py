@@ -14,6 +14,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from social_media.hupu.validation import validate_hupu_title
+
 
 REAL_BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -168,6 +170,10 @@ def _extract_published_url(output: str) -> str | None:
     return matches[-1].strip() if matches else None
 
 
+def _hupu_title_guard_error(title: str) -> str | None:
+    return validate_hupu_title(title)
+
+
 def _update_delivery_status(base_url: str, delivery_id: int, payload: dict[str, Any]) -> None:
     _http_json(
         f"{base_url}/api/content/deliveries/{delivery_id}/status",
@@ -264,6 +270,11 @@ def main() -> int:
     forum = str(delivery.get("forum") or "").strip()
     if not title or not content or not forum:
         raise RuntimeError(f"Delivery {args.delivery_id} missing title/content/forum")
+    title_error = _hupu_title_guard_error(title)
+    if title_error:
+        _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": title_error})
+        print(title_error)
+        return 1
 
     _update_delivery_status(base_url, args.delivery_id, {"status": "publishing"})
 
