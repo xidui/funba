@@ -230,7 +230,11 @@ def fetch_period_stats(game_id, period):
         home_team = boxscore.get('homeTeam') or {}
         away_team = boxscore.get('awayTeam') or {}
         all_players = (home_team.get('players') or []) + (away_team.get('players') or [])
-        if not any(p.get('statistics', {}).get('minutes', '0:00') != '0:00' for p in all_players):
+        # dict.get(k, {}) returns {} only when k is absent. If the API returns
+        # statistics: null (happens for DNP players), we get None, and the
+        # chained .get('minutes') raises NoneType — which earlier dropped
+        # 0042500162 out of the metric pipeline entirely. Use `or {}` instead.
+        if not any((p.get('statistics') or {}).get('minutes', '0:00') != '0:00' for p in all_players):
             return None
         rows = []
         for team in [home_team, away_team]:
