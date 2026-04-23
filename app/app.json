@@ -4,6 +4,7 @@
     "slug": "funba-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "scheme": "funba",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -19,6 +20,10 @@
     },
     "android": {
       "package": "app.funba.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d1c2e"
+      },
       "intentFilters": [
         {
           "action": "VIEW",
