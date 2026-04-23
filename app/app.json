@@ -10,7 +10,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.funba.mobile",
-      "associatedDomains": ["applinks:funba.app"]
+      "associatedDomains": ["applinks:funba.app"],
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "package": "app.funba.mobile",
@@ -33,7 +38,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:5001"
+      "apiBaseUrl": "https://funba.app"
     }
   }
 }

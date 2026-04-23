@@ -290,7 +290,7 @@ def register_mobile_api_routes(app: Flask, *, session_factory: Callable[[], Sess
         with session_factory() as session:
             teams = (
                 session.query(Team)
-                .filter(Team.active == True, Team.canonical_team_id.is_(None))
+                .filter(Team.active == True)
                 .order_by(Team.full_name)
                 .all()
             )
@@ -403,7 +403,7 @@ def register_mobile_api_routes(app: Flask, *, session_factory: Callable[[], Sess
         with session_factory() as session:
             teams = (
                 session.query(Team)
-                .filter(Team.active == True, Team.canonical_team_id.is_(None))
+                .filter(Team.active == True)
                 .order_by(Team.full_name)
                 .all()
             )

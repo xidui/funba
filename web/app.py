@@ -5612,6 +5612,8 @@ def _block_bots():
         return
     if request.path.startswith("/static/") or request.path == "/robots.txt":
         return
+    if request.path.startswith("/api/v1/mobile/"):
+        return
     # Exempt only direct localhost requests, not Cloudflare-tunneled traffic.
     if request.remote_addr in ("127.0.0.1", "::1") and _real_ip() in ("127.0.0.1", "::1"):
         return
