@@ -107,6 +107,7 @@ from web.feedback_routes import register_feedback_routes
 from web.metric_detail_routes import register_metric_detail_routes
 from web.metrics_read_routes import register_metrics_read_routes
 from web.metrics_write_routes import register_metrics_write_routes
+from web.mobile_api_routes import register_mobile_api_routes
 from web.public_routes import register_public_routes
 from runtime_flags import load_runtime_flags, set_runtime_flag
 
@@ -7555,6 +7556,42 @@ def admin_curate_game_highlights(game_id: str):
             return jsonify({"error": "curator_failed", "detail": str(exc)}), 500
         _delete_game_metrics_payload_cache(game.game_id)
         return jsonify({"ok": True, "curated": curated})
+
+
+def _mobile_send_magic_link(email: str, token: str, deep_link: str) -> None:
+    """Send the magic-link email for the mobile app. Deep link opens the app."""
+    import resend
+
+    resend_key = os.environ.get("RESEND_API_KEY")
+    if not resend_key:
+        logger.warning("mobile magic link: RESEND_API_KEY not set; token=%s", token)
+        return
+    resend.api_key = resend_key
+    web_fallback = url_for("auth_magic_verify", token=token, _external=True) if has_request_context() else deep_link
+    resend.Emails.send({
+        "from": "Funba <noreply@funba.app>",
+        "to": [email],
+        "subject": "Your Funba app login link",
+        "html": (
+            f'<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:40px 20px;">'
+            f'<h2 style="color:#f97316;margin-bottom:24px;">Funba</h2>'
+            f'<p>Tap the button below to sign in to the Funba app. Expires in 15 minutes.</p>'
+            f'<a href="{deep_link}" style="display:inline-block;margin:24px 0;padding:12px 32px;'
+            f'background:#f97316;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">'
+            f'Open Funba app</a>'
+            f'<p style="color:#888;font-size:13px;">If the button doesn\'t open the app, copy this code:<br/>'
+            f'<code style="background:#f4f4f4;padding:4px 8px;border-radius:4px;">{token}</code></p>'
+            f'<p style="color:#888;font-size:13px;">No app? <a href="{web_fallback}">Sign in on the web</a> instead.</p>'
+            f'</div>'
+        ),
+    })
+
+
+register_mobile_api_routes(
+    app,
+    session_factory=SessionLocal,
+    send_magic_link=_mobile_send_magic_link,
+)
 
 
 if __name__ == "__main__":
