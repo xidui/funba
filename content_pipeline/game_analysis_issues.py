@@ -22,6 +22,7 @@ from db.models import (
     Game,
     GameContentAnalysisIssue,
     GameContentAnalysisIssuePost,
+    MetricComputeRun,
     MetricResult,
     MetricRunLog,
     SocialPost,
@@ -50,6 +51,9 @@ _TITLE_PLACEHOLDER_PATTERNS = {
 }
 _REQUIRED_TITLE_PLACEHOLDERS = ("{source_date}", "{game_id}", "{matchup}")
 _METRICS_COMPLETE_MIN_ENTITY_KEYS = 20
+_METRIC_RUN_ACTIVE_STATUSES = ("mapping", "reducing")
+_METRIC_RUN_FAILED_STATUS = "failed"
+_METRIC_RUN_KEY_SAMPLE_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -129,12 +133,18 @@ def _classify_game_analysis_readiness(
     entity_metric_count: int,
     metric_result_count: int,
     metric_run_count: int | None = None,
+    active_metric_run_count: int = 0,
+    failed_metric_run_count: int = 0,
+    active_metric_keys: list[str] | tuple[str, ...] = (),
+    failed_metric_keys: list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Single source of truth for the gates before game content may trigger."""
     game_id = game.game_id
     metric_run_count = int(metric_run_count if metric_run_count is not None else entity_metric_count)
     entity_metric_count = int(entity_metric_count or 0)
     metric_result_count = int(metric_result_count or 0)
+    active_metric_run_count = int(active_metric_run_count or 0)
+    failed_metric_run_count = int(failed_metric_run_count or 0)
 
     missing_artifacts: list[str] = []
     if not has_detail:
@@ -152,6 +162,10 @@ def _classify_game_analysis_readiness(
         "metric_run_count": metric_run_count,
         "entity_metric_count": entity_metric_count,
         "metric_result_count": metric_result_count,
+        "active_metric_run_count": active_metric_run_count,
+        "failed_metric_run_count": failed_metric_run_count,
+        "active_metric_keys": list(active_metric_keys or []),
+        "failed_metric_keys": list(failed_metric_keys or []),
         "highlights_curated_at": (
             game.highlights_curated_at.isoformat()
             if getattr(game, "highlights_curated_at", None)
@@ -166,6 +180,25 @@ def _classify_game_analysis_readiness(
             "ready": False,
             "pipeline_stage": "artifacts",
             "message": f"Pipeline not ready: missing {artifact_list} for game {game_id}.",
+        }
+
+    if active_metric_run_count > 0:
+        return {
+            **base_detail,
+            "ready": False,
+            "pipeline_stage": "metrics",
+            "message": (
+                f"Pipeline not ready: {active_metric_run_count} MetricComputeRun row(s) are still "
+                "mapping/reducing."
+            ),
+        }
+
+    if failed_metric_run_count > 0:
+        return {
+            **base_detail,
+            "ready": False,
+            "pipeline_stage": "metrics",
+            "message": f"Pipeline not ready: {failed_metric_run_count} MetricComputeRun row(s) failed.",
         }
 
     if entity_metric_count < _METRICS_COMPLETE_MIN_ENTITY_KEYS:
@@ -244,6 +277,32 @@ def _metric_result_counts_for_games(session, game_ids: list[str]) -> dict[str, i
     }
 
 
+def _metric_compute_run_blockers_for_session(session) -> dict[str, object]:
+    active_rows = (
+        session.query(MetricComputeRun.metric_key, MetricComputeRun.status)
+        .filter(MetricComputeRun.status.in_(_METRIC_RUN_ACTIVE_STATUSES))
+        .all()
+    )
+    failed_rows = (
+        session.query(MetricComputeRun.metric_key, MetricComputeRun.status)
+        .filter(MetricComputeRun.status == _METRIC_RUN_FAILED_STATUS)
+        .all()
+    )
+    active_keys = sorted({str(row.metric_key) for row in active_rows if row.metric_key})
+    failed_keys = sorted({str(row.metric_key) for row in failed_rows if row.metric_key})
+    return {
+        "active_metric_run_count": len(active_rows),
+        "failed_metric_run_count": len(failed_rows),
+        "active_metric_keys": active_keys[:_METRIC_RUN_KEY_SAMPLE_LIMIT],
+        "failed_metric_keys": failed_keys[:_METRIC_RUN_KEY_SAMPLE_LIMIT],
+    }
+
+
+def metric_compute_run_blockers() -> dict[str, object]:
+    with _session_factory()() as session:
+        return _metric_compute_run_blockers_for_session(session)
+
+
 def game_pipeline_status_for_date(target_date: date) -> dict:
     with _session_factory()() as session:
         games = (
@@ -264,6 +323,7 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
         game_ids = [game.game_id for game in games]
         entity_metric_counts = _entity_metric_counts_for_games(session, game_ids)
         result_counts = _metric_result_counts_for_games(session, game_ids)
+        metric_run_blockers = _metric_compute_run_blockers_for_session(session)
 
         ready_game_ids: list[str] = []
         pending_artifact_game_ids: list[str] = []
@@ -280,6 +340,7 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
                 has_pbp=has_pbp,
                 entity_metric_count=entity_metric_counts.get(game.game_id, 0),
                 metric_result_count=result_counts.get(game.game_id, 0),
+                **metric_run_blockers,
             )
             pipeline_stage = readiness["pipeline_stage"]
             if pipeline_stage == "artifacts":
@@ -299,6 +360,7 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
             "pending_artifact_game_ids": pending_artifact_game_ids,
             "pending_metric_game_ids": pending_metric_game_ids,
             "pending_curator_game_ids": pending_curator_game_ids,
+            **metric_run_blockers,
         }
 
 
@@ -380,6 +442,7 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
             or 0
         )
         metric_result_count = _metric_result_counts_for_games(session, [game_id]).get(game_id, 0)
+        metric_run_blockers = _metric_compute_run_blockers_for_session(session)
 
         return _classify_game_analysis_readiness(
             game,
@@ -389,6 +452,7 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
             entity_metric_count=entity_metric_count,
             metric_result_count=metric_result_count,
             metric_run_count=metric_run_count,
+            **metric_run_blockers,
         )
 
 
@@ -1039,6 +1103,7 @@ __all__ = [
     "link_post_to_game_analysis_issue",
     "load_game_analysis_issue_template",
     "matching_game_analysis_issues",
+    "metric_compute_run_blockers",
     "parse_game_analysis_issue_title",
     "recent_game_dates_for_season",
     "recent_target_dates",

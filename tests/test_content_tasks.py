@@ -18,6 +18,7 @@ from content_pipeline.game_analysis_issues import build_game_analysis_issue_desc
 from content_pipeline.game_analysis_issues import build_game_analysis_issue_title  # noqa: E402
 from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
 from content_pipeline.game_analysis_issues import load_game_analysis_issue_template  # noqa: E402
+from tasks import content as content_tasks  # noqa: E402
 from tasks.content import ensure_daily_content_analysis_issue  # noqa: E402
 from web.paperclip_bridge import PaperclipBridgeConfig  # noqa: E402
 
@@ -84,6 +85,54 @@ class TestGameAnalysisReadinessGates(unittest.TestCase):
 
         self.assertFalse(detail["ready"])
         self.assertEqual(detail["pipeline_stage"], "curator")
+
+    def test_blocks_active_compute_runs_before_curator(self):
+        game = SimpleNamespace(
+            game_id="0042500133",
+            season="42025",
+            highlights_curated_at=datetime(2026, 4, 23, 22, 0, 0),
+        )
+
+        detail = _classify_game_analysis_readiness(
+            game,
+            artifacts_supported=True,
+            has_detail=True,
+            has_pbp=True,
+            entity_metric_count=20,
+            metric_result_count=102,
+            active_metric_run_count=2,
+            active_metric_keys=("metric_a", "metric_b"),
+        )
+
+        self.assertFalse(detail["ready"])
+        self.assertEqual(detail["pipeline_stage"], "metrics")
+        self.assertEqual(detail["active_metric_run_count"], 2)
+        self.assertEqual(detail["active_metric_keys"], ["metric_a", "metric_b"])
+        self.assertIn("mapping/reducing", detail["message"])
+
+    def test_blocks_failed_compute_runs_before_curator(self):
+        game = SimpleNamespace(
+            game_id="0042500133",
+            season="42025",
+            highlights_curated_at=datetime(2026, 4, 23, 22, 0, 0),
+        )
+
+        detail = _classify_game_analysis_readiness(
+            game,
+            artifacts_supported=True,
+            has_detail=True,
+            has_pbp=True,
+            entity_metric_count=20,
+            metric_result_count=102,
+            failed_metric_run_count=1,
+            failed_metric_keys=("metric_busted",),
+        )
+
+        self.assertFalse(detail["ready"])
+        self.assertEqual(detail["pipeline_stage"], "metrics")
+        self.assertEqual(detail["failed_metric_run_count"], 1)
+        self.assertEqual(detail["failed_metric_keys"], ["metric_busted"])
+        self.assertIn("failed", detail["message"])
 
     def test_ready_only_when_all_gates_pass(self):
         game = SimpleNamespace(
@@ -433,6 +482,50 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
         self.assertEqual(result["issue_identifier"], "XIX-999")
         self.assertEqual(result["db_issue_record_id"], 9)
         mock_client.create_issue.assert_not_called()
+
+
+class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
+    def test_waits_when_metric_compute_runs_are_active(self):
+        issues_module = MagicMock()
+        issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-23")]
+        issues_module.metric_compute_run_blockers.return_value = {
+            "active_metric_run_count": 1,
+            "failed_metric_run_count": 0,
+            "active_metric_keys": ["metric_a"],
+            "failed_metric_keys": [],
+        }
+
+        with patch.object(content_tasks, "_game_analysis_issues_module", return_value=issues_module), patch.object(
+            content_tasks.ensure_recent_content_analysis_for_season_task,
+            "delay",
+        ) as analysis_delay:
+            result = content_tasks.curate_then_analyze_for_season_task.run("42025", lookback_days=3)
+
+        self.assertEqual(result["status"], "waiting_for_metrics")
+        self.assertEqual(result["active_metric_run_count"], 1)
+        self.assertEqual(result["game_dates"], ["2026-04-23"])
+        analysis_delay.assert_not_called()
+
+    def test_blocks_when_metric_compute_runs_failed(self):
+        issues_module = MagicMock()
+        issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-23")]
+        issues_module.metric_compute_run_blockers.return_value = {
+            "active_metric_run_count": 0,
+            "failed_metric_run_count": 1,
+            "active_metric_keys": [],
+            "failed_metric_keys": ["metric_busted"],
+        }
+
+        with patch.object(content_tasks, "_game_analysis_issues_module", return_value=issues_module), patch.object(
+            content_tasks.ensure_recent_content_analysis_for_season_task,
+            "delay",
+        ) as analysis_delay:
+            result = content_tasks.curate_then_analyze_for_season_task.run("42025", lookback_days=3)
+
+        self.assertEqual(result["status"], "blocked_failed_metrics")
+        self.assertEqual(result["failed_metric_run_count"], 1)
+        self.assertEqual(result["failed_metric_keys"], ["metric_busted"])
+        analysis_delay.assert_not_called()
 
 
 class TestGameAnalysisIssueTemplate(unittest.TestCase):

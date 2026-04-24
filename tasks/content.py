@@ -226,9 +226,31 @@ def curate_then_analyze_for_season_task(
     from db.models import Game, engine
     from metrics.highlights.curator import run_curator_for_game
 
-    game_dates = _game_analysis_issues_module().recent_game_dates_for_season(
+    issues_module = _game_analysis_issues_module()
+    game_dates = issues_module.recent_game_dates_for_season(
         season, lookback_days=lookback_days,
     )
+    metric_blockers = issues_module.metric_compute_run_blockers()
+    active_metric_runs = int(metric_blockers.get("active_metric_run_count") or 0)
+    failed_metric_runs = int(metric_blockers.get("failed_metric_run_count") or 0)
+    if active_metric_runs or failed_metric_runs:
+        status = "blocked_failed_metrics" if failed_metric_runs else "waiting_for_metrics"
+        logger.warning(
+            "curate_then_analyze season=%s blocked by MetricComputeRun state active=%d failed=%d",
+            season,
+            active_metric_runs,
+            failed_metric_runs,
+        )
+        return {
+            "season": season,
+            "status": status,
+            "game_dates": [target.isoformat() for target in game_dates],
+            "curated": 0,
+            "skipped": 0,
+            "failed_game_ids": [],
+            **metric_blockers,
+        }
+
     curated = 0
     skipped = 0
     failed: list[str] = []
