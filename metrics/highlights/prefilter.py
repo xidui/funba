@@ -138,6 +138,10 @@ def build_llm_input(entries: Iterable[dict]) -> list[dict]:
             "metric_description": e.get("metric_description"),
             "metric_description_zh": e.get("metric_description_zh"),
             "metric_window": e.get("metric_window"),
+            "scope_window": e.get("scope_window"),
+            "scope_phase": e.get("scope_phase"),
+            "scope_reference_zh": e.get("scope_reference_zh"),
+            "scope_reference_en": e.get("scope_reference_en"),
             "season": e.get("season"),
             "entity_id": e.get("entity_id"),
             "value": e.get("value_str") or (

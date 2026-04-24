@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from social_media.twitter.post import (  # noqa: E402
     _cookie_for_playwright,
+    _create_context,
     _estimated_tweet_length,
     _extract_status_url_from_text,
     _extract_status_urls_from_page_state,
@@ -26,6 +28,34 @@ class _FakePage:
 
     def evaluate(self, _script):
         return self._eval_result
+
+
+class _FakeBrowser:
+    def __init__(self):
+        self.context_kwargs = None
+        self.cookies = None
+
+    def new_context(self, **kwargs):
+        self.context_kwargs = kwargs
+        return self
+
+    def add_cookies(self, cookies):
+        self.cookies = cookies
+
+
+class _FakeChromium:
+    def __init__(self):
+        self.headless = None
+        self.browser = _FakeBrowser()
+
+    def launch(self, *, headless):
+        self.headless = headless
+        return self.browser
+
+
+class _FakePlaywright:
+    def __init__(self):
+        self.chromium = _FakeChromium()
 
 
 class TestTwitterPostHelpers(unittest.TestCase):
@@ -81,6 +111,30 @@ class TestTwitterPostHelpers(unittest.TestCase):
             _extract_status_urls_from_page_state(page),
             {"https://x.com/funba_app/status/1915000000000000000"},
         )
+
+    def test_create_context_defaults_to_headless(self):
+        pw = _FakePlaywright()
+        with patch("social_media.twitter.post.load_cookies", return_value=[]), patch.dict(
+            "os.environ", {}, clear=True
+        ):
+            _create_context(pw)
+        self.assertTrue(pw.chromium.headless)
+
+    def test_create_context_allows_headed_env_override(self):
+        pw = _FakePlaywright()
+        with patch("social_media.twitter.post.load_cookies", return_value=[]), patch.dict(
+            "os.environ", {"FUNBA_TWITTER_HEADLESS": "0"}, clear=True
+        ):
+            _create_context(pw)
+        self.assertFalse(pw.chromium.headless)
+
+    def test_create_context_explicit_headless_overrides_env(self):
+        pw = _FakePlaywright()
+        with patch("social_media.twitter.post.load_cookies", return_value=[]), patch.dict(
+            "os.environ", {"FUNBA_TWITTER_HEADLESS": "0"}, clear=True
+        ):
+            _create_context(pw, headless=True)
+        self.assertTrue(pw.chromium.headless)
 
 
 if __name__ == "__main__":

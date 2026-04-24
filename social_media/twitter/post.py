@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import os
 import re
 import sys
 import time
@@ -37,6 +38,13 @@ DEFAULT_TWEET_LIMIT = 280
 _SHORT_SLEEP = 0.1
 _MEDIUM_SLEEP = 0.4
 _LONG_SLEEP = 1.0
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _cookie_for_playwright(cookie: dict[str, Any]) -> dict[str, Any]:
@@ -177,8 +185,10 @@ def _playwright():
     return sync_playwright()
 
 
-def _create_context(pw) -> BrowserContext:
-    browser = pw.chromium.launch(headless=False)
+def _create_context(pw, *, headless: bool | None = None) -> BrowserContext:
+    browser = pw.chromium.launch(
+        headless=_env_bool("FUNBA_TWITTER_HEADLESS", True) if headless is None else bool(headless)
+    )
     context = browser.new_context(
         viewport={"width": 1440, "height": 1200},
         locale="en-US",
@@ -371,6 +381,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     post_id = getattr(args, "post_id", None)
     artifact_dir = _resolve_artifact_dir(getattr(args, "artifact_dir", None), post_id=post_id)
     keep_open_seconds = max(float(getattr(args, "keep_open_seconds", 0) or 0), 0.0)
+    headed = bool(getattr(args, "headed", False)) or keep_open_seconds > 0
     tweet_limit = max(int(getattr(args, "tweet_limit", DEFAULT_TWEET_LIMIT) or DEFAULT_TWEET_LIMIT), 1)
     estimated_length = _estimated_tweet_length(content)
     stage = "starting"
@@ -407,7 +418,7 @@ def cmd_post(args: argparse.Namespace) -> None:
 
     try:
         with _playwright() as pw:
-            context = _create_context(pw)
+            context = _create_context(pw, headless=not headed)
             page = context.new_page()
 
             page.on(
@@ -533,6 +544,11 @@ def main() -> None:
         type=float,
         default=0,
         help="In dry-run mode, keep the visible browser open for manual review.",
+    )
+    p_post.add_argument(
+        "--headed",
+        action="store_true",
+        help="Show the browser window for manual debugging. Default is headless.",
     )
     p_post.add_argument("--submit", action="store_true", help="Actually submit (default: draft only)")
 
