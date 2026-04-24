@@ -158,30 +158,25 @@ def register_admin_misc_routes(app, deps):
                             """
                     SELECT
                         g.season,
-                        COUNT(DISTINCT g.game_id)   AS total,
-                        COUNT(DISTINCT box.game_id) AS has_detail,
-                        COUNT(DISTINCT pbp.game_id) AS has_pbp,
-                        COUNT(DISTINCT gls.game_id) AS has_line,
-                        COUNT(DISTINCT sr.game_id)  AS has_shot,
-                        COUNT(DISTINCT pps.game_id) AS has_period,
-                        COALESCE(SUM(mrl_agg.metric_cnt > 0), 0) AS has_metrics,
-                        0                                        AS active_claims
+                        COUNT(*)           AS total,
+                        COUNT(box.game_id) AS has_detail,
+                        COUNT(pbp.game_id) AS has_pbp,
+                        COUNT(gls.game_id) AS has_line,
+                        COUNT(sr.game_id)  AS has_shot,
+                        COUNT(pps.game_id) AS has_period,
+                        COUNT(mrl.game_id) AS has_metrics,
+                        0                  AS active_claims
                     FROM Game g
                     LEFT JOIN (
                         SELECT DISTINCT game_id FROM TeamGameStats
                         UNION
                         SELECT DISTINCT game_id FROM PlayerGameStats
                     ) box ON box.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)  pbp ON pbp.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)   gls ON gls.game_id = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)       sr  ON sr.game_id  = g.game_id
-                    LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGamePeriodStats) pps ON pps.game_id = g.game_id
-                    LEFT JOIN (
-                        SELECT game_id,
-                               COUNT(DISTINCT metric_key) AS metric_cnt
-                        FROM MetricRunLog
-                        GROUP BY game_id
-                    ) mrl_agg ON mrl_agg.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM GamePlayByPlay)         pbp ON pbp.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM GameLineScore)          gls ON gls.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM ShotRecord)             sr  ON sr.game_id  = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM PlayerGamePeriodStats)  pps ON pps.game_id = g.game_id
+                    LEFT JOIN (SELECT DISTINCT game_id FROM MetricRunLog)           mrl ON mrl.game_id = g.game_id
                     WHERE g.game_date IS NOT NULL
                     GROUP BY g.season
                     ORDER BY g.season DESC

@@ -7184,7 +7184,7 @@ metric_detail = _metric_detail_views.metric_detail
 
 
 _admin_cache: dict = {}
-_ADMIN_CACHE_TTL = 30  # seconds
+_ADMIN_CACHE_TTL = 300  # seconds
 _ADMIN_STALE_REDUCE_GRACE_SECONDS = 300
 
 
