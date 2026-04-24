@@ -485,6 +485,43 @@ class TestGameScopedContentAnalysisIssues(unittest.TestCase):
 
 
 class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
+    def test_recent_content_analysis_enqueues_curator_backfill(self):
+        with patch.object(
+            content_tasks,
+            "_enqueue_curator_for_pending_dates",
+            return_value={
+                "enqueued": 1,
+                "pending_game_ids": ["0042500133"],
+                "seasons": ["42025"],
+            },
+        ) as backfill_mock, patch.object(
+            content_tasks,
+            "ensure_recent_content_analysis",
+            return_value={"ok": False, "checked_dates": ["2026-04-23"], "results": []},
+        ):
+            result = content_tasks.ensure_recent_content_analysis_task.run(
+                source_dates=["2026-04-23"],
+                lookback_days=3,
+            )
+
+        backfill_mock.assert_called_once_with([date.fromisoformat("2026-04-23")], lookback_days=3)
+        self.assertEqual(result["curator_backfill"]["pending_game_ids"], ["0042500133"])
+
+    def test_recent_content_analysis_can_skip_curator_backfill(self):
+        with patch.object(content_tasks, "_enqueue_curator_for_pending_dates") as backfill_mock, patch.object(
+            content_tasks,
+            "ensure_recent_content_analysis",
+            return_value={"ok": True, "checked_dates": ["2026-04-23"], "results": []},
+        ):
+            result = content_tasks.ensure_recent_content_analysis_task.run(
+                source_dates=["2026-04-23"],
+                lookback_days=3,
+                enqueue_curator=False,
+            )
+
+        backfill_mock.assert_not_called()
+        self.assertNotIn("curator_backfill", result)
+
     def test_waits_when_metric_compute_runs_are_active(self):
         issues_module = MagicMock()
         issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-23")]
@@ -526,6 +563,43 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
         self.assertEqual(result["failed_metric_run_count"], 1)
         self.assertEqual(result["failed_metric_keys"], ["metric_busted"])
         analysis_delay.assert_not_called()
+
+    def test_curator_only_runs_games_at_curator_stage(self):
+        ready_game = SimpleNamespace(game_id="ready-game", highlights_curated_at=None)
+        waiting_game = SimpleNamespace(game_id="waiting-game", highlights_curated_at=None)
+        session = MagicMock()
+        session.query.return_value.filter.return_value.all.return_value = [ready_game, waiting_game]
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = False
+
+        issues_module = MagicMock()
+        issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-23")]
+        issues_module.metric_compute_run_blockers.return_value = {
+            "active_metric_run_count": 0,
+            "failed_metric_run_count": 0,
+            "active_metric_keys": [],
+            "failed_metric_keys": [],
+        }
+        issues_module.game_analysis_readiness_detail.side_effect = lambda game_id: {
+            "pipeline_stage": "curator" if game_id == "ready-game" else "metrics",
+        }
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}), patch.object(
+            content_tasks,
+            "_game_analysis_issues_module",
+            return_value=issues_module,
+        ), patch("sqlalchemy.orm.Session", return_value=session_cm), patch(
+            "metrics.highlights.curator.run_curator_for_game",
+        ) as curator_mock, patch.object(
+            content_tasks.ensure_recent_content_analysis_for_season_task,
+            "delay",
+        ):
+            result = content_tasks.curate_then_analyze_for_season_task.run("42025", lookback_days=3)
+
+        curator_mock.assert_called_once_with(session, ready_game)
+        self.assertEqual(result["curated"], 1)
+        self.assertEqual(result["waiting"], 1)
 
 
 class TestGameAnalysisIssueTemplate(unittest.TestCase):

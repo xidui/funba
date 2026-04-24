@@ -61,6 +61,51 @@ def ensure_recent_content_analysis(*args, **kwargs):
     return _game_analysis_issues_module().ensure_recent_game_content_analysis(*args, **kwargs)
 
 
+def _enqueue_curator_for_pending_dates(target_dates: list[date], *, lookback_days: int = 3) -> dict:
+    issues_module = _game_analysis_issues_module()
+    pending_game_ids: set[str] = set()
+    for target_date in target_dates:
+        pipeline = issues_module.game_pipeline_status_for_date(target_date)
+        pending_game_ids.update(str(game_id) for game_id in (pipeline.get("pending_curator_game_ids") or []) if game_id)
+    if not pending_game_ids:
+        return {"enqueued": 0, "pending_game_ids": [], "seasons": []}
+
+    from sqlalchemy.orm import Session
+
+    from db.models import Game, engine
+
+    season_dates: dict[str, set[str]] = {}
+    with Session(engine) as session:
+        rows = (
+            session.query(Game.season, Game.game_date)
+            .filter(
+                Game.game_id.in_(sorted(pending_game_ids)),
+                Game.season.isnot(None),
+                Game.game_date.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        for season, game_date in rows:
+            season_dates.setdefault(str(season), set()).add(game_date.isoformat())
+
+    enqueued = 0
+    for season, source_dates in sorted(season_dates.items()):
+        curate_then_analyze_for_season_task.delay(
+            season,
+            lookback_days=lookback_days,
+            force_curator=False,
+            source_dates=sorted(source_dates),
+        )
+        enqueued += 1
+
+    return {
+        "enqueued": enqueued,
+        "pending_game_ids": sorted(pending_game_ids),
+        "seasons": sorted(season_dates.keys()),
+    }
+
+
 @shared_task(
     bind=True,
     name="tasks.content.ensure_daily_content_analysis",
@@ -70,7 +115,10 @@ def ensure_recent_content_analysis(*args, **kwargs):
 def ensure_daily_content_analysis_task(self, source_date: str | None = None, force: bool = False) -> dict:
     target_date = date.fromisoformat(source_date) if source_date else (date.today() - timedelta(days=1))
     try:
+        curator_backfill = _enqueue_curator_for_pending_dates([target_date], lookback_days=1)
         result = ensure_daily_content_analysis_issue(target_date, force=force)
+        if curator_backfill.get("enqueued"):
+            result["curator_backfill"] = curator_backfill
         logger.info("game content analysis readiness for %s -> %s", target_date.isoformat(), result.get("status"))
         return result
     except Exception as exc:
@@ -89,6 +137,7 @@ def ensure_recent_content_analysis_task(
     source_dates: list[str] | None = None,
     lookback_days: int = 3,
     force: bool = False,
+    enqueue_curator: bool = True,
 ) -> dict:
     target_dates = (
         [date.fromisoformat(value) for value in source_dates]
@@ -96,7 +145,14 @@ def ensure_recent_content_analysis_task(
         else _game_analysis_issues_module().recent_target_dates(lookback_days)
     )
     try:
+        curator_backfill = (
+            _enqueue_curator_for_pending_dates(target_dates, lookback_days=lookback_days)
+            if enqueue_curator
+            else {"enqueued": 0, "pending_game_ids": [], "seasons": []}
+        )
         result = ensure_recent_content_analysis(target_dates, force=force)
+        if curator_backfill.get("enqueued"):
+            result["curator_backfill"] = curator_backfill
         logger.info("recent game content analysis readiness checked for %s", result.get("checked_dates"))
         return result
     except Exception as exc:
@@ -208,6 +264,7 @@ def curate_then_analyze_for_season_task(
     lookback_days: int = 3,
     force_curator: bool = False,
     force_analysis: bool = False,
+    source_dates: list[str] | None = None,
 ) -> dict:
     """Run the LLM highlight curator on recent games of a season, then enqueue
     the content analysis job.
@@ -227,8 +284,10 @@ def curate_then_analyze_for_season_task(
     from metrics.highlights.curator import run_curator_for_game
 
     issues_module = _game_analysis_issues_module()
-    game_dates = issues_module.recent_game_dates_for_season(
-        season, lookback_days=lookback_days,
+    game_dates = (
+        [date.fromisoformat(value) for value in source_dates]
+        if source_dates
+        else issues_module.recent_game_dates_for_season(season, lookback_days=lookback_days)
     )
     metric_blockers = issues_module.metric_compute_run_blockers()
     active_metric_runs = int(metric_blockers.get("active_metric_run_count") or 0)
@@ -253,6 +312,7 @@ def curate_then_analyze_for_season_task(
 
     curated = 0
     skipped = 0
+    waiting = 0
     failed: list[str] = []
     if not os.getenv("OPENAI_API_KEY"):
         logger.warning(
@@ -274,6 +334,16 @@ def curate_then_analyze_for_season_task(
                 if game.highlights_curated_at is not None and not force_curator:
                     skipped += 1
                     continue
+                readiness = issues_module.game_analysis_readiness_detail(game.game_id)
+                if readiness.get("pipeline_stage") not in ("curator", "ready"):
+                    waiting += 1
+                    logger.info(
+                        "curate_then_analyze: waiting game=%s season=%s stage=%s",
+                        game.game_id,
+                        season,
+                        readiness.get("pipeline_stage"),
+                    )
+                    continue
                 try:
                     run_curator_for_game(session, game)
                     curated += 1
@@ -284,19 +354,29 @@ def curate_then_analyze_for_season_task(
                     )
                     failed.append(game.game_id)
 
-    ensure_recent_content_analysis_for_season_task.delay(
-        season,
-        lookback_days=lookback_days,
-        force=force_analysis,
-    )
+    if source_dates:
+        ensure_recent_content_analysis_task.delay(
+            source_dates=sorted({value for value in source_dates if value}),
+            lookback_days=lookback_days,
+            force=force_analysis,
+            enqueue_curator=False,
+        )
+    else:
+        ensure_recent_content_analysis_for_season_task.delay(
+            season,
+            lookback_days=lookback_days,
+            force=force_analysis,
+        )
     logger.info(
-        "curate_then_analyze season=%s curated=%d skipped=%d failed=%d — analysis enqueued",
-        season, curated, skipped, len(failed),
+        "curate_then_analyze season=%s curated=%d skipped=%d waiting=%d failed=%d — analysis enqueued",
+        season, curated, skipped, waiting, len(failed),
     )
     return {
         "season": season,
+        "game_dates": [target.isoformat() for target in game_dates],
         "curated": curated,
         "skipped": skipped,
+        "waiting": waiting,
         "failed_game_ids": failed,
     }
 
