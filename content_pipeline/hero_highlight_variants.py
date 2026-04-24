@@ -25,6 +25,7 @@ from db.models import (
     SocialPostVariant,
     Team,
 )
+from metrics.framework.family import family_career_key, family_window_key, window_type_from_key
 
 PUBLIC_BASE_URL = "https://funba.app"
 DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter",)
@@ -41,6 +42,8 @@ class HeroHighlightCard:
     matchup: str
     scope: str
     metric_key: str
+    ranking_metric_key: str
+    ranking_season: str | None
     entity_id: str | None
     entity_label: str | None
     metric_name: str
@@ -189,6 +192,20 @@ def _metric_result_season(metric_key: str, season: str | None) -> str:
     return raw
 
 
+def _career_season_for(season: str | None) -> str | None:
+    prefix = _season_type_prefix(season)
+    return {
+        "2": "all_regular",
+        "4": "all_playoffs",
+        "5": "all_playin",
+    }.get(prefix)
+
+
+def _all_seasons_param(season: str | None) -> str | None:
+    prefix = _season_type_prefix(season)
+    return f"all_{prefix}" if prefix else None
+
+
 def _recent_seasons(session: Session, season: str | None, window: str) -> list[str]:
     prefix = _season_type_prefix(season)
     if prefix is None:
@@ -270,12 +287,103 @@ def _format_result_value(row: MetricResult) -> str:
     return str(value)
 
 
+def _entry_value_num(entry: dict) -> float | None:
+    value = entry.get("value_snapshot")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_row_matches_entry(session: Session, metric_key: str, season: str | None, entity_id: str | None, entry: dict) -> bool:
+    if not metric_key or not season or not entity_id:
+        return False
+    query = session.query(MetricResult.id).filter(
+        MetricResult.metric_key == metric_key,
+        MetricResult.season == season,
+        MetricResult.entity_id == str(entity_id),
+    )
+    value_num = _entry_value_num(entry)
+    value_str = entry.get("value_str_snapshot")
+    if value_num is not None:
+        query = query.filter(MetricResult.value_num == value_num)
+    elif value_str is not None:
+        query = query.filter(MetricResult.value_str == str(value_str))
+    return query.first() is not None
+
+
+def _related_milestone_candidates(entry: dict) -> list[tuple[str, str]]:
+    context = entry.get("milestone_context_snapshot")
+    if not isinstance(context, dict):
+        return []
+    related = context.get("related_milestones")
+    if not isinstance(related, list):
+        return []
+    out: list[tuple[str, str]] = []
+    for item in related:
+        if not isinstance(item, dict):
+            continue
+        metric_key = str(item.get("metric_key") or "").strip()
+        season = str(item.get("season") or "").strip()
+        if metric_key and season:
+            out.append((metric_key, season))
+    return out
+
+
+def _resolve_ranking_metric_context(session: Session, metric_key: str, season: str | None, entry: dict) -> tuple[str, str | None]:
+    """Resolve the actual MetricResult pool behind a curated card.
+
+    Milestone curation can pick a window sibling while the actual crossed value
+    lives in a related career pool. Prefer an exact MetricResult row matching the
+    curated entity/value so the rendered Source and Top 3 point at the same data.
+    """
+    entity_id = entry.get("entity_id")
+    candidates: list[tuple[str, str | None]] = [(metric_key, season)]
+    candidates.extend(_related_milestone_candidates(entry))
+
+    mapped_season = _metric_result_season(metric_key, season)
+    if mapped_season != str(season or ""):
+        candidates.append((metric_key, mapped_season))
+
+    career_season = _career_season_for(season)
+    if career_season:
+        candidates.append((family_career_key(metric_key), career_season))
+
+    seen: set[tuple[str, str | None]] = set()
+    for candidate_key, candidate_season in candidates:
+        candidate = (candidate_key, candidate_season)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if _metric_row_matches_entry(session, candidate_key, candidate_season, entity_id, entry):
+            return candidate_key, candidate_season
+    return metric_key, season
+
+
+def _metric_link_context(card: "HeroHighlightCard") -> tuple[str, str | None]:
+    window_type = window_type_from_key(card.ranking_metric_key)
+    if window_type:
+        return card.ranking_metric_key, card.ranking_season
+
+    if card.scope == "game":
+        if card.rank_window in {"last3", "last5"}:
+            season_param = _all_seasons_param(card.ranking_season)
+            if season_param:
+                return family_window_key(card.ranking_metric_key, card.rank_window), season_param
+        if card.rank_window == "alltime":
+            season_param = _all_seasons_param(card.ranking_season)
+            if season_param:
+                return card.ranking_metric_key, season_param
+
+    return card.ranking_metric_key, card.ranking_season
+
+
 def _top_result_query(session: Session, card: "HeroHighlightCard", window: str):
     query = session.query(MetricResult).filter(
-        MetricResult.metric_key == card.metric_key,
+        MetricResult.metric_key == card.ranking_metric_key,
         MetricResult.value_num.isnot(None),
     )
-    season = _metric_result_season(card.metric_key, card.season)
+    season = card.ranking_season or ""
     if window == "season" and season:
         query = query.filter(MetricResult.season == season)
     elif window == "alltime" and _season_type_prefix(season):
@@ -294,16 +402,16 @@ def _top_result_query(session: Session, card: "HeroHighlightCard", window: str):
 
 
 def _top_three_results(session: Session, card: "HeroHighlightCard") -> tuple[str, ...]:
-    rank_order = _metric_rank_order(session, card.metric_key)
+    rank_order = _metric_rank_order(session, card.ranking_metric_key)
     order_col = MetricResult.value_num.asc() if rank_order == "asc" else MetricResult.value_num.desc()
 
     rows = _top_result_query(session, card, card.rank_window).order_by(order_col, MetricResult.entity_id.asc()).limit(3).all()
-    fallback_season = _metric_result_season(card.metric_key, card.season)
+    fallback_season = card.ranking_season
     if not rows and fallback_season:
         rows = (
             session.query(MetricResult)
             .filter(
-                MetricResult.metric_key == card.metric_key,
+                MetricResult.metric_key == card.ranking_metric_key,
                 MetricResult.season == fallback_season,
                 MetricResult.value_num.isnot(None),
             )
@@ -377,6 +485,7 @@ def collect_hero_highlight_cards(session: Session, game: Game) -> list[HeroHighl
             entity_label = teams.get(str(entry.get("entity_id")))
         season = entry.get("season") or game.season
         rank_window, rank_text = _best_rank_context(entry.get("rank_snapshot") or {})
+        ranking_metric_key, ranking_season = _resolve_ranking_metric_context(session, metric_key, season, entry)
         card = HeroHighlightCard(
             game_id=game.game_id,
             game_date=game.game_date,
@@ -384,6 +493,8 @@ def collect_hero_highlight_cards(session: Session, game: Game) -> list[HeroHighl
             matchup=matchup,
             scope=scope,
             metric_key=metric_key,
+            ranking_metric_key=ranking_metric_key,
+            ranking_season=ranking_season,
             entity_id=entry.get("entity_id"),
             entity_label=entity_label,
             metric_name=metric_name,
@@ -394,10 +505,17 @@ def collect_hero_highlight_cards(session: Session, game: Game) -> list[HeroHighl
             rank_text=rank_text,
             rank_window=rank_window,
             top_results=(),
-            metric_url=_public_metric_url(metric_key, season if scope != "game" else None),
+            metric_url="",
             game_url=_public_game_url(game),
         )
-        cards.append(replace(card, top_results=_top_three_results(session, card)))
+        link_metric_key, link_season = _metric_link_context(card)
+        cards.append(
+            replace(
+                card,
+                top_results=_top_three_results(session, card),
+                metric_url=_public_metric_url(link_metric_key, link_season),
+            )
+        )
     return cards
 
 
@@ -465,7 +583,7 @@ def _create_post_for_card(
     post = SocialPost(
         topic=topic,
         source_date=source_date,
-        source_metrics=json.dumps([card.metric_key], ensure_ascii=False),
+        source_metrics=json.dumps([card.ranking_metric_key], ensure_ascii=False),
         source_game_ids=json.dumps([card.game_id], ensure_ascii=False),
         status=HERO_HIGHLIGHT_STATUS,
         priority=25,

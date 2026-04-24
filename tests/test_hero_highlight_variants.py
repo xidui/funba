@@ -83,6 +83,67 @@ def _curated_team_hero() -> str:
     )
 
 
+def _curated_game_hero() -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "hero": [
+                {
+                    "metric_key": "game_total_steals",
+                    "entity_id": "0022500001",
+                    "narrative_zh": "双方合计25次抢断，近5季季后赛第2。",
+                    "narrative_en": "The teams combined for 25 steals, 2nd over the last 5 playoff seasons.",
+                    "value_snapshot": 25,
+                    "value_str_snapshot": "25",
+                    "rank_snapshot": {"last5": 2, "last5_total": 353},
+                    "season": "42025",
+                }
+            ],
+            "notable": [],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _curated_related_milestone_team_hero() -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "hero": [
+                {
+                    "metric_key": "wins_by_10_plus_last5",
+                    "entity_id": "1610612760",
+                    "team_id": "1610612760",
+                    "team_abbr": "OKC",
+                    "narrative_zh": "OKC季后赛10+分胜场来到75场，历史第8。",
+                    "narrative_en": "OKC reached 75 playoff wins by 10+, moving to 8th all-time.",
+                    "value_snapshot": 75,
+                    "value_str_snapshot": "75",
+                    "rank_snapshot": {"alltime": 8},
+                    "season": "all_playoffs",
+                    "source": "milestone",
+                    "milestone_context_snapshot": {
+                        "related_milestones": [
+                            {
+                                "metric_key": "wins_by_10_plus_last5",
+                                "season": "all_playoffs",
+                                "value_num": 75,
+                            },
+                            {
+                                "metric_key": "wins_by_10_plus_career",
+                                "season": "all_playoffs",
+                                "value_num": 75,
+                            },
+                        ]
+                    },
+                }
+            ],
+            "notable": [],
+        },
+        ensure_ascii=False,
+    )
+
+
 class TestHeroHighlightVariants(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
@@ -279,7 +340,133 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
             variant = session.query(SocialPostVariant).one()
             self.assertIn("Top 3:\n1. OKC - 75\n2. BOS - 72\n3. CLE - 70", variant.content_raw)
-            self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_last5?season=all_playoffs", variant.content_raw)
+            self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_last5?season=last5_playoffs", variant.content_raw)
+
+    def test_game_last5_source_link_uses_window_metric_and_season_type(self):
+        with self.SessionLocal() as session:
+            self._seed_game(session)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            game = session.query(Game).filter(Game.game_id == "0022500001").one()
+            game.season = "42025"
+            game.highlights_curated_player_json = json.dumps({"version": 1, "hero": [], "notable": []})
+            game.highlights_curated_json = _curated_game_hero()
+            session.add(
+                MetricDefinition(
+                    key="game_total_steals",
+                    family_key="game_total_steals",
+                    name="Game Total Steals",
+                    name_zh="全场抢断总数",
+                    scope="game",
+                    status="published",
+                    source_type="rule",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            for idx, value in enumerate((27, 25, 24), start=1):
+                session.add(
+                    MetricResult(
+                        metric_key="game_total_steals",
+                        entity_type="game",
+                        entity_id=f"004250000{idx}",
+                        season="42025",
+                        sub_key="",
+                        value_num=value,
+                        value_str=str(value),
+                        computed_at=now,
+                    )
+                )
+            session.commit()
+
+            generate_hero_highlight_variants_for_game(session, "0022500001", platforms=["twitter"])
+
+            variant = session.query(SocialPostVariant).one()
+            self.assertIn("Source: https://funba.app/metrics/game_total_steals_last5?season=all_4", variant.content_raw)
+
+    def test_related_milestone_resolves_source_link_to_matching_metric_pool(self):
+        with self.SessionLocal() as session:
+            self._seed_game(session)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            game = session.query(Game).filter(Game.game_id == "0022500001").one()
+            game.highlights_curated_player_json = json.dumps({"version": 1, "hero": [], "notable": []})
+            game.highlights_curated_team_json = _curated_related_milestone_team_hero()
+            session.add_all(
+                [
+                    Team(team_id="1610612760", abbr="OKC", full_name="Oklahoma City Thunder"),
+                    Team(team_id="1610612759", abbr="SAS", full_name="San Antonio Spurs"),
+                    MetricDefinition(
+                        key="wins_by_10_plus_career",
+                        family_key="wins_by_10_plus",
+                        name="Wins By 10+",
+                        name_zh="10+分胜场",
+                        scope="team",
+                        status="published",
+                        source_type="rule",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    MetricResult(
+                        metric_key="wins_by_10_plus_last5",
+                        entity_type="team",
+                        entity_id="1610612760",
+                        season="last5_playoffs",
+                        sub_key="",
+                        value_num=15,
+                        value_str="15",
+                        computed_at=now,
+                    ),
+                    MetricResult(
+                        metric_key="wins_by_10_plus_career",
+                        entity_type="team",
+                        entity_id="1610612747",
+                        season="all_playoffs",
+                        sub_key="",
+                        value_num=150,
+                        value_str="150",
+                        computed_at=now,
+                    ),
+                    MetricResult(
+                        metric_key="wins_by_10_plus_career",
+                        entity_type="team",
+                        entity_id="1610612759",
+                        season="all_playoffs",
+                        sub_key="",
+                        value_num=121,
+                        value_str="121",
+                        computed_at=now,
+                    ),
+                    MetricResult(
+                        metric_key="wins_by_10_plus_career",
+                        entity_type="team",
+                        entity_id="1610612738",
+                        season="all_playoffs",
+                        sub_key="",
+                        value_num=120,
+                        value_str="120",
+                        computed_at=now,
+                    ),
+                    MetricResult(
+                        metric_key="wins_by_10_plus_career",
+                        entity_type="team",
+                        entity_id="1610612760",
+                        season="all_playoffs",
+                        sub_key="",
+                        value_num=75,
+                        value_str="75",
+                        computed_at=now,
+                    ),
+                ]
+            )
+            session.commit()
+
+            generate_hero_highlight_variants_for_game(session, "0022500001", platforms=["twitter"])
+
+            post = session.query(SocialPost).one()
+            variant = session.query(SocialPostVariant).one()
+            self.assertTrue(post.topic.startswith("Hero Highlight — 0022500001 — team — wins_by_10_plus_last5"))
+            self.assertEqual(json.loads(post.source_metrics), ["wins_by_10_plus_career"])
+            self.assertIn("Top 3:\n1. LAL - 150\n2. SAS - 121\n3. BOS - 120", variant.content_raw)
+            self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_career?season=all_playoffs", variant.content_raw)
 
     def test_platform_config_is_generic_and_normalizes_x_alias(self):
         self.assertEqual(
