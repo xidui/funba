@@ -965,11 +965,11 @@
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
         <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Season', '赛季') }}</span>
-        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Career', '生涯') }}</span>{% endif %}
+        {% if m.career_rank %}<span class="rank-chip{% if m.career_is_notable %} notable{% endif %}">#{{ m.career_rank }} {{ t('Franchise History', '队史') }}</span>{% endif %}
       </div>
       {% if m.career or m.last5 or m.last3 %}
       <div class="metric-window-rows">
-        {% if m.career %}{{ render_window_row(t('Career', '生涯'), m.career) }}{% endif %}
+        {% if m.career %}{{ render_window_row(t('Franchise History', '队史'), m.career) }}{% endif %}
         {% if m.last5 %}{{ render_window_row(t('Last 5', '近 5 季'), m.last5) }}{% endif %}
         {% if m.last3 %}{{ render_window_row(t('Last 3', '近 3 季'), m.last3) }}{% endif %}
       </div>
@@ -985,7 +985,7 @@
   {% for m in career_alltime_metrics|sort(attribute='career_type_label') %}
     {% if m.career_type_label != ns.last_type %}
       {% if ns.last_type %}</div>{% endif %}
-      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }}{{ t(' Career', '生涯') }}</h3>
+      <h3 class="metrics-sub-title" style="margin-top:20px;">{{ m.career_type_label }} {{ t('Franchise History', '队史') }}</h3>
       <div class="metrics-grid">
       {% set ns.last_type = m.career_type_label %}
     {% endif %}
@@ -995,7 +995,7 @@
       <div class="metric-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</div>
       {% if m.context_label %}<div class="metric-context-label">{{ m.context_label }}</div>{% endif %}
       <div class="metric-ranks">
-        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Career', '生涯') }}</span>
+        <span class="rank-chip{% if m.is_notable %} notable{% endif %}">#{{ m.rank }} {{ t('Franchise History', '队史') }}</span>
       </div>
     </a>
   {% endfor %}

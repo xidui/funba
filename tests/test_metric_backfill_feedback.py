@@ -445,10 +445,49 @@ class PlayoffMetric(MetricDefinition):
         self.assertEqual(base_metric["description"], "球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
         self.assertEqual(base_metric["name_zh"], "比赛中最大领先分差")
         self.assertEqual(base_metric["description_zh"], "球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
-        self.assertEqual(career_metric["name"], "比赛中最大领先分差（生涯）")
-        self.assertEqual(career_metric["description"], "生涯球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
-        self.assertEqual(career_metric["name_zh"], "比赛中最大领先分差（生涯）")
-        self.assertEqual(career_metric["description_zh"], "生涯球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+        self.assertEqual(career_metric["name"], "比赛中最大领先分差（队史）")
+        self.assertEqual(career_metric["description"], "队史范围内球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+        self.assertEqual(career_metric["name_zh"], "比赛中最大领先分差（队史）")
+        self.assertEqual(career_metric["description_zh"], "队史范围内球队在比赛任意时刻保持的最大领先分差，无论最终结果。")
+
+    def test_catalog_displays_persisted_team_career_as_franchise_history(self):
+        row = SimpleNamespace(
+            key="team_three_attempts_per_game_career",
+            name="Team 3PA Per Game (Career)",
+            description=(
+                "Average three-point attempts per game. "
+                "Computed across seasons of the same type (regular season, playoffs, or play-in)."
+            ),
+            name_zh="球队场均三分出手（生涯）",
+            description_zh="生涯统计球队场均三分出手数。",
+            scope="team",
+            category="shooting",
+            status="published",
+            source_type="rule",
+            group_key=None,
+            min_sample=1,
+            expression="",
+            code_python="",
+            definition_json='{"time_scope": "career"}',
+            created_at=1,
+            created_by_user_id=None,
+        )
+
+        with patch.object(self.web_app, "_is_zh", return_value=False):
+            entries = self.web_app._catalog_metric_entries_for_row(
+                row,
+                existing_keys={"team_three_attempts_per_game_career"},
+                counts={},
+            )
+
+        metric = entries[0]
+        self.assertEqual(metric["name"], "Team 3PA Per Game (Franchise History)")
+        self.assertEqual(
+            metric["description"],
+            "Average three-point attempts per game. Computed across each franchise's seasons of the selected type.",
+        )
+        self.assertEqual(metric["name_zh"], "球队场均三分出手（队史）")
+        self.assertEqual(metric["description_zh"], "队史范围内统计球队场均三分出手数。")
 
     def test_create_uses_latest_code_metric_key(self):
         class FakeMetricDefinitionModel:

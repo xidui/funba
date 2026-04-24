@@ -21,6 +21,10 @@ WEB_APP_DB_MODEL_NAMES = (
     "MetricPerfLog",
     "MetricResult",
     "MetricRunLog",
+    "NewsArticle",
+    "NewsArticlePlayer",
+    "NewsArticleTeam",
+    "NewsCluster",
     "PageView",
     "Player",
     "PlayerGamePeriodStats",
@@ -32,7 +36,9 @@ WEB_APP_DB_MODEL_NAMES = (
     "SocialPostImage",
     "SocialPostVariant",
     "Team",
+    "TeamCoachStint",
     "TeamGameStats",
+    "TeamRosterStint",
 )
 
 

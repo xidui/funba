@@ -14,6 +14,58 @@ from metrics.framework.family import (
 )
 
 
+def _metric_window_label(deps, window_type: str | None, scope: str | None) -> str:
+    if window_type == "career":
+        if scope == "team":
+            return deps.t()("Franchise History", "队史")
+        return deps.t()("Career", "生涯")
+    if window_type == "last5":
+        return deps.t()("Last 5 Seasons", "近 5 季")
+    if window_type == "last3":
+        return deps.t()("Last 3 Seasons", "近 3 季")
+    return deps.t()("Season", "赛季")
+
+
+def _team_career_metric_name(base_name: str | None, *, zh: bool = False) -> str:
+    text = str(base_name or "").strip()
+    if not text:
+        return ""
+    if zh:
+        for suffix in ("（队史）", "（生涯）", "（历史）"):
+            if text.endswith(suffix):
+                text = text[: -len(suffix)].strip()
+                break
+        return f"{text}（队史）"
+
+    for suffix in (" (Franchise History)", " (Career)", " (All-Time)"):
+        if text.endswith(suffix):
+            text = text[: -len(suffix)].strip()
+            break
+    return f"{text} (Franchise History)"
+
+
+def _team_career_metric_description(base_description: str | None, *, zh: bool = False) -> str:
+    text = str(base_description or "").strip()
+    if not text:
+        return ""
+    if zh:
+        for prefix in ("队史范围内", "队史", "生涯", "历史上"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+        return f"队史范围内{text}" if text else "队史范围内"
+
+    for suffix in (
+        "Computed across each franchise's seasons of the selected type.",
+        "Computed across franchise history.",
+        "Computed across seasons of the same type (regular season, playoffs, or play-in).",
+    ):
+        if text.endswith(suffix):
+            text = text[: -len(suffix)].strip()
+            break
+    return f"{text} Computed across each franchise's seasons of the selected type.".strip()
+
+
 def register_metric_detail_routes(app, deps):
     def _resolve_entity_labels(session, rows):
         player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
@@ -182,6 +234,18 @@ def register_metric_detail_routes(app, deps):
                 metric_def.name = name_zh if (is_zh and name_zh) else name_en
                 metric_def.description = desc_zh if (is_zh and desc_zh) else desc_en
                 metric_def.key = metric_key
+            elif is_career_metric and current_window_type == "career" and metric_def.scope == "team" and db_metric is not None:
+                name_en = _team_career_metric_name(getattr(db_metric, "name", "") or "", zh=False)
+                name_zh = _team_career_metric_name(getattr(db_metric, "name_zh", "") or "", zh=True)
+                desc_en = _team_career_metric_description(getattr(db_metric, "description", "") or "", zh=False)
+                desc_zh = _team_career_metric_description(getattr(db_metric, "description_zh", "") or "", zh=True)
+                metric_def.name_en = name_en
+                metric_def.name_zh = name_zh
+                metric_def.description_en = desc_en
+                metric_def.description_zh = desc_zh
+                is_zh = deps.is_zh()
+                metric_def.name = name_zh if (is_zh and name_zh) else name_en
+                metric_def.description = desc_zh if (is_zh and desc_zh) else desc_en
 
             window_tabs: list[dict] = []
 
@@ -222,11 +286,7 @@ def register_metric_detail_routes(app, deps):
                     {
                         "window_type": candidate_window,
                         "metric_key": candidate_key,
-                        "label": {
-                            "career": deps.t()("Career", "生涯"),
-                            "last5": deps.t()("Last 5 Seasons", "近 5 季"),
-                            "last3": deps.t()("Last 3 Seasons", "近 3 季"),
-                        }[candidate_window],
+                        "label": _metric_window_label(deps, candidate_window, metric_def.scope),
                         "is_current": candidate_key == metric_key,
                     }
                 )
@@ -270,8 +330,8 @@ def register_metric_detail_routes(app, deps):
                 season_groups = [
                     {
                         "type_code": "career",
-                        "type_name": "Career",
-                        "type_name_plural": "Career",
+                        "type_name": _metric_window_label(deps, window_type, metric_def.scope),
+                        "type_name_plural": _metric_window_label(deps, window_type, metric_def.scope),
                         "all_value": None,
                         "seasons": [
                             {"value": window_prefix + season_type, "label": label}
@@ -717,7 +777,7 @@ def register_metric_detail_routes(app, deps):
                 metric_perf_samples = [{"ms": r.duration_ms, "at": r.recorded_at} for r in perf_rows]
 
         if is_career_metric:
-            display_season_label = "Career"
+            display_season_label = _metric_window_label(deps, current_window_type or "career", metric_def.scope)
         elif show_all_seasons:
             type_name = deps.t()(
                 deps.season_type_plural().get(all_season_type, "Seasons"),

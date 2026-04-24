@@ -104,7 +104,11 @@ from web.admin_misc_routes import register_admin_misc_routes
 from web.admin_proxy_routes import register_admin_proxy_routes
 from web.detail_routes import register_detail_routes
 from web.feedback_routes import register_feedback_routes
-from web.metric_detail_routes import register_metric_detail_routes
+from web.metric_detail_routes import (
+    _team_career_metric_description,
+    _team_career_metric_name,
+    register_metric_detail_routes,
+)
 from web.metrics_read_routes import register_metrics_read_routes
 from web.metrics_write_routes import register_metrics_write_routes
 from web.mobile_api_routes import register_mobile_api_routes
@@ -1801,18 +1805,37 @@ def _catalog_metric_entries_for_row(
     code_metadata = _safe_code_metric_metadata(row)
     search_fields = _db_metric_search_fields(row, code_metadata=code_metadata)
     is_mine = bool(current_user_id and row.created_by_user_id == current_user_id)
+    display_scope = search_fields.get("scope", row.scope)
+    display_window_type = search_fields.get("window_type") or (
+        window_type_from_key(row.key) if search_fields.get("career") else None
+    )
+    display_name_en = search_fields.get("name", row.name)
+    display_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", ""))
+    display_description_en = search_fields.get("description", row.description)
+    display_description_zh = search_fields.get("description_zh", getattr(row, "description_zh", ""))
+    if display_scope == "team" and display_window_type == "career":
+        display_name_en = _team_career_metric_name(display_name_en, zh=False)
+        display_name_zh = _team_career_metric_name(display_name_zh, zh=True)
+        display_description_en = _team_career_metric_description(display_description_en, zh=False)
+        display_description_zh = _team_career_metric_description(display_description_zh, zh=True)
     entries = [
         {
             "key": row.key,
-            "name": _localized_metric_name(search_fields.get("name", row.name), search_fields.get("name_zh", getattr(row, "name_zh", ""))),
-            "description": _localized_metric_description(search_fields.get("description", row.description), search_fields.get("description_zh", getattr(row, "description_zh", ""))),
-            "scope": search_fields.get("scope", row.scope),
+            "name": _localized_metric_name(display_name_en, display_name_zh),
+            "name_zh": display_name_zh,
+            "description": _localized_metric_description(display_description_en, display_description_zh),
+            "description_zh": display_description_zh,
+            "scope": display_scope,
             "category": search_fields.get("category", row.category or ""),
             "status": row.status,
             "source_type": row.source_type,
             "result_count": counts.get(row.key, 0),
             "is_mine": is_mine,
-            **{k: v for k, v in search_fields.items() if k not in ("name", "description")},
+            **{
+                k: v
+                for k, v in search_fields.items()
+                if k not in ("name", "name_zh", "description", "description_zh", "scope")
+            },
         }
     ]
     entries.extend(
@@ -1876,17 +1899,22 @@ def _virtual_window_catalog_metrics(
     base_description = search_fields.get("description", row.description)
     base_name_zh = search_fields.get("name_zh", getattr(row, "name_zh", "")) or ""
     base_description_zh = search_fields.get("description_zh", getattr(row, "description_zh", "")) or ""
-    career_suffix = str(search_fields.get("career_name_suffix") or " (Career)")
+    scope = search_fields.get("scope", row.scope)
+    career_suffix = (
+        " (Franchise History)"
+        if scope == "team"
+        else str(search_fields.get("career_name_suffix") or " (Career)")
+    )
     min_sample = int(search_fields.get("min_sample", row.min_sample or 1) or 1)
     career_min_sample = search_fields.get("career_min_sample")
 
     _WINDOW_ZH_SUFFIX = {
-        "career": "（生涯）",
+        "career": "（队史）" if scope == "team" else "（生涯）",
         "last3": "（近 3 季）",
         "last5": "（近 5 季）",
     }
     _WINDOW_ZH_DESC_PREFIX = {
-        "career": "生涯",
+        "career": "队史" if scope == "team" else "生涯",
         "last3": "近 3 季",
         "last5": "近 5 季",
     }
@@ -1899,6 +1927,11 @@ def _virtual_window_catalog_metrics(
         name_suffix = career_suffix if window_type == "career" else None
         zh_suffix = _WINDOW_ZH_SUFFIX[window_type]
         zh_desc_prefix = _WINDOW_ZH_DESC_PREFIX[window_type]
+        description_en = derive_window_description(base_description, window_type)
+        description_zh = f"{zh_desc_prefix}{base_description_zh}" if base_description_zh else ""
+        if scope == "team" and window_type == "career":
+            description_en = _team_career_metric_description(base_description, zh=False)
+            description_zh = _team_career_metric_description(base_description_zh, zh=True)
         entries.append(
             {
                 "key": window_key,
@@ -1908,10 +1941,10 @@ def _virtual_window_catalog_metrics(
                 ),
                 "name_zh": f"{base_name_zh}{zh_suffix}" if base_name_zh else "",
                 "description": _localized_metric_description(
-                    derive_window_description(base_description, window_type),
-                    f"{zh_desc_prefix}{base_description_zh}" if base_description_zh else "",
+                    description_en,
+                    description_zh,
                 ),
-                "description_zh": f"{zh_desc_prefix}{base_description_zh}" if base_description_zh else "",
+                "description_zh": description_zh,
                 "scope": search_fields.get("scope", row.scope),
                 "category": search_fields.get("category", row.category or ""),
                 "status": "published",
