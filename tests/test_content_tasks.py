@@ -1,7 +1,7 @@
 import sys
 import unittest
 from contextlib import nullcontext
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 from content_pipeline.game_analysis_issues import _game_analysis_issue_creation_lock  # noqa: E402
+from content_pipeline.game_analysis_issues import _classify_game_analysis_readiness  # noqa: E402
 from content_pipeline.game_analysis_issues import build_game_analysis_issue_description  # noqa: E402
 from content_pipeline.game_analysis_issues import build_game_analysis_issue_title  # noqa: E402
 from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
@@ -38,6 +39,71 @@ def _config():
         company_name="xixihaha",
         timeout_seconds=10.0,
     )
+
+
+class TestGameAnalysisReadinessGates(unittest.TestCase):
+    def test_requires_materialized_metric_results_before_curator(self):
+        game = SimpleNamespace(
+            game_id="0042500133",
+            season="42025",
+            highlights_curated_at=datetime(2026, 4, 23, 22, 0, 0),
+        )
+
+        detail = _classify_game_analysis_readiness(
+            game,
+            artifacts_supported=True,
+            has_detail=True,
+            has_pbp=True,
+            entity_metric_count=20,
+            metric_result_count=0,
+            metric_run_count=343,
+        )
+
+        self.assertFalse(detail["ready"])
+        self.assertEqual(detail["pipeline_stage"], "metrics")
+        self.assertEqual(detail["metric_run_count"], 343)
+        self.assertEqual(detail["entity_metric_count"], 20)
+        self.assertEqual(detail["metric_result_count"], 0)
+
+    def test_requires_curator_after_metrics_materialize(self):
+        game = SimpleNamespace(
+            game_id="0042500133",
+            season="42025",
+            highlights_curated_at=None,
+        )
+
+        detail = _classify_game_analysis_readiness(
+            game,
+            artifacts_supported=True,
+            has_detail=True,
+            has_pbp=True,
+            entity_metric_count=20,
+            metric_result_count=102,
+            metric_run_count=343,
+        )
+
+        self.assertFalse(detail["ready"])
+        self.assertEqual(detail["pipeline_stage"], "curator")
+
+    def test_ready_only_when_all_gates_pass(self):
+        game = SimpleNamespace(
+            game_id="0042500133",
+            season="42025",
+            highlights_curated_at=datetime(2026, 4, 23, 22, 0, 0),
+        )
+
+        detail = _classify_game_analysis_readiness(
+            game,
+            artifacts_supported=True,
+            has_detail=True,
+            has_pbp=True,
+            entity_metric_count=20,
+            metric_result_count=102,
+            metric_run_count=343,
+        )
+
+        self.assertTrue(detail["ready"])
+        self.assertEqual(detail["pipeline_stage"], "ready")
 
 
 class TestGameScopedContentAnalysisIssues(unittest.TestCase):
