@@ -1,13 +1,16 @@
 """Deterministic social variants for curated game hero highlights.
 
 This pipeline intentionally does not involve Paperclip or LLM drafting.  It
-turns the already-curated hero card snapshots into short, review-ready social
-posts, then relies on the existing human approval + delivery pipeline.
+turns the already-curated hero card snapshots into short deterministic social
+posts.  Platforms that are explicitly marked safe can be auto-approved and
+queued for publish; other platforms still wait for human review.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from typing import Callable
@@ -26,12 +29,20 @@ from db.models import (
     Team,
 )
 from metrics.framework.family import family_career_key, family_window_key, window_type_from_key
+from social_media.twitter.hero_highlight import render_hero_highlight as render_twitter_hero_highlight
 
 PUBLIC_BASE_URL = "https://funba.app"
 DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter",)
 HERO_HIGHLIGHT_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_PLATFORMS"
+DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = ("twitter",)
+HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS"
+DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = ("twitter",)
+HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS"
+HERO_HIGHLIGHT_AUTO_PUBLISH_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH"
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
 HERO_HIGHLIGHT_STATUS = "in_review"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,11 +62,19 @@ class HeroHighlightCard:
     narrative_zh: str | None
     narrative_en: str | None
     value_text: str
+    value_time_label: str | None
     rank_text: str
     rank_window: str
     top_results: tuple[str, ...]
     metric_url: str
     game_url: str
+
+
+@dataclass(frozen=True)
+class HeroHighlightPostResult:
+    post_id: int
+    created: bool
+    auto_publish_deliveries: tuple[tuple[str, int], ...] = ()
 
 
 def _json_dict(value: str | None) -> dict:
@@ -75,11 +94,16 @@ def _normalize_platform(value: str) -> str | None:
     return platform if platform in HERO_HIGHLIGHT_RENDERERS else None
 
 
-def enabled_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
+def _normalized_platform_list(
+    *,
+    environ: dict[str, str] | None,
+    env_key: str,
+    default: tuple[str, ...],
+) -> list[str]:
     env = environ if environ is not None else os.environ
-    raw = env.get(HERO_HIGHLIGHT_PLATFORMS_ENV)
+    raw = env.get(env_key)
     if raw is None:
-        candidates = list(DEFAULT_HERO_HIGHLIGHT_PLATFORMS)
+        candidates = list(default)
     else:
         candidates = [part.strip() for part in raw.split(",") if part.strip()]
 
@@ -89,6 +113,51 @@ def enabled_hero_highlight_platforms(environ: dict[str, str] | None = None) -> l
         if platform and platform not in out:
             out.append(platform)
     return out
+
+
+def enabled_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
+    return _normalized_platform_list(
+        environ=environ,
+        env_key=HERO_HIGHLIGHT_PLATFORMS_ENV,
+        default=DEFAULT_HERO_HIGHLIGHT_PLATFORMS,
+    )
+
+
+def auto_approve_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
+    return _normalized_platform_list(
+        environ=environ,
+        env_key=HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV,
+        default=DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS,
+    )
+
+
+def auto_publish_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
+    return _normalized_platform_list(
+        environ=environ,
+        env_key=HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV,
+        default=DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS,
+    )
+
+
+def auto_publish_hero_highlight_enabled(environ: dict[str, str] | None = None) -> bool:
+    env = environ if environ is not None else os.environ
+    raw = env.get(HERO_HIGHLIGHT_AUTO_PUBLISH_ENV)
+    if raw is None:
+        return True
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _post_status_for_platforms(platforms: list[str], environ: dict[str, str] | None = None) -> str:
+    auto_approve = set(auto_approve_hero_highlight_platforms(environ))
+    if platforms and all(platform in auto_approve for platform in platforms):
+        return "approved"
+    return HERO_HIGHLIGHT_STATUS
+
+
+def _auto_publish_platform_set(environ: dict[str, str] | None = None) -> set[str]:
+    if not auto_publish_hero_highlight_enabled(environ):
+        return set()
+    return set(auto_publish_hero_highlight_platforms(environ))
 
 
 def _public_game_url(game: Game) -> str:
@@ -233,6 +302,28 @@ def _season_label(entity_id: str) -> str:
     return raw
 
 
+def _season_year_label(season: str | None) -> str | None:
+    raw = str(season or "")
+    if len(raw) == 5 and raw.isdigit():
+        return _season_label(raw)
+    return None
+
+
+def _game_year_label(session: Session, *, game_id: str | None, entity_id: str | None) -> str | None:
+    candidate = str(game_id or "").strip()
+    if not candidate and entity_id:
+        candidate = str(entity_id).partition(":")[0]
+    if not candidate:
+        return None
+    row = session.query(Game.game_date, Game.season).filter(Game.game_id == candidate).first()
+    if not row:
+        return None
+    game_date, season = row
+    if game_date:
+        return str(game_date.year)
+    return _season_year_label(season)
+
+
 def _game_entity_label(session: Session, entity_id: str) -> str:
     raw = str(entity_id or "")
     game_id, _sep, team_id = raw.partition(":")
@@ -285,6 +376,35 @@ def _format_result_value(row: MetricResult) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def _result_time_label(session: Session, row: MetricResult, rank_window: str) -> str | None:
+    if rank_window != "alltime":
+        return None
+    entity_type = str(row.entity_type or "")
+    if entity_type == "game":
+        return _game_year_label(session, game_id=row.game_id, entity_id=row.entity_id)
+    if entity_type == "season":
+        return None
+    return _season_year_label(row.season)
+
+
+def _format_top_result(session: Session, row: MetricResult, idx: int, rank_window: str) -> str:
+    label = _result_entity_label(session, row)
+    time_label = _result_time_label(session, row, rank_window)
+    if time_label:
+        if str(row.entity_type or "") == "game":
+            label = re.sub(r"\s+\([A-Z]{2,4}\)$", "", label)
+        label = f"{time_label} {label}"
+    return f"{idx}. {label} - {_format_result_value(row)}"
+
+
+def _value_time_label(rank_window: str, game_date: date | None, ranking_season: str | None, season: str | None) -> str | None:
+    if rank_window != "alltime":
+        return None
+    if game_date:
+        return str(game_date.year)
+    return _season_year_label(ranking_season or season)
 
 
 def _entry_value_num(entry: dict) -> float | None:
@@ -420,10 +540,7 @@ def _top_three_results(session: Session, card: "HeroHighlightCard") -> tuple[str
             .all()
         )
 
-    return tuple(
-        f"{idx}. {_result_entity_label(session, row)} - {_format_result_value(row)}"
-        for idx, row in enumerate(rows, start=1)
-    )
+    return tuple(_format_top_result(session, row, idx, card.rank_window) for idx, row in enumerate(rows, start=1))
 
 
 def _value_text(entry: dict) -> str:
@@ -502,6 +619,7 @@ def collect_hero_highlight_cards(session: Session, game: Game) -> list[HeroHighl
             narrative_zh=entry.get("narrative_zh") or entry.get("narrative"),
             narrative_en=entry.get("narrative_en"),
             value_text=_value_text(entry),
+            value_time_label=_value_time_label(rank_window, game.game_date, ranking_season, season),
             rank_text=rank_text,
             rank_window=rank_window,
             top_results=(),
@@ -534,21 +652,6 @@ def _variant_title(card: HeroHighlightCard, platform: str) -> str:
     return _truncate(f"{card.matchup}: {label} {card.metric_name} ({platform})", 255)
 
 
-def render_twitter_hero_highlight(card: HeroHighlightCard) -> str:
-    metric_label = card.metric_name
-    lead = card.narrative_en or card.narrative_zh or f"{card.matchup} hero metric"
-    lines = [
-        str(lead).strip(),
-        "",
-        f"Data: {metric_label} = {card.value_text}",
-        f"Ranking: {card.rank_text}",
-    ]
-    if card.top_results:
-        lines.extend(["", "Top 3:", *card.top_results])
-    lines.extend(["", f"Source: {card.metric_url}", f"Game: {card.game_url}"])
-    return "\n".join(lines).strip()
-
-
 HERO_HIGHLIGHT_RENDERERS: dict[str, Callable[[HeroHighlightCard], str]] = {
     "twitter": render_twitter_hero_highlight,
 }
@@ -572,20 +675,24 @@ def _create_post_for_card(
     card: HeroHighlightCard,
     *,
     platforms: list[str],
-) -> int:
+) -> HeroHighlightPostResult:
     now = datetime.now(UTC).replace(tzinfo=None)
     topic = _stable_topic(card)
     source_date = card.game_date or date.today()
     existing = _find_existing_post(session, topic, source_date)
     if existing is not None:
-        return int(existing.id)
+        return HeroHighlightPostResult(post_id=int(existing.id), created=False)
+
+    post_status = _post_status_for_platforms(platforms)
+    auto_publish_platforms = _auto_publish_platform_set() if post_status == "approved" else set()
+    auto_publish_deliveries: list[tuple[str, int]] = []
 
     post = SocialPost(
         topic=topic,
         source_date=source_date,
         source_metrics=json.dumps([card.ranking_metric_key], ensure_ascii=False),
         source_game_ids=json.dumps([card.game_id], ensure_ascii=False),
-        status=HERO_HIGHLIGHT_STATUS,
+        status=post_status,
         priority=25,
         llm_model=None,
         admin_comments=None,
@@ -607,18 +714,50 @@ def _create_post_for_card(
         )
         session.add(variant)
         session.flush()
-        session.add(
-            SocialPostDelivery(
-                variant_id=variant.id,
-                platform=platform,
-                forum=None,
-                is_enabled=True,
-                status="pending",
-                created_at=now,
-                updated_at=now,
-            )
+        delivery = SocialPostDelivery(
+            variant_id=variant.id,
+            platform=platform,
+            forum=None,
+            is_enabled=True,
+            status="pending",
+            created_at=now,
+            updated_at=now,
         )
-    return int(post.id)
+        session.add(delivery)
+        session.flush()
+        if platform in auto_publish_platforms:
+            auto_publish_deliveries.append((platform, int(delivery.id)))
+    return HeroHighlightPostResult(
+        post_id=int(post.id),
+        created=True,
+        auto_publish_deliveries=tuple(auto_publish_deliveries),
+    )
+
+
+def _enqueue_hero_highlight_auto_publish(post_id: int, delivery_id: int, *, platform: str) -> bool:
+    normalized = _normalize_platform(platform)
+    if not normalized:
+        logger.warning("hero highlight auto-publish unknown platform=%s delivery_id=%s", platform, delivery_id)
+        return False
+    try:
+        from tasks.content import publish_social_delivery_task
+
+        publish_social_delivery_task.apply_async(
+            args=(post_id, delivery_id),
+            kwargs={"platform": normalized},
+            retry=False,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "failed to enqueue hero highlight auto-publish post_id=%s delivery_id=%s platform=%s: %s",
+            post_id,
+            delivery_id,
+            normalized,
+            exc,
+            exc_info=True,
+        )
+        return False
 
 
 def generate_hero_highlight_variants_for_game(
@@ -641,14 +780,27 @@ def generate_hero_highlight_variants_for_game(
         return {"ok": False, "game_id": game_id, "error": "game_not_found"}
 
     cards = collect_hero_highlight_cards(session, game)
-    created_or_existing: list[int] = []
+    post_results: list[HeroHighlightPostResult] = []
     for card in cards:
-        created_or_existing.append(_create_post_for_card(session, card, platforms=selected_platforms))
+        post_results.append(_create_post_for_card(session, card, platforms=selected_platforms))
     session.commit()
+
+    auto_publish_enqueued: list[int] = []
+    auto_publish_enqueue_failed: list[int] = []
+    for result in post_results:
+        for platform, delivery_id in result.auto_publish_deliveries:
+            if _enqueue_hero_highlight_auto_publish(result.post_id, delivery_id, platform=platform):
+                auto_publish_enqueued.append(delivery_id)
+            else:
+                auto_publish_enqueue_failed.append(delivery_id)
+
     return {
         "ok": True,
         "game_id": game_id,
         "platforms": selected_platforms,
         "hero_count": len(cards),
-        "post_ids": created_or_existing,
+        "post_ids": [result.post_id for result in post_results],
+        "created_post_ids": [result.post_id for result in post_results if result.created],
+        "auto_publish_delivery_ids": auto_publish_enqueued,
+        "auto_publish_enqueue_failed_delivery_ids": auto_publish_enqueue_failed,
     }

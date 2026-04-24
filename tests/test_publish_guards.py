@@ -2,6 +2,7 @@ import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -12,7 +13,9 @@ if str(REPO_ROOT) not in sys.path:
 
 import scripts.funba_hupu_publish as hupu_publish  # noqa: E402
 import scripts.funba_reddit_publish as reddit_publish  # noqa: E402
+import scripts.funba_twitter_publish as twitter_publish  # noqa: E402
 import scripts.funba_xiaohongshu_publish as xhs_publish  # noqa: E402
+import tasks.content as content_tasks  # noqa: E402
 
 
 class TestPublishAgeGuards(unittest.TestCase):
@@ -54,6 +57,14 @@ class TestPublishAgeGuards(unittest.TestCase):
         self.assertIsNotNone(age)
         self.assertLess(age, 2.0)
 
+    def test_twitter_date_only_source_date_uses_end_of_local_day(self):
+        age = twitter_publish._source_date_age_hours(
+            "2026-04-06",
+            now_utc=datetime.fromisoformat("2026-04-07T08:51:00"),
+        )
+        self.assertIsNotNone(age)
+        self.assertLess(age, 2.0)
+
     @patch("scripts.funba_hupu_publish._source_date_age_hours", return_value=1.85)
     def test_hupu_preflight_allows_fresh_publish(self, _age_mock):
         error = hupu_publish._preflight_publish_guard_error(
@@ -69,6 +80,38 @@ class TestPublishAgeGuards(unittest.TestCase):
             {"id": 422},
         )
         self.assertIsNone(error)
+
+    @patch("scripts.funba_twitter_publish._source_date_age_hours", return_value=1.85)
+    def test_twitter_preflight_allows_fresh_publish(self, _age_mock):
+        error = twitter_publish._preflight_publish_guard_error(
+            {"id": 275, "status": "approved", "source_date": "2026-04-22"},
+            {"id": 648},
+        )
+        self.assertIsNone(error)
+
+    @patch("tasks.content.subprocess.run")
+    def test_publish_social_delivery_task_uses_twitter_submit_script(self, run_mock):
+        run_mock.return_value = SimpleNamespace(returncode=0, stdout="https://x.com/FUNBA_APP/status/1\n", stderr="")
+
+        result = content_tasks.publish_social_delivery_task.run(
+            275,
+            655,
+            platform="x",
+            timeout_seconds=7,
+            max_attempts=1,
+            funba_base_url="http://127.0.0.1:5999",
+        )
+
+        self.assertTrue(result["ok"])
+        cmd = run_mock.call_args.args[0]
+        self.assertIn("funba_twitter_publish.py", cmd[2])
+        self.assertIn("--submit", cmd)
+        self.assertIn("--post-id", cmd)
+        self.assertIn("275", cmd)
+        self.assertIn("--delivery-id", cmd)
+        self.assertIn("655", cmd)
+        self.assertIn("--funba-base-url", cmd)
+        self.assertIn("http://127.0.0.1:5999", cmd)
 
 
 if __name__ == "__main__":

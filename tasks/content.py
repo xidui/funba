@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+import subprocess
 import sys
 from datetime import date, timedelta
 from importlib import import_module
@@ -9,6 +11,37 @@ from importlib import import_module
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
+
+_PUBLISH_PLATFORM_ALIASES = {"x": "twitter"}
+_PUBLISHER_SCRIPTS = {
+    "twitter": "funba_twitter_publish.py",
+}
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _project_python(repo_root: Path) -> str:
+    venv_python = repo_root / ".venv" / "bin" / "python"
+    return str(venv_python if venv_python.exists() else Path(sys.executable))
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _trim_task_output(output: str, limit: int = 1200) -> str:
+    text = " ".join(str(output or "").split())
+    return text[:limit]
+
+
+def _normalize_publish_platform(platform: str) -> str:
+    raw = str(platform or "").strip().lower()
+    return _PUBLISH_PLATFORM_ALIASES.get(raw, raw)
 
 
 def _game_analysis_issues_module():
@@ -69,6 +102,98 @@ def ensure_recent_content_analysis_task(
     except Exception as exc:
         logger.warning("recent game content analysis readiness failed: %s", exc, exc_info=True)
         raise self.retry(exc=exc, countdown=60)
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.publish_social_delivery",
+    queue="ingest",
+    max_retries=0,
+)
+def publish_social_delivery_task(
+    self,
+    post_id: int,
+    delivery_id: int,
+    platform: str = "twitter",
+    timeout_seconds: int | None = None,
+    max_attempts: int | None = None,
+    funba_base_url: str | None = None,
+) -> dict:
+    """Publish a SocialPostDelivery through the platform-specific script.
+
+    The task intentionally delegates browser automation to the existing
+    script-level publishers so DB status updates and artifacts stay consistent
+    with manual publishes.
+    """
+    normalized_platform = _normalize_publish_platform(platform)
+    script_name = _PUBLISHER_SCRIPTS.get(normalized_platform)
+    if not script_name:
+        return {
+            "ok": False,
+            "post_id": post_id,
+            "delivery_id": delivery_id,
+            "platform": normalized_platform,
+            "error": "unsupported_platform",
+        }
+
+    repo_root = _project_root()
+    script_path = repo_root / "scripts" / script_name
+    cmd = [
+        _project_python(repo_root),
+        "-u",
+        str(script_path),
+        "--post-id",
+        str(int(post_id)),
+        "--delivery-id",
+        str(int(delivery_id)),
+        "--submit",
+        "--timeout-seconds",
+        str(timeout_seconds or _env_int("FUNBA_SOCIAL_PUBLISH_TIMEOUT_SECONDS", 120)),
+        "--max-attempts",
+        str(max_attempts or _env_int("FUNBA_SOCIAL_PUBLISH_MAX_ATTEMPTS", 3)),
+        "--funba-base-url",
+        (
+            funba_base_url
+            or os.getenv("FUNBA_SOCIAL_PUBLISH_BASE_URL")
+            or os.getenv("FUNBA_ADMIN_BASE_URL")
+            or "http://127.0.0.1:5001"
+        ),
+        "--funba-repo-root",
+        str(repo_root),
+    ]
+    proc = subprocess.run(
+        cmd,
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        timeout=_env_int("FUNBA_SOCIAL_PUBLISH_TASK_TIMEOUT_SECONDS", 300),
+    )
+    output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+    result = {
+        "ok": proc.returncode == 0,
+        "post_id": int(post_id),
+        "delivery_id": int(delivery_id),
+        "platform": normalized_platform,
+        "returncode": proc.returncode,
+        "output": _trim_task_output(output),
+    }
+    if proc.returncode != 0:
+        logger.warning(
+            "social delivery publish failed post_id=%s delivery_id=%s platform=%s returncode=%s output=%s",
+            post_id,
+            delivery_id,
+            normalized_platform,
+            proc.returncode,
+            result["output"],
+        )
+    else:
+        logger.info(
+            "social delivery published post_id=%s delivery_id=%s platform=%s",
+            post_id,
+            delivery_id,
+            normalized_platform,
+        )
+    return result
 
 
 @shared_task(

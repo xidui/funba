@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,10 +15,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import content_pipeline.hero_highlight_variants as hero_variants
 from content_pipeline.hero_highlight_variants import (
     enabled_hero_highlight_platforms,
     generate_hero_highlight_variants_for_game,
 )
+from social_media.twitter.hero_highlight import estimated_tweet_length
 from db.models import (
     Base,
     Game,
@@ -146,11 +150,21 @@ def _curated_related_milestone_team_hero() -> str:
 
 class TestHeroHighlightVariants(unittest.TestCase):
     def setUp(self):
+        self.env_patcher = patch.dict(
+            os.environ,
+            {
+                "FUNBA_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS": "twitter",
+                "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH": "0",
+                "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS": "twitter",
+            },
+        )
+        self.env_patcher.start()
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine)
 
     def tearDown(self):
+        self.env_patcher.stop()
         self.engine.dispose()
 
     def _seed_game(self, session):
@@ -234,7 +248,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
         )
         session.commit()
 
-    def test_generate_creates_in_review_post_with_pending_delivery(self):
+    def test_generate_creates_auto_approved_post_with_pending_delivery(self):
         with self.SessionLocal() as session:
             self._seed_game(session)
 
@@ -248,25 +262,67 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(result["hero_count"], 1)
 
             post = session.query(SocialPost).one()
-            self.assertEqual(post.status, "in_review")
+            self.assertEqual(post.status, "approved")
             self.assertEqual(json.loads(post.source_metrics), ["best_single_game_pts"])
             self.assertEqual(json.loads(post.source_game_ids), ["0022500001"])
             self.assertTrue(post.topic.startswith("Hero Highlight — 0022500001 — player"))
+            self.assertEqual(result["created_post_ids"], [post.id])
+            self.assertEqual(result["auto_publish_delivery_ids"], [])
 
             variant = session.query(SocialPostVariant).one()
             self.assertEqual(variant.post_id, post.id)
-            self.assertIn("Hero Player scored 55, best this season", variant.content_raw)
             self.assertIn("Data: Best Single-Game Points = 55", variant.content_raw)
-            self.assertIn("Ranking: #12 / 5000 (All-time)", variant.content_raw)
-            self.assertIn("Top 3:\n1. Second Player - 60\n2. Hero Player - 55\n3. Third Player - 53", variant.content_raw)
+            self.assertIn("Ranking: #12/5000 all-time", variant.content_raw)
+            self.assertIn(
+                "Top 3:\n1. 2025-26 Second Player - 60\n2. 2025-26 Hero Player - 55\n3. 2025-26 Third Player - 53",
+                variant.content_raw,
+            )
             self.assertIn("Source: https://funba.app/metrics/best_single_game_pts?season=22025", variant.content_raw)
             self.assertIn("Game: https://funba.app/games/20260422-lal-bos", variant.content_raw)
+            self.assertLessEqual(estimated_tweet_length(variant.content_raw), 280)
 
             delivery = session.query(SocialPostDelivery).one()
             self.assertEqual(delivery.variant_id, variant.id)
             self.assertEqual(delivery.platform, "twitter")
             self.assertEqual(delivery.status, "pending")
             self.assertTrue(delivery.is_enabled)
+
+    def test_auto_publish_enqueue_runs_after_commit_when_enabled(self):
+        with self.SessionLocal() as session:
+            self._seed_game(session)
+
+            with patch.dict(os.environ, {"FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH": "1"}), patch(
+                "content_pipeline.hero_highlight_variants._enqueue_hero_highlight_auto_publish",
+                return_value=True,
+            ) as enqueue_mock:
+                result = generate_hero_highlight_variants_for_game(
+                    session,
+                    "0022500001",
+                    platforms=["twitter"],
+                )
+
+            post = session.query(SocialPost).one()
+            delivery = session.query(SocialPostDelivery).one()
+            self.assertEqual(post.status, "approved")
+            self.assertEqual(result["auto_publish_delivery_ids"], [delivery.id])
+            enqueue_mock.assert_called_once_with(post.id, delivery.id, platform="twitter")
+
+    def test_mixed_platform_post_still_requires_review(self):
+        with self.SessionLocal() as session:
+            self._seed_game(session)
+
+            with patch.dict(hero_variants.HERO_HIGHLIGHT_RENDERERS, {"mastodon": lambda card: "Mastodon copy"}):
+                result = generate_hero_highlight_variants_for_game(
+                    session,
+                    "0022500001",
+                    platforms=["twitter", "mastodon"],
+                )
+
+            post = session.query(SocialPost).one()
+            deliveries = session.query(SocialPostDelivery).order_by(SocialPostDelivery.platform.asc()).all()
+            self.assertEqual(post.status, "in_review")
+            self.assertEqual(result["auto_publish_delivery_ids"], [])
+            self.assertEqual([delivery.platform for delivery in deliveries], ["mastodon", "twitter"])
 
     def test_generate_is_idempotent_for_same_hero_identity(self):
         with self.SessionLocal() as session:
