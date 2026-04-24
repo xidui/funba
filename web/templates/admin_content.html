@@ -38,6 +38,16 @@
     text-decoration: none; color: var(--muted-2); background: var(--surface-2); border: 1px solid var(--border);
   }
   .status-tab.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .pipeline-tabs { margin-top: -8px; }
+  .pipeline-chip {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--muted-2); background: var(--surface-2); white-space: nowrap;
+  }
+  .pipeline-chip.game_analysis { color: #60a5fa; border-color: rgba(96,165,250,0.45); background: rgba(96,165,250,0.12); }
+  .pipeline-chip.metric_deep_dive { color: #f59e0b; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.12); }
+  .pipeline-chip.hero_highlight { color: var(--win); border-color: color-mix(in srgb, var(--win) 45%, transparent); background: color-mix(in srgb, var(--win) 12%, transparent); }
+  .pipeline-chip.other { color: var(--muted); }
 
   /* Date group */
   .date-group { font-family: Outfit, sans-serif; font-size: 15px; font-weight: 700;
@@ -278,8 +288,16 @@
 <div class="status-tabs">
   {% for s in ['all', 'draft', 'ai_review', 'in_review', 'approved', 'archived'] %}
   <a class="status-tab{% if status_filter == s %} active{% endif %}"
-     href="{{ url_for('admin_content', status=s if s != 'all' else None) }}">
+     href="{{ url_for('admin_content', status=s if s != 'all' else None, pipeline=pipeline_filter if pipeline_filter != 'all' else None) }}">
     {{ s.replace('_', ' ')|title }}
+  </a>
+  {% endfor %}
+</div>
+<div class="status-tabs pipeline-tabs">
+  {% for key, label in pipeline_filter_options %}
+  <a class="status-tab{% if pipeline_filter == key %} active{% endif %}"
+     href="{{ url_for('admin_content', status=status_filter if status_filter != 'all' else None, pipeline=key if key != 'all' else None) }}">
+    {{ label }}
   </a>
   {% endfor %}
 </div>
@@ -304,7 +322,7 @@
 {% if total_pages > 1 and not single_post_view %}
 <div class="pager">
   {% for p in range(1, total_pages + 1) %}
-  <a href="{{ url_for('admin_content', page=p, status=status_filter if status_filter != 'all' else None) }}"
+  <a href="{{ url_for('admin_content', page=p, status=status_filter if status_filter != 'all' else None, pipeline=pipeline_filter if pipeline_filter != 'all' else None) }}"
      class="{% if p == page %}active{% endif %}">{{ p }}</a>
   {% endfor %}
 </div>
@@ -312,6 +330,7 @@
 
 <script>
 const CURRENT_STATUS_FILTER = {{ status_filter|tojson }};
+const CURRENT_PIPELINE_FILTER = {{ pipeline_filter|tojson }};
 const IMAGE_POOL_ENABLED_ONLY = {};
 
 function navigateToPost(e, id) {
@@ -380,6 +399,10 @@ function refreshPostCard(postId, opts = {}) {
     .then(data => {
       if (!data.ok) return null;
       if (CURRENT_STATUS_FILTER !== 'all' && data.post_status && data.post_status !== CURRENT_STATUS_FILTER) {
+        existing.remove();
+        return null;
+      }
+      if (CURRENT_PIPELINE_FILTER !== 'all' && data.pipeline_type && data.pipeline_type !== CURRENT_PIPELINE_FILTER) {
         existing.remove();
         return null;
       }

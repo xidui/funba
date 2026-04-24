@@ -5778,11 +5778,29 @@ def _social_post_source_metrics(post: SocialPost) -> list[str]:
     return [str(item) for item in value if item]
 
 
-def _is_metric_deep_dive_post(post: SocialPost, metric_key: str) -> bool:
+def _is_metric_deep_dive_event_post(post: SocialPost) -> bool:
     comments = _social_post_comments(post)
-    if not any(str(comment.get("event_type") or "") == _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF for comment in comments):
+    return any(str(comment.get("event_type") or "") == _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF for comment in comments)
+
+
+def _is_metric_deep_dive_post(post: SocialPost, metric_key: str) -> bool:
+    if not _is_metric_deep_dive_event_post(post):
         return False
     return metric_key in _social_post_source_metrics(post)
+
+
+def _social_post_pipeline_type(post: SocialPost, game_analysis_post_ids: set[int] | None = None) -> tuple[str, str]:
+    try:
+        post_id = int(post.id)
+    except (TypeError, ValueError):
+        post_id = None
+    if post_id is not None and game_analysis_post_ids and post_id in game_analysis_post_ids:
+        return "game_analysis", "Game Analysis"
+    if str(post.topic or "").startswith("Hero Highlight"):
+        return "hero_highlight", "Hero Highlight"
+    if _is_metric_deep_dive_event_post(post):
+        return "metric_deep_dive", "Metric Deep Dive"
+    return "other", "Other"
 
 
 def _is_active_metric_deep_dive_post(post: SocialPost) -> bool:
@@ -6209,6 +6227,17 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     images = db_sess.query(SocialPostImage).filter(
         SocialPostImage.post_id.in_(post_ids)
     ).order_by(SocialPostImage.id).all() if post_ids else []
+    game_analysis_post_ids: set[int] = set()
+    if post_ids:
+        try:
+            linked_rows = (
+                db_sess.query(GameContentAnalysisIssuePost.post_id)
+                .filter(GameContentAnalysisIssuePost.post_id.in_(post_ids))
+                .all()
+            )
+            game_analysis_post_ids = {int(row[0]) for row in linked_rows if row and row[0] is not None}
+        except Exception:
+            game_analysis_post_ids = set()
 
     v_by_post: dict[int, list] = {}
     for v in variants:
@@ -6223,12 +6252,15 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     rows = []
     for p in posts:
         pvariants = v_by_post.get(p.id, [])
+        pipeline_type, pipeline_label = _social_post_pipeline_type(p, game_analysis_post_ids)
         rows.append({
             "id": p.id,
             "topic": p.topic,
             "source_date": p.source_date.isoformat() if p.source_date else "",
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
             "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+            "pipeline_type": pipeline_type,
+            "pipeline_label": pipeline_label,
             "status": p.status,
             "priority": p.priority,
             "admin_comments": _social_post_comments(p),

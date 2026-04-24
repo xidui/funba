@@ -7,6 +7,54 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from flask import abort, jsonify, make_response, request, url_for
+from sqlalchemy import or_
+
+
+PIPELINE_FILTER_OPTIONS = (
+    ("all", "All Types"),
+    ("game_analysis", "Game Analysis"),
+    ("metric_deep_dive", "Metric Deep Dive"),
+    ("hero_highlight", "Hero Highlights"),
+    ("other", "Other"),
+)
+PIPELINE_FILTER_KEYS = {key for key, _label in PIPELINE_FILTER_OPTIONS}
+HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
+METRIC_DEEP_DIVE_EVENT_TYPE = "metric_deep_dive_brief"
+
+
+def _metric_deep_dive_clause(SocialPost):
+    return or_(
+        SocialPost.admin_comments.like(f'%"event_type": "{METRIC_DEEP_DIVE_EVENT_TYPE}"%'),
+        SocialPost.admin_comments.like(f'%"event_type":"{METRIC_DEEP_DIVE_EVENT_TYPE}"%'),
+    )
+
+
+def _not_metric_deep_dive_clause(SocialPost):
+    return or_(SocialPost.admin_comments.is_(None), ~_metric_deep_dive_clause(SocialPost))
+
+
+def _hero_highlight_clause(SocialPost):
+    return SocialPost.topic.like(f"{HERO_HIGHLIGHT_TOPIC_PREFIX}%")
+
+
+def _game_analysis_post_id_query(session, GameContentAnalysisIssuePost):
+    return session.query(GameContentAnalysisIssuePost.post_id)
+
+
+def _apply_pipeline_filter(query, session, SocialPost, GameContentAnalysisIssuePost, pipeline_filter: str):
+    if pipeline_filter == "game_analysis":
+        return query.filter(SocialPost.id.in_(_game_analysis_post_id_query(session, GameContentAnalysisIssuePost)))
+    if pipeline_filter == "metric_deep_dive":
+        return query.filter(_metric_deep_dive_clause(SocialPost))
+    if pipeline_filter == "hero_highlight":
+        return query.filter(_hero_highlight_clause(SocialPost))
+    if pipeline_filter == "other":
+        return query.filter(
+            ~SocialPost.id.in_(_game_analysis_post_id_query(session, GameContentAnalysisIssuePost)),
+            _not_metric_deep_dive_clause(SocialPost),
+            ~_hero_highlight_clause(SocialPost),
+        )
+    return query
 
 
 def register_admin_content_routes(app, deps):
@@ -34,15 +82,20 @@ def register_admin_content_routes(app, deps):
         if denied:
             return denied
         status_filter = request.args.get("status")
+        pipeline_filter = (request.args.get("pipeline") or "all").strip()
+        if pipeline_filter not in PIPELINE_FILTER_KEYS:
+            pipeline_filter = "all"
         page = max(1, request.args.get("page", 1, type=int))
         page_size = 30
 
         SessionLocal = deps.session_local()
         SocialPost = deps.social_post_model()
+        GameContentAnalysisIssuePost = deps.game_content_analysis_issue_post_model()
         with SessionLocal() as s:
             q = s.query(SocialPost).order_by(SocialPost.source_date.desc(), SocialPost.priority.asc())
             if status_filter and status_filter in ("draft", "ai_review", "in_review", "approved", "archived"):
                 q = q.filter(SocialPost.status == status_filter)
+            q = _apply_pipeline_filter(q, s, SocialPost, GameContentAnalysisIssuePost, pipeline_filter)
             total = q.count()
             import math
             total_pages = max(1, math.ceil(total / page_size))
@@ -58,6 +111,8 @@ def register_admin_content_routes(app, deps):
             total_pages=total_pages,
             total=total,
             status_filter=status_filter or "all",
+            pipeline_filter=pipeline_filter,
+            pipeline_filter_options=PIPELINE_FILTER_OPTIONS,
             today=yesterday,
             single_post_view=False,
         )
@@ -82,6 +137,8 @@ def register_admin_content_routes(app, deps):
             total_pages=1,
             total=1,
             status_filter="all",
+            pipeline_filter="all",
+            pipeline_filter_options=PIPELINE_FILTER_OPTIONS,
             today=yesterday,
             single_post_view=True,
             focused_post_id=post_id,
@@ -106,7 +163,7 @@ def register_admin_content_routes(app, deps):
             expanded=expanded,
             active_variant_id=active_variant_id,
         )
-        return jsonify({"ok": True, "html": html, "post_status": row["status"]})
+        return jsonify({"ok": True, "html": html, "post_status": row["status"], "pipeline_type": row.get("pipeline_type")})
 
     def admin_content_detail(post_id: int):
         denied = deps.require_admin_json()()
@@ -1029,34 +1086,42 @@ def register_admin_content_routes(app, deps):
             return denied
         status_filter = request.args.get("status")
         date_filter = request.args.get("date")
+        pipeline_filter = (request.args.get("pipeline") or "all").strip()
+        if pipeline_filter not in PIPELINE_FILTER_KEYS:
+            pipeline_filter = "all"
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = int(request.args.get("offset", 0))
 
         SessionLocal = deps.session_local()
         SocialPost = deps.social_post_model()
+        GameContentAnalysisIssuePost = deps.game_content_analysis_issue_post_model()
         with SessionLocal() as s:
             q = s.query(SocialPost).order_by(SocialPost.source_date.desc(), SocialPost.priority.asc())
             if status_filter:
                 q = q.filter(SocialPost.status == status_filter)
             if date_filter:
                 q = q.filter(SocialPost.source_date == date_filter)
+            q = _apply_pipeline_filter(q, s, SocialPost, GameContentAnalysisIssuePost, pipeline_filter)
             total = q.count()
             posts = q.offset(offset).limit(limit).all()
+            post_rows = deps.build_social_post_rows()(s, posts)
             return jsonify(
                 {
                     "total": total,
                     "posts": [
                         {
-                            "id": p.id,
-                            "topic": p.topic,
-                            "source_date": p.source_date.isoformat() if p.source_date else None,
-                            "status": p.status,
-                            "priority": p.priority,
-                            "created_at": p.created_at.isoformat() if p.created_at else None,
-                            "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
-                            "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+                            "id": row["id"],
+                            "topic": row["topic"],
+                            "source_date": row["source_date"] or None,
+                            "status": row["status"],
+                            "priority": row["priority"],
+                            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                            "source_metrics": row["source_metrics"],
+                            "source_game_ids": row["source_game_ids"],
+                            "pipeline_type": row["pipeline_type"],
+                            "pipeline_label": row["pipeline_label"],
                         }
-                        for p in posts
+                        for row in post_rows
                     ],
                 }
             )

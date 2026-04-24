@@ -797,6 +797,13 @@ def run_curator_for_game(
     except Exception:
         logger.exception("failed to invalidate game metrics cache for %s", game.game_id)
 
+    try:
+        from content_pipeline.hero_highlight_variants import generate_hero_highlight_variants_for_game
+
+        generate_hero_highlight_variants_for_game(session, game.game_id)
+    except Exception:
+        logger.exception("failed to generate hero highlight variants for %s", game.game_id)
+
     return {"game": game_curated, "player": player_curated, "team": team_curated}
 
 

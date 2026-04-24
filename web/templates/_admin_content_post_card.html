@@ -3,6 +3,7 @@
 <div class="post-card{% if _expanded %} expanded{% endif %}" id="post-{{ p.id }}"{% if not _expanded %} onclick="navigateToPost(event, {{ p.id }})"{% endif %}>
   <div class="post-top">
     <span class="post-topic">{{ p.topic }}</span>
+    <span class="pipeline-chip {{ p.pipeline_type or 'other' }}">{{ p.pipeline_label or 'Other' }}</span>
     <span class="post-badge {{ p.status }}">{{ p.status.replace('_', ' ') }}</span>
     <span class="post-priority">P{{ p.priority }}</span>
   </div>
