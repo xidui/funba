@@ -22,6 +22,7 @@ from db.models import (
     Game,
     GameContentAnalysisIssue,
     GameContentAnalysisIssuePost,
+    MetricResult,
     MetricRunLog,
     SocialPost,
     Team,
@@ -132,16 +133,14 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
                 "ready_game_ids": [],
                 "pending_artifact_game_ids": [],
                 "pending_metric_game_ids": [],
+                "pending_curator_game_ids": [],
             }
 
         game_ids = [game.game_id for game in games]
-        # A game is considered "metrics-complete" only when its per-entity
-        # pipeline has clearly fired. Earlier we only checked "any MetricRunLog
-        # entry", which was a bug: if ingest partially fails (e.g. period-stats
-        # fetch throws NoneType and metric_tasks_enqueued=0), only the season-
-        # scope season_total / season_blowout rows land and the game slips
-        # through, so tickets get created for games whose player/team metrics
-        # never ran. Require a minimum count of entity-scope runs instead.
+        # A game is considered "metrics-complete" only when its per-entity map
+        # phase has fired and the reduce phase has materialized readable rows.
+        # MetricRunLog alone is not enough for content: it can exist before the
+        # /api/data/games/<id>/metrics payload has any MetricResult-backed data.
         entity_metric_counts = dict(
             session.query(MetricRunLog.game_id, func.count(func.distinct(MetricRunLog.metric_key)))
             .filter(
@@ -151,14 +150,26 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
             .group_by(MetricRunLog.game_id)
             .all()
         )
+        result_counts = dict(
+            session.query(MetricResult.game_id, func.count(MetricResult.id))
+            .filter(
+                MetricResult.game_id.in_(game_ids),
+                MetricResult.value_num.isnot(None),
+            )
+            .group_by(MetricResult.game_id)
+            .all()
+        )
         _METRICS_COMPLETE_MIN = 20
         computed_game_ids = {
-            gid for gid, cnt in entity_metric_counts.items() if (cnt or 0) >= _METRICS_COMPLETE_MIN
+            gid
+            for gid, cnt in entity_metric_counts.items()
+            if (cnt or 0) >= _METRICS_COMPLETE_MIN and (result_counts.get(gid) or 0) > 0
         }
 
         ready_game_ids: list[str] = []
         pending_artifact_game_ids: list[str] = []
         pending_metric_game_ids: list[str] = []
+        pending_curator_game_ids: list[str] = []
         for game in games:
             artifacts_supported = _artifacts_available_from_nba_api(game.season)
             has_detail = is_game_detail_back_filled(game.game_id, session)
@@ -169,6 +180,9 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
             if game.game_id not in computed_game_ids:
                 pending_metric_game_ids.append(game.game_id)
                 continue
+            if game.highlights_curated_at is None:
+                pending_curator_game_ids.append(game.game_id)
+                continue
             ready_game_ids.append(game.game_id)
 
         return {
@@ -176,6 +190,7 @@ def game_pipeline_status_for_date(target_date: date) -> dict:
             "ready_game_ids": ready_game_ids,
             "pending_artifact_game_ids": pending_artifact_game_ids,
             "pending_metric_game_ids": pending_metric_game_ids,
+            "pending_curator_game_ids": pending_curator_game_ids,
         }
 
 
@@ -252,6 +267,12 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
             .count()
             or 0
         )
+        metric_result_count = int(
+            session.query(MetricResult.id)
+            .filter(MetricResult.game_id == game_id, MetricResult.value_num.isnot(None))
+            .count()
+            or 0
+        )
 
         if missing_artifacts:
             artifact_list = ", ".join(missing_artifacts)
@@ -279,7 +300,39 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
                 "has_pbp": has_pbp,
                 "missing_artifacts": [],
                 "metric_run_count": 0,
+                "metric_result_count": metric_result_count,
                 "message": f"Pipeline not ready: game {game_id} has detail/PBP, but no MetricRunLog rows yet.",
+            }
+
+        if metric_result_count <= 0:
+            return {
+                "game_id": game_id,
+                "season": game.season,
+                "ready": False,
+                "pipeline_stage": "metrics",
+                "artifacts_supported": artifacts_supported,
+                "has_detail": has_detail,
+                "has_pbp": has_pbp,
+                "missing_artifacts": [],
+                "metric_run_count": metric_run_count,
+                "metric_result_count": 0,
+                "message": f"Pipeline not ready: game {game_id} has MetricRunLog rows, but no MetricResult rows yet.",
+            }
+
+        if game.highlights_curated_at is None:
+            return {
+                "game_id": game_id,
+                "season": game.season,
+                "ready": False,
+                "pipeline_stage": "curator",
+                "artifacts_supported": artifacts_supported,
+                "has_detail": has_detail,
+                "has_pbp": has_pbp,
+                "missing_artifacts": [],
+                "metric_run_count": metric_run_count,
+                "metric_result_count": metric_result_count,
+                "highlights_curated_at": None,
+                "message": f"Pipeline not ready: game {game_id} has metrics, but highlight curation has not finished.",
             }
 
         return {
@@ -292,6 +345,8 @@ def game_analysis_readiness_detail(game_id: str) -> dict[str, object]:
             "has_pbp": has_pbp,
             "missing_artifacts": [],
             "metric_run_count": metric_run_count,
+            "metric_result_count": metric_result_count,
+            "highlights_curated_at": game.highlights_curated_at.isoformat() if game.highlights_curated_at else None,
             "message": f"Pipeline ready: game {game_id} has artifacts and {metric_run_count} MetricRunLog rows.",
         }
 
@@ -725,6 +780,14 @@ def _ensure_game_content_analysis_issue_for_game(
             "ok": False,
             "status": "waiting_for_pipeline",
             "pipeline_stage": "metrics",
+            "source_date": target_date.isoformat(),
+            "game_id": game_id,
+        }
+    if game_id in pipeline.get("pending_curator_game_ids", []):
+        return {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "curator",
             "source_date": target_date.isoformat(),
             "game_id": game_id,
         }

@@ -3329,6 +3329,21 @@ def _game_metrics_payload_from_cache_json(raw: str | bytes | None) -> dict | Non
     return payload
 
 
+def _game_metrics_payload_has_content(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    game_metrics = payload.get("game_metrics") or {}
+    if (game_metrics.get("season") or []) or (game_metrics.get("season_extra") or []):
+        return True
+    if payload.get("triggered_player_metrics") or payload.get("triggered_team_metrics"):
+        return True
+    story_candidates = payload.get("story_candidates") or {}
+    return bool(
+        story_candidates.get("lead_candidates")
+        or story_candidates.get("support_candidates")
+    )
+
+
 def _game_metrics_cache_client_or_none():
     global _game_metrics_cache_client, _game_metrics_cache_unavailable_until
     now = time.monotonic()
@@ -3708,14 +3723,17 @@ def _build_game_metrics_payload_cached(
     if not force_refresh:
         cached = _cached_game_metrics_payload(game_id)
         if cached is not None:
-            if cached.get("_curated_merged"):
+            if not _game_metrics_payload_has_content(cached):
+                logger.info("game metrics cache empty for %s; rebuilding from DB", game_id)
+            else:
+                if cached.get("_curated_merged"):
+                    return cached
+                g = _load_game()
+                if _has_curated(g):
+                    merged = _merge_curated_narratives(cached, g)
+                    _write_game_metrics_payload_cache(game_id, merged)
+                    return merged
                 return cached
-            g = _load_game()
-            if _has_curated(g):
-                merged = _merge_curated_narratives(cached, g)
-                _write_game_metrics_payload_cache(game_id, merged)
-                return merged
-            return cached
 
     payload = _build_game_metrics_payload(session, game_id, game_season)
     g = _load_game()
@@ -3723,11 +3741,12 @@ def _build_game_metrics_payload_cached(
         payload = _merge_curated_narratives(payload, g)
     else:
         payload["_curated_merged"] = False
-    _write_game_metrics_payload_cache(game_id, payload)
+    if _game_metrics_payload_has_content(payload):
+        _write_game_metrics_payload_cache(game_id, payload)
     return payload
 
 
-def _load_game_metrics_payload(game_id: str) -> dict:
+def _load_game_metrics_payload(game_id: str, *, force_refresh: bool = False) -> dict:
     with SessionLocal() as session:
         game = session.query(Game).filter(Game.game_id == game_id).first()
         if game is None:
@@ -3748,6 +3767,7 @@ def _load_game_metrics_payload(game_id: str) -> dict:
             session,
             game.game_id,
             game.season,
+            force_refresh=force_refresh,
         )
 
 
@@ -7515,7 +7535,7 @@ _admin_misc_views = register_admin_misc_routes(
         time_module=lambda: time,
         box_score_source_label=lambda: _box_score_source_label,
         season_label=lambda: _season_label,
-        build_game_metrics_payload=lambda: _load_game_metrics_payload,
+        build_game_metrics_payload=lambda: (lambda game_id: _load_game_metrics_payload(game_id, force_refresh=True)),
         logger=lambda: logger,
         page_view_model=lambda: PageView,
         user_model=lambda: User,

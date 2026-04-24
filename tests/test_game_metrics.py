@@ -38,9 +38,9 @@ def _import_helper():
     fake_models = types.ModuleType("db.models")
     for name in (
         "Award", "Feedback", "Game", "GameContentAnalysisIssuePost", "GamePlayByPlay", "MagicToken", "MetricComputeRun", "MetricDefinition",
-        "MetricMilestone", "MetricPerfLog", "MetricResult", "MetricRunLog", "PageView", "Player",
-        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery", "User",
-        "GameLineScore",
+        "MetricMilestone", "MetricPerfLog", "MetricResult", "MetricRunLog", "NewsArticle", "NewsArticlePlayer", "NewsArticleTeam", "NewsCluster", "PageView", "Player",
+        "PlayerGameStats", "PlayerSalary", "ShotRecord", "Team", "TeamGameStats", "TeamRosterStint", "SocialPost", "SocialPostImage", "SocialPostVariant", "SocialPostDelivery", "User",
+        "GameLineScore", "TeamCoachStint",
     ):
         setattr(fake_models, name, MagicMock())
     fake_models.engine = fake_engine
@@ -84,6 +84,7 @@ def _import_helper():
         _build_story_candidates,
         _game_metric_badge_text,
         _game_metrics_payload_from_cache_json,
+        _game_metrics_payload_has_content,
         _game_metrics_payload_to_cache_json,
         _prepare_game_metric_cards,
         _season_type_prefix,
@@ -119,6 +120,7 @@ def _import_helper():
         _build_story_candidates,
         _game_metric_badge_text,
         _game_metrics_payload_from_cache_json,
+        _game_metrics_payload_has_content,
         _game_metrics_payload_to_cache_json,
         _prepare_game_metric_cards,
         _season_type_prefix,
@@ -130,6 +132,7 @@ def _import_helper():
     _build_story_candidates,
     _game_metric_badge_text,
     _game_metrics_payload_from_cache_json,
+    _game_metrics_payload_has_content,
     _game_metrics_payload_to_cache_json,
     _prepare_game_metric_cards,
     _season_type_prefix,
@@ -463,6 +466,39 @@ class TestGameMetricsCacheJson(unittest.TestCase):
     def test_cache_json_rejects_invalid_payloads(self):
         self.assertIsNone(_game_metrics_payload_from_cache_json("not json"))
         self.assertIsNone(_game_metrics_payload_from_cache_json('{"game_id":"x"}'))
+
+    def test_empty_payload_is_not_cacheable_content(self):
+        payload = {
+            "game_id": "0022501066",
+            "game_metrics": {"season": [], "season_extra": []},
+            "triggered_player_metrics": [],
+            "triggered_team_metrics": [],
+            "story_candidates": {
+                "lead_candidates": [],
+                "support_candidates": [],
+                "suppressed_candidates": [],
+            },
+        }
+
+        self.assertFalse(_game_metrics_payload_has_content(payload))
+
+    def test_metric_cards_make_payload_cacheable_content(self):
+        payload = {
+            "game_id": "0022501066",
+            "game_metrics": {
+                "season": [{"metric_key": "game_margin"}],
+                "season_extra": [],
+            },
+            "triggered_player_metrics": [],
+            "triggered_team_metrics": [],
+            "story_candidates": {
+                "lead_candidates": [],
+                "support_candidates": [],
+                "suppressed_candidates": [],
+            },
+        }
+
+        self.assertTrue(_game_metrics_payload_has_content(payload))
 
 
 if __name__ == "__main__":
