@@ -970,7 +970,7 @@ def detect_milestones_for_games_task(
         with _session_factory()() as session:
             events = detect_batch_incremental(session, game_ids, metric_keys=list(metric_keys or []) or None)
             session.commit()
-            milestone_detection_complete_task.delay(game_ids=game_ids)
+            milestone_detection_complete_task.delay([], game_ids)
             return {"games": len(game_ids), "events": len(events)}
     except Exception as exc:
         logger.warning("detect_milestones_for_games failed games=%s: %s", game_ids, exc, exc_info=True)
@@ -1006,7 +1006,11 @@ def enqueue_milestone_detection_for_games_task(
     queue="ingest",
     ignore_result=True,
 )
-def milestone_detection_complete_task(self, results: list, game_ids: list[str] | tuple[str, ...]) -> dict:
+def milestone_detection_complete_task(
+    self,
+    results: list | None = None,
+    game_ids: list[str] | tuple[str, ...] = (),
+) -> dict:
     game_ids = sorted({str(game_id) for game_id in (game_ids or []) if game_id})
     seasons: set[str] = set()
     active_runs = 0

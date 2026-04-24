@@ -28,7 +28,7 @@ from db.backfill_nba_player_shot_detail import (
     is_game_shot_back_filled,
 )
 from db.game_status import GAME_STATUS_COMPLETED, completed_game_clause, get_game_status, infer_game_status
-from db.models import Game, MetricRunLog, Team, TeamGameStats, engine
+from db.models import Game, MetricResult, MetricRunLog, Team, TeamGameStats, engine
 from metrics.framework.runtime import expand_metric_keys, get_all_metrics
 from runtime_flags import get_runtime_flag
 
@@ -150,10 +150,24 @@ def _missing_artifacts(status: dict) -> list[str]:
     return missing
 
 
-def _has_metric_run_logs(sess, game_id: str) -> bool:
+def _has_entity_metric_run_logs(sess, game_id: str) -> bool:
     return (
         sess.query(MetricRunLog.game_id)
-        .filter(MetricRunLog.game_id == game_id)
+        .filter(
+            MetricRunLog.game_id == game_id,
+            MetricRunLog.entity_type.in_(("player", "team")),
+        )
+        .first()
+    ) is not None
+
+
+def _has_metric_results(sess, game_id: str) -> bool:
+    return (
+        sess.query(MetricResult.game_id)
+        .filter(
+            MetricResult.game_id == game_id,
+            MetricResult.value_num.isnot(None),
+        )
         .first()
     ) is not None
 
@@ -166,8 +180,10 @@ def _metric_refresh_reason_for_game(
 ) -> str | None:
     if needed_detail_pbp_refresh:
         return "needed_detail_pbp_refresh"
-    if not _has_metric_run_logs(sess, game_id):
+    if not _has_entity_metric_run_logs(sess, game_id):
         return "missing_metric_run_logs"
+    if not _has_metric_results(sess, game_id):
+        return "missing_metric_results"
     return None
 
 

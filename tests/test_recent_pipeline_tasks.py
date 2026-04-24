@@ -81,6 +81,49 @@ def test_ensure_daily_content_analysis_issue_waits_for_artifacts():
     client.create_issue.assert_not_called()
 
 
+def test_ensure_daily_content_analysis_issue_waits_for_curator():
+    with patch(
+        "content_pipeline.game_analysis_issues.game_pipeline_status_for_date",
+        return_value={
+            "game_ids": ["0021"],
+            "ready_game_ids": [],
+            "pending_artifact_game_ids": [],
+            "pending_metric_game_ids": [],
+            "pending_curator_game_ids": ["0021"],
+        },
+    ), patch(
+        "content_pipeline.game_analysis_issues.covered_game_ids_for_date",
+        return_value=set(),
+    ), patch(
+        "content_pipeline.game_analysis_issues._game_analysis_issue_creation_lock",
+        return_value=_ctx(MagicMock()),
+    ), patch(
+        "content_pipeline.game_analysis_issues.load_paperclip_bridge_config",
+        return_value=object(),
+    ), patch("content_pipeline.game_analysis_issues.PaperclipClient") as client_cls:
+        client = client_cls.return_value
+        client.discover_defaults.return_value = MagicMock(
+            project_id="project-1",
+            content_analyst_agent_id="agent-1",
+        )
+        client.list_issues.return_value = []
+        result = content_tasks.ensure_daily_content_analysis_issue(date.fromisoformat("2026-03-29"))
+
+    assert result["ok"] is False
+    assert result["status"] == "waiting_for_pipeline"
+    assert result["waiting_count"] == 1
+    assert result["results"] == [
+        {
+            "ok": False,
+            "status": "waiting_for_pipeline",
+            "pipeline_stage": "curator",
+            "source_date": "2026-03-29",
+            "game_id": "0021",
+        }
+    ]
+    client.create_issue.assert_not_called()
+
+
 def test_ingest_recent_games_enqueues_only_incomplete_games():
     with patch.object(
         ingest_tasks,
@@ -289,6 +332,41 @@ def test_ingest_game_forces_season_refresh_when_metric_logs_are_missing():
     assert result["shot_refreshed"] is True
 
 
+def test_metric_refresh_reason_ignores_non_entity_metric_logs():
+    session = MagicMock()
+
+    with patch.object(ingest_tasks, "_has_entity_metric_run_logs", return_value=False), patch.object(
+        ingest_tasks,
+        "_has_metric_results",
+        return_value=True,
+    ) as results_mock:
+        reason = ingest_tasks._metric_refresh_reason_for_game(
+            session,
+            "g1",
+            needed_detail_pbp_refresh=False,
+        )
+
+    assert reason == "missing_metric_run_logs"
+    results_mock.assert_not_called()
+
+
+def test_metric_refresh_reason_requires_metric_results():
+    session = MagicMock()
+
+    with patch.object(ingest_tasks, "_has_entity_metric_run_logs", return_value=True), patch.object(
+        ingest_tasks,
+        "_has_metric_results",
+        return_value=False,
+    ):
+        reason = ingest_tasks._metric_refresh_reason_for_game(
+            session,
+            "g1",
+            needed_detail_pbp_refresh=False,
+        )
+
+    assert reason == "missing_metric_results"
+
+
 def test_ingest_game_retries_when_artifacts_still_incomplete():
     before_status = {
         "exists_game": True,
@@ -445,6 +523,28 @@ def test_compute_season_metric_marks_run_failed_when_runner_raises():
     assert mark_failed.call_args.args[1] == "run-1"
     assert "22025" in mark_failed.call_args.args[2]
     progress_mock.assert_not_called()
+
+
+def test_detect_milestones_for_games_passes_results_to_completion_callback():
+    session = _ctx(MagicMock())
+
+    with patch.object(
+        metrics_tasks,
+        "_session_factory",
+        return_value=MagicMock(return_value=session),
+    ), patch(
+        "metrics.framework.milestones.detect_batch_incremental",
+        return_value=[{"event": "milestone"}],
+    ) as detect_mock, patch.object(
+        metrics_tasks.milestone_detection_complete_task,
+        "delay",
+    ) as completion_delay_mock:
+        result = metrics_tasks.detect_milestones_for_games_task.run(["g2", "g1", "g1"], metric_keys=["metric_a"])
+
+    detect_mock.assert_called_once_with(session, ["g1", "g2"], metric_keys=["metric_a"])
+    session.commit.assert_called_once()
+    completion_delay_mock.assert_called_once_with([], ["g1", "g2"])
+    assert result == {"games": 2, "events": 1}
 
 
 def test_refresh_current_season_metrics_respects_metric_season_types():
