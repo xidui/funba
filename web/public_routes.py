@@ -57,6 +57,16 @@ def _coerce_game_date(value):
     return value
 
 
+def _home_cached_payload_needs_curated_refresh(game, payload: dict | None) -> bool:
+    if not isinstance(payload, dict) or payload.get("_curated_merged"):
+        return False
+    return bool(
+        getattr(game, "highlights_curated_json", None)
+        or getattr(game, "highlights_curated_player_json", None)
+        or getattr(game, "highlights_curated_team_json", None)
+    )
+
+
 def _load_news_models():
     """Best-effort loader for optional news models.
 
@@ -1450,6 +1460,11 @@ def register_public_routes(
         sync_miss_budget = 1
         for idx, game in enumerate(games):
             payload = get_cached_game_metrics_payload(game.game_id) if get_cached_game_metrics_payload else None
+            if _home_cached_payload_needs_curated_refresh(game, payload) and get_load_game_metrics_payload is not None:
+                try:
+                    payload = get_load_game_metrics_payload(game.game_id)
+                except Exception:
+                    payload = None
             if payload is None and not cards and sync_miss_budget and get_load_game_metrics_payload is not None:
                 try:
                     payload = get_load_game_metrics_payload(game.game_id)
