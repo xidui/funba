@@ -566,12 +566,16 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
 
     def test_curator_only_runs_games_at_curator_stage(self):
         ready_game = SimpleNamespace(game_id="ready-game", highlights_curated_at=None)
-        waiting_game = SimpleNamespace(game_id="waiting-game", highlights_curated_at=None)
-        session = MagicMock()
-        session.query.return_value.filter.return_value.all.return_value = [ready_game, waiting_game]
-        session_cm = MagicMock()
-        session_cm.__enter__.return_value = session
-        session_cm.__exit__.return_value = False
+        list_session = MagicMock()
+        list_session.query.return_value.filter.return_value.all.return_value = [("ready-game",), ("waiting-game",)]
+        ready_session = MagicMock()
+        ready_session.query.return_value.filter.return_value.first.return_value = ready_game
+        list_session_cm = MagicMock()
+        list_session_cm.__enter__.return_value = list_session
+        list_session_cm.__exit__.return_value = False
+        ready_session_cm = MagicMock()
+        ready_session_cm.__enter__.return_value = ready_session
+        ready_session_cm.__exit__.return_value = False
 
         issues_module = MagicMock()
         issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-23")]
@@ -589,7 +593,7 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
             content_tasks,
             "_game_analysis_issues_module",
             return_value=issues_module,
-        ), patch("sqlalchemy.orm.Session", return_value=session_cm), patch(
+        ), patch("sqlalchemy.orm.Session", side_effect=[list_session_cm, ready_session_cm]), patch(
             "metrics.highlights.curator.run_curator_for_game",
         ) as curator_mock, patch.object(
             content_tasks.ensure_recent_content_analysis_for_season_task,
@@ -597,7 +601,7 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
         ):
             result = content_tasks.curate_then_analyze_for_season_task.run("42025", lookback_days=3)
 
-        curator_mock.assert_called_once_with(session, ready_game)
+        curator_mock.assert_called_once_with(ready_session, ready_game)
         self.assertEqual(result["curated"], 1)
         self.assertEqual(result["waiting"], 1)
 

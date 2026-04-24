@@ -321,38 +321,51 @@ def curate_then_analyze_for_season_task(
         )
     else:
         with Session(engine) as session:
-            games = (
-                session.query(Game)
-                .filter(
-                    Game.season == season,
-                    Game.game_date.in_(game_dates) if game_dates else False,
-                    Game.home_team_score.isnot(None),
-                )
-                .all()
-            )
-            for game in games:
-                if game.highlights_curated_at is not None and not force_curator:
-                    skipped += 1
-                    continue
-                readiness = issues_module.game_analysis_readiness_detail(game.game_id)
-                if readiness.get("pipeline_stage") not in ("curator", "ready"):
-                    waiting += 1
-                    logger.info(
-                        "curate_then_analyze: waiting game=%s season=%s stage=%s",
-                        game.game_id,
-                        season,
-                        readiness.get("pipeline_stage"),
+            game_ids = [
+                str(game_id)
+                for (game_id,) in (
+                    session.query(Game.game_id)
+                    .filter(
+                        Game.season == season,
+                        Game.game_date.in_(game_dates) if game_dates else False,
+                        Game.home_team_score.isnot(None),
                     )
-                    continue
-                try:
+                    .all()
+                )
+            ]
+
+        for game_id in game_ids:
+            readiness = issues_module.game_analysis_readiness_detail(game_id)
+            if readiness.get("pipeline_stage") not in ("curator", "ready"):
+                waiting += 1
+                logger.info(
+                    "curate_then_analyze: waiting game=%s season=%s stage=%s",
+                    game_id,
+                    season,
+                    readiness.get("pipeline_stage"),
+                )
+                continue
+            try:
+                with Session(engine) as session:
+                    game = (
+                        session.query(Game)
+                        .filter(Game.game_id == game_id)
+                        .first()
+                    )
+                    if game is None:
+                        waiting += 1
+                        continue
+                    if game.highlights_curated_at is not None and not force_curator:
+                        skipped += 1
+                        continue
                     run_curator_for_game(session, game)
                     curated += 1
-                except Exception as exc:
-                    logger.warning(
-                        "curate_then_analyze: curator failed game=%s season=%s: %s",
-                        game.game_id, season, exc, exc_info=True,
-                    )
-                    failed.append(game.game_id)
+            except Exception as exc:
+                logger.warning(
+                    "curate_then_analyze: curator failed game=%s season=%s: %s",
+                    game_id, season, exc, exc_info=True,
+                )
+                failed.append(game_id)
 
     if source_dates:
         ensure_recent_content_analysis_task.delay(

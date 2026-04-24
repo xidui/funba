@@ -359,9 +359,9 @@ redis-cli del metrics
 
 ### Docker Compose (test environment only):
 
-`docker-compose.yml` is kept for local testing with RabbitMQ. It is NOT used
-in production. To run: update `.env` with `CELERY_BROKER_URL=amqp://...` and
-use `docker compose up -d`.
+`docker-compose.yml` is kept for local testing with Redis, matching production
+broker semantics. It is NOT used in production. To run: copy `.env.example` to
+`.env`, adjust `NBA_DB_URL` if needed, and use `docker compose up -d`.
 
 ---
 

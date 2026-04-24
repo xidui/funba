@@ -1,21 +1,19 @@
 version: "3.9"
 
 services:
-  rabbitmq:
-    image: rabbitmq:3-management
+  redis:
+    image: redis:7-alpine
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI (guest / guest)
+      - "6379:6379"
     volumes:
-      - ./.rabbitmq:/var/lib/rabbitmq
-    environment:
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit vm_memory_high_watermark 0.4"
+      - ./.redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 512M
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,10 +23,12 @@ services:
     command: celery -A tasks.celery_app worker -Q ingest -c 4 --loglevel=info
     env_file: .env
     environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       DB_POOL_SIZE: "1"
       DB_MAX_OVERFLOW: "0"
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
     restart: always
 
@@ -37,10 +37,12 @@ services:
     command: celery -A tasks.celery_app worker -Q metrics -c 50 --loglevel=info
     env_file: .env
     environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       DB_POOL_SIZE: "1"
       DB_MAX_OVERFLOW: "0"
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
     restart: always
 
@@ -49,10 +51,12 @@ services:
     command: celery -A tasks.celery_app worker -Q reduce -c 16 --loglevel=info
     env_file: .env
     environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
       DB_POOL_SIZE: "4"
       DB_MAX_OVERFLOW: "2"
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
     restart: always
 
@@ -60,7 +64,10 @@ services:
     build: .
     command: celery -A tasks.celery_app beat --loglevel=info
     env_file: .env
+    environment:
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
     restart: always

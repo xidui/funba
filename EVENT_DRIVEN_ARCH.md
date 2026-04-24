@@ -17,9 +17,7 @@
                 • run run_for_game_single_metric(session, game_id, metric_key)
                 • write MetricResult + MetricRunLog
 
-Dead-letter exchange:
-  ingest failures  → ingest.dlq
-  metrics failures → metrics.dlq
+Broker: Redis (`redis://localhost:6379/0` in production launchd plists).
 ```
 
 ## Two-Queue Rationale
@@ -55,7 +53,7 @@ ingest + metric pipeline on them.
 ### Prerequisites
 - Docker + Docker Compose
 - MySQL running on the host (or update `NBA_DB_URL` in `.env`)
-- Celery task results are intentionally disabled; RabbitMQ is used only as the broker
+- Redis is used as the Celery broker and result backend
 
 ### Steps
 
@@ -64,9 +62,8 @@ ingest + metric pipeline on them.
 cp .env.example .env
 # Edit .env if needed (DB URL, broker URL)
 
-# 2. Start RabbitMQ
-docker-compose up -d rabbitmq
-# Open http://localhost:15672 — login guest / guest
+# 2. Start Redis
+docker-compose up -d redis
 
 # 3. Start workers
 docker-compose up -d worker-ingest worker-metrics
@@ -77,8 +74,9 @@ docker-compose up -d scheduler
 # 5. Dispatch a task
 python -m tasks.dispatch game 0022400909
 
-# 6. Watch RabbitMQ UI: "ingest" queue gets 1 message → consumed →
-#    "metrics" queue gets N messages (one per metric key)
+# 6. Watch Redis queue depth:
+redis-cli llen ingest
+redis-cli llen metrics
 ```
 
 ### Verify
@@ -91,15 +89,17 @@ SELECT COUNT(*) FROM MetricRunLog WHERE game_id = '0022400909';
 
 ## AWS Migration Path
 
-Change two env vars, redeploy the same Docker image to ECS Fargate:
+Use managed Redis/Valkey for the Celery broker and result backend, then redeploy
+the same Docker image to ECS Fargate:
 
 ```bash
-CELERY_BROKER_URL=amqps://user:pass@b-xxx.mq.us-east-1.amazonaws.com:5671//
+CELERY_BROKER_URL=redis://redis-host:6379/0
+CELERY_RESULT_BACKEND=redis://redis-host:6379/0
 NBA_DB_URL=mysql+pymysql://user:pass@rds-host.us-east-1.rds.amazonaws.com/nba_data
 ```
 
-**Auto-scaling:** Create a CloudWatch alarm on RabbitMQ `MessagesReady` metric
-→ ECS scale-out policy for `worker-metrics` service.
+**Auto-scaling:** Create an alarm from Redis queue depth / worker lag and connect
+it to the ECS scale-out policy for worker services.
 
 ECS task definition commands:
 - `worker-ingest`: `celery -A tasks.celery_app worker -Q ingest -c 4 --loglevel=info`
@@ -121,10 +121,13 @@ out metric compute tasks to Queue 2.
 
 ## Operational Runbook
 
-### RabbitMQ Management UI
-- URL: http://localhost:15672 (or your Amazon MQ endpoint)
-- Credentials: guest/guest (local) or your MQ user
-- Queue depths visible on the Queues tab
+### Redis Queue Inspection
+
+```bash
+redis-cli llen ingest
+redis-cli llen metrics
+redis-cli llen reduce
+```
 
 ### Scaling Workers
 ```bash
@@ -132,21 +135,11 @@ out metric compute tasks to Queue 2.
 docker-compose up -d --scale worker-metrics=3
 ```
 
-### Dead-Letter Inspection + Replay
+### Failed Task Inspection
 
-Failed tasks land in `ingest.dlq` or `metrics.dlq`. To inspect:
-
-1. In the RabbitMQ Management UI → Queues → `ingest.dlq` or `metrics.dlq`
-2. Click "Get messages" to view the failed task body
-3. To replay, move messages back to the source queue:
-
-```bash
-# Using rabbitmqadmin (install from http://localhost:15672/cli)
-rabbitmqadmin move-messages \
-  --source=metrics.dlq \
-  --destination=metrics \
-  --count=100
-```
+Workers log failures to `logs/worker-*-stderr.log`. Redis queue depth can be
+checked with `redis-cli llen <queue>`. Stuck queue entries can be purged with
+`redis-cli del <queue>` after confirming they are safe to drop.
 
 Or use Celery's `flower` UI for task monitoring:
 ```bash
@@ -172,7 +165,7 @@ python -m tasks.dispatch metric-backfill --season 22025 --force
 | `tasks/metrics.py` | `compute_game_metrics` task |
 | `tasks/dispatch.py` | CLI to enqueue tasks without starting a worker |
 | `Dockerfile` | Single image for all worker types |
-| `docker-compose.yml` | Local dev: RabbitMQ + ingest/metrics workers + scheduler |
+| `docker-compose.yml` | Local dev: Redis + ingest/metrics workers + scheduler |
 | `.env.example` | Environment variable template |
 | `metrics/framework/runner.py` | Added `run_for_game_single_metric()` |
 | `metrics/framework/daily_job.py` | **Deprecated** — use `tasks.dispatch` instead |
