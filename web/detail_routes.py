@@ -2083,6 +2083,58 @@ def register_detail_routes(
 
     app.add_url_rule("/api/games/<game_id>/period-stats", endpoint="api_game_period_stats", view_func=api_game_period_stats)
 
+    def player_matchup_split_body(player_id: str):
+        """Return the body fragment for one matchup-split-card.
+
+        Player pages render only the summaries upfront (saves megabytes
+        of HTML); each card lazy-fetches its own body the first time
+        the user opens it. The drilldown preview gate + login URL come
+        from the context processor, so the template can derive them
+        the same way the player page does.
+        """
+        metric_key = (request.args.get("metric_key") or "").strip()
+        season = (request.args.get("season") or "").strip()
+        if not metric_key or not season:
+            abort(400, description="metric_key and season are required")
+
+        # Career splits live in alltime_splits keyed by `career_type`;
+        # current-season splits live in season_splits and are filtered
+        # by the season passed to _get_metric_results.
+        is_career = season.startswith(("all_", "last3_", "last5_"))
+        sel_season = None if is_career else season
+
+        SessionLocal = get_session_local()
+        with SessionLocal() as session:
+            results = get_metric_results()(session, "player", str(player_id), sel_season)
+            candidates = (results.get("season_splits") or []) + (results.get("alltime_splits") or [])
+            match = None
+            for s in candidates:
+                if s.get("metric_key") != metric_key:
+                    continue
+                if is_career:
+                    if s.get("career_type") == season:
+                        match = s
+                        break
+                else:
+                    if not s.get("career_type"):
+                        match = s
+                        break
+            if match is None:
+                abort(404, description="split not found")
+
+        return get_render_template()(
+            "_matchup_split_card.html",
+            render_one_body=True,
+            split=match,
+            season_for_url=season,
+        )
+
+    app.add_url_rule(
+        "/api/players/<player_id>/matchup-split-body",
+        endpoint="player_matchup_split_body",
+        view_func=player_matchup_split_body,
+    )
+
     app.add_url_rule("/cn/players/<slug>", endpoint="player_page_zh", view_func=player_page)
     app.add_url_rule("/players/<slug>", endpoint="player_page", view_func=player_page)
     app.add_url_rule("/cn/teams/<slug>", endpoint="team_page_zh", view_func=team_page)

@@ -1,0 +1,180 @@
+{# Macros for matchup-split-card rendering, shared between the
+   player page (renders summary-only) and the lazy-body endpoint
+   (returns just the body fragment for one card on first open).
+
+   Why summary-only by default: every card body inlines a per-cell
+   game table with up to 100 rows; with ~70 cards on a long career
+   page this ships ~7MB of HTML. Lazy-load drops that to ~50KB. #}
+
+{%- macro render_split_summary(m, lazy_url) -%}
+<details class="matchup-split-card{% if m.is_notable %} notable{% endif %}">
+  <summary>
+    <div class="split-title-block">
+      <div class="split-title">{{ m.metric_name }}</div>
+      {% if m.sample_note %}
+      <div class="split-sample-note">{{ m.sample_note }}</div>
+      {% endif %}
+    </div>
+    <div class="split-primary">
+      <span class="split-primary-value">{{ m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") }}</span>
+      {% if m.primary_sub_key_info %}
+      <span class="split-primary-vs">{{ t('vs', '对位') }}</span>
+      {% if m.primary_sub_key_info.team_id %}
+        {% set _turl = team_url(m.primary_sub_key_info.team_id) %}
+        <a href="{{ _turl or '#' }}" class="split-primary-team">
+          <img src="{{ team_logo(m.primary_sub_key_info.team_id) }}"
+               alt="" loading="lazy" onerror="this.style.display='none'">
+          {{ m.primary_sub_key_info.abbr or m.primary_sub_key_info.label }}
+        </a>
+      {% else %}
+        <span class="split-primary-team">{{ m.primary_sub_key_info.label }}</span>
+      {% endif %}
+      {% endif %}
+    </div>
+    <span class="split-count-chip">{{ m.splits|length }} {{ t('opponents', '对手') }}</span>
+  </summary>
+  <div class="split-body" data-lazy-url="{{ lazy_url }}">
+    <div class="split-body-loading">{{ t('Loading…', '加载中…') }}</div>
+  </div>
+</details>
+{%- endmacro -%}
+
+{%- macro render_split_body(m, season_for_url, drilldown_preview_enabled, drilldown_login_url) -%}
+<div class="split-grid">
+  {% for s in m.splits %}
+    {% set _is_team = s.sub_key_info and s.sub_key_info.team_id %}
+    {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
+    {% set _qual_total = s.context.qualifying_game_total if s.context and s.context.qualifying_game_total else _qual|length %}
+    {% set _is_placeholder = s.is_placeholder %}
+    <div class="split-cell{% if _is_placeholder %} split-cell-placeholder{% endif %}" data-cell-idx="{{ loop.index0 }}">
+      {% if _is_team %}
+        {% set _team_href = team_url(s.sub_key_info.team_id) %}
+        <a href="{{ _team_href or '#' }}" class="split-cell-team" title="{{ s.sub_key_info.label }}">
+          <img src="{{ team_logo(s.sub_key_info.team_id) }}"
+               alt="" loading="lazy" onerror="this.style.display='none'">
+          <span class="split-cell-name">{{ s.sub_key_info.abbr or s.sub_key_info.label }}</span>
+        </a>
+      {% else %}
+        <span class="split-cell-name">{{ s.sub_key_info.label if s.sub_key_info else s.sub_key }}</span>
+      {% endif %}
+      {% if _is_placeholder %}
+        <span class="split-cell-value split-cell-value-zero">{{ s.value_str or '—' }}</span>
+      {% elif _qual|length == 1 %}
+        <a href="{{ game_url(_qual[0]) }}" class="split-cell-value" title="{{ t('Open game', '查看比赛') }}">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</a>
+      {% elif _qual|length > 1 %}
+        <button type="button" class="split-cell-value split-cell-trigger" data-cell-idx="{{ loop.index0 }}" title="{{ _qual_total }} {{ t('games — click to list', '场比赛 — 点击查看') }}">
+          {{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}<sup class="split-cell-games-sup">{{ _qual_total }}</sup>
+        </button>
+      {% else %}
+        <span class="split-cell-value">{{ s.value_str if s.value_str else ("%.3g"|format(s.value_num) if s.value_num is not none else "—") }}</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+<div class="split-game-panel" hidden>
+  <div class="split-game-arrow"></div>
+  <div class="split-game-panel-body">
+    {% for s in m.splits %}
+      {% set _qual = s.context.qualifying_game_ids if s.context and s.context.qualifying_game_ids else [] %}
+      {% if _qual|length > 1 %}
+      <div class="split-game-panel-content" data-cell-idx="{{ loop.index0 }}" hidden>
+        {% if drilldown_preview_enabled %}
+        <div class="split-game-preview-shell">
+          <div class="split-game-preview-content">
+        {% endif %}
+        <div class="split-game-panel-header">
+          {% if s.sub_key_info and s.sub_key_info.team_id %}
+          <img src="{{ team_logo(s.sub_key_info.team_id) }}" alt="" style="width:18px;height:18px;">
+          <strong>{{ m.metric_name }} vs {{ s.sub_key_info.abbr or s.sub_key_info.label }}</strong>
+          <span class="split-game-panel-total">· {{ s.value_str if s.value_str else s.value_num }} · {{ (s.games_meta or [])|length }} {{ t('games', '场') }}</span>
+          {% endif %}
+        </div>
+        <table class="split-game-table">
+          <thead>
+            <tr>
+              <th>{{ t('Date', '日期') }}</th>
+              <th>{{ t('Matchup', '对阵') }}</th>
+              <th class="right">{{ t('Result', '结果') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for gm in (s.games_meta or [])[:100] %}
+              {% set _gurl = game_url(gm.game_id) %}
+              {% set _opp_id = (s.sub_key_info.team_id if s.sub_key_info else '') %}
+              {% set _opp_is_home = gm.home_team_id == _opp_id %}
+              {% set _player_score = gm.road_score if _opp_is_home else gm.home_score %}
+              {% set _opp_score = gm.home_score if _opp_is_home else gm.road_score %}
+              {% set _has_score = _player_score is not none and _opp_score is not none %}
+              {% set _won = _has_score and _player_score > _opp_score %}
+              <tr class="split-game-trow{% if _has_score %} {{ 'game-win' if _won else 'game-loss' }}{% endif %}" onclick="window.location.href='{{ _gurl }}'">
+                <td class="split-game-td-date">{{ gm.date or '—' }}</td>
+                <td class="split-game-td-matchup">
+                  <span class="split-game-vs">{{ '@' if _opp_is_home else 'vs' }}</span>
+                  {% if _opp_id %}
+                  <img src="{{ team_logo(_opp_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
+                  <span>{{ s.sub_key_info.abbr }}</span>
+                  {% endif %}
+                </td>
+                <td class="right split-game-td-score">
+                  {% if _has_score %}
+                  <span class="split-game-wl-chip {{ 'wl-win' if _won else 'wl-loss' }}">{{ 'W' if _won else 'L' }}</span>
+                  <span class="split-game-score-nums">{{ _player_score }}–{{ _opp_score }}</span>
+                  {% else %}—{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if (s.games_meta or [])|length > 20 and not drilldown_preview_enabled %}
+        <div class="split-game-pagination">
+          <button type="button" class="pagination-btn pagination-prev" aria-label="Previous">‹</button>
+          <span class="pagination-indicator">1</span>
+          <span class="pagination-sep">/</span>
+          <span class="pagination-total">{{ ((s.games_meta|length + 19) // 20) }}</span>
+          <button type="button" class="pagination-btn pagination-next" aria-label="Next">›</button>
+          <span class="pagination-range"></span>
+        </div>
+        {% endif %}
+        {% if drilldown_preview_enabled %}
+          </div>
+          <div class="split-game-preview-cta">
+            <div class="split-game-preview-lock" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <div class="split-game-preview-headline">
+              {% if lang == 'zh' %}
+                查看全部 <span class="dd-count">{{ (s.games_meta or [])|length }}</span> 场比赛
+              {% else %}
+                See all <span class="dd-count">{{ (s.games_meta or [])|length }}</span> games
+              {% endif %}
+            </div>
+            <p class="split-game-preview-copy">{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录或注册账号即可解锁完整的比赛下钻列表。') }}</p>
+            <a href="{{ drilldown_login_url }}" class="split-game-preview-button">{{ t('Sign in / Register', '登录 / 注册') }}</a>
+            <div class="split-game-preview-meta">{{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') }}</div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+<div class="split-footer">
+  <a href="{{ url_for('metric_detail', metric_key=m.metric_key, season=season_for_url, expand='1', entity=m.entity_id) }}" class="split-full-link">{{ t('full leaderboard →', '完整排行 →') }}</a>
+</div>
+{%- endmacro -%}
+
+{# When invoked via render_template with `render_one_body=True`, emit just the
+   body for a single card (used by the lazy-load endpoint). When imported as a
+   macro library this block is inert because `render_one_body` is undefined.
+
+   The drilldown preview gate + login URL are derived from request context the
+   same way the player page does, so the route doesn't have to pass them. #}
+{%- if render_one_body -%}
+{%- set _dp = not current_user -%}
+{%- set _dl = url_for('auth_login', next=request.referrer or '/') -%}
+{{ render_split_body(split, season_for_url, _dp, _dl) }}
+{%- endif -%}
