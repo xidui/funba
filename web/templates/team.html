@@ -344,6 +344,34 @@
   }
 
   /* ── Salary panel ─────────────────────────────────────────── */
+  .salary-historical-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 6px 0 14px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    border-radius: 7px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--muted-2, var(--muted));
+  }
+  .salary-historical-note-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
   .salary-table tbody td.cap-hit {
     color: var(--accent);
     font-weight: 700;
@@ -1331,6 +1359,9 @@
         {% if current_games %}
         <button class="team-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
         {% endif %}
+        {% if transactions %}
+        <button class="team-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
+        {% endif %}
         {% if season_summary %}
         <button class="team-nav-btn" data-target="section-record">{{ t('Record', '战绩') }}</button>
         {% endif %}
@@ -1582,6 +1613,16 @@
     <span class="roster-count-pill">{{ salary_players|length }}</span>
     <span class="cap-band-pill cap-band-{{ _band }}">${{ "%.1f"|format(_team_total / 1000000) }}M · {{ t(_band_label, _band_label_zh) }}</span>
   </h2>
+
+  {% if selected_season and current_season and selected_season != current_season %}
+  <div class="salary-historical-note" role="note">
+    <span class="salary-historical-note-icon" aria-hidden="true">i</span>
+    <span>{{ t(
+      'Past-season contract data is incomplete — older cap hits, options, and signing methods may be missing or approximate.',
+      '过去赛季的合同数据不全 —— 较早的薪资、球员/球队选项和签约方式可能缺失或仅供参考。'
+    ) }}</span>
+  </div>
+  {% endif %}
 
   {% if cap_thresholds %}
   {# Pick a scale max so the bar always extends just past the highest threshold. #}
