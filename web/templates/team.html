@@ -998,9 +998,11 @@
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
 
   /* ── Sticky section nav (mirrors player page pattern) ──────── */
+  /* Sits below the topbar (54px) AND the stuck team-hero (~56px when
+     compressed). Together that's why this lives at 110px. */
   .team-section-nav {
     position: sticky;
-    top: 54px;
+    top: 110px;
     z-index: 90;
     background: var(--bg);
     backdrop-filter: blur(14px);
@@ -1052,12 +1054,12 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   }
   @media (max-width: 540px) {
-    .team-section-nav { top: 64px; }
+    .team-section-nav { top: 120px; }  /* mobile: topbar 64 + stuck hero ~56 */
     .team-nav-btn { min-height: 38px; padding: 6px 14px; }
   }
-  /* Account for sticky topbar (54px) + this nav (~50px) when jumping. */
+  /* Account for sticky topbar + sticky hero + this nav when jumping. */
   [id^="section-"] {
-    scroll-margin-top: 120px;
+    scroll-margin-top: 170px;
   }
 </style>
 
@@ -2068,16 +2070,18 @@
     });
   });
 
-  // Show/hide nav: appear once the team-hero scrolls past the top
-  var hero = document.getElementById('team-hero');
-  if (hero && 'IntersectionObserver' in window) {
-    var heroObs = new IntersectionObserver(function (entries) {
+  // Show/hide nav: appear once the user scrolls past the team hero. The
+  // hero itself is `position: sticky`, so it never leaves the viewport —
+  // observe the 1px sentinel above it instead.
+  var sentinel = document.getElementById('team-hero-sentinel');
+  if (sentinel && 'IntersectionObserver' in window) {
+    var sentObs = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) nav.classList.remove('is-visible');
         else nav.classList.add('is-visible');
       });
     }, { threshold: 0 });
-    heroObs.observe(hero);
+    sentObs.observe(sentinel);
   } else {
     nav.classList.add('is-visible');
   }
