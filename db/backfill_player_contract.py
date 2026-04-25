@@ -511,9 +511,11 @@ def parse_player_contracts(soup: BeautifulSoup) -> list[ContractInfo]:
             signed_with_team_abbr=team_abbr,
         )
 
-        year_dict: dict[int, YearRow] = {}
-        if is_current:
-            year_dict = _parse_current_contract_tables(w, start, end)
+        # Try the per-year tables on every wrapper, not just the current one.
+        # Spotrac populates them on CURRENT and UPCOMING-EXTENSION contracts;
+        # past contracts are paywalled and have no tables — the parser cleanly
+        # returns an empty dict in that case so the call is always safe.
+        year_dict: dict[int, YearRow] = _parse_current_contract_tables(w, start, end)
 
         for season in range(start, end + 1):
             yr = year_dict.get(season) or YearRow(season=season)
