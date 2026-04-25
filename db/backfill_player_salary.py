@@ -345,18 +345,94 @@ def run(season: int | None = DEFAULT_SEASON) -> BackfillCounts:
         session.close()
 
 
+def run_from_db(skip_existing: bool = True) -> BackfillCounts:
+    """Iterate every Player.br_slug and backfill that player's full salary
+    history. Covers retired players (the BR /contracts/players.html page only
+    lists currently-signed players, so the default `run()` skips everyone
+    who's no longer under contract)."""
+    counts = BackfillCounts()
+    client = BasketballReferenceClient()
+    session = Session()
+
+    try:
+        existing = set()
+        if skip_existing:
+            existing = {r[0] for r in session.query(PlayerSalary.player_id).distinct().all()}
+
+        players = (
+            session.query(Player)
+            .filter(Player.br_slug.isnot(None))
+            .order_by(Player.full_name)
+            .all()
+        )
+        targets = [p for p in players if not skip_existing or p.player_id not in existing]
+        logger.info("from-db backfill: %d candidate players (skip_existing=%s)", len(targets), skip_existing)
+
+        for i, p in enumerate(targets, 1):
+            slug = p.br_slug
+            url = f"{BASE_URL}/players/{slug[0]}/{slug}.html"
+            try:
+                salary_rows = fetch_salary_history(client, url)
+                salary_rows = _dedupe_salary_rows(salary_rows)
+                if not salary_rows:
+                    continue
+
+                counts.matched += 1
+                counts.updated += _upsert_salary_rows(session, p.player_id, salary_rows)
+                session.commit()
+                if i % 50 == 0:
+                    logger.info("[%d/%d] %s -> %d salary rows (running totals: matched=%d updated=%d)",
+                                i, len(targets), p.full_name, len(salary_rows),
+                                counts.matched, counts.updated)
+            except Exception as exc:
+                session.rollback()
+                counts.errors += 1
+                logger.exception("Failed for %s (%s): %s", p.full_name, url, exc)
+
+        print(f"from-db done: matched={counts.matched} updated={counts.updated} errors={counts.errors}")
+        return counts
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill player salary history from Basketball Reference")
+    # Default behavior is the full salary history (= --all-seasons): the
+    # `all_salaries` table on each player page is cheap to grab and our
+    # upsert is idempotent. The previous default of "current season only"
+    # left long-tenured players with one-row histories, which made the
+    # player-page chart fall back to AAV-distributed estimates for years
+    # the player was actually paid for.
     parser.add_argument(
         "--season",
         type=int,
-        default=DEFAULT_SEASON,
-        help=f"Starting year for the salary season (default: {DEFAULT_SEASON})",
+        default=None,
+        help=(
+            "Restrict to a single starting season year (e.g. 2024). "
+            "Default: full career history for each matched player."
+        ),
     )
     parser.add_argument(
         "--all-seasons",
         action="store_true",
-        help="Backfill every salary season available on Basketball Reference for each matched player",
+        help="(Deprecated; this is now the default.) Backfill every salary season.",
+    )
+    parser.add_argument(
+        "--from-db",
+        action="store_true",
+        help=(
+            "Iterate every Player.br_slug in the DB instead of the BR contracts "
+            "page (which only lists currently-signed players). Use this to backfill "
+            "retired players' historical salaries."
+        ),
+    )
+    parser.add_argument(
+        "--no-skip-existing",
+        action="store_true",
+        help="With --from-db, also re-fetch players that already have any salary row.",
     )
     args = parser.parse_args()
-    run(season=None if args.all_seasons else args.season)
+    if args.from_db:
+        run_from_db(skip_existing=not args.no_skip_existing)
+    else:
+        run(season=None if args.all_seasons else args.season)
