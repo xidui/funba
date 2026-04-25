@@ -1338,6 +1338,12 @@
     background: var(--win);
     box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2);
   }
+
+  /* Account for sticky topbar (54px) + section nav (~50px) when jumping
+     to a hash so the section header isn't tucked under the chrome. */
+  [id^="section-"] {
+    scroll-margin-top: 120px;
+  }
 </style>
 
 <!-- ── Player header ──────────────────────────────────────────────── -->
@@ -2548,11 +2554,33 @@
   var sectionIds = [];
   btns.forEach(function (b) { sectionIds.push(b.getAttribute('data-target')); });
 
-  // Click → smooth scroll
+  // Programmatic scrolls trigger the IntersectionObserver, but we don't want
+  // those to overwrite the URL hash mid-flight. Suppress URL updates briefly
+  // after click/initial-jump so the destination wins.
+  var suppressHashWriteUntil = 0;
+
+  function setHash(id, push) {
+    if (!id) return;
+    if (typeof history === 'undefined' || !history.replaceState) return;
+    var newHash = '#' + id;
+    if (location.hash === newHash) return;
+    if (push && history.pushState) {
+      history.pushState(null, '', newHash);
+    } else {
+      history.replaceState(null, '', newHash);
+    }
+  }
+
+  // Click → smooth scroll + push hash
   btns.forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var target = document.getElementById(btn.getAttribute('data-target'));
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var id = btn.getAttribute('data-target');
+      var target = document.getElementById(id);
+      if (!target) return;
+      suppressHashWriteUntil = Date.now() + 800;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setHash(id, true);
+      btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
     });
   });
 
@@ -2571,29 +2599,46 @@
     headerObs.observe(headerCard.closest('.card') || headerCard);
   }
 
-  // Active section tracking
+  // Active section tracking — pick the topmost section that's currently visible
+  // in the upper half of the viewport.
   if ('IntersectionObserver' in window) {
-    var activeBtn = btns[0];
+    var visibleSet = new Set();
     var sectionObs = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          var id = entry.target.id;
-          btns.forEach(function (b) {
-            if (b.getAttribute('data-target') === id) {
-              b.classList.add('active');
-              activeBtn = b;
-            } else {
-              b.classList.remove('active');
-            }
-          });
-        }
+        if (entry.isIntersecting) visibleSet.add(entry.target.id);
+        else visibleSet.delete(entry.target.id);
       });
+      // Choose the first sectionId in document order that's currently visible
+      var activeId = null;
+      for (var i = 0; i < sectionIds.length; i++) {
+        if (visibleSet.has(sectionIds[i])) { activeId = sectionIds[i]; break; }
+      }
+      if (!activeId) return;
+      btns.forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-target') === activeId);
+      });
+      if (Date.now() > suppressHashWriteUntil) setHash(activeId, false);
     }, { rootMargin: '-120px 0px -60% 0px', threshold: 0 });
 
     sectionIds.forEach(function (id) {
       var el = document.getElementById(id);
       if (el) sectionObs.observe(el);
     });
+  }
+
+  // Initial hash → scroll to that section
+  if (location.hash) {
+    var initialId = location.hash.slice(1);
+    if (sectionIds.indexOf(initialId) >= 0) {
+      var el = document.getElementById(initialId);
+      if (el) {
+        suppressHashWriteUntil = Date.now() + 1200;
+        // Defer past initial layout so sticky offsets are stable.
+        setTimeout(function () {
+          el.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }, 50);
+      }
+    }
   }
 })();
 </script>
