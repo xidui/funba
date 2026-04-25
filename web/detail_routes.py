@@ -975,14 +975,22 @@ def register_detail_routes(
                 )
             roster_players.sort(key=_sort_key)
 
-            # ── Contract / cap hit lookup for the selected season ──
-            # PlayerContract uses 5-digit-stripped season ints (e.g. 2024 = 2024-25),
+            # ── Contract / cap-hit lookup for current + future seasons ──
+            # PlayerContract uses 5-digit-stripped season ints (2024 == 2024-25),
             # matching _sel_year.
             salary_players: list[dict] = []
+            salary_seasons: list[int] = []  # current + future for the multi-year grid
+            salary_team_totals_by_season: dict[int, int] = {}
+            salary_by_position: list[dict] = []
+            cap_thresholds: dict | None = None
+            future_window = 5  # current + next 4 future seasons
+
             try:
                 from db.models import PlayerContract, PlayerContractYear
+                from db.league_salary_caps import get_thresholds as _get_caps
             except (ImportError, AttributeError):
                 PlayerContract = PlayerContractYear = None
+                _get_caps = None
 
             if (
                 PlayerContractYear is not None
@@ -990,36 +998,49 @@ def register_detail_routes(
                 and roster_players
             ):
                 roster_pids = [p["player_id"] for p in roster_players]
+                salary_seasons = list(range(_sel_year, _sel_year + future_window))
+
                 contract_rows = (
                     session.query(PlayerContractYear, PlayerContract)
                     .join(PlayerContract, PlayerContractYear.contract_id == PlayerContract.id)
                     .filter(
                         PlayerContractYear.player_id.in_(roster_pids),
-                        PlayerContractYear.season == _sel_year,
+                        PlayerContractYear.season.in_(salary_seasons),
                     )
                     .all()
                 )
-                # If a player has multiple contracts crossing this season (rare —
-                # e.g. supplanted by an extension), prefer the one signed with
-                # this team, else the highest cap hit.
-                contract_by_pid: dict[str, tuple] = {}
+
+                # Index per (player, season). When a player has overlapping
+                # contracts (rare — typically a superseding extension), prefer
+                # the one signed with this team, else the larger cap hit.
+                by_pid_season: dict[tuple[str, int], tuple] = {}
                 for cy, c in contract_rows:
-                    cur = contract_by_pid.get(cy.player_id)
+                    key = (cy.player_id, cy.season)
+                    cur = by_pid_season.get(key)
                     if cur is None:
-                        contract_by_pid[cy.player_id] = (cy, c)
+                        by_pid_season[key] = (cy, c)
                         continue
                     cur_cy, cur_c = cur
                     if c.signed_with_team_id == team_id and cur_c.signed_with_team_id != team_id:
-                        contract_by_pid[cy.player_id] = (cy, c)
-                    elif (cy.cap_hit_usd or 0) > (cur_cy.cap_hit_usd or 0):
-                        contract_by_pid[cy.player_id] = (cy, c)
+                        by_pid_season[key] = (cy, c)
+                    elif (cy.cap_hit_usd or cy.cash_annual_usd or 0) > (
+                        cur_cy.cap_hit_usd or cur_cy.cash_annual_usd or 0
+                    ):
+                        by_pid_season[key] = (cy, c)
+
+                def _effective(cy_) -> int | None:
+                    if cy_ is None:
+                        return None
+                    return cy_.cap_hit_usd or cy_.cash_annual_usd or None
 
                 for p in roster_players:
-                    pair = contract_by_pid.get(p["player_id"])
-                    if pair is None:
+                    pid = p["player_id"]
+                    cur_pair = by_pid_season.get((pid, _sel_year))
+                    if cur_pair is None:
                         p["contract"] = None
+                        p["future_caps"] = []
                         continue
-                    cy, c = pair
+                    cy, c = cur_pair
                     p["contract"] = {
                         "cap_hit_usd": cy.cap_hit_usd,
                         "cash_annual_usd": cy.cash_annual_usd,
@@ -1034,18 +1055,77 @@ def register_detail_routes(
                         "signed_with_team_id": c.signed_with_team_id,
                         "signed_using": c.signed_using,
                     }
+                    p["effective_cap_usd"] = _effective(cy)
+                    # Per-future-season cap hits, parallel array to salary_seasons
+                    p["future_caps"] = []
+                    for s in salary_seasons:
+                        pair_s = by_pid_season.get((pid, s))
+                        cy_s = pair_s[0] if pair_s else None
+                        p["future_caps"].append({
+                            "season": s,
+                            "cap_hit_usd": _effective(cy_s),
+                            "status": cy_s.status if cy_s else None,
+                        })
 
-            # Pre-sort a salary view by effective cap hit. Historical contract
-            # years only have cash_annual_usd populated (no rich cap-hit table),
-            # so fall back to it when cap_hit_usd is None.
-            def _effective_cap(p):
-                c = p["contract"]
-                return c.get("cap_hit_usd") or c.get("cash_annual_usd") or 0
+                salary_players = sorted(
+                    [p for p in roster_players if p.get("contract")],
+                    key=lambda p: -(p.get("effective_cap_usd") or 0),
+                )
 
-            salary_players = sorted(
-                [p for p in roster_players if p.get("contract")],
-                key=lambda p: -_effective_cap(p),
-            )
+                # ── Per-season team totals (powers the multi-year grid totals) ─
+                for s in salary_seasons:
+                    salary_team_totals_by_season[s] = sum(
+                        (yr["cap_hit_usd"] or 0)
+                        for p in salary_players
+                        for yr in p["future_caps"]
+                        if yr["season"] == s
+                    )
+
+                # ── Bucket by position (G / F / C) for the position view ──
+                def _bucket(pos_str: str | None) -> str:
+                    if not pos_str:
+                        return "Other"
+                    s = pos_str.upper().strip()
+                    # Split on hyphen; primary token wins. "G-F" -> G, "C-F" -> C
+                    primary = s.split("-")[0].split("/")[0].strip()
+                    if primary in {"G", "GUARD", "PG", "SG"}:
+                        return "G"
+                    if primary in {"F", "FORWARD", "SF", "PF"}:
+                        return "F"
+                    if primary in {"C", "CENTER"}:
+                        return "C"
+                    return "Other"
+
+                bucket_totals: dict[str, dict] = {b: {"position": b, "total_usd": 0, "count": 0, "players": []}
+                                                  for b in ("G", "F", "C", "Other")}
+                for p in salary_players:
+                    bucket = _bucket(p.get("position"))
+                    bucket_totals[bucket]["total_usd"] += p.get("effective_cap_usd") or 0
+                    bucket_totals[bucket]["count"] += 1
+                    bucket_totals[bucket]["players"].append({
+                        "player_id": p["player_id"],
+                        "full_name": p["full_name"],
+                        "full_name_zh": p.get("full_name_zh"),
+                        "slug": p.get("slug"),
+                        "cap_hit_usd": p.get("effective_cap_usd") or 0,
+                        "position": p.get("position"),
+                    })
+                # Drop empty Other and order G, F, C, then Other if non-empty
+                salary_by_position = [bucket_totals[b] for b in ("G", "F", "C", "Other")
+                                      if bucket_totals[b]["count"] > 0]
+
+                # ── League cap thresholds for this season ──
+                if _get_caps is not None:
+                    th = _get_caps(_sel_year)
+                    if th is not None:
+                        cap_thresholds = {
+                            "season": th.season,
+                            "cap": th.cap,
+                            "tax": th.tax,
+                            "apron1": th.apron1,
+                            "apron2": th.apron2,
+                            "minimum_floor": th.minimum_floor,
+                        }
 
         # ── Era-aware header data ─────────────────────────────────────
         # Resolve the franchise's name, abbreviation, city and logo as they
@@ -1151,6 +1231,10 @@ def register_detail_routes(
             roster_coaches=roster_coaches,
             roster_season_label=roster_season_label,
             salary_players=salary_players,
+            salary_seasons=salary_seasons,
+            salary_team_totals_by_season=salary_team_totals_by_season,
+            salary_by_position=salary_by_position,
+            cap_thresholds=cap_thresholds,
         )
 
     def game_page(slug: str):
