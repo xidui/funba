@@ -996,6 +996,69 @@
   .team-hero.is-stuck .sp-dropdown-icon { display: none; }
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
+
+  /* ── Sticky section nav (mirrors player page pattern) ──────── */
+  .team-section-nav {
+    position: sticky;
+    top: 54px;
+    z-index: 90;
+    background: var(--bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 10px 0;
+    opacity: 0;
+    transform: translateY(-10px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .team-section-nav.is-visible {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .team-section-nav-inner {
+    display: flex;
+    gap: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    width: fit-content;
+    margin: 0 auto;
+    max-width: calc(100% - 16px);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .team-section-nav-inner::-webkit-scrollbar { display: none; }
+  .team-nav-btn {
+    flex-shrink: 0;
+    padding: 5px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-2, var(--muted));
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+    white-space: nowrap;
+  }
+  .team-nav-btn:hover { color: var(--heading, var(--text)); }
+  .team-nav-btn.active {
+    background: var(--surface-3, rgba(255,255,255,0.08));
+    color: var(--heading, var(--text));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+  @media (max-width: 540px) {
+    .team-section-nav { top: 64px; }
+    .team-nav-btn { min-height: 38px; padding: 6px 14px; }
+  }
+  /* Account for sticky topbar (54px) + this nav (~50px) when jumping. */
+  [id^="section-"] {
+    scroll-margin-top: 120px;
+  }
 </style>
 
 <!-- ── Unified sticky team hero (identity + season picker) ────────────── -->
@@ -1104,10 +1167,36 @@
   {% endif %}
 </div>
 
+<nav class="team-section-nav" id="team-section-nav">
+  <div class="team-section-nav-inner">
+    {% if team.arena or team.owner or team.general_manager or roster_coaches %}
+    <button class="team-nav-btn" data-target="section-info">{{ t('Info', '信息') }}</button>
+    {% endif %}
+    {% if team_championships %}
+    <button class="team-nav-btn" data-target="section-championships">{{ t('Championships', '总冠军') }}</button>
+    {% endif %}
+    {% if roster_players %}
+    <button class="team-nav-btn" data-target="section-roster">{{ t('Roster', '名单') }}</button>
+    {% endif %}
+    {% if salary_players %}
+    <button class="team-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+    {% endif %}
+    {% if team_metrics.season or team_metrics.alltime %}
+    <button class="team-nav-btn" data-target="section-metrics">{{ t('Metrics', '数据') }}</button>
+    {% endif %}
+    {% if current_games %}
+    <button class="team-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+    {% endif %}
+    {% if season_summary %}
+    <button class="team-nav-btn" data-target="section-record">{{ t('Record', '战绩') }}</button>
+    {% endif %}
+  </div>
+</nav>
+
 {% set head_coaches = (roster_coaches or []) | selectattr('is_assistant', 'equalto', false) | list %}
 {% set assistants = (roster_coaches or []) | selectattr('is_assistant', 'equalto', true) | list %}
 {% if team.arena or team.owner or team.general_manager or roster_coaches %}
-<div class="card">
+<div class="card" id="section-info">
   <h2>{{ t('Team Info', '球队信息') }}</h2>
   <div class="team-info-grid">
     {% if team.general_manager %}
@@ -1172,7 +1261,7 @@
 {% endif %}
 
 {% if team_championships %}
-<div class="card">
+<div class="card" id="section-championships">
   <h2>{{ t('Championships', '总冠军') }}</h2>
   <div class="team-championship-row">
     {% for championship in team_championships %}
@@ -1189,7 +1278,7 @@
 {% endif %}
 
 {% if roster_players %}
-<div class="card">
+<div class="card" id="section-roster">
   <h2>
     {{ t('Roster', '球员名单') }}
     {% if roster_season_label %}
@@ -1279,7 +1368,7 @@
   {% set _band, _band_label, _band_label_zh = "under-cap", "Under Cap", "未达薪金帽" %}
 {% endif %}
 
-<div class="card salary-panel">
+<div class="card salary-panel" id="section-salary">
   <h2>
     {{ t('Salary', '薪资') }}
     {% if roster_season_label %}
@@ -1636,7 +1725,7 @@
 {% set season_metrics = team_metrics.season %}
 {% set alltime_metrics = team_metrics.alltime %}
 {% if season_metrics or alltime_metrics %}
-<section class="section metrics-section">
+<section class="section metrics-section" id="section-metrics">
   <h2 class="section-title">{{ t('Analytics Insights', '数据洞察') }}</h2>
 
   {% macro render_window_row(label, window_metric) %}
@@ -1700,7 +1789,7 @@
 {% endif %}
 
 <!-- ── Season Game Log ─────────────────────────────────────────────── -->
-<div class="card">
+<div class="card" id="section-games">
   <h2>
     {{ t('Season Games', '赛季比赛') }}
     {% if selected_games_season %}
@@ -1829,7 +1918,7 @@
 </script>
 
 <!-- ── Season Win/Loss ─────────────────────────────────────────────── -->
-<div class="card">
+<div class="card" id="section-record">
   <h2>{{ t('Season Win / Loss', '赛季胜负') }}</h2>
 
   <div class="tab-bar">
@@ -1938,5 +2027,99 @@
       });
     });
   })();
+</script>
+
+<script>
+(function () {
+  /* ── Sticky team section nav: scroll-spy + URL hash sync ─── */
+  var nav = document.getElementById('team-section-nav');
+  if (!nav) return;
+
+  var btns = nav.querySelectorAll('.team-nav-btn');
+  var sectionIds = [];
+  btns.forEach(function (b) {
+    var id = b.getAttribute('data-target');
+    if (document.getElementById(id)) sectionIds.push(id);
+    else b.style.display = 'none';  // hide buttons whose section didn't render
+  });
+  if (!sectionIds.length) return;
+
+  var suppressHashWriteUntil = 0;
+
+  function setHash(id, push) {
+    if (!id) return;
+    if (typeof history === 'undefined' || !history.replaceState) return;
+    var newHash = '#' + id;
+    if (location.hash === newHash) return;
+    if (push && history.pushState) history.pushState(null, '', newHash);
+    else history.replaceState(null, '', newHash);
+  }
+
+  // Click → smooth scroll + push hash
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-target');
+      var target = document.getElementById(id);
+      if (!target) return;
+      suppressHashWriteUntil = Date.now() + 800;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setHash(id, true);
+      btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+    });
+  });
+
+  // Show/hide nav: appear once the team-hero scrolls past the top
+  var hero = document.getElementById('team-hero');
+  if (hero && 'IntersectionObserver' in window) {
+    var heroObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) nav.classList.remove('is-visible');
+        else nav.classList.add('is-visible');
+      });
+    }, { threshold: 0 });
+    heroObs.observe(hero);
+  } else {
+    nav.classList.add('is-visible');
+  }
+
+  // Scroll spy: pick the topmost section that's currently in the upper viewport
+  if ('IntersectionObserver' in window) {
+    var visible = new Set();
+    var sectionObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) visible.add(entry.target.id);
+        else visible.delete(entry.target.id);
+      });
+      var activeId = null;
+      for (var i = 0; i < sectionIds.length; i++) {
+        if (visible.has(sectionIds[i])) { activeId = sectionIds[i]; break; }
+      }
+      if (!activeId) return;
+      btns.forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-target') === activeId);
+      });
+      if (Date.now() > suppressHashWriteUntil) setHash(activeId, false);
+    }, { rootMargin: '-120px 0px -60% 0px', threshold: 0 });
+
+    sectionIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) sectionObs.observe(el);
+    });
+  }
+
+  // Initial hash → scroll to that section
+  if (location.hash) {
+    var initialId = location.hash.slice(1);
+    if (sectionIds.indexOf(initialId) >= 0) {
+      var el = document.getElementById(initialId);
+      if (el) {
+        suppressHashWriteUntil = Date.now() + 1200;
+        setTimeout(function () {
+          el.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }, 50);
+      }
+    }
+  }
+})();
 </script>
 {% endblock %}
