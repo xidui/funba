@@ -1,10 +1,27 @@
 from nba_api.stats.endpoints import boxscoretraditionalv3
+from nba_api.stats.library.http import STATS_HEADERS
 from datetime import datetime
 from db.game_status import infer_game_status
 from db.models import Team, TeamGameStats, PlayerGameStats, Player, Game, engine
+from sqlalchemy import func
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log, RetryError
 from requests.exceptions import ConnectionError, Timeout
 import logging
+
+API_TIMEOUT_SECONDS = 12
+
+
+def _stats_headers():
+    headers = STATS_HEADERS.copy()
+    headers.update(
+        {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "https://www.nba.com",
+        }
+    )
+    return headers
 
 try:
     from db.models import PlayerGamePeriodStats
@@ -176,13 +193,17 @@ def get_team_id(session, matchup):
 
 @retry(
     wait=wait_exponential(multiplier=1, max=4),  # Wait 1, 2, 4 seconds
-    stop=stop_after_attempt(5),  # Retry up to 5 times
-    retry=retry_if_exception_type((ConnectionError, Timeout)),  # Retry only network issues
+    stop=stop_after_attempt(4),  # Retry on transient API/transport issues
+    retry=retry_if_exception_type((ConnectionError, Timeout, ValueError)),  # Retry only transient issues
     before_sleep=before_sleep_log(logger, logging.INFO)  # Log before sleep
 )
 def fetch_game_details(game_id):
     try:
-        raw = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id, timeout=30).get_dict()
+        raw = boxscoretraditionalv3.BoxScoreTraditionalV3(
+            game_id=game_id,
+            timeout=API_TIMEOUT_SECONDS,
+            headers=_stats_headers(),
+        ).get_dict()
         boxscore = raw.get('boxScoreTraditional') or {}
 
         home_team = boxscore.get('homeTeam') or {}
@@ -212,8 +233,8 @@ def fetch_game_details(game_id):
 
 @retry(
     wait=wait_exponential(multiplier=1, max=4),
-    stop=stop_after_attempt(5),
-    retry=retry_if_exception_type((ConnectionError, Timeout)),
+    stop=stop_after_attempt(4),
+    retry=retry_if_exception_type((ConnectionError, Timeout, ValueError)),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def fetch_period_stats(game_id, period):
@@ -224,8 +245,11 @@ def fetch_period_stats(game_id, period):
             start_period=str(period),
             end_period=str(period),
             range_type='1',
-            timeout=30,
+            timeout=API_TIMEOUT_SECONDS,
+            headers=_stats_headers(),
         ).get_dict()
+        if not isinstance(raw, dict):
+            return None
         boxscore = raw.get('boxScoreTraditional') or {}
         home_team = boxscore.get('homeTeam') or {}
         away_team = boxscore.get('awayTeam') or {}
@@ -250,16 +274,18 @@ def fetch_period_stats(game_id, period):
         raise
 
 
-def has_game_period_stats(session, game_id: str) -> bool:
-    """Check if period stats exist for a game (at least 1 row)."""
+def has_game_period_stats(session, game_id: str, *, min_periods: int = 4) -> bool:
+    """Check if period stats exist for a game with a minimum period count."""
     if PlayerGamePeriodStats is None:
         return False
+    if min_periods <= 0:
+        return session.query(PlayerGamePeriodStats).filter(PlayerGamePeriodStats.game_id == game_id).count() > 0
+
     return (
-        session.query(PlayerGamePeriodStats)
+        session.query(func.count(func.distinct(PlayerGamePeriodStats.period)))
         .filter(PlayerGamePeriodStats.game_id == game_id)
-        .limit(1)
-        .count()
-    ) > 0
+        .scalar()
+    ) >= min_periods
 
 
 def fetch_all_period_stats(game_id):
@@ -271,11 +297,19 @@ def fetch_all_period_stats(game_id):
             rows = fetch_period_stats(game_id, period)
         except RetryError:
             # Network failure after retries — stop trying more periods
+            if period <= 4:
+                return {}
+            logger.info("period %s unavailable for game %s (likely no overtime).", period, game_id)
             break
         except Exception:
             # API parse error (e.g. period doesn't exist) — no more periods
+            if period <= 4:
+                return {}
+            logger.info("period %s unavailable for game %s (likely no overtime).", period, game_id)
             break
         if rows is None:
+            if period <= 4:
+                return {}
             break
         all_periods[period] = rows
         _time.sleep(0.5)
