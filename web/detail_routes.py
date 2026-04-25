@@ -856,18 +856,26 @@ def register_detail_routes(
                 """), {"tid": team_id, "yr": _sel_year}).first()
                 season_lo = bounds_row.lo if bounds_row and bounds_row.lo else None
                 season_hi = bounds_row.hi if bounds_row and bounds_row.hi else None
+                from datetime import date as _date
                 if season_lo is None or season_hi is None:
-                    from datetime import date as _date
                     season_lo = _date(_sel_year, 10, 1)
                     season_hi = _date(_sel_year + 1, 6, 30)
+
+                # For an in-progress season, "still on the team" = still on
+                # today (don't list players already traded away). For a past
+                # season, "still on the team at end of season" — players
+                # traded mid-season are credited to whichever team they
+                # finished on, not both.
+                today = _date.today()
+                effective_end = min(season_hi, today)
 
                 player_stint_rows = (
                     session.query(TeamRosterStint, _PlayerM)
                     .outerjoin(_PlayerM, _PlayerM.player_id == TeamRosterStint.player_id)
                     .filter(
                         TeamRosterStint.team_id == team_id,
-                        TeamRosterStint.joined_at <= season_hi,
-                        (TeamRosterStint.left_at.is_(None)) | (TeamRosterStint.left_at >= season_lo),
+                        TeamRosterStint.joined_at <= effective_end,
+                        (TeamRosterStint.left_at.is_(None)) | (TeamRosterStint.left_at >= effective_end),
                     )
                     .order_by(TeamRosterStint.joined_at.asc())
                     .all()
@@ -944,8 +952,8 @@ def register_detail_routes(
                     session.query(TeamCoachStint)
                     .filter(
                         TeamCoachStint.team_id == team_id,
-                        TeamCoachStint.joined_at <= season_hi,
-                        (TeamCoachStint.left_at.is_(None)) | (TeamCoachStint.left_at >= season_lo),
+                        TeamCoachStint.joined_at <= effective_end,
+                        (TeamCoachStint.left_at.is_(None)) | (TeamCoachStint.left_at >= effective_end),
                     )
                     .order_by(
                         TeamCoachStint.is_assistant.asc(),
