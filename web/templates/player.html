@@ -689,6 +689,20 @@
     text-transform: uppercase;
     color: var(--muted);
   }
+  .sal-chip-tag {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: help;
+    vertical-align: 1px;
+  }
   .sal-chip-value {
     font-family: 'Outfit', sans-serif;
     font-size: 22px;
@@ -2679,7 +2693,13 @@
 
       {% if s.biggest_total_contract and s.biggest_total_contract.total_value_usd %}
       <div class="sal-chip">
-        <div class="sal-chip-label">{{ t('Biggest Deal', '最大合同') }}</div>
+        <div class="sal-chip-label">
+          {{ t('Biggest Deal', '最大合同') }}
+          <span class="sal-chip-tag"
+                title="{{ t('Face value at signing — does not adjust for opt-outs or trades', '签约时合同总额，未扣除中途跳出或交易') }}">
+            {{ t('as signed', '签约值') }}
+          </span>
+        </div>
         <div class="sal-chip-value">{{ money(s.biggest_total_contract.total_value_usd) }}</div>
         <div class="sal-chip-sub">
           {{ s.biggest_total_contract.years }}{{ t('y', '年') }}
