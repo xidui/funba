@@ -1143,6 +1143,8 @@ def register_detail_routes(
         from web.historical_team_locations import (
             get_era_entry_any,
             get_logo_url_for_year,
+            get_era_abbr_for_year,
+            get_era_name_for_year,
         )
         era = None
         era_logo_url = None
@@ -1214,6 +1216,56 @@ def register_detail_routes(
             f"{_sel_year}-{(_sel_year + 1) % 100:02d}" if _sel_year is not None else "—"
         )
 
+        # ── Team picker: which franchises played in the selected season ──
+        # The team-hero exposes a popover that lets you jump to another
+        # franchise while staying on the same #section. Scope the list to
+        # teams that actually played in the currently-selected season so a
+        # 1995 page surfaces Vancouver Grizzlies / Seattle SuperSonics, not
+        # OKC / NOP. Era-aware abbr + name so the chips read correctly for
+        # the historical season.
+        team_picker_options: list[dict] = []
+        if selected_season is not None:
+            picker_team_ids = (
+                session.query(TeamGameStats.team_id)
+                .join(Game, TeamGameStats.game_id == Game.game_id)
+                .filter(Game.season == selected_season)
+                .distinct()
+                .all()
+            )
+            picker_team_ids = [tid for (tid,) in picker_team_ids if tid]
+            if picker_team_ids:
+                picker_teams = (
+                    session.query(Team)
+                    .filter(Team.team_id.in_(picker_team_ids))
+                    .all()
+                )
+                for pt in picker_teams:
+                    if not pt.slug:
+                        continue
+                    era_year = _sel_year if _sel_year is not None else 2025
+                    era_abbr = (
+                        get_era_abbr_for_year(pt.team_id, era_year)
+                        or pt.abbr
+                        or ""
+                    )
+                    era_name = (
+                        get_era_name_for_year(pt.team_id, era_year)
+                        or pt.full_name
+                        or pt.abbr
+                        or pt.slug
+                    )
+                    team_picker_options.append({
+                        "team_id": pt.team_id,
+                        "slug": pt.slug,
+                        "abbr": era_abbr,
+                        "name": era_name,
+                        "logo_url": get_logo_url_for_year(
+                            pt.team_id, era_year, static_prefix="/"
+                        ),
+                        "is_current": pt.team_id == team_id,
+                    })
+                team_picker_options.sort(key=lambda o: (o["abbr"] or "", o["name"]))
+
         return get_render_template()(
             "team.html",
             team=team,
@@ -1243,6 +1295,7 @@ def register_detail_routes(
             salary_team_totals_by_season=salary_team_totals_by_season,
             salary_by_position=salary_by_position,
             cap_thresholds=cap_thresholds,
+            team_picker_options=team_picker_options,
         )
 
     def game_page(slug: str):
