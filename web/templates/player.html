@@ -753,14 +753,63 @@
       color-mix(in srgb, var(--accent) 6%, var(--surface)) 60%,
       var(--surface) 100%);
     border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    /* Two-region chip: text on the left, trophy/rank badge on the
+       right, so the extra width is actually used. */
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 14px;
   }
   .sal-chip-headline .sal-chip-value {
     font-size: 32px;
     color: var(--accent);
     letter-spacing: -0.01em;
   }
+  .sal-chip-headline-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .sal-rank-trophy {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    padding: 8px 16px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    color: var(--accent);
+    text-decoration: none;
+    text-align: center;
+    transition: background 0.12s, border-color 0.12s, transform 0.12s;
+    font-family: 'Outfit', sans-serif;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .sal-rank-trophy:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    transform: translateY(-1px);
+    text-decoration: none;
+  }
+  .sal-rank-trophy-eyebrow {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+    margin-bottom: 2px;
+  }
+  .sal-rank-trophy-num {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .sal-rank-trophy-of {
+    font-size: 10px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--accent) 60%, var(--muted));
+    letter-spacing: 0.04em;
+  }
   @media (max-width: 540px) {
     .sal-chip-headline { grid-column: 1 / -1; }
+    .sal-rank-trophy { padding: 6px 14px; }
+    .sal-rank-trophy-num { font-size: 24px; }
   }
 
   /* Cap-hit-by-year chart */
@@ -2706,19 +2755,20 @@
 
     <div class="sal-headline">
       <div class="sal-chip sal-chip-headline">
-        <div class="sal-chip-label">{{ t('Career Earnings', '生涯总薪资') }}</div>
-        <div class="sal-chip-value">{{ money(s.career_total_usd) }}</div>
-        <div class="sal-chip-sub">
-          {{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}
-          {% if _earnings_metric and _earnings_metric.rank and _earnings_metric.total %}
-          · <a class="sal-rank-pill"
-               href="{{ url_for('metric_detail', metric_key='career_earnings_total', season='all_regular', expand='1', entity=player.player_id) }}"
-               title="{{ t('Open full ranking', '查看完整排行') }}">
-              <span class="sal-rank-num">#{{ _earnings_metric.rank }}</span>
-              <span class="sal-rank-of">{{ t('of', '/') }} {{ _earnings_metric.total }}</span>
-            </a>
-          {% endif %}
+        <div class="sal-chip-headline-text">
+          <div class="sal-chip-label">{{ t('Career Earnings', '生涯总薪资') }}</div>
+          <div class="sal-chip-value">{{ money(s.career_total_usd) }}</div>
+          <div class="sal-chip-sub">{{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}</div>
         </div>
+        {% if _earnings_metric and _earnings_metric.rank and _earnings_metric.total %}
+        <a class="sal-rank-trophy"
+           href="{{ url_for('metric_detail', metric_key='career_earnings_total', season='all_regular', expand='1', entity=player.player_id) }}"
+           title="{{ t('Open full ranking', '查看完整排行') }}">
+          <span class="sal-rank-trophy-eyebrow">{{ t('All-Time Rank', '历史排名') }}</span>
+          <span class="sal-rank-trophy-num">#{{ _earnings_metric.rank }}</span>
+          <span class="sal-rank-trophy-of">{{ t('of', '/') }} {{ _earnings_metric.total }}</span>
+        </a>
+        {% endif %}
       </div>
 
       {% if s.highest_year %}
