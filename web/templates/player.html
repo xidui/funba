@@ -703,6 +703,35 @@
     cursor: help;
     vertical-align: 1px;
   }
+  /* Rank pill — clickable, deep-links to the metric leaderboard with
+     the current player highlighted. Brighter for a top-N rank to make
+     "this player is elite at this" obvious at a glance. */
+  .sal-rank-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    color: var(--accent);
+    text-decoration: none;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .sal-rank-pill:hover {
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    text-decoration: none;
+  }
+  .sal-rank-pill .sal-rank-num { font-size: 12px; letter-spacing: 0.02em; }
+  .sal-rank-pill .sal-rank-of {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--accent) 60%, var(--muted));
+    letter-spacing: 0.02em;
+  }
   .sal-chip-value {
     font-family: 'Outfit', sans-serif;
     font-size: 22px;
@@ -2660,11 +2689,32 @@
 
     {# ───────── Headline stat chips ───────── #}
     {% set s = salary_panel.summary %}
+    {# Look up the player's rank for the career_earnings_total metric so
+       we can render a clickable rank badge next to the headline value.
+       The metric framework computes rank/total via SQL window functions,
+       so it's already attached to the alltime_metrics entry. #}
+    {% set _earnings_metric = none %}
+    {% if player_metrics and player_metrics.alltime %}
+      {% for _e in player_metrics.alltime %}
+        {% if _e.metric_key == 'career_earnings_total' %}{% set _earnings_metric = _e %}{% endif %}
+      {% endfor %}
+    {% endif %}
+
     <div class="sal-headline">
       <div class="sal-chip sal-chip-headline">
         <div class="sal-chip-label">{{ t('Career Earnings', '生涯总薪资') }}</div>
         <div class="sal-chip-value">{{ money(s.career_total_usd) }}</div>
-        <div class="sal-chip-sub">{{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}</div>
+        <div class="sal-chip-sub">
+          {{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}
+          {% if _earnings_metric and _earnings_metric.rank and _earnings_metric.total %}
+          · <a class="sal-rank-pill"
+               href="{{ url_for('metric_detail', metric_key='career_earnings_total', season='all_regular', expand='1', entity=player.player_id) }}"
+               title="{{ t('Open full ranking', '查看完整排行') }}">
+              <span class="sal-rank-num">#{{ _earnings_metric.rank }}</span>
+              <span class="sal-rank-of">{{ t('of', '/') }} {{ _earnings_metric.total }}</span>
+            </a>
+          {% endif %}
+        </div>
       </div>
 
       {% if s.highest_year %}
