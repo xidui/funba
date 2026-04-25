@@ -997,37 +997,31 @@
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
 
-  /* ── Sticky section nav (mirrors player page pattern) ──────── */
-  /* Sits below the topbar (54px) AND the stuck team-hero (~56px when
-     compressed). Together that's why this lives at 110px. */
+  /* ── Section nav embedded in the compressed team-hero ──────── */
+  /* The team-hero is itself sticky; when "stuck" it compresses to a
+     thin bar with logo + name on the left and the season picker on
+     the right, leaving a wide empty slot in the middle. We park the
+     section nav there to avoid stacking yet another sticky bar. */
   .team-section-nav {
-    position: sticky;
-    top: 110px;
-    z-index: 90;
-    background: var(--bg);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    padding: 10px 0;
-    opacity: 0;
-    transform: translateY(-10px);
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    /* Hidden by default — only visible when the hero is stuck. */
+    display: none;
+    flex: 1;
+    min-width: 0;  /* allow inner scroll */
+    align-items: center;
+    justify-content: center;
+    margin: 0 12px;
   }
-  .team-section-nav.is-visible {
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
+  .team-hero.is-stuck .team-section-nav {
+    display: flex;
   }
   .team-section-nav-inner {
     display: flex;
     gap: 3px;
-    background: var(--surface-2);
+    background: var(--surface-2, rgba(255,255,255,0.04));
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 3px;
-    width: fit-content;
-    margin: 0 auto;
-    max-width: calc(100% - 16px);
+    border-radius: 7px;
+    padding: 2px;
+    max-width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -1035,31 +1029,44 @@
   .team-section-nav-inner::-webkit-scrollbar { display: none; }
   .team-nav-btn {
     flex-shrink: 0;
-    padding: 5px 14px;
+    padding: 5px 12px;
     font-family: 'Inter', sans-serif;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--muted-2, var(--muted));
     border: none;
     background: transparent;
-    border-radius: 6px;
+    border-radius: 5px;
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     white-space: nowrap;
   }
   .team-nav-btn:hover { color: var(--heading, var(--text)); }
   .team-nav-btn.active {
-    background: var(--surface-3, rgba(255,255,255,0.08));
+    background: var(--surface-3, rgba(255,255,255,0.10));
     color: var(--heading, var(--text));
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   }
-  @media (max-width: 540px) {
-    .team-section-nav { top: 120px; }  /* mobile: topbar 64 + stuck hero ~56 */
-    .team-nav-btn { min-height: 38px; padding: 6px 14px; }
+  /* On narrow screens, drop the nav to its own row inside the hero
+     so it doesn't crush the identity/controls. */
+  @media (max-width: 720px) {
+    .team-hero.is-stuck .team-hero-top { flex-wrap: wrap; }
+    .team-hero.is-stuck .team-section-nav {
+      flex: 0 0 100%;
+      order: 99;
+      margin: 6px 0 0;
+      justify-content: flex-start;
+    }
+    .team-nav-btn { min-height: 32px; padding: 5px 12px; }
   }
-  /* Account for sticky topbar + sticky hero + this nav when jumping. */
+  /* Account for the sticky team-hero (~56px when stuck) + topbar (54px)
+     when jumping to a hash. Mobile bumps higher because the embedded
+     nav adds its own row to the stuck hero. */
   [id^="section-"] {
-    scroll-margin-top: 170px;
+    scroll-margin-top: 120px;
+  }
+  @media (max-width: 720px) {
+    [id^="section-"] { scroll-margin-top: 170px; }
   }
 </style>
 
@@ -1069,7 +1076,7 @@
 {% set playoff_code = playoff_year_lookup.get(cur_year_str) if playoff_year_lookup else None %}
 <div id="team-hero-sentinel" style="height:1px;"></div>
 <div class="card team-hero" id="team-hero">
-  <!-- Top row: identity (left) + season controls (right) -->
+  <!-- Top row: identity (left) + section nav (middle, only when stuck) + season controls (right) -->
   <div class="team-hero-top">
     <div class="team-hero-identity">
       <div class="team-logo-ring">
@@ -1101,6 +1108,32 @@
         </div>
       </div>
     </div>
+
+    <nav class="team-section-nav" id="team-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
+      <div class="team-section-nav-inner">
+        {% if team.arena or team.owner or team.general_manager or roster_coaches %}
+        <button class="team-nav-btn" data-target="section-info">{{ t('Info', '信息') }}</button>
+        {% endif %}
+        {% if team_championships %}
+        <button class="team-nav-btn" data-target="section-championships">{{ t('Championships', '总冠军') }}</button>
+        {% endif %}
+        {% if roster_players %}
+        <button class="team-nav-btn" data-target="section-roster">{{ t('Roster', '名单') }}</button>
+        {% endif %}
+        {% if salary_players %}
+        <button class="team-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+        {% endif %}
+        {% if team_metrics.season or team_metrics.alltime %}
+        <button class="team-nav-btn" data-target="section-metrics">{{ t('Metrics', '数据') }}</button>
+        {% endif %}
+        {% if current_games %}
+        <button class="team-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+        {% endif %}
+        {% if season_summary %}
+        <button class="team-nav-btn" data-target="section-record">{{ t('Record', '战绩') }}</button>
+        {% endif %}
+      </div>
+    </nav>
 
     {% if season_bars %}
     <div class="team-hero-controls">
@@ -1168,32 +1201,6 @@
   </div>
   {% endif %}
 </div>
-
-<nav class="team-section-nav" id="team-section-nav">
-  <div class="team-section-nav-inner">
-    {% if team.arena or team.owner or team.general_manager or roster_coaches %}
-    <button class="team-nav-btn" data-target="section-info">{{ t('Info', '信息') }}</button>
-    {% endif %}
-    {% if team_championships %}
-    <button class="team-nav-btn" data-target="section-championships">{{ t('Championships', '总冠军') }}</button>
-    {% endif %}
-    {% if roster_players %}
-    <button class="team-nav-btn" data-target="section-roster">{{ t('Roster', '名单') }}</button>
-    {% endif %}
-    {% if salary_players %}
-    <button class="team-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
-    {% endif %}
-    {% if team_metrics.season or team_metrics.alltime %}
-    <button class="team-nav-btn" data-target="section-metrics">{{ t('Metrics', '数据') }}</button>
-    {% endif %}
-    {% if current_games %}
-    <button class="team-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
-    {% endif %}
-    {% if season_summary %}
-    <button class="team-nav-btn" data-target="section-record">{{ t('Record', '战绩') }}</button>
-    {% endif %}
-  </div>
-</nav>
 
 {% set head_coaches = (roster_coaches or []) | selectattr('is_assistant', 'equalto', false) | list %}
 {% set assistants = (roster_coaches or []) | selectattr('is_assistant', 'equalto', true) | list %}
@@ -2070,21 +2077,9 @@
     });
   });
 
-  // Show/hide nav: appear once the user scrolls past the team hero. The
-  // hero itself is `position: sticky`, so it never leaves the viewport —
-  // observe the 1px sentinel above it instead.
-  var sentinel = document.getElementById('team-hero-sentinel');
-  if (sentinel && 'IntersectionObserver' in window) {
-    var sentObs = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) nav.classList.remove('is-visible');
-        else nav.classList.add('is-visible');
-      });
-    }, { threshold: 0 });
-    sentObs.observe(sentinel);
-  } else {
-    nav.classList.add('is-visible');
-  }
+  // The nav lives inside the team-hero now; CSS shows it via the
+  // .is-stuck class, which the existing sentinel observer manages —
+  // no separate show/hide IntersectionObserver needed here.
 
   // Scroll spy: pick the topmost section that's currently in the upper viewport
   if ('IntersectionObserver' in window) {
