@@ -5445,6 +5445,8 @@ _BOT_SIGNATURES = (
 )
 _CURL_USER_AGENT_SIGNATURES = ("curl/",)
 _CURL_ALLOWED_IPS_ENV = "FUNBA_CURL_ALLOWED_IPS"
+_ANALYTICS_EXCLUDE_IPS_ENV = "FUNBA_ANALYTICS_EXCLUDE_IPS"
+_ANALYTICS_EXCLUDE_UA_SIGNATURES = ("claude-code", "codex", "anthropic", "openai")
 
 # Bare or too-short UAs are almost never real browsers
 _MIN_REAL_UA_LENGTH = 40
@@ -5742,6 +5744,13 @@ def _track_page_view():
         return
     # Skip tracking for localhost requests
     if _real_ip() in ("127.0.0.1", "::1"):
+        return
+    # Skip tracking for owner-controlled IPs (home/office/dev) — analytics noise.
+    if _ip_matches_allowlist(_real_ip(), os.getenv(_ANALYTICS_EXCLUDE_IPS_ENV)):
+        return
+    # Skip tracking for AI coding agents accessing the site during development.
+    _ua_lower = (request.user_agent.string or "").lower().strip()
+    if any(sig in _ua_lower for sig in _ANALYTICS_EXCLUDE_UA_SIGNATURES):
         return
     crawler_decision = _request_crawler_decision()
     if crawler_decision["is_crawler"]:
