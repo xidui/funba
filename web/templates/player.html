@@ -344,75 +344,121 @@
     }
   }
 
-  /* ── Sticky section nav ────────────────────────────────────── */
-  .player-section-nav {
+  /* ── Unified sticky player hero (identity + section nav) ────── */
+  .player-hero {
     position: sticky;
     top: 54px;
-    z-index: 90;
-    background: var(--bg);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    padding: 10px 0;
-    opacity: 0;
-    transform: translateY(-10px);
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 20;
+    padding: 16px 20px;
+    transition: padding 0.2s ease, background 0.2s ease,
+                border-radius 0.2s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  @media (max-width: 540px) {
+    .player-hero { top: 64px; }
   }
 
-  .player-section-nav.is-visible {
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
+  /* Compact "stuck" state */
+  .player-hero.is-stuck {
+    padding: 8px 20px;
+    background: color-mix(in srgb, var(--surface) 93%, transparent);
+    border-radius: 0 0 12px 12px;
+    border-top: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   }
+  .player-hero.is-stuck .player-header {
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
+  }
+  .player-hero.is-stuck .player-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    border-width: 1px;
+  }
+  .player-hero.is-stuck .player-jersey-badge { display: none; }
+  .player-hero.is-stuck .player-info {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .player-hero.is-stuck .player-info h1 {
+    font-size: 1.05rem;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.05;
+  }
+  /* Hide every sibling of h1 inside .player-info when stuck. */
+  .player-hero.is-stuck .player-info > *:not(h1) { display: none; }
 
+  /* Avatar transitions smoothly between large and small */
+  .player-avatar { transition: width 0.2s ease, height 0.2s ease,
+                                border-radius 0.2s ease; }
+
+  /* ── Section nav embedded in the compressed player-hero ────── */
+  /* The hero is itself sticky; when "stuck" it compresses to a
+     thin bar with a small avatar + name on the left. We park the
+     section nav in the wide empty slot to the right rather than
+     stacking another sticky bar below. */
+  .player-section-nav {
+    display: none;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 0 0 0 12px;
+  }
+  .player-hero.is-stuck .player-section-nav {
+    display: flex;
+  }
   .player-section-nav-inner {
     display: flex;
     gap: 3px;
-    background: var(--surface-2);
+    background: var(--surface-2, rgba(255,255,255,0.04));
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 3px;
-    width: fit-content;
-    margin: 0 auto;
+    border-radius: 7px;
+    padding: 2px;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .player-section-nav-inner::-webkit-scrollbar { display: none; }
 
   .player-nav-btn {
-    padding: 5px 14px;
+    flex-shrink: 0;
+    padding: 5px 12px;
     font-family: 'Inter', sans-serif;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--muted-2);
+    color: var(--muted-2, var(--muted));
     border: none;
     background: transparent;
-    border-radius: 6px;
+    border-radius: 5px;
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     white-space: nowrap;
   }
-
-  .player-nav-btn:hover {
-    color: var(--heading);
-  }
-
+  .player-nav-btn:hover { color: var(--heading, var(--text)); }
   .player-nav-btn.active {
-    background: var(--surface-3);
-    color: var(--heading);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    background: var(--surface-3, rgba(255,255,255,0.10));
+    color: var(--heading, var(--text));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   }
 
-  @media (max-width: 540px) {
-    .player-section-nav {
-      top: 64px;
+  /* On narrow screens, drop the nav to its own row inside the hero. */
+  @media (max-width: 720px) {
+    .player-hero.is-stuck .player-header { flex-wrap: wrap; }
+    .player-hero.is-stuck .player-section-nav {
+      flex: 0 0 100%;
+      order: 99;
+      margin: 6px 0 0;
+      justify-content: flex-start;
     }
-    .player-section-nav-inner {
-      width: 100%;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .player-nav-btn {
-      min-height: 38px;
-      padding: 6px 14px;
-    }
+    .player-nav-btn { min-height: 32px; padding: 5px 12px; }
   }
 
   /* ── Highlights strip (top of metrics section) ───────────── */
@@ -1339,15 +1385,20 @@
     box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2);
   }
 
-  /* Account for sticky topbar (54px) + section nav (~50px) when jumping
-     to a hash so the section header isn't tucked under the chrome. */
+  /* Account for sticky topbar (54px) + compressed player-hero (~56px)
+     when jumping to a hash. Mobile bumps higher because the embedded
+     nav adds its own row to the stuck hero. */
   [id^="section-"] {
     scroll-margin-top: 120px;
   }
+  @media (max-width: 720px) {
+    [id^="section-"] { scroll-margin-top: 170px; }
+  }
 </style>
 
-<!-- ── Player header ──────────────────────────────────────────────── -->
-<div class="card">
+<!-- ── Unified sticky player hero (identity + section nav) ─────────── -->
+<div id="player-hero-sentinel" style="height:1px;"></div>
+<div class="card player-hero" id="player-hero">
   <div class="player-header">
     <div class="player-avatar-wrap">
       <img
@@ -1480,6 +1531,26 @@
         >{{ t('Compare', '对比') }}</a>
       </div>
     </div>
+
+    <nav class="player-section-nav" id="player-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
+      <div class="player-section-nav-inner">
+        {% if player_stint_timeline %}
+        <button class="player-nav-btn" data-target="section-teams">{{ t('Teams', '效力') }}</button>
+        {% endif %}
+        <button class="player-nav-btn active" data-target="section-career">{{ t('Career', '生涯') }}</button>
+        {% if player_metrics.season or player_metrics.alltime %}
+        <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
+        {% endif %}
+        {% if salary_rows %}
+        <button class="player-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+        {% endif %}
+        <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
+        <button class="player-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+        {% if player_transactions %}
+        <button class="player-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
+        {% endif %}
+      </div>
+    </nav>
   </div>
 </div>
 
@@ -1526,27 +1597,6 @@
   </div>
 </div>
 {% endif %}
-
-<!-- ── Section Nav ───────────────────────────────────────────────── -->
-<nav class="player-section-nav" id="player-section-nav">
-  <div class="player-section-nav-inner">
-    {% if player_stint_timeline %}
-    <button class="player-nav-btn" data-target="section-teams">{{ t('Teams', '效力') }}</button>
-    {% endif %}
-    <button class="player-nav-btn active" data-target="section-career">{{ t('Career', '生涯') }}</button>
-    {% if player_metrics.season or player_metrics.alltime %}
-    <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
-    {% endif %}
-    {% if salary_rows %}
-    <button class="player-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
-    {% endif %}
-    <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
-    <button class="player-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
-    {% if player_transactions %}
-    <button class="player-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
-    {% endif %}
-  </div>
-</nav>
 
 <!-- ── Career Summary ─────────────────────────────────────────────── -->
 <div class="card" id="section-career">
@@ -2759,19 +2809,16 @@
     });
   });
 
-  // Show/hide nav when header scrolls out of view
-  var headerCard = document.querySelector('.player-header');
-  if (headerCard && 'IntersectionObserver' in window) {
-    var headerObs = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          nav.classList.remove('is-visible');
-        } else {
-          nav.classList.add('is-visible');
-        }
-      });
-    }, { threshold: 0 });
-    headerObs.observe(headerCard.closest('.card') || headerCard);
+  // Sticky hero: collapse into compact mode once it pins to the top.
+  // A 1px sentinel above the card tells us exactly when that happens —
+  // when the sentinel scrolls out of view, the hero is stuck and the
+  // embedded section nav becomes visible (handled via .is-stuck CSS).
+  var sentinel = document.getElementById('player-hero-sentinel');
+  var hero = document.getElementById('player-hero');
+  if (sentinel && hero && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      hero.classList.toggle('is-stuck', !entries[0].isIntersecting);
+    }, { threshold: [0], rootMargin: '0px 0px 0px 0px' }).observe(sentinel);
   }
 
   // Active section tracking — pick the topmost section that's currently visible
