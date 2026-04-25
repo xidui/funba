@@ -2323,6 +2323,7 @@
           {% for a in incoming %}
             <li>
               {% if a.asset_type == 'player' %}
+                {% if a.player_id %}<img class="tx-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ a.player_id }}.png" alt="" loading="lazy" onerror="this.onerror=null;this.outerHTML='<span class=&quot;tx-headshot-ph&quot;></span>';">{% else %}<span class="tx-headshot-ph"></span>{% endif %}
                 {% if a.player_slug %}<a href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}{{ a.player_name }}{% endif %}
                 {% if a.from_team_id and a.from_team_id != team.team_id %}<span class="tx-from">← {{ a.from_team_abbr }}</span>{% endif %}
               {% elif a.asset_type == 'pick' %}
@@ -2347,6 +2348,7 @@
           {% for a in outgoing %}
             <li>
               {% if a.asset_type == 'player' %}
+                {% if a.player_id %}<img class="tx-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ a.player_id }}.png" alt="" loading="lazy" onerror="this.onerror=null;this.outerHTML='<span class=&quot;tx-headshot-ph&quot;></span>';">{% else %}<span class="tx-headshot-ph"></span>{% endif %}
                 {% if a.player_slug %}<a href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}{{ a.player_name }}{% endif %}
                 {% if a.to_team_id and a.to_team_id != team.team_id %}<span class="tx-from">→ {{ a.to_team_abbr }}</span>{% endif %}
               {% elif a.asset_type == 'pick' %}
@@ -2367,7 +2369,10 @@
       <div class="tx-line">
         {% for a in tx.assets %}
           {% if a.asset_type == 'player' %}
-            {% if a.player_slug %}<a class="tx-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}<span class="tx-player">{{ a.player_name }}</span>{% endif %}
+            <span class="tx-line-player">
+              {% if a.player_id %}<img class="tx-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ a.player_id }}.png" alt="" loading="lazy" onerror="this.onerror=null;this.outerHTML='<span class=&quot;tx-headshot-ph&quot;></span>';">{% else %}<span class="tx-headshot-ph"></span>{% endif %}
+              {% if a.player_slug %}<a class="tx-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}<span class="tx-player">{{ a.player_name }}</span>{% endif %}
+            </span>
           {% endif %}
         {% endfor %}
         <span class="tx-fulltext">{{ tx.raw_text }}</span>
@@ -2479,7 +2484,38 @@
     font-size: 13px;
   }
   .tx-side li {
-    padding: 3px 0;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .tx-headshot {
+    width: 28px;
+    height: 21px;
+    object-fit: cover;
+    object-position: top;
+    border-radius: 3px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .tx-headshot-ph {
+    display: inline-block;
+    width: 28px;
+    height: 21px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .tx-line-player {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 2px;
+  }
+  .tx-line-player + .tx-line-player::before {
+    content: ", ";
+    color: var(--muted);
   }
   .tx-side a {
     color: var(--text);

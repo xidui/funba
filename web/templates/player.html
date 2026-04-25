@@ -2564,8 +2564,11 @@
         {% for a in other_in %}
           {% if a.asset_type == 'player' %}
             {% set who = a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name %}
-            {% if a.player_slug %}<a class="ptx-other-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ who }}</a>{% else %}<span class="ptx-other-player">{{ who }}</span>{% endif %}
-            {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
+            <span class="ptx-player-chip">
+              {% if a.player_id %}<img class="ptx-headshot" src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ a.player_id }}.png" alt="" loading="lazy" onerror="this.onerror=null;this.outerHTML='<span class=&quot;ptx-headshot-ph&quot;></span>';">{% else %}<span class="ptx-headshot-ph"></span>{% endif %}
+              {% if a.player_slug %}<a class="ptx-other-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ who }}</a>{% else %}<span class="ptx-other-player">{{ who }}</span>{% endif %}
+              {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
+            </span>
           {% elif a.asset_type == 'pick' %}
             <span class="ptx-pick">{{ a.pick_year }} R{{ a.pick_round }}</span>
             {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
@@ -2633,20 +2636,38 @@
     font-size: 12.5px;
     color: var(--muted);
   }
+  .ptx-player-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 8px;
+    margin-bottom: 4px;
+  }
+  .ptx-headshot {
+    width: 24px;
+    height: 18px;
+    object-fit: cover;
+    object-position: top;
+    border-radius: 3px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
+  .ptx-headshot-ph {
+    display: inline-block;
+    width: 24px;
+    height: 18px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    flex-shrink: 0;
+  }
   .ptx-other-player {
     color: var(--text);
     text-decoration: none;
-    margin-right: 4px;
     font-weight: 600;
   }
   .ptx-other-player:hover { color: var(--accent); }
-  .ptx-other-player + .ptx-other-player::before,
-  .ptx-other-player + .ptx-pick::before,
-  .ptx-other-player + .ptx-cash::before,
   .ptx-pick + .ptx-pick::before,
-  .ptx-pick + .ptx-other-player::before,
   .ptx-pick + .ptx-cash::before,
-  .ptx-cash + .ptx-other-player::before,
   .ptx-cash + .ptx-pick::before { content: ", "; color: var(--muted); }
   .ptx-pick { color: #60a5fa; font-weight: 700; }
   .ptx-cash { color: #facc15; font-weight: 700; }
