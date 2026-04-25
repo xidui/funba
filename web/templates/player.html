@@ -646,6 +646,335 @@
     color: var(--accent);
   }
 
+  /* ── Salary panel (Spotrac-driven) ───────────────────────────── */
+  /* Color palette by contract flavor — used by both bar chart bands
+     and the contract ribbon chips. Kept in CSS variables so the SVG
+     can reference them via `fill` lookup table in the template. */
+  :root {
+    --sal-rookie:    #60a5fa;  /* blue */
+    --sal-rookie-ext:#22d3ee;  /* cyan */
+    --sal-ext:       #4ade80;  /* green */
+    --sal-max:       #f97316;  /* orange */
+    --sal-super-max: #fbbf24;  /* gold */
+    --sal-mle:       #a78bfa;  /* purple */
+    --sal-min:       #94a3b8;  /* slate */
+    --sal-fa:        #38bdf8;  /* sky */
+    --sal-st:        #f472b6;  /* pink */
+    --sal-qo:        #facc15;  /* yellow */
+    --sal-other:     #64748b;  /* gray-blue */
+  }
+  .sal-panel { display: flex; flex-direction: column; gap: 18px; }
+
+  /* Headline stat chips */
+  .sal-headline {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px;
+  }
+  .sal-chip {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 8%, var(--surface)) 0%,
+      var(--surface) 80%);
+    min-width: 0;
+  }
+  .sal-chip-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sal-chip-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--heading, var(--text));
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+  }
+  .sal-chip-sub {
+    font-size: 11px;
+    color: var(--muted-2, var(--muted));
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .sal-chip-sub img { width: 14px; height: 14px; vertical-align: middle; }
+  .sal-chip-headline {
+    grid-column: span 2;
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 18%, var(--surface)) 0%,
+      color-mix(in srgb, var(--accent) 6%, var(--surface)) 60%,
+      var(--surface) 100%);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+  .sal-chip-headline .sal-chip-value {
+    font-size: 32px;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  @media (max-width: 540px) {
+    .sal-chip-headline { grid-column: 1 / -1; }
+  }
+
+  /* Cap-hit-by-year chart */
+  .sal-chart-wrap {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 8px;
+    background: var(--surface);
+  }
+  .sal-chart-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .sal-chart-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sal-chart-legend {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 11px; color: var(--muted-2, var(--muted));
+  }
+  .sal-chart-legend .lg {
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .sal-chart-legend .lg-sw {
+    width: 10px; height: 10px; border-radius: 2px;
+  }
+  .sal-chart-svg { display: block; width: 100%; height: auto; }
+  .sal-chart-svg .bar { transition: opacity 0.12s ease; cursor: pointer; }
+  .sal-chart-svg .bar:hover { opacity: 0.78; }
+  .sal-chart-svg .bar-future { opacity: 0.55; }
+  .sal-chart-svg .bar-future:hover { opacity: 0.40; }
+  .sal-chart-svg .bar-stripe { fill: url(#sal-stripe); }
+  .sal-chart-svg .axis-text { fill: var(--muted); font-size: 10px; font-family: 'Inter', sans-serif; }
+  .sal-chart-svg .axis-line { stroke: var(--border); stroke-width: 0.5; }
+  .sal-chart-svg .cap-line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+  .sal-chart-svg .cap-tick { fill: var(--muted); font-size: 9px; font-family: 'Outfit', sans-serif; font-weight: 600; }
+  .sal-chart-svg .now-line { stroke: var(--accent); stroke-width: 1; opacity: 0.6; }
+  .sal-chart-svg .bar-team-logo {
+    /* Team logo at the foot of each bar — only when bar wide enough */
+    opacity: 0.85;
+  }
+
+  /* Contract ribbons */
+  .sal-contracts {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .sal-contract {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    overflow: hidden;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .sal-contract:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+  .sal-contract.is-current { border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+                              box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 12%, transparent); }
+  .sal-contract.is-upcoming {
+    border-style: dashed;
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  }
+
+  .sal-contract > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: minmax(80px, auto) 1fr minmax(110px, auto) minmax(90px, auto) minmax(80px, auto);
+    align-items: center;
+    gap: 12px;
+  }
+  .sal-contract > summary::-webkit-details-marker { display: none; }
+  .sal-contract > summary::after {
+    content: "▾";
+    font-size: 11px; color: var(--muted);
+    transition: transform 0.15s;
+  }
+  .sal-contract[open] > summary::after { transform: rotate(180deg); }
+
+  /* Color stripe at left of each ribbon — uses contract flavor */
+  .sal-contract { position: relative; padding-left: 4px; }
+  .sal-contract::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--sal-other);
+  }
+  .sal-contract.flavor-rookie::before     { background: var(--sal-rookie); }
+  .sal-contract.flavor-rookie-ext::before { background: var(--sal-rookie-ext); }
+  .sal-contract.flavor-ext::before        { background: var(--sal-ext); }
+  .sal-contract.flavor-max::before        { background: var(--sal-max); }
+  .sal-contract.flavor-super-max::before  { background: var(--sal-super-max); }
+  .sal-contract.flavor-mle::before        { background: var(--sal-mle); }
+  .sal-contract.flavor-min::before        { background: var(--sal-min); }
+  .sal-contract.flavor-free-agent::before { background: var(--sal-fa); }
+  .sal-contract.flavor-sign-trade::before { background: var(--sal-st); }
+  .sal-contract.flavor-qo::before         { background: var(--sal-qo); }
+
+  .sal-flavor-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--sal-other) 18%, var(--surface-2));
+    color: var(--text);
+  }
+  .sal-flavor-chip.flavor-rookie     { background: color-mix(in srgb, var(--sal-rookie)     22%, var(--surface-2)); color: var(--sal-rookie); }
+  .sal-flavor-chip.flavor-rookie-ext { background: color-mix(in srgb, var(--sal-rookie-ext) 22%, var(--surface-2)); color: var(--sal-rookie-ext); }
+  .sal-flavor-chip.flavor-ext        { background: color-mix(in srgb, var(--sal-ext)        22%, var(--surface-2)); color: var(--sal-ext); }
+  .sal-flavor-chip.flavor-max        { background: color-mix(in srgb, var(--sal-max)        22%, var(--surface-2)); color: var(--sal-max); }
+  .sal-flavor-chip.flavor-super-max  { background: color-mix(in srgb, var(--sal-super-max)  22%, var(--surface-2)); color: var(--sal-super-max); }
+  .sal-flavor-chip.flavor-mle        { background: color-mix(in srgb, var(--sal-mle)        22%, var(--surface-2)); color: var(--sal-mle); }
+  .sal-flavor-chip.flavor-min        { background: color-mix(in srgb, var(--sal-min)        22%, var(--surface-2)); color: var(--sal-min); }
+  .sal-flavor-chip.flavor-free-agent { background: color-mix(in srgb, var(--sal-fa)         22%, var(--surface-2)); color: var(--sal-fa); }
+  .sal-flavor-chip.flavor-sign-trade { background: color-mix(in srgb, var(--sal-st)         22%, var(--surface-2)); color: var(--sal-st); }
+  .sal-flavor-chip.flavor-qo         { background: color-mix(in srgb, var(--sal-qo)         22%, var(--surface-2)); color: var(--sal-qo); }
+
+  .sal-summary-team {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text); text-decoration: none;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700; font-size: 14px;
+    min-width: 0;
+  }
+  .sal-summary-team:hover { color: var(--accent); }
+  .sal-summary-team img { width: 22px; height: 22px; object-fit: contain; }
+  .sal-summary-years {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600; font-size: 13px;
+    color: var(--muted-2, var(--muted));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .sal-summary-aav {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700; font-size: 16px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .sal-summary-aav small {
+    display: block;
+    font-size: 9px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sal-summary-total {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700; font-size: 13px;
+    color: var(--muted-2, var(--muted));
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .sal-summary-total small {
+    display: block;
+    font-size: 9px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 720px) {
+    .sal-contract > summary {
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 10px;
+    }
+    .sal-contract > summary > *:nth-child(1) { grid-column: 1 / -1; }
+    .sal-contract > summary > *:nth-child(5) { display: none; }
+  }
+
+  /* Expanded contract body — per-year breakdown */
+  .sal-contract-body {
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-2, rgba(255,255,255,0.02)) 30%, var(--surface));
+  }
+  .sal-contract-meta {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    font-size: 12px;
+    color: var(--muted-2, var(--muted));
+    margin-bottom: 10px;
+  }
+  .sal-contract-meta b {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .sal-year-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sal-year-table th, .sal-year-table td {
+    text-align: right;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+  }
+  .sal-year-table th:first-child, .sal-year-table td:first-child { text-align: left; }
+  .sal-year-table th {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: none;
+  }
+  .sal-year-table tr.is-current td { color: var(--accent); font-weight: 600; }
+  .sal-year-table tr.is-future td { color: var(--muted-2, var(--muted)); }
+  .sal-year-table .src-tag {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-left: 6px;
+  }
+  .sal-year-table .opt-chip {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+    color: var(--accent);
+    margin-left: 6px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .sal-source-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin: 0 4px;
+  }
+  .sal-source-note .src-tag { font-size: 9px; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--muted); font-family: 'Outfit', sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+
   /* ── Section scroll offsets ───────────────────────────────────── */
   #section-career,
   #section-metrics,
@@ -1573,7 +1902,7 @@
         {% if player_metrics.season or player_metrics.alltime %}
         <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
         {% endif %}
-        {% if salary_rows %}
+        {% if salary_panel or salary_rows %}
         <button class="player-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
         {% endif %}
         <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
@@ -2280,17 +2609,315 @@
 </section>
 {% endif %}
 
-{% if salary_rows %}
+{% if salary_panel %}
+<div class="card" id="section-salary">
+  <h2>
+    {{ t('Career Earnings', '生涯薪资') }}
+    {% if salary_panel.summary.career_total_usd %}
+    <span class="meta" style="font-weight:400; font-size:13px;">
+      — ${{ "{:,.0f}".format(salary_panel.summary.career_total_usd) }}
+    </span>
+    {% endif %}
+  </h2>
+
+  {# Helpers shared by the chart + ribbons #}
+  {% set _flavor_to_var = {
+    'rookie': 'var(--sal-rookie)',
+    'rookie-ext': 'var(--sal-rookie-ext)',
+    'ext': 'var(--sal-ext)',
+    'max': 'var(--sal-max)',
+    'super-max': 'var(--sal-super-max)',
+    'mle': 'var(--sal-mle)',
+    'min': 'var(--sal-min)',
+    'free-agent': 'var(--sal-fa)',
+    'sign-trade': 'var(--sal-st)',
+    'qo': 'var(--sal-qo)',
+    'other': 'var(--sal-other)',
+  } %}
+  {% macro money(usd) -%}
+    {%- if usd is none -%}—{%- elif usd >= 1000000000 -%}${{ "%.2f"|format(usd/1000000000) }}B
+    {%- elif usd >= 10000000 -%}${{ "%.0f"|format(usd/1000000) }}M
+    {%- elif usd >= 1000000 -%}${{ "%.1f"|format(usd/1000000) }}M
+    {%- elif usd >= 1000 -%}${{ "%.0f"|format(usd/1000) }}K
+    {%- else -%}${{ usd }}{%- endif -%}
+  {% endmacro %}
+
+  <div class="sal-panel">
+
+    {# ───────── Headline stat chips ───────── #}
+    {% set s = salary_panel.summary %}
+    <div class="sal-headline">
+      <div class="sal-chip sal-chip-headline">
+        <div class="sal-chip-label">{{ t('Career Earnings', '生涯总薪资') }}</div>
+        <div class="sal-chip-value">{{ money(s.career_total_usd) }}</div>
+        <div class="sal-chip-sub">{{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}</div>
+      </div>
+
+      {% if s.highest_year %}
+      <div class="sal-chip">
+        <div class="sal-chip-label">{{ t('Highest Year', '单赛季最高') }}</div>
+        <div class="sal-chip-value">{{ money(s.highest_year.cap_hit_usd) }}</div>
+        <div class="sal-chip-sub">
+          {{ season_year_label(s.highest_year.season) }}
+          {%- if s.highest_year.age %} · {{ t('age', '年龄') }} {{ s.highest_year.age }}{% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if s.peak_aav and s.peak_aav.aav_usd %}
+      <div class="sal-chip">
+        <div class="sal-chip-label">{{ t('Peak AAV', '年均最高') }}</div>
+        <div class="sal-chip-value">{{ money(s.peak_aav.aav_usd) }}</div>
+        <div class="sal-chip-sub">
+          <span class="sal-flavor-chip flavor-{{ s.peak_aav.flavor }}" style="font-size:9px;padding:1px 6px;">
+            {{ s.peak_aav.flavor_label }}
+          </span>
+          · {{ s.peak_aav.start_season }}–{{ s.peak_aav.end_season|string|truncate(2,True,'') }}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if s.biggest_total_contract and s.biggest_total_contract.total_value_usd %}
+      <div class="sal-chip">
+        <div class="sal-chip-label">{{ t('Biggest Deal', '最大合同') }}</div>
+        <div class="sal-chip-value">{{ money(s.biggest_total_contract.total_value_usd) }}</div>
+        <div class="sal-chip-sub">
+          {{ s.biggest_total_contract.years }}{{ t('y', '年') }}
+          {% if s.biggest_total_contract.team %}
+            · <img src="{{ team_logo(s.biggest_total_contract.team.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
+            {{ s.biggest_total_contract.team.abbr }}
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if s.max_contract_count > 0 %}
+      <div class="sal-chip">
+        <div class="sal-chip-label">{{ t('Max Contracts', '顶薪次数') }}</div>
+        <div class="sal-chip-value">{{ s.max_contract_count }}</div>
+        <div class="sal-chip-sub">{{ t('signed at the max scale', '按最大薪金签约') }}</div>
+      </div>
+      {% endif %}
+
+      {% if s.paid_teams %}
+      <div class="sal-chip">
+        <div class="sal-chip-label">{{ t('Paid By', '签约球队') }}</div>
+        <div class="sal-chip-value" style="font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          {% for tm in s.paid_teams %}
+          <a href="{{ team_url(tm.team_id) or '#' }}" style="display:inline-flex;align-items:center;gap:4px;color:inherit;text-decoration:none;">
+            <img src="{{ team_logo(tm.team_id) }}" alt="" loading="lazy" style="width:20px;height:20px;" onerror="this.style.display='none'">
+            <span style="font-size:13px;">{{ tm.abbr }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        <div class="sal-chip-sub">{{ s.paid_teams|length }} {{ t('franchises', '支') }}</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ───────── Cap-hit-by-year SVG chart ───────── #}
+    {% set yrs = salary_panel.chart_years %}
+    {% if yrs %}
+    {% set max_value = (yrs|map(attribute='cap_hit_usd')|select|list)|max if (yrs|map(attribute='cap_hit_usd')|select|list) else 0 %}
+    {# Also consider league cap so the dashed line is visible #}
+    {% set max_cap = (salary_panel.cap_lines|map(attribute='cap')|select|list)|max if (salary_panel.cap_lines|map(attribute='cap')|select|list) else 0 %}
+    {% set y_max = ([max_value, max_cap]|max) %}
+    {% set y_max = (y_max * 1.05)|round(0, 'ceil')|int if y_max else 1 %}
+    {# Round up to nearest $5M for nicer axis ticks #}
+    {% set tick_step = 5000000 %}
+    {% set y_top = ((y_max // tick_step) + 1) * tick_step %}
+
+    {% set chart_w = 1000 %}
+    {% set chart_h = 260 %}
+    {% set m_left = 48 %}
+    {% set m_right = 12 %}
+    {% set m_top = 14 %}
+    {% set m_bottom = 38 %}
+    {% set plot_w = chart_w - m_left - m_right %}
+    {% set plot_h = chart_h - m_top - m_bottom %}
+    {% set bar_count = yrs|length %}
+    {% set bar_slot = plot_w / bar_count if bar_count else plot_w %}
+    {% set bar_w = (bar_slot * 0.80)|round(2) %}
+
+    <div class="sal-chart-wrap">
+      <div class="sal-chart-header">
+        <div class="sal-chart-title">{{ t('Cap Hit by Year', '逐年合同金额') }}</div>
+        <div class="sal-chart-legend">
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-rookie)"></span>{{ t('Rookie', '新秀') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-rookie-ext)"></span>{{ t('Rookie Ext', '新秀续约') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-ext)"></span>{{ t('Extension', '续约') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-max)"></span>{{ t('Max', '顶薪') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-super-max)"></span>{{ t('Supermax', '顶薪+') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-mle)"></span>{{ t('MLE', 'MLE') }}</span>
+          <span class="lg"><span class="lg-sw" style="background:var(--sal-min)"></span>{{ t('Min', '底薪') }}</span>
+          <span class="lg" style="margin-left:8px;border-left:1px solid var(--border);padding-left:10px;">
+            <span style="display:inline-block;width:14px;border-top:1px dashed var(--muted);"></span>{{ t('League cap', '工资帽') }}
+          </span>
+        </div>
+      </div>
+
+      <svg class="sal-chart-svg" viewBox="0 0 {{ chart_w }} {{ chart_h }}" preserveAspectRatio="none" role="img" aria-label="{{ t('Cap hit by year', '逐年合同金额') }}">
+        <defs>
+          <pattern id="sal-stripe" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="currentColor" opacity="0.4"/>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="currentColor" stroke-width="2" opacity="0.85"/>
+          </pattern>
+        </defs>
+
+        {# Y-axis grid lines + labels #}
+        {% set tick_count = (y_top // tick_step)|int %}
+        {% for i in range(tick_count + 1) %}
+          {% set yv = i * tick_step %}
+          {% set yp = m_top + plot_h - (yv / y_top) * plot_h %}
+          <line class="axis-line" x1="{{ m_left }}" y1="{{ yp }}" x2="{{ m_left + plot_w }}" y2="{{ yp }}"/>
+          <text class="axis-text" x="{{ m_left - 6 }}" y="{{ yp + 3 }}" text-anchor="end">${{ (yv/1000000)|int }}M</text>
+        {% endfor %}
+
+        {# Bars (one per season) #}
+        {% set ns = namespace(prev_x=None, prev_team=None) %}
+        {% for r in yrs %}
+          {% set bx = m_left + loop.index0 * bar_slot + (bar_slot - bar_w) / 2 %}
+          {% set bh = (r.cap_hit_usd / y_top * plot_h) if r.cap_hit_usd else 0 %}
+          {% set by = m_top + plot_h - bh %}
+          {% set fill = _flavor_to_var.get(r.flavor, 'var(--sal-other)') %}
+          {% set bar_class = 'bar bar-future' if r.is_future else 'bar' %}
+          {% if r.cap_hit_usd %}
+          <g style="color: {{ fill }};">
+            <rect class="{{ bar_class }}{% if r.source == 'aav-est' %} bar-stripe{% endif %}"
+                  x="{{ bx }}" y="{{ by }}" width="{{ bar_w }}" height="{{ bh }}"
+                  rx="2" ry="2" fill="{{ fill }}">
+              <title>{{ season_year_label(r.season) }}{% if r.age %} · age {{ r.age }}{% endif %}
+${{ "{:,}".format(r.cap_hit_usd) }} cap hit{% if r.team_abbr %} · {{ r.team_abbr }}{% endif %}{% if r.status %} · {{ r.status }}{% endif %}{% if r.source != 'spotrac' %} ({{ r.source }}){% endif %}</title>
+            </rect>
+          </g>
+          {% endif %}
+          {# X-axis label every ~3rd bar to avoid overlap #}
+          {% if loop.index0 % 3 == 0 or loop.last %}
+          <text class="axis-text" x="{{ bx + bar_w/2 }}" y="{{ chart_h - m_bottom + 12 }}" text-anchor="middle">'{{ "%02d"|format(r.season % 100) }}</text>
+          {% endif %}
+          {# Team logo at the foot of the bar — only when the team changes
+             and the bar is wide enough to be readable #}
+          {% if r.team_id and bar_slot >= 18 and r.team_id != ns.prev_team %}
+            {% set lg_size = ([bar_slot - 4, 16]|min)|round(0)|int %}
+            <image class="bar-team-logo"
+                   href="{{ team_logo(r.team_id) }}"
+                   x="{{ bx + bar_w/2 - lg_size/2 }}"
+                   y="{{ chart_h - m_bottom + 18 }}"
+                   width="{{ lg_size }}" height="{{ lg_size }}"/>
+          {% endif %}
+          {% set ns.prev_team = r.team_id %}
+        {% endfor %}
+
+        {# League cap dashed line — connect the dots across seasons that have data #}
+        {% set ns2 = namespace(d='') %}
+        {% for cl in salary_panel.cap_lines %}
+          {% if cl.cap %}
+            {% set cx = m_left + loop.index0 * bar_slot + bar_slot / 2 %}
+            {% set cy = m_top + plot_h - (cl.cap / y_top * plot_h) %}
+            {% if ns2.d %}{% set ns2.d = ns2.d + ' L ' + cx|string + ' ' + cy|string %}{% else %}{% set ns2.d = 'M ' + cx|string + ' ' + cy|string %}{% endif %}
+          {% endif %}
+        {% endfor %}
+        {% if ns2.d %}
+        <path class="cap-line" d="{{ ns2.d }}" fill="none"/>
+        {% endif %}
+
+        {# "Now" marker — vertical line between current season and next #}
+        {% set _curr_idx = -1 %}
+        {% for r in yrs %}{% if r.is_current %}{% set _curr_idx = loop.index0 %}{% endif %}{% endfor %}
+        {% if _curr_idx >= 0 %}
+          {% set nx = m_left + (_curr_idx + 1) * bar_slot %}
+          <line class="now-line" x1="{{ nx }}" y1="{{ m_top }}" x2="{{ nx }}" y2="{{ m_top + plot_h }}"/>
+          <text class="cap-tick" x="{{ nx + 3 }}" y="{{ m_top + 9 }}">{{ t('NOW', '当前') }}</text>
+        {% endif %}
+      </svg>
+      <div class="sal-source-note">
+        {{ t('Sources:', '数据来源:') }}
+        <span class="src-tag">spotrac</span> {{ t('per-year cap hit', '逐年合同') }} ·
+        <span class="src-tag">br</span> {{ t('Basketball-Reference fill-in', 'BR 填补') }} ·
+        <span class="src-tag" style="background:repeating-linear-gradient(45deg,var(--surface-2) 0 4px,var(--surface) 4px 6px);">aav-est</span> {{ t('AAV-distributed estimate', '按 AAV 平分估算') }}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ───────── Contract ribbons (chronological) ───────── #}
+    {% if salary_panel.contracts %}
+    <div class="sal-contracts">
+      {% for c in salary_panel.contracts %}
+      <details class="sal-contract flavor-{{ c.flavor }}{% if c.is_active_now %} is-current{% endif %}{% if c.is_upcoming %} is-upcoming{% endif %}">
+        <summary>
+          <span class="sal-flavor-chip flavor-{{ c.flavor }}">{{ c.flavor_label }}</span>
+          {% if c.team %}
+          <a class="sal-summary-team" href="{{ team_url(c.team.team_id) or '#' }}" onclick="event.stopPropagation();">
+            <img src="{{ team_logo(c.team.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
+            {{ c.team.abbr }}
+          </a>
+          {% else %}
+          <span></span>
+          {% endif %}
+          <span class="sal-summary-years">
+            {{ c.start_season }}{% if c.start_season != c.end_season %}–{{ c.end_season|string|truncate(2,True,'') }}{% endif %}
+            <span style="color:var(--muted);font-weight:500;">· {{ c.years }}{{ t('y', '年') }}</span>
+          </span>
+          <span class="sal-summary-aav">
+            {{ money(c.aav_usd) }}<small>AAV</small>
+          </span>
+          <span class="sal-summary-total">
+            {{ money(c.total_value_usd) }}<small>{{ t('Total', '总额') }}</small>
+          </span>
+        </summary>
+        <div class="sal-contract-body">
+          <div class="sal-contract-meta">
+            {% if c.contract_type_raw %}<span><b>{{ c.contract_type_raw }}</b></span>{% endif %}
+            {% if c.signed_using_label %}<span>{{ t('via', '通过') }} <b>{{ c.signed_using_label }}</b></span>{% endif %}
+            {% if c.signed_at_age %}<span>{{ t('signed at age', '签约年龄') }} <b>{{ c.signed_at_age }}</b></span>{% endif %}
+            {% if c.guaranteed_usd %}<span>{{ t('Guaranteed', '保证金') }} <b>{{ money(c.guaranteed_usd) }}</b></span>{% endif %}
+            {% if c.guaranteed_at_sign_usd and c.guaranteed_at_sign_usd != c.guaranteed_usd %}
+              <span>{{ t('Guaranteed at signing', '签约时保证') }} <b>{{ money(c.guaranteed_at_sign_usd) }}</b></span>
+            {% endif %}
+          </div>
+          <table class="sal-year-table">
+            <thead>
+              <tr>
+                <th>{{ t('Season', '赛季') }}</th>
+                <th>{{ t('Age', '年龄') }}</th>
+                <th>{{ t('Cap Hit', '工资帽占用') }}</th>
+                <th>{{ t('Base', '基本') }}</th>
+                <th>{{ t('Guaranteed', '保证') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for y in c.years_block %}
+              <tr class="{% if y.is_current %}is-current{% elif y.is_future %}is-future{% endif %}">
+                <td>
+                  {{ season_year_label(y.season) }}
+                  {% if y.status == 'Player Option' or y.status == 'Player' %}<span class="opt-chip">{{ t('Player Opt', '球员选项') }}</span>{% endif %}
+                  {% if y.status == 'Club' %}<span class="opt-chip">{{ t('Team Opt', '球队选项') }}</span>{% endif %}
+                </td>
+                <td>{{ y.age or '—' }}</td>
+                <td>
+                  {{ money(y.cap_hit_usd) }}
+                  {% if y.source and y.source != 'spotrac' %}<span class="src-tag">{{ y.source }}</span>{% endif %}
+                </td>
+                <td>{{ money(y.base_salary_usd) }}</td>
+                <td>{{ money(y.cash_guaranteed_usd) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% elif salary_rows %}
+{# Fallback: BR-only data, no Spotrac contracts. Render the legacy table. #}
 <div class="card" id="section-salary">
   <h2>{{ t('Salary History', '薪资历史') }}</h2>
   <div class="table-wrap">
     <table>
-      <thead>
-        <tr>
-          <th>Season</th>
-          <th>Salary</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Season</th><th>Salary</th></tr></thead>
       <tbody>
         {% for row in salary_rows %}
         <tr>

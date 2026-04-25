@@ -306,6 +306,273 @@ def _build_live_quick_panel(game, *, live_card=None):
     }
 
 
+def _contract_flavor(contract_type: str | None, signed_using: str | None) -> str:
+    """Bucket Spotrac contract_type + signed_using into one of a small fixed
+    palette so the UI can color and label consistently. Order matters — most
+    specific patterns checked first."""
+    ct = (contract_type or "").lower()
+    su = (signed_using or "").lower()
+    if "designated" in ct or "rookie-maximum" in ct or "maximum veteran extension" in ct:
+        return "super-max"
+    if "maximum" in ct or ct == "max":
+        return "max"
+    if "rookie" in ct and "extension" in ct:
+        return "rookie-ext"
+    if ct == "rookie" or "rookie-scale" in su:
+        return "rookie"
+    if "extension" in ct:
+        return "ext"
+    if "qualifying" in ct or "qualifying" in su:
+        return "qo"
+    if "mid-level" in su or "mle" in su:
+        return "mle"
+    if "minimum" in su or ct in ("two-way", "exhibit-10", "exhibit-9", "ten-day", "rest-of-season", "camp invite") or "ten-day" in ct or "two-way" in ct:
+        return "min"
+    if "sign-and-trade" in ct or "sign-and-trade" in su:
+        return "sign-trade"
+    if "free agent" in ct or "cap-space" in su or "bird" in su or "non-bird" in su:
+        return "free-agent"
+    return "other"
+
+
+_CONTRACT_FLAVOR_LABEL_EN = {
+    "super-max": "Supermax",
+    "max":       "Max",
+    "rookie-ext":"Rookie Ext",
+    "rookie":    "Rookie Scale",
+    "ext":       "Extension",
+    "qo":        "Qualifying Offer",
+    "mle":       "MLE",
+    "min":       "Minimum",
+    "sign-trade":"Sign & Trade",
+    "free-agent":"Free Agent",
+    "other":     "Other",
+}
+_CONTRACT_FLAVOR_LABEL_ZH = {
+    "super-max": "顶薪+",
+    "max":       "顶薪",
+    "rookie-ext":"新秀续约",
+    "rookie":    "新秀合同",
+    "ext":       "续约",
+    "qo":        "资质报价",
+    "mle":       "MLE",
+    "min":       "底薪",
+    "sign-trade":"先签后换",
+    "free-agent":"自由市场",
+    "other":     "其他",
+}
+
+_SIGNED_USING_LABEL_EN = {
+    "rookie-scale-exception":         "Rookie Scale",
+    "Bird Rights":                    "Bird Rights",
+    "cap-space":                      "Cap Space",
+    "Early Bird Rights":              "Early Bird",
+    "Minimum":                        "Minimum",
+    "room-mid-level-exception":       "Room MLE",
+    "non-taxpayer-mid-level-exception":"Non-Taxpayer MLE",
+    "taxpayer-mid-level-exception":   "Taxpayer MLE",
+    "Non-Bird Rights":                "Non-Bird",
+    "sign-and-trade":                 "Sign & Trade",
+    "second-round-exception":         "2nd-Round Exc.",
+    "qualifying-offer":               "Qualifying Offer",
+    "bi-annual-exception":            "Bi-Annual Exc.",
+    "Hardship":                       "Hardship",
+    "extend-and-trade":               "Extend & Trade",
+    "disabled-player-exception":      "Disabled Player Exc.",
+}
+
+
+def _build_player_salary_panel(session, player_id: str, br_salary_rows, lang: str) -> dict | None:
+    """Stitch Spotrac contracts + BR salary into a rich panel dataset.
+
+    Per-year cap_hit prefers Spotrac (PlayerContractYear.cap_hit_usd), falls
+    back to BR (PlayerSalary.salary_usd) which has near-complete career
+    coverage, and finally to the contract's AAV as a last-resort estimate.
+    Each year carries a `source` tag so the UI can disclose which it used.
+
+    Returns raw data only — the template formats labels and logo URLs via
+    its existing context-processor globals (`team_logo`, `season_year_label`).
+    """
+    try:
+        from db.models import PlayerContract, PlayerContractYear
+    except (ImportError, AttributeError):
+        return None
+    try:
+        from db.league_salary_caps import get_thresholds as _get_caps
+    except (ImportError, AttributeError):
+        _get_caps = lambda _s: None  # noqa: E731
+
+    contracts = (
+        session.query(PlayerContract)
+        .filter(PlayerContract.player_id == player_id)
+        .order_by(PlayerContract.start_season, PlayerContract.id)
+        .all()
+    )
+    cy_rows = (
+        session.query(PlayerContractYear)
+        .filter(PlayerContractYear.player_id == player_id)
+        .all()
+    )
+    cy_by_contract: dict[int, dict[int, Any]] = {}
+    for y in cy_rows:
+        cy_by_contract.setdefault(y.contract_id, {})[y.season] = y
+
+    if not contracts and not br_salary_rows:
+        return None
+
+    br_by_season = {r.season: r.salary_usd for r in br_salary_rows}
+
+    # Resolve team metadata for each contract's signed_with team.
+    team_ids = {c.signed_with_team_id for c in contracts if c.signed_with_team_id}
+    team_meta_cache: dict[str, dict] = {}
+    if team_ids:
+        from db.models import Team as _Team
+        for t in session.query(_Team).filter(_Team.team_id.in_(team_ids)).all():
+            team_meta_cache[t.team_id] = {
+                "team_id": t.team_id,
+                "abbr": t.abbr or t.team_id,
+                "full_name": t.full_name or t.abbr or t.team_id,
+                "slug": getattr(t, "slug", None),
+            }
+
+    def _team_block(team_id):
+        if not team_id:
+            return None
+        return team_meta_cache.get(team_id) or {"team_id": team_id, "abbr": team_id, "full_name": team_id, "slug": None}
+
+    today_year = datetime.utcnow().year
+    # 5-digit-stripped current season as Spotrac stores it (2025 == 2025-26)
+    current_year = today_year if datetime.utcnow().month >= 10 else today_year - 1
+
+    # Build the contract list with metadata + per-year breakdown
+    contracts_out: list[dict] = []
+    seasons_with_spotrac: set[int] = set()
+    for c in contracts:
+        flavor = _contract_flavor(c.contract_type, c.signed_using)
+        years_block = []
+        for season in range(c.start_season, c.end_season + 1):
+            cy = cy_by_contract.get(c.id, {}).get(season)
+            cap_hit = cy.cap_hit_usd if cy else None
+            source = "spotrac" if cap_hit else None
+            if not cap_hit and br_by_season.get(season):
+                cap_hit = br_by_season[season]
+                source = "br"
+            if not cap_hit and c.aav_usd:
+                cap_hit = c.aav_usd
+                source = "aav-est"
+            if cap_hit:
+                seasons_with_spotrac.add(season)
+            years_block.append({
+                "season": season,
+                "age": (cy.age if cy else None),
+                "status": (cy.status if cy else None),
+                "cap_hit_usd": cap_hit,
+                "base_salary_usd": (cy.base_salary_usd if cy else None),
+                "cash_guaranteed_usd": (cy.cash_guaranteed_usd if cy else None),
+                "incentives_likely_usd": (cy.incentives_likely_usd if cy else None),
+                "source": source,
+                "is_future": season > current_year,
+                "is_current": season == current_year,
+            })
+        contracts_out.append({
+            "id": c.id,
+            "flavor": flavor,
+            "flavor_label": (_CONTRACT_FLAVOR_LABEL_ZH if lang == "zh" else _CONTRACT_FLAVOR_LABEL_EN).get(flavor, flavor),
+            "contract_type_raw": c.contract_type,
+            "signed_using_raw": c.signed_using,
+            "signed_using_label": _SIGNED_USING_LABEL_EN.get(c.signed_using or "", c.signed_using),
+            "team": _team_block(c.signed_with_team_id),
+            "signed_at_age": c.signed_at_age,
+            "start_season": c.start_season,
+            "end_season": c.end_season,
+            "years": c.years,
+            "total_value_usd": c.total_value_usd,
+            "aav_usd": c.aav_usd,
+            "guaranteed_usd": c.guaranteed_usd,
+            "guaranteed_at_sign_usd": c.guaranteed_at_sign_usd,
+            "is_upcoming": (c.contract_type or "").endswith("(UPCOMING EXTENSION)"),
+            "is_active_now": c.start_season <= current_year <= c.end_season,
+            "years_block": years_block,
+        })
+
+    # Map every BR-paid season → which contract it belongs to (so the chart
+    # can color BR-only years using the right contract palette).
+    season_to_contract: dict[int, dict] = {}
+    for c in contracts_out:
+        for s in range(c["start_season"], c["end_season"] + 1):
+            season_to_contract[s] = c
+
+    chart_years: list[dict] = []
+    seen_seasons: set[int] = set()
+    for c in contracts_out:
+        for y in c["years_block"]:
+            if y["season"] in seen_seasons:
+                continue
+            seen_seasons.add(y["season"])
+            chart_years.append({**y, "contract_id": c["id"], "flavor": c["flavor"], "team_abbr": (c["team"] or {}).get("abbr"), "team_id": (c["team"] or {}).get("team_id")})
+    # Add BR-only seasons that no contract covered (very early career,
+    # or gaps where Spotrac missed a contract).
+    for season, salary in br_by_season.items():
+        if season in seen_seasons:
+            continue
+        chart_years.append({
+            "season": season,
+            "age": None, "status": None,
+            "cap_hit_usd": salary,
+            "source": "br",
+            "is_future": False, "is_current": season == current_year,
+            "contract_id": None, "flavor": "other",
+            "team_abbr": None, "team_id": None,
+        })
+        seen_seasons.add(season)
+    chart_years.sort(key=lambda r: r["season"])
+
+    # Headline numbers for the stat chips
+    paid_years = [r for r in chart_years if not r["is_future"] and r["cap_hit_usd"]]
+    career_total = sum(r["cap_hit_usd"] for r in paid_years)
+    if paid_years:
+        highest = max(paid_years, key=lambda r: r["cap_hit_usd"])
+    else:
+        highest = None
+    peak_aav = max((c for c in contracts_out if c["aav_usd"]), key=lambda c: c["aav_usd"], default=None)
+    biggest_total = max((c for c in contracts_out if c["total_value_usd"]), key=lambda c: c["total_value_usd"], default=None)
+    max_contract_count = sum(1 for c in contracts_out if c["flavor"] in ("max", "super-max"))
+    paid_team_ids = {r.get("team_id") for r in chart_years if r.get("team_id")}
+    paid_teams = sorted(
+        (team_meta_cache.get(tid) or {"team_id": tid, "abbr": tid, "full_name": tid, "slug": None} for tid in paid_team_ids if tid),
+        key=lambda d: d.get("abbr") or "",
+    )
+    years_under_pay = len({r["season"] for r in chart_years if r["cap_hit_usd"]})
+
+    # League cap line for the chart (only seasons we have caps for)
+    cap_lines: list[dict] = []
+    for r in chart_years:
+        thr = _get_caps(r["season"])
+        cap_lines.append({
+            "season": r["season"],
+            "cap":     thr.cap if thr else None,
+            "tax":     thr.tax if thr else None,
+            "apron1":  thr.apron1 if thr else None,
+            "apron2":  thr.apron2 if thr else None,
+        })
+
+    return {
+        "summary": {
+            "career_total_usd": career_total,
+            "highest_year": highest,
+            "peak_aav": peak_aav,
+            "biggest_total_contract": biggest_total,
+            "max_contract_count": max_contract_count,
+            "paid_teams": paid_teams,
+            "years_under_pay": years_under_pay,
+        },
+        "contracts": contracts_out,
+        "chart_years": chart_years,
+        "cap_lines": cap_lines,
+        "current_season_year": current_year,
+    }
+
+
 def register_detail_routes(
     app,
     *,
@@ -653,6 +920,13 @@ def register_detail_routes(
                 for row in salary_records
             ]
 
+            salary_panel = _build_player_salary_panel(
+                session,
+                player_id,
+                salary_records,
+                lang=os.getenv("FUNBA_LANG_OVERRIDE") or ("zh" if request.path.startswith("/cn/") else "en"),
+            )
+
             # ── Career transactions involving this player ──────────────
             try:
                 from db.models import TeamTransaction as _TT, TransactionAsset as _TA
@@ -754,6 +1028,7 @@ def register_detail_routes(
             player_metrics=player_metrics,
             player_awards=player_awards,
             salary_rows=salary_rows,
+            salary_panel=salary_panel,
             player_stint_timeline=player_stint_timeline,
             player_transactions=player_transactions if "player_transactions" in dir() else [],
         )
