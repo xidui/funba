@@ -2692,13 +2692,17 @@
     {# Look up the player's rank for the career_earnings_total metric so
        we can render a clickable rank badge next to the headline value.
        The metric framework computes rank/total via SQL window functions,
-       so it's already attached to the alltime_metrics entry. #}
-    {% set _earnings_metric = none %}
+       so it's already attached to the alltime_metrics entry.
+
+       `set` inside `for` doesn't survive the loop in Jinja, so use a
+       namespace to capture the match. #}
+    {% set _ns = namespace(earnings=none) %}
     {% if player_metrics and player_metrics.alltime %}
       {% for _e in player_metrics.alltime %}
-        {% if _e.metric_key == 'career_earnings_total' %}{% set _earnings_metric = _e %}{% endif %}
+        {% if _e.metric_key == 'career_earnings_total' %}{% set _ns.earnings = _e %}{% endif %}
       {% endfor %}
     {% endif %}
+    {% set _earnings_metric = _ns.earnings %}
 
     <div class="sal-headline">
       <div class="sal-chip sal-chip-headline">
