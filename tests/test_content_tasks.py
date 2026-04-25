@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from content_pipeline.game_analysis_issues import _game_analysis_issue_creation_lock  # noqa: E402
 from content_pipeline.game_analysis_issues import _classify_game_analysis_readiness  # noqa: E402
+from content_pipeline.game_analysis_issues import AdvisoryLockUnavailable  # noqa: E402
 from content_pipeline.game_analysis_issues import build_game_analysis_issue_description  # noqa: E402
 from content_pipeline.game_analysis_issues import build_game_analysis_issue_title  # noqa: E402
 from content_pipeline.game_analysis_issues import ensure_game_content_analysis_issue_for_game  # noqa: E402
@@ -604,6 +605,68 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
         curator_mock.assert_called_once_with(ready_session, ready_game)
         self.assertEqual(result["curated"], 1)
         self.assertEqual(result["waiting"], 1)
+
+    def test_recent_content_analysis_for_season_skips_duplicate_lock_conflict(self):
+        issues_module = MagicMock()
+        issues_module.recent_game_dates_for_season.return_value = [date.fromisoformat("2026-04-25")]
+
+        with patch.object(
+            content_tasks,
+            "_game_analysis_issues_module",
+            return_value=issues_module,
+        ), patch.object(
+            content_tasks,
+            "ensure_recent_content_analysis",
+            side_effect=AdvisoryLockUnavailable("Failed to acquire game-analysis lock 'gca:2026-04-25'"),
+        ), patch.object(
+            content_tasks.ensure_recent_content_analysis_for_season_task,
+            "retry",
+            side_effect=AssertionError("retry not expected"),
+        ):
+            result = content_tasks.ensure_recent_content_analysis_for_season_task.run("42025", lookback_days=3)
+
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "status": "lock_busy",
+                "season": "42025",
+                "checked_dates": ["2026-04-25"],
+                "lookback_days": 3,
+                "force": False,
+            },
+        )
+
+    def test_recent_content_analysis_wraps_retry_exception(self):
+        class CustomContentError(Exception):
+            pass
+
+        content_tasks.ensure_recent_content_analysis_task.push_request(id="worker-1", retries=0)
+        try:
+            with patch.object(
+                content_tasks,
+                "_enqueue_curator_for_pending_dates",
+                return_value={"enqueued": 0, "pending_game_ids": [], "seasons": []},
+            ), patch.object(
+                content_tasks,
+                "ensure_recent_content_analysis",
+                side_effect=CustomContentError("boom"),
+            ), patch.object(
+                content_tasks.ensure_recent_content_analysis_task,
+                "retry",
+                side_effect=RuntimeError("retrying"),
+            ) as retry_mock:
+                with self.assertRaisesRegex(RuntimeError, "retrying"):
+                    content_tasks.ensure_recent_content_analysis_task.run(
+                        source_dates=["2026-04-25"],
+                        lookback_days=3,
+                    )
+        finally:
+            content_tasks.ensure_recent_content_analysis_task.pop_request()
+
+        self.assertIsInstance(retry_mock.call_args.kwargs["exc"], RuntimeError)
+        self.assertIn("CustomContentError", str(retry_mock.call_args.kwargs["exc"]))
+        self.assertIn("boom", str(retry_mock.call_args.kwargs["exc"]))
 
 
 class TestGameAnalysisIssueTemplate(unittest.TestCase):

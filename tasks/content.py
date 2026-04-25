@@ -45,11 +45,24 @@ def _normalize_publish_platform(platform: str) -> str:
 
 
 def _game_analysis_issues_module():
-    # Celery prefork workers may drop '' from sys.path, so ensure CWD is importable.
-    cwd = os.getcwd()
-    if cwd not in sys.path and "" not in sys.path:
-        sys.path.insert(0, cwd)
+    # Celery workers may run from the deploy worktree; use the absolute repo
+    # root instead of relying on the current working directory being importable.
+    repo_root = str(_project_root())
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     return import_module("content_pipeline.game_analysis_issues")
+
+
+def _is_content_lock_conflict(exc: Exception) -> bool:
+    return (
+        exc.__class__.__name__ == "AdvisoryLockUnavailable"
+        and exc.__class__.__module__ == "content_pipeline.game_analysis_issues"
+    )
+
+
+def _retry_exc(exc: Exception) -> RuntimeError:
+    message = str(exc) or exc.__class__.__name__
+    return RuntimeError(f"{exc.__class__.__module__}.{exc.__class__.__name__}: {message}")
 
 
 # Backward-compatible wrappers while callers migrate off the task module.
@@ -122,8 +135,19 @@ def ensure_daily_content_analysis_task(self, source_date: str | None = None, for
         logger.info("game content analysis readiness for %s -> %s", target_date.isoformat(), result.get("status"))
         return result
     except Exception as exc:
+        if _is_content_lock_conflict(exc):
+            logger.info(
+                "game content analysis readiness already running for %s; skipping duplicate task",
+                target_date.isoformat(),
+            )
+            return {
+                "ok": True,
+                "status": "lock_busy",
+                "source_date": target_date.isoformat(),
+                "force": bool(force),
+            }
         logger.warning("game content analysis readiness failed for %s: %s", target_date.isoformat(), exc, exc_info=True)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=_retry_exc(exc), countdown=60)
 
 
 @shared_task(
@@ -156,8 +180,20 @@ def ensure_recent_content_analysis_task(
         logger.info("recent game content analysis readiness checked for %s", result.get("checked_dates"))
         return result
     except Exception as exc:
+        if _is_content_lock_conflict(exc):
+            logger.info(
+                "recent game content analysis already running for dates=%s; skipping duplicate task",
+                [target.isoformat() for target in target_dates],
+            )
+            return {
+                "ok": True,
+                "status": "lock_busy",
+                "checked_dates": [target.isoformat() for target in target_dates],
+                "lookback_days": int(lookback_days),
+                "force": bool(force),
+            }
         logger.warning("recent game content analysis readiness failed: %s", exc, exc_info=True)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=_retry_exc(exc), countdown=60)
 
 
 @shared_task(
@@ -422,5 +458,19 @@ def ensure_recent_content_analysis_for_season_task(
             "season": season,
         }
     except Exception as exc:
+        if _is_content_lock_conflict(exc):
+            logger.info(
+                "season game content analysis already running for season=%s dates=%s; skipping duplicate task",
+                season,
+                [target.isoformat() for target in target_dates],
+            )
+            return {
+                "ok": True,
+                "status": "lock_busy",
+                "season": season,
+                "checked_dates": [target.isoformat() for target in target_dates],
+                "lookback_days": int(lookback_days),
+                "force": bool(force),
+            }
         logger.warning("season game content analysis readiness failed for %s: %s", season, exc, exc_info=True)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=_retry_exc(exc), countdown=60)
