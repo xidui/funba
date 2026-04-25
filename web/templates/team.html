@@ -2265,6 +2265,289 @@
 })();
 </script>
 
+{% if transactions %}
+<!-- ── Transactions ─────────────────────────────────────────────────── -->
+<div class="card" id="section-transactions">
+  <h2>
+    {{ t('Transactions', '交易') }}
+    {% if roster_season_label %}
+    <span class="meta" style="font-weight:400; font-size:13px;">— {{ roster_season_label }}</span>
+    {% endif %}
+    <span class="roster-count-pill">{{ transactions|length }}</span>
+  </h2>
+
+  {% set type_labels = {
+    'trade': t('Trade', '交易'),
+    'signing': t('Signing', '签约'),
+    'two_way': t('Two-way', '双向'),
+    'ten_day': t('10-day', '10天'),
+    'conversion': t('Conversion', '转正'),
+    'extension': t('Extension', '续约'),
+    'waive': t('Waive', '裁员'),
+    'waive_claim': t('Waiver Claim', '豁免认领'),
+    'fine_or_suspension': t('Fine', '罚款'),
+    'coach_change': t('Coach', '教练'),
+    'draft': t('Draft', '选秀'),
+    'other': t('Other', '其他'),
+  } %}
+
+  {% set type_order = ['trade', 'signing', 'two_way', 'ten_day', 'conversion', 'extension', 'waive', 'waive_claim', 'fine_or_suspension', 'coach_change', 'draft', 'other'] %}
+
+  <div class="tx-filter-bar">
+    <button class="tx-filter active" data-type="all">{{ t('All', '全部') }} ({{ transactions|length }})</button>
+    {% set type_counts = {} %}
+    {% for tx in transactions %}{% set _ = type_counts.update({tx.type: type_counts.get(tx.type, 0) + 1}) %}{% endfor %}
+    {% for tt in type_order %}{% if tt in type_counts %}
+    <button class="tx-filter" data-type="{{ tt }}">{{ type_labels.get(tt, tt) }} ({{ type_counts[tt] }})</button>
+    {% endif %}{% endfor %}
+  </div>
+
+  <ol class="tx-list">
+    {% for tx in transactions %}
+    {% set tx_label = type_labels.get(tx.type, tx.type) %}
+    <li class="tx-item tx-type-{{ tx.type|replace('_','-') }}" data-type="{{ tx.type }}">
+      <div class="tx-row">
+        <time class="tx-date">{{ tx.date.strftime('%Y-%m-%d') }}</time>
+        <span class="tx-type-chip tx-chip-{{ tx.type|replace('_','-') }}">{{ tx_label }}{% if tx.multi_team_count and tx.multi_team_count > 1 %} · {{ tx.multi_team_count }}-{{ t('team', '队') }}{% endif %}</span>
+      </div>
+
+      {% if tx.type == 'trade' %}
+      {# Group assets by direction relative to this team #}
+      {% set incoming = tx.assets | selectattr('to_team_id', 'equalto', team.team_id) | list %}
+      {% set outgoing = tx.assets | selectattr('from_team_id', 'equalto', team.team_id) | list %}
+      <div class="tx-trade">
+        <div class="tx-side tx-side-in">
+          <div class="tx-side-label">{{ t('Acquired', '换入') }}</div>
+          {% if incoming %}
+          <ul>
+          {% for a in incoming %}
+            <li>
+              {% if a.asset_type == 'player' %}
+                {% if a.player_slug %}<a href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}{{ a.player_name }}{% endif %}
+                {% if a.from_team_id and a.from_team_id != team.team_id %}<span class="tx-from">← {{ a.from_team_abbr }}</span>{% endif %}
+              {% elif a.asset_type == 'pick' %}
+                <span class="tx-pick">{{ a.pick_year }} R{{ a.pick_round }}</span>{% if a.pick_protection %}<span class="tx-pick-prot">({{ a.pick_protection }})</span>{% endif %}
+                {% if a.from_team_id and a.from_team_id != team.team_id %}<span class="tx-from">← {{ a.from_team_abbr }}</span>{% endif %}
+              {% elif a.asset_type == 'cash' %}
+                <span class="tx-cash">{{ t('Cash', '现金') }}</span>
+                {% if a.from_team_id and a.from_team_id != team.team_id %}<span class="tx-from">← {{ a.from_team_abbr }}</span>{% endif %}
+              {% elif a.asset_type == 'exception' %}
+                <span class="tx-exc">{{ t('Trade Exception', '交易特例') }}</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+          </ul>
+          {% else %}<div class="tx-empty">—</div>{% endif %}
+        </div>
+        <div class="tx-arrow">⇄</div>
+        <div class="tx-side tx-side-out">
+          <div class="tx-side-label">{{ t('Sent', '送出') }}</div>
+          {% if outgoing %}
+          <ul>
+          {% for a in outgoing %}
+            <li>
+              {% if a.asset_type == 'player' %}
+                {% if a.player_slug %}<a href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}{{ a.player_name }}{% endif %}
+                {% if a.to_team_id and a.to_team_id != team.team_id %}<span class="tx-from">→ {{ a.to_team_abbr }}</span>{% endif %}
+              {% elif a.asset_type == 'pick' %}
+                <span class="tx-pick">{{ a.pick_year }} R{{ a.pick_round }}</span>{% if a.pick_protection %}<span class="tx-pick-prot">({{ a.pick_protection }})</span>{% endif %}
+                {% if a.to_team_id and a.to_team_id != team.team_id %}<span class="tx-from">→ {{ a.to_team_abbr }}</span>{% endif %}
+              {% elif a.asset_type == 'cash' %}
+                <span class="tx-cash">{{ t('Cash', '现金') }}</span>
+                {% if a.to_team_id and a.to_team_id != team.team_id %}<span class="tx-from">→ {{ a.to_team_abbr }}</span>{% endif %}
+              {% endif %}
+            </li>
+          {% endfor %}
+          </ul>
+          {% else %}<div class="tx-empty">—</div>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      {# Non-trade: simpler one-line rendering #}
+      <div class="tx-line">
+        {% for a in tx.assets %}
+          {% if a.asset_type == 'player' %}
+            {% if a.player_slug %}<a class="tx-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name }}</a>{% else %}<span class="tx-player">{{ a.player_name }}</span>{% endif %}
+          {% endif %}
+        {% endfor %}
+        <span class="tx-fulltext">{{ tx.raw_text }}</span>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</div>
+
+<style>
+  .tx-filter-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tx-filter {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tx-filter:hover { color: var(--text); }
+  .tx-filter.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+  .tx-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .tx-item {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tx-item:last-child { border-bottom: none; }
+  .tx-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .tx-date {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .tx-type-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .tx-chip-trade  { background: rgba(96, 165, 250, 0.18); color: #60a5fa; }
+  .tx-chip-signing, .tx-chip-two-way, .tx-chip-ten-day { background: rgba(74, 222, 128, 0.18); color: var(--win); }
+  .tx-chip-extension, .tx-chip-conversion { background: rgba(74, 222, 128, 0.10); color: var(--win); }
+  .tx-chip-waive, .tx-chip-waive-claim, .tx-chip-fine-or-suspension { background: rgba(248, 113, 113, 0.18); color: var(--loss); }
+  .tx-chip-coach-change { background: rgba(250, 204, 21, 0.18); color: #facc15; }
+  .tx-trade {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: stretch;
+    padding-left: 20px;
+  }
+  @media (max-width: 540px) {
+    .tx-trade {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .tx-arrow { display: none; }
+  }
+  .tx-side {
+    background: var(--surface-2, rgba(255,255,255,0.03));
+    border-radius: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+  }
+  .tx-side-in { border-left: 3px solid var(--win); }
+  .tx-side-out { border-left: 3px solid var(--loss); }
+  .tx-side-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .tx-side ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 13px;
+  }
+  .tx-side li {
+    padding: 3px 0;
+  }
+  .tx-side a {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .tx-side a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .tx-from {
+    color: var(--muted);
+    font-size: 11px;
+    margin-left: 6px;
+  }
+  .tx-pick {
+    color: #60a5fa;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .tx-pick-prot {
+    color: var(--muted);
+    font-size: 11px;
+    margin-left: 4px;
+  }
+  .tx-cash, .tx-exc {
+    color: #facc15;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .tx-arrow {
+    align-self: center;
+    color: var(--muted);
+    font-size: 20px;
+  }
+  .tx-empty { color: var(--muted); }
+  .tx-line {
+    padding-left: 20px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .tx-line .tx-player { font-weight: 600; }
+  .tx-line .tx-player + .tx-player::before { content: ", "; color: var(--muted); }
+  .tx-fulltext {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+</style>
+
+<script>
+(function () {
+  const filters = document.querySelectorAll('#section-transactions .tx-filter');
+  const items = document.querySelectorAll('#section-transactions .tx-item');
+  filters.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.type;
+      filters.forEach(b => b.classList.toggle('active', b === btn));
+      items.forEach(it => {
+        it.style.display = (target === 'all' || it.dataset.type === target) ? '' : 'none';
+      });
+    });
+  });
+})();
+</script>
+{% endif %}
+
 <!-- ── Season Win/Loss ─────────────────────────────────────────────── -->
 <div class="card" id="section-record">
   <h2>{{ t('Season Win / Loss', '赛季胜负') }}</h2>

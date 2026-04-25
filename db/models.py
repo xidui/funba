@@ -89,6 +89,7 @@ class Player(Base):
     to_year = Column(Integer, nullable=True)           # latest NBA season
     season_exp = Column(Integer, nullable=True)        # NBA seasons played
     greatest_75_flag = Column(Boolean, nullable=True)  # NBA 75 greatest list
+    br_slug = Column(String(20), nullable=True, index=True)  # Basketball-Reference id, e.g. "kuminjo01"
 
 
 class PlayerSalary(Base):
@@ -949,6 +950,53 @@ class TeamCoachStint(Base):
         Index('ix_team_coach_stint_team_open', 'team_id', 'left_at'),
         Index('ix_team_coach_stint_coach', 'coach_id', 'joined_at'),
     )
+
+
+class TeamTransaction(Base):
+    """One row per BR transaction paragraph (a trade leg, signing, waive, etc.)."""
+    __tablename__ = "TeamTransaction"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    transaction_date = Column(DATE, nullable=False, index=True)
+    season = Column(Integer, nullable=False, index=True)  # 5-digit (2-prefix) start year
+    transaction_type = Column(String(32), nullable=False, index=True)  # trade / signing / waive / ten_day / conversion / extension / fine / coach_change / draft / other
+    multi_team_count = Column(Integer, nullable=False, default=1)  # 2/3/4 for multi-team trades
+    raw_text = Column(Text, nullable=False)
+    raw_html = Column(Text, nullable=True)  # original <p> with anchors, for re-parse
+    text_hash = Column(String(40), nullable=False)  # sha1(raw_text) for dedup
+    source_url = Column(String(255), nullable=True)
+    scraped_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("transaction_date", "text_hash", name="uq_TeamTransaction_date_hash"),
+    )
+
+
+class TransactionAsset(Base):
+    """Each thing that moved within a transaction: player / pick / cash / exception."""
+    __tablename__ = "TransactionAsset"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    transaction_id = Column(Integer, ForeignKey("TeamTransaction.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_type = Column(String(16), nullable=False)  # 'player' | 'pick' | 'cash' | 'exception'
+    from_team_id = Column(String(50), ForeignKey("Team.team_id"), nullable=True, index=True)
+    to_team_id = Column(String(50), ForeignKey("Team.team_id"), nullable=True, index=True)
+
+    # Player asset fields
+    player_id = Column(String(50), ForeignKey("Player.player_id"), nullable=True, index=True)
+    player_br_slug = Column(String(20), nullable=True)  # raw BR id, even if unmatched
+    player_name_raw = Column(String(120), nullable=True)  # text from BR anchor
+
+    # Pick asset fields
+    pick_year = Column(Integer, nullable=True)
+    pick_round = Column(Integer, nullable=True)  # 1 or 2
+    pick_origin_team_id = Column(String(50), ForeignKey("Team.team_id"), nullable=True)
+    pick_protection = Column(Text, nullable=True)  # free-form: "top-3 protected" etc.
+
+    # Cash asset
+    cash_usd = Column(BigInteger, nullable=True)  # usually NULL — BR rarely names amounts
+
+    notes = Column(Text, nullable=True)
 
 
 def init_db() -> None:

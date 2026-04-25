@@ -1542,6 +1542,9 @@
     {% endif %}
     <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
     <button class="player-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+    {% if player_transactions %}
+    <button class="player-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
+    {% endif %}
   </div>
 </nav>
 
@@ -2508,6 +2511,157 @@
   </div>
   {% endif %}
 </div>
+
+{% if player_transactions %}
+<!-- ── Career Transactions ──────────────────────────────────────────── -->
+<div class="card" id="section-transactions">
+  <h2>{{ t('Transactions', '交易') }}
+    <span class="roster-count-pill">{{ player_transactions|length }}</span>
+  </h2>
+
+  {% set ptype_labels = {
+    'trade': t('Trade', '交易'),
+    'signing': t('Signing', '签约'),
+    'two_way': t('Two-way', '双向'),
+    'ten_day': t('10-day', '10天'),
+    'conversion': t('Conversion', '转正'),
+    'extension': t('Extension', '续约'),
+    'waive': t('Waive', '裁员'),
+    'waive_claim': t('Waiver Claim', '豁免认领'),
+    'fine_or_suspension': t('Fine', '罚款'),
+    'draft': t('Draft', '选秀'),
+    'other': t('Other', '其他'),
+  } %}
+
+  <ol class="ptx-list">
+    {% for tx in player_transactions %}
+    {% set self_assets = tx.assets | selectattr('asset_type', 'equalto', 'player') | selectattr('is_self', 'equalto', true) | list %}
+    {% set self_in = self_assets | selectattr('to_team_id') | list %}
+    {% set self_out = self_assets | selectattr('from_team_id') | list %}
+    {% set tx_label = ptype_labels.get(tx.type, tx.type) %}
+    <li class="ptx-item ptx-type-{{ tx.type|replace('_','-') }}">
+      <div class="ptx-row">
+        <time class="ptx-date">{{ tx.date.strftime('%Y-%m-%d') }}</time>
+        <span class="ptx-chip ptx-chip-{{ tx.type|replace('_','-') }}">{{ tx_label }}{% if tx.multi_team_count > 1 %} · {{ tx.multi_team_count }}-{{ t('team', '队') }}{% endif %}</span>
+        {% if tx.type == 'trade' and self_assets %}
+          {% set first = self_assets[0] %}
+          <span class="ptx-direction">
+            {% if first.from_team_abbr %}<strong>{{ first.from_team_abbr }}</strong>{% endif %}
+            {% if first.from_team_abbr and first.to_team_abbr %}<span class="ptx-arrow">→</span>{% endif %}
+            {% if first.to_team_abbr %}<strong>{{ first.to_team_abbr }}</strong>{% endif %}
+          </span>
+        {% elif tx.type in ('signing', 'two_way', 'ten_day', 'conversion', 'extension') %}
+          {% for a in self_in %}{% if a.to_team_abbr %}<span class="ptx-direction">→ <strong>{{ a.to_team_abbr }}</strong></span>{% endif %}{% endfor %}
+        {% elif tx.type in ('waive', 'waive_claim') %}
+          {% for a in self_out %}{% if a.from_team_abbr %}<span class="ptx-direction"><strong>{{ a.from_team_abbr }}</strong> ✕</span>{% endif %}{% endfor %}
+        {% endif %}
+      </div>
+      {% if tx.type == 'trade' %}
+      {# Show the other assets exchanged with us, grouped by direction #}
+      {% set other_in = tx.assets | rejectattr('is_self', 'equalto', true) | list %}
+      {% if other_in %}
+      <div class="ptx-trade-detail">
+        {% for a in other_in %}
+          {% if a.asset_type == 'player' %}
+            {% set who = a.player_name_zh if lang == 'zh' and a.player_name_zh else a.player_name %}
+            {% if a.player_slug %}<a class="ptx-other-player" href="{{ url_for('player_page', slug=a.player_slug) }}">{{ who }}</a>{% else %}<span class="ptx-other-player">{{ who }}</span>{% endif %}
+            {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
+          {% elif a.asset_type == 'pick' %}
+            <span class="ptx-pick">{{ a.pick_year }} R{{ a.pick_round }}</span>
+            {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
+          {% elif a.asset_type == 'cash' %}
+            <span class="ptx-cash">{{ t('Cash', '现金') }}</span>
+            {% if a.from_team_abbr and a.to_team_abbr %}<span class="ptx-leg">({{ a.from_team_abbr }}→{{ a.to_team_abbr }})</span>{% endif %}
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="ptx-text">{{ tx.raw_text }}</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</div>
+
+<style>
+  .ptx-list { list-style: none; margin: 0; padding: 0; }
+  .ptx-item {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ptx-item:last-child { border-bottom: none; }
+  .ptx-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ptx-date {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    flex-shrink: 0;
+    min-width: 92px;
+  }
+  .ptx-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .ptx-chip-trade { background: rgba(96, 165, 250, 0.18); color: #60a5fa; }
+  .ptx-chip-signing, .ptx-chip-two-way, .ptx-chip-ten-day,
+  .ptx-chip-extension, .ptx-chip-conversion { background: rgba(74, 222, 128, 0.18); color: var(--win); }
+  .ptx-chip-waive, .ptx-chip-waive-claim,
+  .ptx-chip-fine-or-suspension { background: rgba(248, 113, 113, 0.18); color: var(--loss); }
+  .ptx-direction {
+    font-size: 13px;
+    color: var(--text);
+  }
+  .ptx-direction strong { color: var(--accent); }
+  .ptx-arrow { color: var(--muted); margin: 0 4px; }
+  .ptx-trade-detail {
+    margin-top: 6px;
+    margin-left: 102px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .ptx-other-player {
+    color: var(--text);
+    text-decoration: none;
+    margin-right: 4px;
+    font-weight: 600;
+  }
+  .ptx-other-player:hover { color: var(--accent); }
+  .ptx-other-player + .ptx-other-player::before,
+  .ptx-other-player + .ptx-pick::before,
+  .ptx-other-player + .ptx-cash::before,
+  .ptx-pick + .ptx-pick::before,
+  .ptx-pick + .ptx-other-player::before,
+  .ptx-pick + .ptx-cash::before,
+  .ptx-cash + .ptx-other-player::before,
+  .ptx-cash + .ptx-pick::before { content: ", "; color: var(--muted); }
+  .ptx-pick { color: #60a5fa; font-weight: 700; }
+  .ptx-cash { color: #facc15; font-weight: 700; }
+  .ptx-leg { color: var(--muted); font-size: 11px; margin-left: 2px; }
+  .ptx-text {
+    margin-top: 6px;
+    margin-left: 102px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  @media (max-width: 540px) {
+    .ptx-trade-detail, .ptx-text { margin-left: 0; }
+  }
+</style>
+{% endif %}
 
 <script>
   (function () {

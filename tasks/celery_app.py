@@ -58,6 +58,7 @@ app.conf.update(
         "tasks.ingest.refresh_current_team_logos": {"queue": "ingest"},
         "tasks.ingest.sync_current_team_rosters": {"queue": "ingest"},
         "tasks.ingest.refresh_active_contracts": {"queue": "ingest"},
+        "tasks.ingest.refresh_recent_transactions": {"queue": "ingest"},
     },
 
     # --- Serialization ---
@@ -109,6 +110,10 @@ app.conf.update(
         "refresh-active-contracts": {
             "task": "tasks.ingest.refresh_active_contracts",
             "schedule": 60 * 60 * 24 * 7,  # weekly
+        },
+        "refresh-recent-transactions": {
+            "task": "tasks.ingest.refresh_recent_transactions",
+            "schedule": 60 * 60 * 24,  # daily
         },
     },
 

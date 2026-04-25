@@ -653,6 +653,84 @@ def register_detail_routes(
                 for row in salary_records
             ]
 
+            # ── Career transactions involving this player ──────────────
+            try:
+                from db.models import TeamTransaction as _TT, TransactionAsset as _TA
+            except (ImportError, AttributeError):
+                _TT = _TA = None
+            player_transactions: list[dict] = []
+            if _TT is not None:
+                tr_ids = (
+                    session.query(_TA.transaction_id)
+                    .filter(_TA.player_id == player_id)
+                    .distinct()
+                    .all()
+                )
+                tr_id_list = [t[0] for t in tr_ids]
+                if tr_id_list:
+                    tr_rows = (
+                        session.query(_TT)
+                        .filter(_TT.id.in_(tr_id_list))
+                        .order_by(_TT.transaction_date.desc(), _TT.id.desc())
+                        .all()
+                    )
+                    asset_rows = (
+                        session.query(_TA)
+                        .filter(_TA.transaction_id.in_(tr_id_list))
+                        .all()
+                    )
+                    # Resolve team abbrs + other-player names referenced
+                    Team = get_team_model()
+                    Player = get_player_model()
+                    all_team_ids = {tid for a in asset_rows for tid in (a.from_team_id, a.to_team_id) if tid}
+                    team_abbr_lookup = {
+                        t.team_id: t.abbr or t.team_id
+                        for t in session.query(Team.team_id, Team.abbr).filter(Team.team_id.in_(all_team_ids)).all()
+                    } if all_team_ids else {}
+                    other_pids = {a.player_id for a in asset_rows if a.player_id and a.player_id != player_id}
+                    other_players = {
+                        p.player_id: (p.slug, p.full_name, p.full_name_zh)
+                        for p in session.query(Player.player_id, Player.slug, Player.full_name, Player.full_name_zh).filter(Player.player_id.in_(other_pids)).all()
+                    } if other_pids else {}
+                    assets_by_tr: dict[int, list] = {}
+                    for a in asset_rows:
+                        assets_by_tr.setdefault(a.transaction_id, []).append(a)
+                    for tr in tr_rows:
+                        rendered = []
+                        for a in assets_by_tr.get(tr.id, []):
+                            item = {
+                                "asset_type": a.asset_type,
+                                "from_team_id": a.from_team_id,
+                                "to_team_id": a.to_team_id,
+                                "from_team_abbr": team_abbr_lookup.get(a.from_team_id),
+                                "to_team_abbr": team_abbr_lookup.get(a.to_team_id),
+                            }
+                            if a.asset_type == "player":
+                                item["player_id"] = a.player_id
+                                item["is_self"] = a.player_id == player_id
+                                if a.player_id and a.player_id != player_id and a.player_id in other_players:
+                                    slug, name, name_zh = other_players[a.player_id]
+                                    item["player_slug"] = slug
+                                    item["player_name"] = name or a.player_name_raw
+                                    item["player_name_zh"] = name_zh
+                                else:
+                                    item["player_slug"] = None
+                                    item["player_name"] = a.player_name_raw
+                                    item["player_name_zh"] = None
+                            elif a.asset_type == "pick":
+                                item["pick_year"] = a.pick_year
+                                item["pick_round"] = a.pick_round
+                                item["pick_protection"] = a.pick_protection
+                            rendered.append(item)
+                        player_transactions.append({
+                            "id": tr.id,
+                            "date": tr.transaction_date,
+                            "type": tr.transaction_type,
+                            "multi_team_count": tr.multi_team_count,
+                            "raw_text": tr.raw_text,
+                            "assets": rendered,
+                        })
+
         return get_render_template()(
             "player.html",
             player=player,
@@ -677,6 +755,7 @@ def register_detail_routes(
             player_awards=player_awards,
             salary_rows=salary_rows,
             player_stint_timeline=player_stint_timeline,
+            player_transactions=player_transactions if "player_transactions" in dir() else [],
         )
 
     def team_page(slug: str):
@@ -835,6 +914,14 @@ def register_detail_routes(
             roster_coaches: list[dict] = []
             roster_season_label = None
             _sel_year = None
+            # Salary/transactions init at outer level so render_template kwargs
+            # always have something defined even if the nested data blocks bail.
+            salary_players: list[dict] = []
+            salary_seasons: list[int] = []
+            salary_team_totals_by_season: dict[int, int] = {}
+            salary_by_position: list[dict] = []
+            cap_thresholds: dict | None = None
+            transactions: list[dict] = []
             if selected_games_season:
                 s = str(selected_games_season)
                 if len(s) == 5 and s.isdigit():
@@ -986,11 +1073,6 @@ def register_detail_routes(
             # ── Contract / cap-hit lookup for current + future seasons ──
             # PlayerContract uses 5-digit-stripped season ints (2024 == 2024-25),
             # matching _sel_year.
-            salary_players: list[dict] = []
-            salary_seasons: list[int] = []  # current + future for the multi-year grid
-            salary_team_totals_by_season: dict[int, int] = {}
-            salary_by_position: list[dict] = []
-            cap_thresholds: dict | None = None
             future_window = 5  # current + next 4 future seasons
 
             try:
@@ -1134,6 +1216,89 @@ def register_detail_routes(
                             "apron2": th.apron2,
                             "minimum_floor": th.minimum_floor,
                         }
+
+            # ── Transactions for this team in the selected season ──
+            try:
+                from db.models import TeamTransaction, TransactionAsset, Player as _PM2
+            except (ImportError, AttributeError):
+                TeamTransaction = TransactionAsset = _PM2 = None
+            if TeamTransaction is not None and _sel_year is not None:
+                # Transactions live under the regular-season code (2{year_start}) regardless
+                # of whether the user is viewing the regular or playoff variant.
+                tx_season_code = 20000 + _sel_year
+                # Match transactions where this team appears as either side of any asset
+                tr_ids_subq = (
+                    session.query(TransactionAsset.transaction_id)
+                    .filter(
+                        (TransactionAsset.from_team_id == team_id) | (TransactionAsset.to_team_id == team_id)
+                    )
+                    .distinct()
+                    .subquery()
+                )
+                tr_rows = (
+                    session.query(TeamTransaction)
+                    .filter(
+                        TeamTransaction.id.in_(tr_ids_subq),
+                        TeamTransaction.season == tx_season_code,
+                    )
+                    .order_by(TeamTransaction.transaction_date.desc(), TeamTransaction.id.desc())
+                    .all()
+                )
+                # Bulk-load assets + player names for these transactions
+                tr_id_list = [t.id for t in tr_rows]
+                assets_by_tr: dict[int, list] = {}
+                player_names: dict[str, str] = {}
+                if tr_id_list:
+                    asset_rows = (
+                        session.query(TransactionAsset)
+                        .filter(TransactionAsset.transaction_id.in_(tr_id_list))
+                        .all()
+                    )
+                    pids = {a.player_id for a in asset_rows if a.player_id}
+                    if pids:
+                        for p in session.query(_PM2.player_id, _PM2.full_name, _PM2.full_name_zh, _PM2.slug).filter(_PM2.player_id.in_(pids)).all():
+                            player_names[p.player_id] = (p.slug, p.full_name, p.full_name_zh)
+                    for a in asset_rows:
+                        assets_by_tr.setdefault(a.transaction_id, []).append(a)
+                # All teams referenced in any asset → abbr lookup
+                all_team_ids = {tid for arr in assets_by_tr.values() for a in arr for tid in (a.from_team_id, a.to_team_id) if tid}
+                team_abbr_lookup: dict[str, str] = {}
+                if all_team_ids:
+                    for t in session.query(Team.team_id, Team.abbr).filter(Team.team_id.in_(all_team_ids)).all():
+                        team_abbr_lookup[t.team_id] = t.abbr or t.team_id
+                for tr in tr_rows:
+                    rendered_assets = []
+                    for a in assets_by_tr.get(tr.id, []):
+                        item = {
+                            "asset_type": a.asset_type,
+                            "from_team_id": a.from_team_id,
+                            "to_team_id": a.to_team_id,
+                            "from_team_abbr": team_abbr_lookup.get(a.from_team_id),
+                            "to_team_abbr": team_abbr_lookup.get(a.to_team_id),
+                        }
+                        if a.asset_type == "player":
+                            slug = name = name_zh = None
+                            if a.player_id and a.player_id in player_names:
+                                slug, name, name_zh = player_names[a.player_id]
+                            item["player_id"] = a.player_id
+                            item["player_slug"] = slug
+                            item["player_name"] = name or a.player_name_raw
+                            item["player_name_zh"] = name_zh
+                        elif a.asset_type == "pick":
+                            item["pick_year"] = a.pick_year
+                            item["pick_round"] = a.pick_round
+                            item["pick_protection"] = a.pick_protection
+                        elif a.asset_type == "exception":
+                            item["notes"] = a.notes
+                        rendered_assets.append(item)
+                    transactions.append({
+                        "id": tr.id,
+                        "date": tr.transaction_date,
+                        "type": tr.transaction_type,
+                        "multi_team_count": tr.multi_team_count,
+                        "raw_text": tr.raw_text,
+                        "assets": rendered_assets,
+                    })
 
         # ── Era-aware header data ─────────────────────────────────────
         # Resolve the franchise's name, abbreviation, city and logo as they
@@ -1296,6 +1461,7 @@ def register_detail_routes(
             salary_by_position=salary_by_position,
             cap_thresholds=cap_thresholds,
             team_picker_options=team_picker_options,
+            transactions=transactions,
         )
 
     def game_page(slug: str):

@@ -1210,3 +1210,22 @@ def refresh_active_contracts(self) -> dict:
     """
     from db.refresh_active_contracts import run as run_refresh
     return run_refresh()
+
+
+@shared_task(
+    bind=True,
+    name="tasks.ingest.refresh_recent_transactions",
+    queue="ingest",
+    max_retries=1,
+)
+def refresh_recent_transactions(self) -> dict:
+    """Daily: re-scrape Basketball-Reference for the current and previous
+    season's transactions. BR doesn't update daily, but a daily fetch
+    catches changes within ~1-3 days. Returns counts."""
+    from datetime import datetime
+    from db.scrape_br_transactions import run as run_scrape
+    now = datetime.now()
+    season_end = now.year if now.month <= 7 else now.year + 1
+    # previous + current covers the rolling boundary at season change
+    run_scrape(season_end - 1, season_end)
+    return {"scraped_years": [season_end - 1, season_end]}
