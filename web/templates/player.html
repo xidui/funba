@@ -2019,7 +2019,9 @@
 
   {# ── Matchup Splits ────────────────────────────────────────── #}
   {% if season_splits or alltime_splits %}
-  {% from "_matchup_split_card.html" import render_split_summary %}
+  {# `with context` is required so the macro sees context-processor
+     globals (t, team_url, team_logo, game_url, url_for, lang). #}
+  {% from "_matchup_split_card.html" import render_split_summary with context %}
   {% set regular_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_regular')|list %}
   {% set playoffs_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playoffs')|list %}
   {% set playin_splits = alltime_splits|selectattr('career_type', 'equalto', 'all_playin')|list %}
