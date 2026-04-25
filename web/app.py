@@ -5470,6 +5470,10 @@ _SUSPICIOUS_PROBE_PATH_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 )
 _REPEAT_CRAWLER_IP_LOOKBACK = timedelta(days=30)
 _REPEAT_CRAWLER_IP_CACHE_SECONDS = 300
+_PROXIED_SCRAPER_LOOKBACK = timedelta(minutes=5)
+_PROXIED_SCRAPER_CACHE_SECONDS = 60
+_PROXIED_SCRAPER_MIN_DISTINCT_IPS = 30
+_PROXIED_SCRAPER_UNIQUE_IP_RATIO_PCT = 80
 
 
 def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
@@ -5561,6 +5565,44 @@ def _recent_repeat_crawler_ip(ip_address: str | None) -> bool:
     return _recent_repeat_crawler_ip_cached(value, cache_bucket)
 
 
+@lru_cache(maxsize=8192)
+def _proxied_scraper_ua_cached(user_agent: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    ua = (user_agent or "").strip()
+    if not ua or len(ua) < _MIN_REAL_UA_LENGTH:
+        return False
+    cutoff = datetime.utcnow() - _PROXIED_SCRAPER_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(func.distinct(PageView.ip_address)).label("uniq_ips"),
+                    func.count(PageView.id).label("pv"),
+                )
+                .filter(
+                    PageView.user_agent == ua,
+                    PageView.created_at >= cutoff,
+                )
+                .one()
+            )
+            uniq = int(row.uniq_ips or 0)
+            pv = int(row.pv or 0)
+            if uniq < _PROXIED_SCRAPER_MIN_DISTINCT_IPS or pv == 0:
+                return False
+            return uniq * 100 >= pv * _PROXIED_SCRAPER_UNIQUE_IP_RATIO_PCT
+    except Exception:
+        logger.exception("proxied scraper UA lookup failed")
+        return False
+
+
+def _is_proxied_scraper_ua() -> bool:
+    ua = (request.user_agent.string or "").strip()
+    if not ua:
+        return False
+    cache_bucket = int(time.time() // _PROXIED_SCRAPER_CACHE_SECONDS)
+    return _proxied_scraper_ua_cached(ua, cache_bucket)
+
+
 def _request_crawler_decision() -> dict[str, object]:
     cached = getattr(g, "_crawler_decision", None)
     if cached is not None:
@@ -5588,6 +5630,12 @@ def _request_crawler_decision() -> dict[str, object]:
                 "is_crawler": True,
                 "crawler_name": "auth-spray-bot",
                 "should_block": True,
+            }
+        elif not app.config.get("TESTING") and _is_proxied_scraper_ua():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "proxied-scraper",
+                "should_block": False,
             }
         elif not app.config.get("TESTING") and _is_bot():
             decision = {
