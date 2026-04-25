@@ -104,6 +104,52 @@ class PlayerSalary(Base):
     )
 
 
+class PlayerContract(Base):
+    __tablename__ = "PlayerContract"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(String(50), ForeignKey("Player.player_id"), nullable=False, index=True)
+    spotrac_id = Column(Integer, nullable=True, index=True)
+    signed_with_team_id = Column(String(50), ForeignKey("Team.team_id"), nullable=True, index=True)
+    signed_at_age = Column(Integer, nullable=True)
+    start_season = Column(Integer, nullable=False)
+    end_season = Column(Integer, nullable=False)
+    years = Column(Integer, nullable=False)
+    total_value_usd = Column(BigInteger, nullable=True)
+    aav_usd = Column(BigInteger, nullable=True)
+    guaranteed_usd = Column(BigInteger, nullable=True)
+    guaranteed_at_sign_usd = Column(BigInteger, nullable=True)
+    contract_type = Column(String(64), nullable=True)
+    signed_using = Column(String(64), nullable=True)
+    source_url = Column(String(512), nullable=True)
+    scraped_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "start_season", "end_season", name="uq_PlayerContract_player_range"),
+    )
+
+
+class PlayerContractYear(Base):
+    __tablename__ = "PlayerContractYear"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(Integer, ForeignKey("PlayerContract.id", ondelete="CASCADE"), nullable=False, index=True)
+    player_id = Column(String(50), ForeignKey("Player.player_id"), nullable=False, index=True)
+    season = Column(Integer, nullable=False)
+    age = Column(Integer, nullable=True)
+    status = Column(String(64), nullable=True)
+    cap_hit_usd = Column(BigInteger, nullable=True)
+    base_salary_usd = Column(BigInteger, nullable=True)
+    incentives_likely_usd = Column(BigInteger, nullable=True)
+    incentives_unlikely_usd = Column(BigInteger, nullable=True)
+    cash_guaranteed_usd = Column(BigInteger, nullable=True)
+    cash_annual_usd = Column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("contract_id", "season", name="uq_PlayerContractYear_contract_season"),
+    )
+
+
 class Award(Base):
     __tablename__ = 'Award'
 

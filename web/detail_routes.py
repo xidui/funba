@@ -975,6 +975,78 @@ def register_detail_routes(
                 )
             roster_players.sort(key=_sort_key)
 
+            # ── Contract / cap hit lookup for the selected season ──
+            # PlayerContract uses 5-digit-stripped season ints (e.g. 2024 = 2024-25),
+            # matching _sel_year.
+            salary_players: list[dict] = []
+            try:
+                from db.models import PlayerContract, PlayerContractYear
+            except (ImportError, AttributeError):
+                PlayerContract = PlayerContractYear = None
+
+            if (
+                PlayerContractYear is not None
+                and _sel_year is not None
+                and roster_players
+            ):
+                roster_pids = [p["player_id"] for p in roster_players]
+                contract_rows = (
+                    session.query(PlayerContractYear, PlayerContract)
+                    .join(PlayerContract, PlayerContractYear.contract_id == PlayerContract.id)
+                    .filter(
+                        PlayerContractYear.player_id.in_(roster_pids),
+                        PlayerContractYear.season == _sel_year,
+                    )
+                    .all()
+                )
+                # If a player has multiple contracts crossing this season (rare —
+                # e.g. supplanted by an extension), prefer the one signed with
+                # this team, else the highest cap hit.
+                contract_by_pid: dict[str, tuple] = {}
+                for cy, c in contract_rows:
+                    cur = contract_by_pid.get(cy.player_id)
+                    if cur is None:
+                        contract_by_pid[cy.player_id] = (cy, c)
+                        continue
+                    cur_cy, cur_c = cur
+                    if c.signed_with_team_id == team_id and cur_c.signed_with_team_id != team_id:
+                        contract_by_pid[cy.player_id] = (cy, c)
+                    elif (cy.cap_hit_usd or 0) > (cur_cy.cap_hit_usd or 0):
+                        contract_by_pid[cy.player_id] = (cy, c)
+
+                for p in roster_players:
+                    pair = contract_by_pid.get(p["player_id"])
+                    if pair is None:
+                        p["contract"] = None
+                        continue
+                    cy, c = pair
+                    p["contract"] = {
+                        "cap_hit_usd": cy.cap_hit_usd,
+                        "cash_annual_usd": cy.cash_annual_usd,
+                        "status": cy.status,
+                        "contract_type": c.contract_type,
+                        "years": c.years,
+                        "start_season": c.start_season,
+                        "end_season": c.end_season,
+                        "total_value_usd": c.total_value_usd,
+                        "aav_usd": c.aav_usd,
+                        "guaranteed_usd": c.guaranteed_usd,
+                        "signed_with_team_id": c.signed_with_team_id,
+                        "signed_using": c.signed_using,
+                    }
+
+            # Pre-sort a salary view by effective cap hit. Historical contract
+            # years only have cash_annual_usd populated (no rich cap-hit table),
+            # so fall back to it when cap_hit_usd is None.
+            def _effective_cap(p):
+                c = p["contract"]
+                return c.get("cap_hit_usd") or c.get("cash_annual_usd") or 0
+
+            salary_players = sorted(
+                [p for p in roster_players if p.get("contract")],
+                key=lambda p: -_effective_cap(p),
+            )
+
         # ── Era-aware header data ─────────────────────────────────────
         # Resolve the franchise's name, abbreviation, city and logo as they
         # were during the selected season. For current-era seasons this just
@@ -1078,6 +1150,7 @@ def register_detail_routes(
             roster_players=roster_players,
             roster_coaches=roster_coaches,
             roster_season_label=roster_season_label,
+            salary_players=salary_players,
         )
 
     def game_page(slug: str):

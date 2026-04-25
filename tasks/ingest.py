@@ -1196,3 +1196,17 @@ def refresh_news_scores():
         count = refresh_all_recent_scores(session)
         session.commit()
     return {"refreshed": count}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.ingest.refresh_active_contracts",
+    queue="ingest",
+    max_retries=1,
+)
+def refresh_active_contracts(self) -> dict:
+    """Weekly: re-scrape every active NBA player's contracts via the Spotrac
+    sitemap. Returns counts (sitemap_urls, ok, errors, unmatched, duration).
+    """
+    from db.refresh_active_contracts import run as run_refresh
+    return run_refresh()

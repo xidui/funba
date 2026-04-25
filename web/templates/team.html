@@ -330,6 +330,44 @@
     vertical-align: middle;
   }
 
+  /* ── Salary table ─────────────────────────────────────────── */
+  .salary-table tbody td.cap-hit {
+    color: var(--accent);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .salary-table tbody td.contract-cell {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .salary-table tfoot td {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .salary-status-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-left: 6px;
+    border-radius: 4px;
+    background: rgba(248, 113, 113, 0.18);
+    color: var(--loss);
+    font-size: 10px;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  .salary-status-chip.team-option {
+    background: rgba(74, 222, 128, 0.18);
+    color: var(--win);
+  }
+  .salary-status-chip.non-guaranteed,
+  .salary-status-chip.partial {
+    background: rgba(250, 204, 21, 0.18);
+    color: #facc15;
+  }
+
   /* ── Coaching staff (inside Team Info card) ─────────────────── */
   .team-coach-section {
     grid-column: 1 / -1;
@@ -933,6 +971,82 @@
         </tr>
         {% endfor %}
       </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if salary_players %}
+{# cap_hit_usd is only populated on the current contract's year-by-year tables.
+   For prior seasons we fall back to cash_annual_usd, which is virtually always
+   equal to the cap hit (differs only when amortized signing bonuses exist). #}
+{% set ns_total = namespace(cap=0, cash=0) %}
+{% for p in salary_players %}
+  {% set _eff = p.contract.cap_hit_usd or p.contract.cash_annual_usd or 0 %}
+  {% set ns_total.cap = ns_total.cap + _eff %}
+  {% if p.contract.cash_annual_usd %}{% set ns_total.cash = ns_total.cash + p.contract.cash_annual_usd %}{% endif %}
+{% endfor %}
+{% set sorted_salary = salary_players %}
+<div class="card">
+  <h2>
+    {{ t('Salary', '薪资') }}
+    {% if roster_season_label %}
+    <span class="meta" style="font-weight:400; font-size:13px;">— {{ roster_season_label }}</span>
+    {% endif %}
+    <span class="roster-count-pill">{{ salary_players|length }}</span>
+  </h2>
+  <div class="roster-table-wrap">
+    <table class="roster-table salary-table" id="salary-table">
+      <thead>
+        <tr>
+          <th data-sort="text" data-col="0">{{ t('Player', '球员') }}<span class="sort-arrow">▼</span></th>
+          <th class="num sorted" data-sort="num" data-col="1" data-default-desc="true">{{ t('Cap Hit', '本季薪金') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="2">{{ t('Contract', '合同') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="3">{{ t('Type', '类型') }}<span class="sort-arrow">▼</span></th>
+          <th data-sort="text" data-col="4">{{ t('Signed Via', '签约方式') }}<span class="sort-arrow">▼</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in sorted_salary %}
+        {% set c = p.contract %}
+        {% set href = url_for('player_page', slug=p.slug) if p.slug else '#' %}
+        {% set status_class = (c.status or '') | lower | replace(' ', '-') %}
+        <tr>
+          <td data-sort-value="{{ (p.full_name_zh if lang == 'zh' and p.full_name_zh else p.full_name)|lower }}">
+            <div class="roster-player-cell">
+              <img class="roster-headshot"
+                   src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ p.player_id }}.png"
+                   alt=""
+                   loading="lazy"
+                   onerror="this.onerror=null;this.outerHTML='<div class=&quot;roster-headshot-ph&quot;></div>';">
+              <a class="roster-name-link" href="{{ href }}">
+                {{ p.full_name_zh if lang == 'zh' and p.full_name_zh else p.full_name }}
+              </a>
+              {% if c.status %}<span class="salary-status-chip {{ status_class }}">{{ c.status }}</span>{% endif %}
+            </div>
+          </td>
+          {% set effective_cap = c.cap_hit_usd or c.cash_annual_usd %}
+          <td class="num cap-hit" data-sort-value="{{ effective_cap or 0 }}">
+            {% if effective_cap %}${{ "%.2f"|format(effective_cap / 1000000) }}M{% else %}—{% endif %}
+          </td>
+          <td class="contract-cell" data-sort-value="{{ c.start_season or 0 }}">
+            {% if c.years %}{{ c.years }}{{ t('y', '年') }}{% endif %}{% if c.total_value_usd %} / ${{ "%.0f"|format(c.total_value_usd / 1000000) }}M{% endif %}
+            {% if c.start_season and c.end_season %}<span style="opacity:0.6;"> ({{ c.start_season }}–{{ c.end_season }})</span>{% endif %}
+          </td>
+          <td class="contract-cell" data-sort-value="{{ (c.contract_type or '')|lower }}">{{ c.contract_type or '—' }}</td>
+          <td class="contract-cell" data-sort-value="{{ (c.signed_using or '')|lower }}">{{ c.signed_using or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>{{ t('Total', '合计') }}</td>
+          <td class="num cap-hit">${{ "%.1f"|format(ns_total.cap / 1000000) }}M</td>
+          <td colspan="3" class="contract-cell">
+            {% if ns_total.cash and ns_total.cash != ns_total.cap %}{{ t('Cash', '现金') }}: ${{ "%.1f"|format(ns_total.cash / 1000000) }}M{% endif %}
+          </td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 </div>
