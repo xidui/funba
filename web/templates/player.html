@@ -749,7 +749,7 @@
   .sal-chart-legend .lg-sw {
     width: 10px; height: 10px; border-radius: 2px;
   }
-  .sal-chart-svg { display: block; width: 100%; height: auto; }
+  .sal-chart-svg { display: block; width: 100%; height: auto; overflow: hidden; }
   .sal-chart-svg .bar { transition: opacity 0.12s ease; cursor: pointer; }
   .sal-chart-svg .bar:hover { opacity: 0.78; }
   .sal-chart-svg .bar-future { opacity: 0.55; }
@@ -2718,13 +2718,14 @@
     {# ───────── Cap-hit-by-year SVG chart ───────── #}
     {% set yrs = salary_panel.chart_years %}
     {% if yrs %}
-    {% set max_value = (yrs|map(attribute='cap_hit_usd')|select|list)|max if (yrs|map(attribute='cap_hit_usd')|select|list) else 0 %}
-    {# Also consider league cap so the dashed line is visible #}
-    {% set max_cap = (salary_panel.cap_lines|map(attribute='cap')|select|list)|max if (salary_panel.cap_lines|map(attribute='cap')|select|list) else 0 %}
-    {% set y_max = ([max_value, max_cap]|max) %}
-    {% set y_max = (y_max * 1.05)|round(0, 'ceil')|int if y_max else 1 %}
-    {# Round up to nearest $5M for nicer axis ticks #}
-    {% set tick_step = 5000000 %}
+    {% set _vals = yrs|map(attribute='cap_hit_usd')|select|list %}
+    {% set max_value = _vals|max if _vals else 0 %}
+    {# Y-axis fits the bars (not the league cap) so even rookie-scale
+       contracts get prominent bars. The dashed cap line still draws
+       and naturally clips to the plot area when it's off the top. #}
+    {% set y_max = (max_value * 1.18)|round(0, 'ceil')|int if max_value else 1 %}
+    {# Round up to a nice tick step ($5M for big careers, $1M for rookies) #}
+    {% set tick_step = 5000000 if max_value >= 15000000 else (1000000 if max_value >= 3000000 else 500000) %}
     {% set y_top = ((y_max // tick_step) + 1) * tick_step %}
 
     {% set chart_w = 1000 %}
@@ -2770,7 +2771,7 @@
           {% set yv = i * tick_step %}
           {% set yp = m_top + plot_h - (yv / y_top) * plot_h %}
           <line class="axis-line" x1="{{ m_left }}" y1="{{ yp }}" x2="{{ m_left + plot_w }}" y2="{{ yp }}"/>
-          <text class="axis-text" x="{{ m_left - 6 }}" y="{{ yp + 3 }}" text-anchor="end">${{ (yv/1000000)|int }}M</text>
+          <text class="axis-text" x="{{ m_left - 6 }}" y="{{ yp + 3 }}" text-anchor="end">{% if yv >= 1000000 %}${{ "%.0f"|format(yv/1000000) }}M{% elif yv >= 1000 %}${{ "%.0f"|format(yv/1000) }}K{% else %}${{ yv|int }}{% endif %}</text>
         {% endfor %}
 
         {# Bars (one per season) #}
