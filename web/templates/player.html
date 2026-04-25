@@ -352,12 +352,20 @@
     padding: 16px 20px;
     transition: padding 0.2s ease, background 0.2s ease,
                 border-radius 0.2s ease;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
   }
   @media (max-width: 540px) {
     .player-hero { top: 64px; }
   }
+  /* Suppress the inherited .card fadeUp animation on the hero — it
+     interacts badly with sticky positioning + early class toggling
+     and adds a perceived load delay on a long page. */
+  .player-hero { animation: none !important; }
+
+  /* While the inline early-init script is still deciding initial
+     state, suppress all transitions so we never animate on first
+     paint (no expand → collapse flicker). */
+  .player-hero.no-anim,
+  .player-hero.no-anim * { transition: none !important; }
 
   /* Compact "stuck" state */
   .player-hero.is-stuck {
@@ -366,6 +374,8 @@
     border-radius: 0 0 12px 12px;
     border-top: none;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
   .player-hero.is-stuck .player-header {
     align-items: center;
@@ -1398,7 +1408,7 @@
 
 <!-- ── Unified sticky player hero (identity + section nav) ─────────── -->
 <div id="player-hero-sentinel" style="height:1px;"></div>
-<div class="card player-hero" id="player-hero">
+<div class="card player-hero no-anim" id="player-hero">
   <div class="player-header">
     <div class="player-avatar-wrap">
       <img
@@ -1553,6 +1563,24 @@
     </nav>
   </div>
 </div>
+<script>
+  // Run as soon as the hero is parsed (long before the rest of the
+  // 8MB+ player page finishes) so the section nav state is correct on
+  // first paint — no expand→collapse flicker after deferred scroll.
+  (function () {
+    var hero = document.getElementById('player-hero');
+    var sentinel = document.getElementById('player-hero-sentinel');
+    if (!hero || !sentinel) return;
+    if (sentinel.getBoundingClientRect().bottom <= 0) {
+      hero.classList.add('is-stuck');
+    }
+    // Lift the transition guard after one frame so subsequent
+    // stuck/un-stuck toggles still animate smoothly.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { hero.classList.remove('no-anim'); });
+    });
+  })();
+</script>
 
 {% if player_stint_timeline %}
 <div class="card" id="section-teams">
