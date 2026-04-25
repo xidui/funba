@@ -2188,10 +2188,13 @@
     function navigateToChip(chip) {
       const href = chip.getAttribute("href");
       if (!href) return;
-      // Preserve the current section so the user lands on the same place
-      // on the destination team's page.
+      // Preserve the current season + section so the user lands on the
+      // same season AND the same #section on the destination team's
+      // page. The picker only lists teams that played the selected
+      // season, so carrying ?season=… across the jump is always safe.
+      const search = window.location.search || "";
       const hash = window.location.hash || "";
-      window.location.href = href + hash;
+      window.location.href = href + search + hash;
     }
 
     chips.forEach((chip) => {
