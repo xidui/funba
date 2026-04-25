@@ -72,28 +72,41 @@
   .team-championship-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .team-championship-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--award-gold);
+    letter-spacing: 0.04em;
+    margin-right: 4px;
   }
 
   .team-championship-pill {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
+    padding: 5px 10px;
     border-radius: 999px;
     border: 1px solid rgba(251, 191, 36, 0.25);
     background: var(--award-gold-dim);
     color: var(--award-gold);
     font-family: 'Outfit', sans-serif;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 700;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
+    text-decoration: none;
   }
 
   .team-championship-pill:hover {
     text-decoration: none;
-    filter: brightness(1.05);
+    filter: brightness(1.15);
+    border-color: rgba(251, 191, 36, 0.5);
   }
 
   /* ── Team info grid ─────────────────────────────────────── */
@@ -1111,11 +1124,8 @@
 
     <nav class="team-section-nav" id="team-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
       <div class="team-section-nav-inner">
-        {% if team.arena or team.owner or team.general_manager or roster_coaches %}
+        {% if team.arena or team.owner or team.general_manager or roster_coaches or team_championships %}
         <button class="team-nav-btn" data-target="section-info">{{ t('Info', '信息') }}</button>
-        {% endif %}
-        {% if team_championships %}
-        <button class="team-nav-btn" data-target="section-championships">{{ t('Championships', '总冠军') }}</button>
         {% endif %}
         {% if roster_players %}
         <button class="team-nav-btn" data-target="section-roster">{{ t('Roster', '名单') }}</button>
@@ -1204,9 +1214,20 @@
 
 {% set head_coaches = (roster_coaches or []) | selectattr('is_assistant', 'equalto', false) | list %}
 {% set assistants = (roster_coaches or []) | selectattr('is_assistant', 'equalto', true) | list %}
-{% if team.arena or team.owner or team.general_manager or roster_coaches %}
+{% if team.arena or team.owner or team.general_manager or roster_coaches or team_championships %}
 <div class="card" id="section-info">
   <h2>{{ t('Team Info', '球队信息') }}</h2>
+  {% if team_championships %}
+  <div class="team-championship-row" aria-label="{{ t('Championships', '总冠军') }}">
+    <span class="team-championship-label">🏆 {{ team_championships|length }} {{ t('Championships', '总冠军') }}</span>
+    {% for championship in team_championships %}
+    <a
+      class="team-championship-pill"
+      href="{{ url_for('awards_page', type='champion', season=championship.season) }}"
+    >{{ championship.season_label }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div class="team-info-grid">
     {% if team.general_manager %}
     <div class="team-info-item">
@@ -1266,23 +1287,6 @@
     {% if team.facebook_url %}<a href="{{ team.facebook_url }}" target="_blank" rel="noopener">Facebook</a>{% endif %}
   </div>
   {% endif %}
-</div>
-{% endif %}
-
-{% if team_championships %}
-<div class="card" id="section-championships">
-  <h2>{{ t('Championships', '总冠军') }}</h2>
-  <div class="team-championship-row">
-    {% for championship in team_championships %}
-    <a
-      class="team-championship-pill"
-      href="{{ url_for('awards_page', type='champion', season=championship.season) }}"
-    >
-      <span>🏆</span>
-      <span>{{ championship.season_label }}</span>
-    </a>
-    {% endfor %}
-  </div>
 </div>
 {% endif %}
 
