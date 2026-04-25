@@ -5476,6 +5476,14 @@ _PROXIED_SCRAPER_LOOKBACK = timedelta(minutes=5)
 _PROXIED_SCRAPER_CACHE_SECONDS = 60
 _PROXIED_SCRAPER_MIN_DISTINCT_IPS = 30
 _PROXIED_SCRAPER_UNIQUE_IP_RATIO_PCT = 80
+_STALE_UA_LOOKBACK = timedelta(hours=1)
+_STALE_UA_CACHE_SECONDS = 60
+_STALE_UA_MIN_DISTINCT_IPS = 5
+_STALE_UA_UNIQUE_IP_RATIO_PCT = 90
+_STALE_BROWSER_MAX_CHROME = 138
+_STALE_BROWSER_MAX_FIREFOX = 132
+_CHROME_VERSION_RE = re.compile(r"Chrome/(\d+)")
+_FIREFOX_VERSION_RE = re.compile(r"Firefox/(\d+)")
 
 
 def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
@@ -5605,6 +5613,66 @@ def _is_proxied_scraper_ua() -> bool:
     return _proxied_scraper_ua_cached(ua, cache_bucket)
 
 
+def _is_stale_browser_ua(user_agent: str) -> bool:
+    ua = user_agent or ""
+    chrome_match = _CHROME_VERSION_RE.search(ua)
+    if chrome_match:
+        # Skip Chromium derivatives that ship behind upstream Chrome.
+        if "Edg/" in ua or "OPR/" in ua or "YaBrowser/" in ua:
+            return False
+        try:
+            return int(chrome_match.group(1)) <= _STALE_BROWSER_MAX_CHROME
+        except ValueError:
+            return False
+    firefox_match = _FIREFOX_VERSION_RE.search(ua)
+    if firefox_match:
+        try:
+            return int(firefox_match.group(1)) <= _STALE_BROWSER_MAX_FIREFOX
+        except ValueError:
+            return False
+    return False
+
+
+@lru_cache(maxsize=8192)
+def _stale_ua_scraper_cached(user_agent: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    ua = (user_agent or "").strip()
+    if not ua or len(ua) < _MIN_REAL_UA_LENGTH:
+        return False
+    if not _is_stale_browser_ua(ua):
+        return False
+    cutoff = datetime.utcnow() - _STALE_UA_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(func.distinct(PageView.ip_address)).label("uniq_ips"),
+                    func.count(PageView.id).label("pv"),
+                )
+                .filter(
+                    PageView.user_agent == ua,
+                    PageView.created_at >= cutoff,
+                )
+                .one()
+            )
+            uniq = int(row.uniq_ips or 0)
+            pv = int(row.pv or 0)
+            if uniq < _STALE_UA_MIN_DISTINCT_IPS or pv == 0:
+                return False
+            return uniq * 100 >= pv * _STALE_UA_UNIQUE_IP_RATIO_PCT
+    except Exception:
+        logger.exception("stale UA scraper lookup failed")
+        return False
+
+
+def _is_stale_ua_scraper() -> bool:
+    ua = (request.user_agent.string or "").strip()
+    if not ua:
+        return False
+    cache_bucket = int(time.time() // _STALE_UA_CACHE_SECONDS)
+    return _stale_ua_scraper_cached(ua, cache_bucket)
+
+
 def _request_crawler_decision() -> dict[str, object]:
     cached = getattr(g, "_crawler_decision", None)
     if cached is not None:
@@ -5637,6 +5705,12 @@ def _request_crawler_decision() -> dict[str, object]:
             decision = {
                 "is_crawler": True,
                 "crawler_name": "proxied-scraper",
+                "should_block": False,
+            }
+        elif not app.config.get("TESTING") and _is_stale_ua_scraper():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "stale-ua-scraper",
                 "should_block": False,
             }
         elif not app.config.get("TESTING") and _is_bot():
