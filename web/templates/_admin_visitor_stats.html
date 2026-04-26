@@ -30,6 +30,12 @@
         <option value="180">180 days</option>
         <option value="365">1 year</option>
       </select>
+      <select id="vs-granularity-select" style="height:28px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:12px;font-family:Inter,sans-serif;" title="Bucket size">
+        <option value="">Auto</option>
+        <option value="hour">Hour</option>
+        <option value="day">Day</option>
+        <option value="week">Week</option>
+      </select>
       <input type="date" id="vs-date-from" style="height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:12px;font-family:Inter,sans-serif;color-scheme:dark;" title="From date" />
       <span style="color:var(--muted);font-size:11px;">→</span>
       <input type="date" id="vs-date-to" style="height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:12px;font-family:Inter,sans-serif;color-scheme:dark;" title="To date" />
@@ -71,6 +77,7 @@
 
   var canvas = document.getElementById('vs-chart');
   var rangeSelect = document.getElementById('vs-range-select');
+  var granularitySelect = document.getElementById('vs-granularity-select');
   var dateFrom = document.getElementById('vs-date-from');
   var dateTo = document.getElementById('vs-date-to');
   var resetBtn = document.getElementById('vs-reset-zoom');
@@ -229,14 +236,19 @@
 
   function loadData() {
     var url = '/api/admin/visitor-timeseries';
+    var params = [];
     var fromVal = (dateFrom && dateFrom.value) || '';
     var toVal = (dateTo && dateTo.value) || '';
     if (fromVal && toVal) {
-      url += '?from=' + encodeURIComponent(fromVal) + '&to=' + encodeURIComponent(toVal);
+      params.push('from=' + encodeURIComponent(fromVal));
+      params.push('to=' + encodeURIComponent(toVal));
     } else {
       var days = rangeSelect.value || 90;
-      url += '?days=' + days;
+      params.push('days=' + days);
     }
+    var gran = (granularitySelect && granularitySelect.value) || '';
+    if (gran) params.push('granularity=' + encodeURIComponent(gran));
+    if (params.length) url += '?' + params.join('&');
     fetch(url, {
       headers: {'X-Requested-With': 'fetch'},
       credentials: 'same-origin',
@@ -262,6 +274,7 @@
   }
   if (dateFrom) dateFrom.addEventListener('change', onDateChange);
   if (dateTo) dateTo.addEventListener('change', onDateChange);
+  if (granularitySelect) granularitySelect.addEventListener('change', loadData);
   resetBtn.addEventListener('click', function() {
     if (chart) { chart.resetZoom(); }
     resetBtn.style.display = 'none';

@@ -570,10 +570,16 @@ def register_admin_misc_routes(app, deps):
         if end is None:
             end = datetime.utcnow() + timedelta(days=1)
 
-        year_col = extract("year", PageView.created_at)
-        month_col = extract("month", PageView.created_at)
-        day_col = extract("day", PageView.created_at)
-        hour_col = extract("hour", PageView.created_at)
+        granularity = (request.args.get("granularity") or "").strip().lower()
+        if granularity not in ("hour", "day", "week"):
+            # Auto-pick: small ranges → hour, mid → day, large → week
+            window_days = (end - cutoff).total_seconds() / 86400
+            if window_days <= 3:
+                granularity = "hour"
+            elif window_days <= 60:
+                granularity = "day"
+            else:
+                granularity = "week"
 
         external_ref = and_(
             PageView.referrer.isnot(None),
@@ -582,16 +588,37 @@ def register_admin_misc_routes(app, deps):
             not_(PageView.referrer.like("http%://www.funba.app%")),
         )
 
+        if granularity == "hour":
+            bucket_cols = [
+                extract("year", PageView.created_at).label("k1"),
+                extract("month", PageView.created_at).label("k2"),
+                extract("day", PageView.created_at).label("k3"),
+                extract("hour", PageView.created_at).label("k4"),
+            ]
+            post_key_fmt = "%Y-%m-%dT%H:00:00Z"
+            row_to_date = lambda r: f"{int(r.k1):04d}-{int(r.k2):02d}-{int(r.k3):02d}T{int(r.k4):02d}:00:00Z"
+        elif granularity == "week":
+            bucket_cols = [
+                func.yearweek(PageView.created_at, 3).label("k1"),  # ISO week
+            ]
+            post_key_fmt = None  # computed manually below
+            row_to_date = None
+        else:  # day
+            bucket_cols = [
+                extract("year", PageView.created_at).label("k1"),
+                extract("month", PageView.created_at).label("k2"),
+                extract("day", PageView.created_at).label("k3"),
+            ]
+            post_key_fmt = "%Y-%m-%dT00:00:00Z"
+            row_to_date = lambda r: f"{int(r.k1):04d}-{int(r.k2):02d}-{int(r.k3):02d}T00:00:00Z"
+
         with SessionLocal() as session:
-            # Per-(hour, visitor) aggregate to evaluate verified-in-this-hour
-            visitor_hour_subq = (
+            # Per-(bucket, visitor) aggregate to evaluate verified-in-this-bucket.
+            visitor_subq = (
                 session.query(
-                    year_col.label("y"),
-                    month_col.label("m"),
-                    day_col.label("d"),
-                    hour_col.label("h"),
+                    *bucket_cols,
                     PageView.visitor_id.label("vid"),
-                    func.count(PageView.id).label("pv_in_hour"),
+                    func.count(PageView.id).label("pv_in_bucket"),
                     func.max(case((external_ref, 1), else_=0)).label("has_ext"),
                 )
                 .filter(
@@ -599,47 +626,53 @@ def register_admin_misc_routes(app, deps):
                     PageView.created_at < end,
                     human_page_view_filter(PageView),
                 )
-                .group_by("y", "m", "d", "h", PageView.visitor_id)
+                .group_by(*[c.element for c in bucket_cols], PageView.visitor_id)
                 .subquery()
             )
+            sub_keys = [visitor_subq.c[col.name] for col in bucket_cols]
             rows = (
                 session.query(
-                    visitor_hour_subq.c.y,
-                    visitor_hour_subq.c.m,
-                    visitor_hour_subq.c.d,
-                    visitor_hour_subq.c.h,
-                    func.sum(visitor_hour_subq.c.pv_in_hour).label("views"),
+                    *sub_keys,
+                    func.sum(visitor_subq.c.pv_in_bucket).label("views"),
                     func.count().label("unique"),
                     func.sum(
                         case(
-                            (or_(visitor_hour_subq.c.has_ext == 1, visitor_hour_subq.c.pv_in_hour >= 2), 1),
+                            (or_(visitor_subq.c.has_ext == 1, visitor_subq.c.pv_in_bucket >= 2), 1),
                             else_=0,
                         )
                     ).label("verified"),
                 )
-                .group_by(
-                    visitor_hour_subq.c.y,
-                    visitor_hour_subq.c.m,
-                    visitor_hour_subq.c.d,
-                    visitor_hour_subq.c.h,
-                )
-                .order_by(
-                    visitor_hour_subq.c.y,
-                    visitor_hour_subq.c.m,
-                    visitor_hour_subq.c.d,
-                    visitor_hour_subq.c.h,
-                )
+                .group_by(*sub_keys)
+                .order_by(*sub_keys)
                 .all()
             )
-            data = [
-                {
-                    "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00Z",
-                    "views": int(r.views or 0),
-                    "unique": int(r.unique or 0),
-                    "verified": int(r.verified or 0),
-                }
-                for r in rows
-            ]
+
+            if granularity == "week":
+                # yearweek(date, 3) returns yyyyww (ISO). Convert to date of Monday.
+                def _yearweek_to_iso(yw: int) -> str:
+                    s = str(int(yw))
+                    yyyy, ww = int(s[:4]), int(s[4:])
+                    monday = datetime.fromisocalendar(yyyy, ww, 1)
+                    return monday.strftime("%Y-%m-%dT00:00:00Z")
+                data = [
+                    {
+                        "date": _yearweek_to_iso(r.k1),
+                        "views": int(r.views or 0),
+                        "unique": int(r.unique or 0),
+                        "verified": int(r.verified or 0),
+                    }
+                    for r in rows
+                ]
+            else:
+                data = [
+                    {
+                        "date": row_to_date(r),
+                        "views": int(r.views or 0),
+                        "unique": int(r.unique or 0),
+                        "verified": int(r.verified or 0),
+                    }
+                    for r in rows
+                ]
 
             posts = (
                 session.query(SocialPostDelivery.published_at, SocialPostDelivery.platform, SocialPostVariant.title)
@@ -655,15 +688,24 @@ def register_admin_misc_routes(app, deps):
             )
             from collections import OrderedDict
 
+            def _post_bucket_key(dt):
+                if granularity == "hour":
+                    return dt.strftime("%Y-%m-%dT%H:00:00Z")
+                if granularity == "week":
+                    iso = dt.isocalendar()
+                    monday = datetime.fromisocalendar(iso.year, iso.week, 1)
+                    return monday.strftime("%Y-%m-%dT00:00:00Z")
+                return dt.strftime("%Y-%m-%dT00:00:00Z")
+
             post_buckets: dict[str, dict] = OrderedDict()
             for p in posts:
-                key = p.published_at.strftime("%Y-%m-%dT%H:00:00Z")
+                key = _post_bucket_key(p.published_at)
                 bucket = post_buckets.setdefault(key, {"date": key, "count": 0, "titles": []})
                 bucket["count"] += 1
                 label = f"[{p.platform}] {(p.title or '')[:60]}"
                 bucket["titles"].append(label)
             post_data = list(post_buckets.values())
-        return jsonify({"ok": True, "series": data, "posts": post_data})
+        return jsonify({"ok": True, "series": data, "posts": post_data, "granularity": granularity})
 
     def api_admin_update_runtime_flags():
         denied = deps.require_admin_json()()
