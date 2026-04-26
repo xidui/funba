@@ -29,6 +29,9 @@
         <option value="180">180 days</option>
         <option value="365">1 year</option>
       </select>
+      <input type="date" id="vs-date-from" style="height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:12px;font-family:Inter,sans-serif;color-scheme:dark;" title="From date" />
+      <span style="color:var(--muted);font-size:11px;">→</span>
+      <input type="date" id="vs-date-to" style="height:28px;padding:0 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font-size:12px;font-family:Inter,sans-serif;color-scheme:dark;" title="To date" />
       <button id="vs-reset-zoom" style="height:28px;padding:0 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;display:none;">Reset Zoom</button>
     </div>
   </div>
@@ -36,7 +39,7 @@
     <canvas id="vs-chart"></canvas>
   </div>
   <div id="vs-chart-hint" style="margin-top:6px;font-size:11px;color:var(--muted);text-align:center;">
-    Drag to select range &middot; Shift+drag to pan &middot; Scroll to zoom
+    Drag to pan &middot; Scroll / pinch to zoom &middot; Pick dates above for custom range
   </div>
 </div>
 
@@ -67,6 +70,8 @@
 
   var canvas = document.getElementById('vs-chart');
   var rangeSelect = document.getElementById('vs-range-select');
+  var dateFrom = document.getElementById('vs-date-from');
+  var dateTo = document.getElementById('vs-date-to');
   var resetBtn = document.getElementById('vs-reset-zoom');
   if (!canvas) return;
 
@@ -74,6 +79,7 @@
   var postTitleMap = {};  // date string -> titles array
 
   var accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f97316';
+  var winColor = getComputedStyle(document.documentElement).getPropertyValue('--win').trim() || '#4ade80';
   var mutedColor = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#94a3b8';
   var borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#1e293b';
   var textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e2e8f0';
@@ -83,6 +89,7 @@
     var labels = series.map(function(d) { return d.date; });
     var uniqueData = series.map(function(d) { return d.unique; });
     var viewsData = series.map(function(d) { return d.views; });
+    var verifiedData = series.map(function(d) { return d.verified || 0; });
 
     // Build post count aligned to the same hourly labels, and title map
     postTitleMap = {};
@@ -106,6 +113,18 @@
             borderColor: accentColor,
             backgroundColor: accentColor + '22',
             fill: true,
+            tension: 0.3,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            borderWidth: 2,
+            yAxisID: 'y',
+          },
+          {
+            label: 'Verified',
+            data: verifiedData,
+            borderColor: winColor,
+            backgroundColor: 'transparent',
+            fill: false,
             tension: 0.3,
             pointRadius: 2,
             pointHoverRadius: 5,
@@ -189,16 +208,15 @@
             }
           },
           zoom: {
-            pan: { enabled: true, mode: 'x', modifierKey: 'shift' },
+            pan: {
+              enabled: true,
+              mode: 'x',
+              onPanComplete: function() { resetBtn.style.display = 'inline-block'; },
+            },
             zoom: {
               wheel: { enabled: true },
               pinch: { enabled: true },
-              drag: {
-                enabled: true,
-                backgroundColor: accentColor + '18',
-                borderColor: accentColor + '66',
-                borderWidth: 1,
-              },
+              drag: { enabled: false },
               mode: 'x',
               onZoomComplete: function() { resetBtn.style.display = 'inline-block'; },
             }
@@ -209,8 +227,16 @@
   }
 
   function loadData() {
-    var days = rangeSelect.value || 90;
-    fetch('/api/admin/visitor-timeseries?days=' + days, {
+    var url = '/api/admin/visitor-timeseries';
+    var fromVal = (dateFrom && dateFrom.value) || '';
+    var toVal = (dateTo && dateTo.value) || '';
+    if (fromVal && toVal) {
+      url += '?from=' + encodeURIComponent(fromVal) + '&to=' + encodeURIComponent(toVal);
+    } else {
+      var days = rangeSelect.value || 90;
+      url += '?days=' + days;
+    }
+    fetch(url, {
       headers: {'X-Requested-With': 'fetch'},
       credentials: 'same-origin',
     })
@@ -224,7 +250,17 @@
     .catch(function() {});
   }
 
-  rangeSelect.addEventListener('change', loadData);
+  rangeSelect.addEventListener('change', function() {
+    // Clear date pickers when preset changes — preset takes over
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
+    loadData();
+  });
+  function onDateChange() {
+    if (dateFrom.value && dateTo.value) loadData();
+  }
+  if (dateFrom) dateFrom.addEventListener('change', onDateChange);
+  if (dateTo) dateTo.addEventListener('change', onDateChange);
   resetBtn.addEventListener('click', function() {
     if (chart) { chart.resetZoom(); }
     resetBtn.style.display = 'none';

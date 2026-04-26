@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 from flask import abort, jsonify, redirect, request, url_for
-from sqlalchemy import and_, extract, func, not_, or_
+from sqlalchemy import and_, case, extract, func, not_, or_
 
 
 def _format_schedule_interval(schedule) -> str:
@@ -549,30 +549,97 @@ def register_admin_misc_routes(app, deps):
         SocialPostVariant = deps.social_post_variant_model()
         SessionLocal = deps.session_local()
 
-        days = min(int(request.args.get("days", 90)), 365)
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        # Manual date range overrides days param
+        from_str = (request.args.get("from") or "").strip()
+        to_str = (request.args.get("to") or "").strip()
+        cutoff = None
+        end = None
+        if from_str:
+            try:
+                cutoff = datetime.fromisoformat(from_str)
+            except ValueError:
+                cutoff = None
+        if to_str:
+            try:
+                end = datetime.fromisoformat(to_str) + timedelta(days=1)  # inclusive
+            except ValueError:
+                end = None
+        if cutoff is None:
+            days = min(int(request.args.get("days", 90)), 365)
+            cutoff = datetime.utcnow() - timedelta(days=days)
+        if end is None:
+            end = datetime.utcnow() + timedelta(days=1)
 
         year_col = extract("year", PageView.created_at)
         month_col = extract("month", PageView.created_at)
         day_col = extract("day", PageView.created_at)
         hour_col = extract("hour", PageView.created_at)
 
+        external_ref = and_(
+            PageView.referrer.isnot(None),
+            PageView.referrer != "",
+            not_(PageView.referrer.like("http%://funba.app%")),
+            not_(PageView.referrer.like("http%://www.funba.app%")),
+        )
+
         with SessionLocal() as session:
-            rows = (
+            # Per-(hour, visitor) aggregate to evaluate verified-in-this-hour
+            visitor_hour_subq = (
                 session.query(
                     year_col.label("y"),
                     month_col.label("m"),
                     day_col.label("d"),
                     hour_col.label("h"),
-                    func.count(PageView.id).label("views"),
-                    func.count(func.distinct(PageView.visitor_id)).label("unique"),
+                    PageView.visitor_id.label("vid"),
+                    func.count(PageView.id).label("pv_in_hour"),
+                    func.max(case((external_ref, 1), else_=0)).label("has_ext"),
                 )
-                .filter(PageView.created_at >= cutoff, human_page_view_filter(PageView))
-                .group_by("y", "m", "d", "h")
-                .order_by("y", "m", "d", "h")
+                .filter(
+                    PageView.created_at >= cutoff,
+                    PageView.created_at < end,
+                    human_page_view_filter(PageView),
+                )
+                .group_by("y", "m", "d", "h", PageView.visitor_id)
+                .subquery()
+            )
+            rows = (
+                session.query(
+                    visitor_hour_subq.c.y,
+                    visitor_hour_subq.c.m,
+                    visitor_hour_subq.c.d,
+                    visitor_hour_subq.c.h,
+                    func.sum(visitor_hour_subq.c.pv_in_hour).label("views"),
+                    func.count().label("unique"),
+                    func.sum(
+                        case(
+                            (or_(visitor_hour_subq.c.has_ext == 1, visitor_hour_subq.c.pv_in_hour >= 2), 1),
+                            else_=0,
+                        )
+                    ).label("verified"),
+                )
+                .group_by(
+                    visitor_hour_subq.c.y,
+                    visitor_hour_subq.c.m,
+                    visitor_hour_subq.c.d,
+                    visitor_hour_subq.c.h,
+                )
+                .order_by(
+                    visitor_hour_subq.c.y,
+                    visitor_hour_subq.c.m,
+                    visitor_hour_subq.c.d,
+                    visitor_hour_subq.c.h,
+                )
                 .all()
             )
-            data = [{"date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00Z", "views": r.views, "unique": r.unique} for r in rows]
+            data = [
+                {
+                    "date": f"{int(r.y):04d}-{int(r.m):02d}-{int(r.d):02d}T{int(r.h):02d}:00:00Z",
+                    "views": int(r.views or 0),
+                    "unique": int(r.unique or 0),
+                    "verified": int(r.verified or 0),
+                }
+                for r in rows
+            ]
 
             posts = (
                 session.query(SocialPostDelivery.published_at, SocialPostDelivery.platform, SocialPostVariant.title)
@@ -580,6 +647,7 @@ def register_admin_misc_routes(app, deps):
                 .filter(
                     SocialPostDelivery.status == "published",
                     SocialPostDelivery.published_at >= cutoff,
+                    SocialPostDelivery.published_at < end,
                     SocialPostDelivery.published_at.isnot(None),
                 )
                 .order_by(SocialPostDelivery.published_at)
