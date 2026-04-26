@@ -1861,7 +1861,7 @@
               </svg>
             </a>
           {% elif r.sub_key_info and r.sub_key_info.type == 'game' %}
-            <a href="{{ game_url(r.sub_key_info.game_slug or r.sub_key_info.game_id) }}"
+            <a href="{{ game_url(r.sub_key_info.game_id) }}"
                style="display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none;">
               {% if r.sub_key_info.road_team_id %}
               <img src="{{ team_logo(r.sub_key_info.road_team_id, season_year(r.sub_key_info.season or current_metric_season)) }}"
