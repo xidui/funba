@@ -1887,7 +1887,10 @@
         {% endif %}
         <td class="right col-value">
           {% set _games_meta = r.games_meta or [] %}
-          {% if _games_meta|length == 1 %}
+          {% if metric_def.sub_key_type == 'game_id' and r.sub_key_info and r.sub_key_info.game_id %}
+            {# Per-game metrics: each row is a single (player, game). Value links straight to that game — no drilldown. #}
+            <a class="value-cell value-cell-game-link" href="{{ game_url(r.sub_key_info.game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ r.value_str or r.value_num }}</a>
+          {% elif _games_meta|length == 1 %}
             <a class="value-cell value-cell-game-link" href="{{ game_url(_games_meta[0].game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ r.value_str or r.value_num }}</a>
           {% elif _games_meta|length > 1 %}
             <button type="button" class="value-cell value-cell-trigger md-split-trigger" data-row-idx="{{ loop.index }}" title="{{ r.qual_total }} {{ t('games — click to expand', '场比赛 — 点击展开') }}">
