@@ -22,7 +22,7 @@ from random import randint
 import uuid
 
 from celery import chord, shared_task
-from sqlalchemy import func, text
+from sqlalchemy import and_, func, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
@@ -130,26 +130,34 @@ def create_metric_compute_run(
     season: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    force: bool = False,
 ) -> tuple[MetricComputeRun, bool]:
-    """Create a new MetricComputeRun unless one is already active for this metric."""
-    with _session_factory()() as session:
-        existing = (
-            session.query(MetricComputeRun)
-            .filter(
-                MetricComputeRun.metric_key == metric_key,
-                MetricComputeRun.status.in_(("mapping", "reducing")),
-            )
-            .order_by(MetricComputeRun.created_at.desc())
-            .first()
-        )
-        if existing is not None:
-            session.expunge(existing)
-            return existing, False
+    """Create a new MetricComputeRun unless one is already active for this metric.
 
-        session.query(MetricComputeRun).filter(
-            MetricComputeRun.metric_key == metric_key,
-            MetricComputeRun.status.in_(("complete", "failed")),
-        ).delete(synchronize_session=False)
+    `force=True` deletes any existing run (active or terminal) and creates a
+    fresh one. Use this from re-dispatch flows where the prior run may be
+    stuck (e.g. chord callback never fired after task retries).
+    """
+    with _session_factory()() as session:
+        if not force:
+            existing = (
+                session.query(MetricComputeRun)
+                .filter(
+                    MetricComputeRun.metric_key == metric_key,
+                    MetricComputeRun.status.in_(("mapping", "reducing")),
+                )
+                .order_by(MetricComputeRun.created_at.desc())
+                .first()
+            )
+            if existing is not None:
+                session.expunge(existing)
+                return existing, False
+
+        terminal_states = ("complete", "failed")
+        delete_filter = MetricComputeRun.metric_key == metric_key
+        if not force:
+            delete_filter = and_(delete_filter, MetricComputeRun.status.in_(terminal_states))
+        session.query(MetricComputeRun).filter(delete_filter).delete(synchronize_session=False)
 
         run = MetricComputeRun(
             id=str(uuid.uuid4()),
@@ -174,6 +182,7 @@ def enqueue_season_metric_refresh(
     *,
     metrics: list | None = None,
     game_ids: list[str] | set[str] | None = None,
+    reset_tracking: bool = False,
 ) -> dict:
     from metrics.framework.base import WINDOW_DISPATCH_ORDER, WINDOW_SEASONS, season_matches_metric_types, season_type_for
     from metrics.framework.runtime import get_all_metrics
@@ -215,7 +224,7 @@ def enqueue_season_metric_refresh(
         scheduled_metrics += 1
         has_career = getattr(m, "supports_career", False) and bool(eligible_career_buckets)
         task_count = len(eligible_seasons) + (len(eligible_career_buckets) if has_career else 0)
-        run, created = create_metric_compute_run(m.key, task_count)
+        run, created = create_metric_compute_run(m.key, task_count, force=reset_tracking)
         run_id = run.id if created else None
         if not created:
             logger.info("season metric refresh: active compute run exists for %s (%s)", m.key, run.id)

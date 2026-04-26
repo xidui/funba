@@ -797,7 +797,7 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
         finally:
             sess.close()
 
-    result = enqueue_season_metric_refresh(seasons, metrics=metrics)
+    result = enqueue_season_metric_refresh(seasons, metrics=metrics, reset_tracking=args.reset_tracking)
 
     if result.get("callbacks"):
         print(
@@ -906,6 +906,12 @@ def main() -> None:
     )
     p_sm.add_argument("--metric", default=None, help="Single metric key, or omit for all season metrics.")
     p_sm.add_argument("--season", default=None, help="Single season (e.g. 22025), or omit for all seasons.")
+    p_sm.add_argument(
+        "--reset-tracking",
+        action="store_true",
+        help="Force-replace any existing MetricComputeRun (including stuck mapping/reducing rows) "
+             "with a fresh one. Use when a prior dispatch left tracking stale.",
+    )
     p_sm.set_defaults(func=cmd_season_metrics)
 
     args = parser.parse_args()
