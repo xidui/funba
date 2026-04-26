@@ -2813,10 +2813,14 @@ def _finalize_triggered_result(result: dict[str, list[dict]], game_id: str) -> d
     for kind in ("player", "team"):
         result[kind] = _dedupe_triggered_cards(result.get(kind) or [], game_id)
         result[kind].sort(key=lambda c: (c.get("best_ratio", 1.0), c.get("rank") or 10**9))
+        # Per-game extrema metrics (sub_key_type=game_id) add multiple cards per
+        # game (top bench scorers etc.) that can be displaced by milestone cards
+        # at the lower end. Headroom bumped from 32 to 60 so prefilter (20 cap)
+        # can choose from a larger candidate pool.
         if kind == "player":
-            del result[kind][32:]
+            del result[kind][60:]
         else:
-            del result[kind][20:]
+            del result[kind][30:]
     return result
 
 
@@ -2887,6 +2891,25 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         )
         .all()
     )
+    # Per-game extrema metrics (sub_key_type=game_id) store one row per
+    # (player, game) — without filtering by game_id we'd surface ALL of the
+    # player's other games this season as candidates for THIS game's curation.
+    if entity_rows:
+        per_game_metric_keys = {
+            row[0] for row in (
+                session.query(MetricDefinitionModel.key)
+                .filter(
+                    MetricDefinitionModel.key.in_({k[0] for k in trigger_keys}),
+                    MetricDefinitionModel.sub_key_type == "game_id",
+                )
+                .all()
+            )
+        }
+        if per_game_metric_keys:
+            entity_rows = [
+                r for r in entity_rows
+                if r.metric_key not in per_game_metric_keys or str(r.game_id) == str(game_id)
+            ]
     if not entity_rows:
         return _finalize_triggered_result(milestone_result, game_id)
 

@@ -610,6 +610,36 @@ def register_metric_detail_routes(app, deps):
                             "player_id": str(pid),
                             "slug": slug,
                         }
+                elif sub_key_type == "game_id" and sub_key_values:
+                    Game = deps.game_model()
+                    for g in (
+                        session.query(
+                            Game.game_id, Game.game_date,
+                            Game.home_team_id, Game.road_team_id,
+                            Game.home_team_score, Game.road_team_score,
+                            Game.slug, Game.season,
+                        )
+                        .filter(Game.game_id.in_(list(sub_key_values)))
+                        .all()
+                    ):
+                        home_abbr = deps.team_abbr()(team_map, g.home_team_id) if g.home_team_id else None
+                        road_abbr = deps.team_abbr()(team_map, g.road_team_id) if g.road_team_id else None
+                        date_str = deps.fmt_date()(g.game_date) if g.game_date else None
+                        sub_key_labels[str(g.game_id)] = {
+                            "type": "game",
+                            "label": f"{road_abbr or '?'} @ {home_abbr or '?'}",
+                            "game_id": str(g.game_id),
+                            "game_slug": g.slug,
+                            "game_date": g.game_date.isoformat() if g.game_date else None,
+                            "game_date_str": date_str,
+                            "home_team_id": str(g.home_team_id) if g.home_team_id else None,
+                            "road_team_id": str(g.road_team_id) if g.road_team_id else None,
+                            "home_abbr": home_abbr,
+                            "road_abbr": road_abbr,
+                            "home_score": g.home_team_score,
+                            "road_score": g.road_team_score,
+                            "season": str(g.season) if g.season else None,
+                        }
             rank_labels = {1: "Best", 2: "2nd best", 3: "3rd best"}
             scope_label = {"player": "players", "player_franchise": "franchise stints", "team": "teams", "game": "results", "season": "seasons"}.get(metric_def.scope, "entities")
             if is_career_metric:

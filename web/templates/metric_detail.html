@@ -1860,6 +1860,22 @@
                 <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
               </svg>
             </a>
+          {% elif r.sub_key_info and r.sub_key_info.type == 'game' %}
+            <a href="{{ game_url(r.sub_key_info.game_slug or r.sub_key_info.game_id) }}"
+               style="display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none;">
+              {% if r.sub_key_info.road_team_id %}
+              <img src="{{ team_logo(r.sub_key_info.road_team_id, season_year(r.sub_key_info.season or current_metric_season)) }}"
+                   alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
+              {% endif %}
+              <span>{{ r.sub_key_info.road_abbr or '?' }}</span>
+              <span class="entity-team-sep">@</span>
+              {% if r.sub_key_info.home_team_id %}
+              <img src="{{ team_logo(r.sub_key_info.home_team_id, season_year(r.sub_key_info.season or current_metric_season)) }}"
+                   alt="" loading="lazy" style="width:16px;height:16px;" onerror="this.style.display='none'">
+              {% endif %}
+              <span>{{ r.sub_key_info.home_abbr or '?' }}</span>
+              {% if r.sub_key_info.game_date_str %}<span style="color:var(--muted-2);font-size:11px;margin-left:4px;">{{ r.sub_key_info.game_date_str }}</span>{% endif %}
+            </a>
           {% else %}
             {{ r.sub_key or '—' }}
           {% endif %}
