@@ -3,7 +3,14 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-AVAILABLE_LLM_MODELS = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")
+AVAILABLE_LLM_MODELS = (
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+)
 AVAILABLE_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
 SEARCH_LLM_MODEL_SETTING_KEY = "llm_model_search"
@@ -15,6 +22,9 @@ _MODEL_PROVIDER = {
     "gpt-5.4": "openai",
     "gpt-5.4-mini": "openai",
     "gpt-5.4-nano": "openai",
+    "claude-opus-4-7": "anthropic",
+    "claude-sonnet-4-6": "anthropic",
+    "claude-haiku-4-5": "anthropic",
 }
 
 _PROVIDER_ENV_KEY = {
@@ -36,6 +46,18 @@ def _setting_model():
 
 def available_llm_models() -> list[str]:
     return list(AVAILABLE_LLM_MODELS)
+
+
+def available_llm_models_meta() -> list[dict]:
+    return [
+        {
+            "id": model,
+            "provider": _MODEL_PROVIDER[model],
+            "provider_label": _PROVIDER_LABEL[_MODEL_PROVIDER[model]],
+            "available": provider_is_configured(model),
+        }
+        for model in AVAILABLE_LLM_MODELS
+    ]
 
 
 def validate_llm_model(model: str) -> str:
@@ -67,6 +89,8 @@ def ensure_model_available(model: str) -> str:
 def env_default_llm_model() -> str | None:
     if os.getenv("OPENAI_API_KEY"):
         return "gpt-5.4"
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "claude-opus-4-7"
     return None
 
 
@@ -184,7 +208,7 @@ def resolve_llm_model(session, requested_model: str | None = None, purpose: str 
     if fallback:
         return fallback
 
-    raise ValueError("No AI API key set — set OPENAI_API_KEY.")
+    raise ValueError("No AI API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY.")
 
 
 def set_default_llm_model(session, model: str) -> str:

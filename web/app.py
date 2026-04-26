@@ -33,6 +33,7 @@ from social_media.images import store_prepared_image
 from db.llm_models import (
     AVAILABLE_REASONING_EFFORTS,
     available_llm_models,
+    available_llm_models_meta,
     get_curator_reasoning_effort,
     get_default_llm_model_for_ui,
     get_llm_model_for_purpose,
@@ -7717,6 +7718,7 @@ _admin_misc_views = register_admin_misc_routes(
         set_default_llm_model=lambda: set_default_llm_model,
         set_llm_model_for_purpose=lambda: set_llm_model_for_purpose,
         available_llm_models=lambda: available_llm_models,
+        available_llm_models_meta=lambda: available_llm_models_meta,
         get_curator_reasoning_effort=lambda: get_curator_reasoning_effort,
         set_curator_reasoning_effort=lambda: set_curator_reasoning_effort,
         available_reasoning_efforts=lambda: lambda: AVAILABLE_REASONING_EFFORTS,

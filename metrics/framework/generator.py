@@ -609,16 +609,34 @@ def _call_llm_with_system(
         return response.choices[0].message.content.strip()
     elif provider == "anthropic":
         import anthropic
-        client = anthropic.Anthropic()
-        message = client.messages.create(
-            model=selected_model,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=messages,
-        )
+        client = anthropic.Anthropic(max_retries=0, timeout=600)
+        # Anthropic requires max_tokens; pick a sane default when caller passes None.
+        anthropic_max_tokens = max_tokens if max_tokens is not None else 16384
+        kwargs: dict = {
+            "model": selected_model,
+            "max_tokens": anthropic_max_tokens,
+            "system": system_prompt,
+            "messages": messages,
+        }
+        # Map our reasoning_effort to Anthropic adaptive thinking + effort. Haiku
+        # does not support the `effort` knob, so just toggle adaptive thinking.
+        effort = (reasoning_effort or "").strip().lower()
+        if effort and effort != "none":
+            kwargs["thinking"] = {"type": "adaptive"}
+            if "haiku" not in selected_model:
+                ant_effort = effort
+                if "sonnet" in selected_model and ant_effort in ("xhigh", "max"):
+                    ant_effort = "high"  # Sonnet caps at high
+                elif "opus-4-6" in selected_model and ant_effort == "xhigh":
+                    ant_effort = "max"  # xhigh is Opus 4.7-only
+                kwargs["output_config"] = {"effort": ant_effort}
+        message = client.messages.create(**kwargs)
         if usage_recorder:
             usage_recorder(extract_provider_usage(provider, message, selected_model))
-        return message.content[0].text.strip()
+        text_block = next((b for b in message.content if getattr(b, "type", None) == "text"), None)
+        if text_block is None:
+            raise ValueError(f"Anthropic response had no text block (model={selected_model})")
+        return text_block.text.strip()
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 

@@ -572,6 +572,29 @@
       });
     }
 
+    function renderModelOptions(selectEl, modelsMeta, selected) {
+      // modelsMeta: [{id, provider, provider_label, available}]
+      selectEl.innerHTML = '';
+      const byProvider = new Map();
+      modelsMeta.forEach((m) => {
+        if (!byProvider.has(m.provider_label)) byProvider.set(m.provider_label, []);
+        byProvider.get(m.provider_label).push(m);
+      });
+      byProvider.forEach((models, label) => {
+        const group = document.createElement('optgroup');
+        group.label = label;
+        models.forEach((m) => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.available ? m.id : `${m.id} (no API key)`;
+          opt.disabled = !m.available;
+          opt.selected = m.id === selected;
+          group.appendChild(opt);
+        });
+        selectEl.appendChild(group);
+      });
+    }
+
     function setStatus(message, type) {
       status.textContent = message || '';
       status.className = 'llm-settings-status' + (type ? ' ' + type : '');
@@ -597,10 +620,14 @@
         const data = await res.json();
         if (!res.ok) throw new Error((data && data.error) || 'Failed to load.');
         const models = data.available_models || {{ llm_available_models | tojson }};
+        const modelsMeta = data.available_models_meta;
         const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
-        renderOptions(searchSelect, models, data.search_model);
-        renderOptions(generateSelect, models, data.generate_model);
-        renderOptions(curatorSelect, models, data.curator_model);
+        const renderModel = modelsMeta
+          ? (sel, val) => renderModelOptions(sel, modelsMeta, val)
+          : (sel, val) => renderOptions(sel, models, val);
+        renderModel(searchSelect, data.search_model);
+        renderModel(generateSelect, data.generate_model);
+        renderModel(curatorSelect, data.curator_model);
         renderOptions(reasoningSelect, efforts, data.curator_reasoning);
         setDisabled(false);
       } catch (err) {
@@ -625,10 +652,14 @@
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
         const models = data.available_models || {{ llm_available_models | tojson }};
+        const modelsMeta = data.available_models_meta;
         const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
-        if (data.search_model) renderOptions(searchSelect, models, data.search_model);
-        if (data.generate_model) renderOptions(generateSelect, models, data.generate_model);
-        if (data.curator_model) renderOptions(curatorSelect, models, data.curator_model);
+        const renderModel = modelsMeta
+          ? (sel, val) => renderModelOptions(sel, modelsMeta, val)
+          : (sel, val) => renderOptions(sel, models, val);
+        if (data.search_model) renderModel(searchSelect, data.search_model);
+        if (data.generate_model) renderModel(generateSelect, data.generate_model);
+        if (data.curator_model) renderModel(curatorSelect, data.curator_model);
         if (data.curator_reasoning) renderOptions(reasoningSelect, efforts, data.curator_reasoning);
         setStatus('Saved', 'success');
       } catch (err) {

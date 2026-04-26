@@ -463,6 +463,9 @@ def register_admin_misc_routes(app, deps):
                 "curator_model": deps.get_llm_model_for_purpose()(session, "curator"),
                 "available_models": deps.available_llm_models()(),
             }
+            models_meta = getattr(deps, "available_llm_models_meta", None)
+            if callable(models_meta):
+                payload["available_models_meta"] = models_meta()()
             get_curator_reasoning = getattr(deps, "get_curator_reasoning_effort", None)
             if callable(get_curator_reasoning):
                 payload["curator_reasoning"] = get_curator_reasoning()(session)
@@ -523,7 +526,11 @@ def register_admin_misc_routes(app, deps):
         except Exception as exc:
             deps.logger().exception("failed to save admin model config")
             return jsonify({"ok": False, "error": str(exc)}), 500
-        return jsonify({"ok": True, **result, "available_models": deps.available_llm_models()()})
+        response_payload = {"ok": True, **result, "available_models": deps.available_llm_models()()}
+        models_meta = getattr(deps, "available_llm_models_meta", None)
+        if callable(models_meta):
+            response_payload["available_models_meta"] = models_meta()()
+        return jsonify(response_payload)
 
     def api_admin_runtime_flags():
         denied = deps.require_admin_json()()
