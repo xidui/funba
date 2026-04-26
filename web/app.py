@@ -5470,7 +5470,9 @@ _BOT_SIGNATURES = (
 _CURL_USER_AGENT_SIGNATURES = ("curl/",)
 _CURL_ALLOWED_IPS_ENV = "FUNBA_CURL_ALLOWED_IPS"
 _ANALYTICS_EXCLUDE_IPS_ENV = "FUNBA_ANALYTICS_EXCLUDE_IPS"
-_ANALYTICS_EXCLUDE_UA_SIGNATURES = ("claude-code", "codex", "anthropic", "openai")
+_AI_READER_UA_SIGNATURES = ("chatgpt-user", "oai-searchbot")
+_AI_CODING_UA_SIGNATURES = ("claude-code", "codex", "anthropic")
+_ANALYTICS_EXCLUDE_UA_SIGNATURES = _AI_CODING_UA_SIGNATURES + _AI_READER_UA_SIGNATURES
 
 # Bare or too-short UAs are almost never real browsers
 _MIN_REAL_UA_LENGTH = 40
@@ -5532,6 +5534,11 @@ def _is_allowlisted_crawler_name(crawler_name: str | None) -> bool:
 def _is_curl_user_agent(user_agent: str | None = None) -> bool:
     ua = ((request.user_agent.string if user_agent is None else user_agent) or "").lower().strip()
     return any(sig in ua for sig in _CURL_USER_AGENT_SIGNATURES)
+
+
+def _is_ai_reader_user_agent(user_agent: str | None = None) -> bool:
+    ua = ((request.user_agent.string if user_agent is None else user_agent) or "").lower().strip()
+    return any(sig in ua for sig in _AI_READER_UA_SIGNATURES)
 
 
 def _ip_matches_allowlist(ip_address: str | None, allowlist: str | None) -> bool:
@@ -5873,9 +5880,12 @@ def _block_bots():
     # Allow curl only from explicitly configured local/admin IPs.
     if _is_allowed_curl_request():
         return
-    # Exempt AI coding tools (Claude Code, Codex) by User-Agent
+    # Exempt user-triggered AI readers such as ChatGPT browsing/search.
+    if _is_ai_reader_user_agent():
+        return
+    # Exempt AI coding tools (Claude Code, Codex) by User-Agent.
     ua = (request.user_agent.string or "").lower().strip()
-    if any(sig in ua for sig in ("claude-code", "codex", "anthropic", "openai")):
+    if any(sig in ua for sig in _AI_CODING_UA_SIGNATURES):
         return
     crawler_decision = _request_crawler_decision()
     if crawler_decision["is_crawler"] and crawler_decision["should_block"]:

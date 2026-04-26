@@ -321,6 +321,66 @@ class TestCrawlerTracking(unittest.TestCase):
             ):
                 self.assertIsNone(self.web_app._block_bots())
 
+    def test_chatgpt_user_short_ua_is_allowed(self):
+        with self.app.test_request_context(
+            "/metrics/lowest_second_quarter_fg_pct_last3",
+            headers={"User-Agent": "ChatGPT-User/1.0"},
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            self.assertIsNone(self.web_app._block_bots())
+
+    def test_openai_searchbot_short_ua_is_allowed(self):
+        with self.app.test_request_context(
+            "/metrics/lowest_second_quarter_fg_pct_last3",
+            headers={"User-Agent": "OAI-SearchBot/1.3"},
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            self.assertIsNone(self.web_app._block_bots())
+
+    def test_gptbot_remains_blocked(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/metrics/lowest_second_quarter_fg_pct_last3",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); "
+                    "compatible; GPTBot/1.3; +https://openai.com/gptbot"
+                )
+            },
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                response = self.web_app._block_bots()
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "gptbot")
+
+    def test_chatgpt_user_is_excluded_from_pageview_analytics(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        with self.app.test_request_context(
+            "/metrics/lowest_second_quarter_fg_pct_last3",
+            headers={"User-Agent": "ChatGPT-User/1.0"},
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            with patch("web.app.PageView", FakePageView), \
+                 patch("web.app.SessionLocal", return_value=self._session_ctx()):
+                self.web_app._track_page_view()
+
+        self.assertEqual(captured, [])
+
     def test_unconfigured_external_curl_is_blocked(self):
         captured = []
 
