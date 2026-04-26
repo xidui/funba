@@ -1351,10 +1351,10 @@ def register_detail_routes(
             future_window = 5  # current + next 4 future seasons
 
             try:
-                from db.models import PlayerContract, PlayerContractYear
+                from db.models import PlayerContract, PlayerContractYear, PlayerSalary as _PSal
                 from db.league_salary_caps import get_thresholds as _get_caps
             except (ImportError, AttributeError):
-                PlayerContract = PlayerContractYear = None
+                PlayerContract = PlayerContractYear = _PSal = None
                 _get_caps = None
 
             if (
@@ -1393,6 +1393,21 @@ def register_detail_routes(
                     ):
                         by_pid_season[key] = (cy, c)
 
+                # BR PlayerSalary fallback: gives a per-year actual paid salary
+                # (no contract structure) for years/players Spotrac doesn't cover.
+                # BR only stores past/current seasons — no future projections.
+                br_by_pid_season: dict[tuple[str, int], int] = {}
+                if _PSal is not None:
+                    for r in (
+                        session.query(_PSal.player_id, _PSal.season, _PSal.salary_usd)
+                        .filter(
+                            _PSal.player_id.in_(roster_pids),
+                            _PSal.season.in_(salary_seasons),
+                        )
+                        .all()
+                    ):
+                        br_by_pid_season[(r.player_id, r.season)] = int(r.salary_usd or 0)
+
                 def _effective(cy_) -> int | None:
                     if cy_ is None:
                         return None
@@ -1401,40 +1416,76 @@ def register_detail_routes(
                 for p in roster_players:
                     pid = p["player_id"]
                     cur_pair = by_pid_season.get((pid, _sel_year))
-                    if cur_pair is None:
-                        p["contract"] = None
-                        p["future_caps"] = []
-                        continue
-                    cy, c = cur_pair
-                    p["contract"] = {
-                        "cap_hit_usd": cy.cap_hit_usd,
-                        "cash_annual_usd": cy.cash_annual_usd,
-                        "status": cy.status,
-                        "contract_type": c.contract_type,
-                        "years": c.years,
-                        "start_season": c.start_season,
-                        "end_season": c.end_season,
-                        "total_value_usd": c.total_value_usd,
-                        "aav_usd": c.aav_usd,
-                        "guaranteed_usd": c.guaranteed_usd,
-                        "signed_with_team_id": c.signed_with_team_id,
-                        "signed_using": c.signed_using,
-                    }
-                    p["effective_cap_usd"] = _effective(cy)
-                    # Per-future-season cap hits, parallel array to salary_seasons
+                    if cur_pair is not None:
+                        cy, c = cur_pair
+                        p["contract"] = {
+                            "cap_hit_usd": cy.cap_hit_usd,
+                            "cash_annual_usd": cy.cash_annual_usd,
+                            "status": cy.status,
+                            "contract_type": c.contract_type,
+                            "years": c.years,
+                            "start_season": c.start_season,
+                            "end_season": c.end_season,
+                            "total_value_usd": c.total_value_usd,
+                            "aav_usd": c.aav_usd,
+                            "guaranteed_usd": c.guaranteed_usd,
+                            "signed_with_team_id": c.signed_with_team_id,
+                            "signed_using": c.signed_using,
+                            "source": "spotrac",
+                        }
+                        p["effective_cap_usd"] = _effective(cy)
+                    else:
+                        # No Spotrac contract for this season — fall back to BR
+                        # if we have a salary number, else leave the row blank
+                        # so the user can see who's missing data.
+                        br_val = br_by_pid_season.get((pid, _sel_year))
+                        if br_val:
+                            p["contract"] = {
+                                "cap_hit_usd": br_val,
+                                "cash_annual_usd": br_val,
+                                "status": None,
+                                "contract_type": None,
+                                "years": None,
+                                "start_season": None,
+                                "end_season": None,
+                                "total_value_usd": None,
+                                "aav_usd": None,
+                                "guaranteed_usd": None,
+                                "signed_with_team_id": None,
+                                "signed_using": None,
+                                "source": "br",
+                            }
+                            p["effective_cap_usd"] = br_val
+                        else:
+                            p["contract"] = None
+                            p["effective_cap_usd"] = None
+
+                    # Per-future-season cap hits, parallel array to salary_seasons.
+                    # Spotrac wins; BR fills in. BR has no future data, so future
+                    # cells stay None for BR-only players (rendered as '—').
                     p["future_caps"] = []
                     for s in salary_seasons:
                         pair_s = by_pid_season.get((pid, s))
                         cy_s = pair_s[0] if pair_s else None
-                        p["future_caps"].append({
-                            "season": s,
-                            "cap_hit_usd": _effective(cy_s),
-                            "status": cy_s.status if cy_s else None,
-                        })
+                        sp_val = _effective(cy_s)
+                        if sp_val is not None:
+                            cell = {"season": s, "cap_hit_usd": sp_val,
+                                    "status": cy_s.status if cy_s else None,
+                                    "source": "spotrac"}
+                        else:
+                            br_val = br_by_pid_season.get((pid, s))
+                            cell = {"season": s, "cap_hit_usd": br_val if br_val else None,
+                                    "status": None,
+                                    "source": "br" if br_val else None}
+                        p["future_caps"].append(cell)
 
+                # Include EVERY roster player in salary_players — even ones with
+                # no contract / no salary at all — so the panel shows who's
+                # missing rather than silently dropping them. Sort by effective
+                # cap desc; missing-data rows sink to the bottom.
                 salary_players = sorted(
-                    [p for p in roster_players if p.get("contract")],
-                    key=lambda p: -(p.get("effective_cap_usd") or 0),
+                    list(roster_players),
+                    key=lambda p: (-(p.get("effective_cap_usd") or 0), p["full_name"] or ""),
                 )
 
                 # ── Per-season team totals (powers the multi-year grid totals) ─
@@ -1463,7 +1514,14 @@ def register_detail_routes(
 
                 bucket_totals: dict[str, dict] = {b: {"position": b, "total_usd": 0, "count": 0, "players": []}
                                                   for b in ("G", "F", "C", "Other")}
+                # Position bucket aggregates only players with cap data — a
+                # $0.0M chip for a no-data player would visually confuse the
+                # by-position breakdown. Roster + Multi-Year tabs still show
+                # everyone (including missing-data rows) so the user can see
+                # who's missing.
                 for p in salary_players:
+                    if not (p.get("effective_cap_usd") or 0):
+                        continue
                     bucket = _bucket(p.get("position"))
                     bucket_totals[bucket]["total_usd"] += p.get("effective_cap_usd") or 0
                     bucket_totals[bucket]["count"] += 1
