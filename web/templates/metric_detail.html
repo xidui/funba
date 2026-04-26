@@ -2388,7 +2388,7 @@ function toggleRelatedMore(btn) {
   const metricKey = {{ metric_def.key | tojson }};
   const drilldownPreviewEnabled = {{ _drilldown_preview_enabled | tojson }};
   const drilldownLoginUrl = {{ _drilldown_login_url | tojson }};
-  const drilldownPreviewHeadlineZh = {{ lang == 'zh' | tojson }};
+  const drilldownPreviewHeadlineZh = {{ (lang == 'zh') | tojson }};
   const drilldownPreviewHeadlineFmt = drilldownPreviewHeadlineZh
     ? (n) => `查看全部 <span class="dd-count">${n}</span> 场比赛`
     : (n) => `See all <span class="dd-count">${n}</span> games`;
