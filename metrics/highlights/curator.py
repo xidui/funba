@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 DEFAULT_MODEL = "gpt-5.4"
-DEFAULT_REASONING_EFFORT = "xhigh"
+DEFAULT_REASONING_EFFORT = "none"
 MAX_HERO = 2
 MAX_NOTABLE = 6
 MAX_TRIGGERED_HERO = 2

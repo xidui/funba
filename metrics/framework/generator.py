@@ -598,7 +598,7 @@ def _call_llm_with_system(
         }
         if max_tokens is not None:
             kwargs["max_completion_tokens"] = max_tokens
-        if reasoning_effort:
+        if reasoning_effort and reasoning_effort.lower() != "none":
             # Reasoning-enabled GPT-5.4 models reject temperature=0, so skip it.
             kwargs["reasoning_effort"] = reasoning_effort
         else:

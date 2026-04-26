@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 AVAILABLE_LLM_MODELS = (
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
@@ -19,6 +20,7 @@ CURATOR_LLM_MODEL_SETTING_KEY = "llm_model_curator"
 CURATOR_REASONING_SETTING_KEY = "llm_reasoning_curator"
 
 _MODEL_PROVIDER = {
+    "gpt-5.5": "openai",
     "gpt-5.4": "openai",
     "gpt-5.4-mini": "openai",
     "gpt-5.4-nano": "openai",
@@ -160,16 +162,16 @@ def set_llm_model_for_purpose(session, purpose: str, model: str) -> str:
 def get_curator_reasoning_effort(session) -> str:
     """Return the configured reasoning_effort for the highlight curator.
 
-    Defaults to 'xhigh' when no setting is stored.
+    Defaults to 'none' when no setting is stored.
     """
     setting_model = _setting_model()
     if setting_model is None:
-        return "xhigh"
+        return "none"
     row = session.get(setting_model, CURATOR_REASONING_SETTING_KEY)
     if row is None:
-        return "xhigh"
+        return "none"
     value = str(row.value or "").strip().lower()
-    return value if value in AVAILABLE_REASONING_EFFORTS else "xhigh"
+    return value if value in AVAILABLE_REASONING_EFFORTS else "none"
 
 
 def set_curator_reasoning_effort(session, effort: str) -> str:
