@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 from flask import abort, jsonify, redirect, request, url_for
-from sqlalchemy import extract, func
+from sqlalchemy import and_, extract, func, not_, or_
 
 
 def _format_schedule_interval(schedule) -> str:
@@ -127,6 +127,35 @@ def register_admin_misc_routes(app, deps):
                 cutoff_24h = now_dt - timedelta(hours=24)
                 cutoff_7d = now_dt - timedelta(days=7)
                 cutoff_30d = now_dt - timedelta(days=30)
+
+                def _verified_unique(cutoff):
+                    """Visitors that either had an external referrer or a multi-page session."""
+                    external_ref = and_(
+                        PageView.referrer.isnot(None),
+                        PageView.referrer != "",
+                        not_(PageView.referrer.like("http%://funba.app%")),
+                        not_(PageView.referrer.like("http%://www.funba.app%")),
+                    )
+                    external_visitors = (
+                        session.query(PageView.visitor_id)
+                        .filter(PageView.created_at >= cutoff, human_page_view_filter(PageView), external_ref)
+                        .distinct()
+                    )
+                    multi_pv_visitors = (
+                        session.query(PageView.visitor_id)
+                        .filter(PageView.created_at >= cutoff, human_page_view_filter(PageView))
+                        .group_by(PageView.visitor_id)
+                        .having(func.count(PageView.id) >= 2)
+                    )
+                    return session.query(func.count(func.distinct(PageView.visitor_id))).filter(
+                        PageView.created_at >= cutoff,
+                        human_page_view_filter(PageView),
+                        or_(
+                            PageView.visitor_id.in_(external_visitors),
+                            PageView.visitor_id.in_(multi_pv_visitors),
+                        ),
+                    ).scalar() or 0
+
                 visitor_stats = {
                     "user_count": session.query(func.count(User.id)).scalar() or 0,
                     "views_24h": session.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff_24h, human_page_view_filter(PageView)).scalar() or 0,
@@ -135,6 +164,9 @@ def register_admin_misc_routes(app, deps):
                     "unique_24h": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_24h, human_page_view_filter(PageView)).scalar() or 0,
                     "unique_7d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_7d, human_page_view_filter(PageView)).scalar() or 0,
                     "unique_30d": session.query(func.count(func.distinct(PageView.visitor_id))).filter(PageView.created_at >= cutoff_30d, human_page_view_filter(PageView)).scalar() or 0,
+                    "verified_24h": _verified_unique(cutoff_24h),
+                    "verified_7d": _verified_unique(cutoff_7d),
+                    "verified_30d": _verified_unique(cutoff_30d),
                 }
                 return deps.render_template()("_admin_visitor_stats.html", visitor_stats=visitor_stats)
 
