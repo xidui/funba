@@ -404,17 +404,20 @@
 
   /* ── Section nav: icon row in the compressed player-hero. ───── */
   /* When the hero is "stuck", a tight row of square icon buttons
-     appears in the slot to the right of the avatar. Each button
-     hovers a tooltip with the section label. */
+     appears at the right of the avatar. Each button hovers a
+     tooltip with the section label. Hidden on mobile to keep the
+     compressed hero a single tidy row. */
   .player-section-nav {
     display: none;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     align-items: center;
-    justify-content: flex-end;
-    margin: 0 0 0 12px;
+    margin-left: auto;
     min-width: 0;
   }
   .player-hero.is-stuck .player-section-nav { display: flex; }
+  @media (max-width: 720px) {
+    .player-hero.is-stuck .player-section-nav { display: none; }
+  }
   .player-section-nav-inner {
     display: flex;
     align-items: center;

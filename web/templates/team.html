@@ -1185,19 +1185,22 @@
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
 
-  /* ── Section nav: icon row in the compressed team-hero's middle. ── */
+  /* ── Section nav: icon row pinned to the right of the stuck hero. ── */
   /* When the hero is "stuck", a tight row of square icon buttons
-     appears in the empty middle slot. Each button hovers a tooltip
-     with the section label. */
+     appears just left of the season picker. Each button hovers a
+     tooltip with the section label. Hidden on mobile to keep the
+     compressed hero a single tidy row. */
   .team-section-nav {
     display: none;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     align-items: center;
-    justify-content: center;
-    margin: 0 12px;
+    margin-left: auto;
     min-width: 0;
   }
   .team-hero.is-stuck .team-section-nav { display: flex; }
+  @media (max-width: 720px) {
+    .team-hero.is-stuck .team-section-nav { display: none; }
+  }
   .team-section-nav-inner {
     display: flex;
     align-items: center;
