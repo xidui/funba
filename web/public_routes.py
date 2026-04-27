@@ -1118,6 +1118,20 @@ def register_public_routes(
                 ],
             }
 
+    def _parse_hero_topic(topic: str) -> dict:
+        """Decode 'Hero Highlight — {game_id} — {scope} — {metric_key} — {entity_id}'."""
+        if not topic:
+            return {}
+        parts = [p.strip() for p in str(topic).split("—")]
+        if len(parts) < 5 or parts[0] != "Hero Highlight":
+            return {}
+        return {
+            "source_game_id": parts[1],
+            "source_scope": parts[2],
+            "source_metric_key": parts[3],
+            "source_entity_id": parts[4],
+        }
+
     def _build_featured_highlights(team_lookup: dict, limit: int = 12) -> list[dict]:
         """Hero card posts published to Funba's home feed (platform=funba)."""
         from os.path import basename
@@ -1207,6 +1221,7 @@ def register_public_routes(
                 # renders the poster image directly above the text.
                 body = (variant.content_raw or "").replace("[[IMAGE:slot=poster]]", "").strip()
 
+                source = _parse_hero_topic(post.topic)
                 entries.append(
                     {
                         "post_id": int(post.id),
@@ -1216,6 +1231,8 @@ def register_public_routes(
                         "game_url": game_url,
                         "game_title": game_title,
                         "published_at": delivery.published_at,
+                        "game_date": getattr(game, "game_date", None) if game is not None else None,
+                        **source,
                     }
                 )
             return entries
@@ -1313,6 +1330,47 @@ def register_public_routes(
         top_scorers = _build_top_scorers()
         featured_highlights = _build_featured_highlights(team_lookup)
 
+        # ── merge text-only notable cards with image-dominant featured posters
+        # into one waterfall, with dedup so a metric that already has a poster
+        # doesn't also appear as its plain-text card.
+        covered: set[tuple[str, str, str, str]] = set()
+        for fh in featured_highlights:
+            key = (
+                str(fh.get("source_game_id") or ""),
+                str(fh.get("source_scope") or ""),
+                str(fh.get("source_metric_key") or ""),
+                str(fh.get("source_entity_id") or ""),
+            )
+            if all(key):
+                covered.add(key)
+
+        def _notable_match_keys(card: dict) -> list[tuple[str, str, str, str]]:
+            scope = str(card.get("subject_kind") or "")
+            metric_key = str(card.get("metric_key") or "")
+            game_id = str(card.get("game_id") or card.get("home_game_id") or "")
+            entity = str(card.get("entity_id") or card.get("player_id") or card.get("team_id") or "")
+            keys: list[tuple[str, str, str, str]] = []
+            if game_id and metric_key:
+                keys.append((game_id, scope, metric_key, entity))
+            return keys
+
+        feed_items: list[dict] = [{"kind": "image", **fh} for fh in featured_highlights]
+        for card in (notable_recent.get("cards") or []):
+            if any(k in covered for k in _notable_match_keys(card)):
+                continue
+            feed_items.append({"kind": "notable", **card})
+
+        # Sort: most recent game first; within a game, image cards before text.
+        def _feed_sort_key(item: dict) -> tuple:
+            gd = item.get("game_date")
+            ts = gd.toordinal() if hasattr(gd, "toordinal") else 0
+            kind_rank = 0 if item.get("kind") == "image" else 1
+            ratio = item.get("ratio") or item.get("best_ratio") or 9999
+            return (-ts, kind_rank, ratio)
+
+        feed_items.sort(key=_feed_sort_key)
+        feed_items = feed_items[:_NOTABLE_MAX_CARDS + len(featured_highlights)]
+
         games_active = [g for g in today_games_data if g.get("status") in (GAME_STATUS_LIVE, GAME_STATUS_COMPLETED)]
         upcoming_games = [
             g for g in today_games_data
@@ -1336,6 +1394,7 @@ def register_public_routes(
             notable_recent=notable_recent,
             top_scorers=top_scorers,
             featured_highlights=featured_highlights,
+            feed_items=feed_items,
         )
 
     def _build_home_news(team_lookup: dict, limit: int = 15) -> list[dict]:

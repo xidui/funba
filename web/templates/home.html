@@ -903,18 +903,25 @@
     }
   }
 
-  /* Featured Highlights — image-dominant hero card posters */
-  .featured-highlights-card { margin-top: 16px; }
-  .fh-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: 12px;
+  /* Merged feed waterfall — image-dominant hero card posters mixed
+     with text-only notable stat cards. CSS columns gives true masonry
+     so tall image cards and short text cards pack tightly. */
+  .feed-waterfall {
+    column-count: 2;
+    column-gap: 10px;
+    margin-top: 8px;
   }
-  @media (max-width: 540px) {
-    .fh-grid { grid-template-columns: 1fr; }
+  @media (max-width: 720px) {
+    .feed-waterfall { column-count: 1; }
   }
-  .fh-card {
+  .feed-waterfall > .feed-card {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 10px;
+    width: 100%;
+  }
+  .feed-image-card {
     display: flex;
     flex-direction: column;
     text-decoration: none;
@@ -925,7 +932,7 @@
     overflow: hidden;
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
-  .fh-card:hover {
+  .feed-image-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(0,0,0,.25);
     border-color: var(--accent, #f97316);
@@ -1071,7 +1078,6 @@
   <!-- CENTER COLUMN: notable stats from recent games                   -->
   <!-- ================================================================ -->
   <main class="home-col-center">
-    {% set notable_cards = notable_recent.cards if notable_recent else [] %}
     {% set notable_dates = notable_recent.game_dates if notable_recent else [] %}
     <div class="card notable-card">
       <div class="notable-header">
@@ -1086,15 +1092,27 @@
         </span>
         {% endif %}
       </div>
-      {% if notable_cards %}
-      <div class="tem-grid">
-        {% for m in notable_cards %}
-          {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
-          {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
-          {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
-          {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
-          <a class="tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
-             href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
+      {% if feed_items %}
+      <div class="feed-waterfall">
+        {% for item in feed_items %}
+          {% if item.kind == 'image' %}
+            <a class="feed-card feed-image-card" href="{{ item.game_url or '#' }}">
+              {% if item.poster_url %}
+                <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
+              {% endif %}
+              <div class="fh-body">
+                <div class="fh-title">{{ item.title }}</div>
+                {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
+              </div>
+            </a>
+          {% else %}
+            {% set m = item %}
+            {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
+            {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
+            {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
+            {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
+            <a class="feed-card tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
+               href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
             {% if m.subject_kind == 'player' %}
               {% if m.player_headshot_url %}
                 <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
@@ -1146,41 +1164,15 @@
               <div class="tem-meta"><span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span></div>
               {% endif %}
             </div>
-            {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
-          </a>
+              {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
+            </a>
+          {% endif %}
         {% endfor %}
       </div>
       {% else %}
       <p class="meta" style="margin:8px 0 0 0;">{{ t('No recent games yet. Check back after the next tip-off.', '暂无最近比赛数据，下一场比赛后再来看。') }}</p>
       {% endif %}
     </div>
-
-    {% if featured_highlights %}
-    <div class="card featured-highlights-card">
-      <div class="notable-header">
-        <h2 class="notable-title">
-          <svg class="notable-title-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-          {{ t('Featured Highlights', '本日精选') }}
-        </h2>
-      </div>
-      <div class="fh-grid">
-        {% for item in featured_highlights %}
-        <a class="fh-card" href="{{ item.game_url or '#' }}">
-          {% if item.poster_url %}
-            <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
-          {% endif %}
-          <div class="fh-body">
-            <div class="fh-title">{{ item.title }}</div>
-            {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
-            {% if not item.poster_url and item.body %}
-              <div class="fh-text">{{ item.body }}</div>
-            {% endif %}
-          </div>
-        </a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
   </main>
 
   <!-- ================================================================ -->
