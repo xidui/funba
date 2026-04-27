@@ -662,17 +662,18 @@ def backfill_posters_into_existing_posts(
             skipped += 1
             continue
         scope, metric_key, entity_id = parts[2], parts[3], parts[4]
-        # Find poster file (scope.metric_key.entity_id.png) — list_hero_posters
-        # for the game and match by all three keys.
+        # Filenames go through _safe_segment which strips ":" etc, so compare
+        # the sanitized versions on both sides.
+        safe_entity = _safe_segment(entity_id)
         candidates = list_hero_posters_for_game(game_id)
         match = next(
-            (c for c in candidates if c["scope"] == scope and c["metric_key"] == metric_key and c["entity_id"] == entity_id),
+            (c for c in candidates if c["scope"] == scope and c["metric_key"] == metric_key and c["entity_id"] == safe_entity),
             None,
         )
         if not match:
             # Fallback: match by metric_key + entity_id only (scope mismatch tolerable)
             match = next(
-                (c for c in candidates if c["metric_key"] == metric_key and c["entity_id"] == entity_id),
+                (c for c in candidates if c["metric_key"] == metric_key and c["entity_id"] == safe_entity),
                 None,
             )
         if not match:
