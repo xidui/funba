@@ -72,6 +72,7 @@ Tonight's game: {game_score_line} on {game_date} ({game_stage})
 Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trigger_in_topn %}, appears in the top {top_n} below{% else %}, sits outside the top {top_n}{% endif %})
 {% if trigger_full_line %}Trigger's full game line: {trigger_full_line}
 {% endif %}{% if trigger_team_full %}Anchor the visual identity to {trigger_team_full}'s real-world colors.
+{% endif %}{% if trigger_team_player_pool %}Players who actually played in this game for the triggering team (use ONLY these for any player likenesses; do NOT render anyone else, even famous historical figures associated with the franchise): {trigger_team_player_pool}
 {% endif %}
 
 LEADERBOARD (use these EXACT entries in this EXACT order; do not invent, substitute, or reorder)
@@ -242,6 +243,33 @@ def _format_top_row(rank: int, name: str, team_abbr: str | None, team_full: str 
     pieces.append("—")
     pieces.append(value_str)
     return " ".join(pieces)
+
+
+def _team_player_pool_for_game(session: Session, game_id: str, team_id: str) -> list[str]:
+    """Return display names of players who logged real minutes for `team_id`
+    in `game_id`, ordered by minutes played descending (most prominent first).
+
+    Used to constrain image-gen prompts: GPT image models trained on
+    pre-2025 data routinely render historical "famous" players for a
+    given team (Porzingis on Celtics, Jalen Green on Rockets, …) even
+    if those players have been traded. By passing the actual game roster
+    we let the model pick a real likeness instead of guessing.
+    """
+    if not game_id or not team_id:
+        return []
+    rows = (
+        session.query(Player.full_name, PlayerGameStats.min, PlayerGameStats.starter)
+        .join(PlayerGameStats, PlayerGameStats.player_id == Player.player_id)
+        .filter(
+            PlayerGameStats.game_id == str(game_id),
+            PlayerGameStats.team_id == str(team_id),
+            PlayerGameStats.min.isnot(None),
+            PlayerGameStats.min > 0,
+        )
+        .order_by(PlayerGameStats.starter.desc(), PlayerGameStats.min.desc())
+        .all()
+    )
+    return [r[0] for r in rows if r[0]]
 
 
 def _full_player_line(pgs: PlayerGameStats | None) -> str:
@@ -501,6 +529,30 @@ def build_prompt_context(
     road_score = game.road_team_score if game.road_team_score is not None else "?"
     game_score_line = f"{road_abbr} {road_score} @ {home_abbr} {home_score}"
 
+    # Player pool: the players who actually logged minutes in this game for
+    # the triggering team. The prompt asks the model to draw likenesses only
+    # from this list, instead of defaulting to historical famous-on-team
+    # associations from its training data.
+    trigger_team_id_for_pool: str | None = None
+    if metric_scope == "player" and trigger_entity_id:
+        pgs_row = (
+            session.query(PlayerGameStats)
+            .filter(PlayerGameStats.player_id == trigger_entity_id, PlayerGameStats.game_id == str(game.game_id))
+            .first()
+        )
+        if pgs_row is not None:
+            trigger_team_id_for_pool = str(pgs_row.team_id)
+    elif metric_scope == "team" and trigger_entity_id:
+        trigger_team_id_for_pool = trigger_entity_id.split(":")[1] if ":" in trigger_entity_id else trigger_entity_id
+    else:
+        # game scope: prefer the winner if known, else the home team.
+        if game.wining_team_id:
+            trigger_team_id_for_pool = str(game.wining_team_id)
+        elif game.home_team_id:
+            trigger_team_id_for_pool = str(game.home_team_id)
+    pool = _team_player_pool_for_game(session, str(game.game_id), trigger_team_id_for_pool or "")
+    trigger_team_player_pool = ", ".join(pool[:12]) if pool else ""
+
     game_date_str = ""
     if game.game_date:
         game_date_str = game.game_date.strftime("%b %-d, %Y") if hasattr(game.game_date, "strftime") else str(game.game_date)
@@ -539,6 +591,7 @@ def build_prompt_context(
         "title_line_1": title_line_1,
         "title_line_2": title_line_2,
         "entity_kind": entity_kind_word,
+        "trigger_team_player_pool": trigger_team_player_pool,
     }
 
 
