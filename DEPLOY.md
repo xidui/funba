@@ -55,6 +55,31 @@ droplet continues to serve `*.babyrasier.com` but is removed from the `funba.app
 
 ---
 
+## Host Context — AI agents read this first
+
+Every `launchctl`, `git -C .../deploy-main`, and `curl localhost:5001` command in this runbook only does the right thing **on the Mac Studio itself**. `launchctl` always operates on the local launchd domain — running it on the laptop will list the laptop's agents, not Mac Studio's, and silently do nothing useful.
+
+So before executing any deploy step, detect where you are:
+
+```bash
+# Prints "deploy-host" or "remote"
+if mount | grep -q 'xixihaha:.*github/funba'; then echo remote; else echo deploy-host; fi
+```
+
+- **deploy-host (Mac Studio)** — run commands directly as written below.
+- **remote (e.g. laptop where the repo is sshfs-mounted at `/Users/yuewang/mnt/xixihaha-funba`)** — wrap every deploy command in `ssh xixihaha '...'`. The `xixihaha` alias in `~/.ssh/config` resolves to the Mac Studio. Editing files locally is fine (the mount writes through), but **service management and worktree updates must run via SSH**, not on the local mount.
+
+Quick sanity check that proves you're remote:
+- Your `pwd` is under `/Users/yuewang/mnt/xixihaha-funba`
+- `launchctl list | grep app.funba` returns nothing
+- `mount | grep xixihaha` shows an `macfuse` line
+
+When in doubt: `ssh xixihaha 'launchctl list | grep app.funba'` — if that returns the `app.funba.*` entries, you needed the SSH wrapper.
+
+Code edits and `git push` work from either side (the mount writes through, and `git push` only needs network). It's just the *applying-the-deploy* steps that must run on Mac Studio.
+
+---
+
 ## Session Behavior
 
 The current Mac Studio app services are user `LaunchAgent`s under `~/Library/LaunchAgents/`.
