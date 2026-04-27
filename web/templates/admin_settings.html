@@ -362,15 +362,19 @@
     <div id="feature-access-status" class="llm-settings-status" role="status"></div>
   </div>
 
-  <!-- Platform Publishing -->
+  <!-- Pipeline Publishing matrix -->
   <div class="card">
-    <h2 style="margin-bottom:14px;">Platform Publishing</h2>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.45;">
-      Control which platforms receive new variants when game analysis is triggered. Disabling a platform here skips it in future content generation issues.
+    <h2 style="margin-bottom:6px;">Pipeline Publishing</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.55;">
+      Per-pipeline-per-platform configuration. <b>Generate</b> = create a variant for that platform when the pipeline runs.
+      <b>Auto-publish</b> = publish without human review. For platforms with external APIs (Twitter, Hupu, …) auto-publish kicks
+      off the publisher script on creation. For Funba (home feed) auto-publish marks the delivery <code>published</code> and the
+      post appears on the home waterfall immediately.
     </div>
-    <div id="platform-toggles" style="display:flex;flex-direction:column;gap:10px;">
+    <div id="publishing-matrix" style="display:flex;flex-direction:column;gap:18px;">
+      <div style="color:var(--muted);font-size:13px;">Loading…</div>
     </div>
-    <div id="platform-toggle-status" class="runtime-flag-status" role="status"></div>
+    <div id="publishing-matrix-status" class="runtime-flag-status" role="status"></div>
   </div>
 
   <!-- Metric Pipeline Flags -->
@@ -891,19 +895,11 @@
     loadConfig();
   })();
 
-  /* ── Platform Publishing Toggles ─────────────────────────────────── */
+  /* ── Pipeline Publishing Matrix ───────────────────────────────────── */
   (function () {
-    const container = document.getElementById('platform-toggles');
-    const status = document.getElementById('platform-toggle-status');
+    const container = document.getElementById('publishing-matrix');
+    const status = document.getElementById('publishing-matrix-status');
     if (!container) return;
-
-    const PLATFORMS = [
-      { key: 'platform_hupu', label: 'Hupu', help: '虎扑 — 湿乎乎的话题 + team forums' },
-      { key: 'platform_xiaohongshu', label: 'Xiaohongshu', help: '小红书 — graph note format' },
-      { key: 'platform_reddit', label: 'Reddit', help: 'Reddit — r/nba + team subreddits' },
-      { key: 'platform_twitter', label: 'Twitter', help: 'X / Twitter — hero card variants (auto-publish OFF; requires human review)' },
-      { key: 'platform_funba', label: 'Funba (home feed)', help: 'Funba 自家首页瀑布流 — auto-publish ON, no human review' },
-    ];
     let clearTimer = null;
 
     function setStatus(message, type) {
@@ -915,67 +911,104 @@
       }
     }
 
-    function render(flags) {
-      container.innerHTML = PLATFORMS.map(p => {
-        const checked = flags[p.key] ? ' checked' : '';
+    function esc(value) {
+      const div = document.createElement('div');
+      div.textContent = String(value || '');
+      return div.innerHTML;
+    }
+
+    function render(pipelines) {
+      if (!pipelines || !pipelines.length) {
+        container.innerHTML = '<div style="color:var(--muted);font-size:13px;">No pipelines registered.</div>';
+        return;
+      }
+      container.innerHTML = pipelines.map(p => {
+        const rows = p.platforms.map(pl => `
+          <tr>
+            <td style="padding:6px 10px;border-top:1px solid var(--border);font-size:13px;">
+              <div style="font-weight:600;">${esc(pl.label)}</div>
+              ${pl.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">${esc(pl.notes)}</div>` : ''}
+            </td>
+            <td style="padding:6px 10px;border-top:1px solid var(--border);text-align:center;">
+              <label class="runtime-flag-switch" style="margin:0;">
+                <input type="checkbox" data-pipeline="${esc(p.key)}" data-platform="${esc(pl.key)}" data-action="generate" ${pl.generate ? 'checked' : ''}>
+                <span>${pl.generate ? 'On' : 'Off'}</span>
+              </label>
+            </td>
+            <td style="padding:6px 10px;border-top:1px solid var(--border);text-align:center;">
+              <label class="runtime-flag-switch" style="margin:0;">
+                <input type="checkbox" data-pipeline="${esc(p.key)}" data-platform="${esc(pl.key)}" data-action="autopublish" ${pl.autopublish ? 'checked' : ''}>
+                <span>${pl.autopublish ? 'On' : 'Off'}</span>
+              </label>
+            </td>
+          </tr>`).join('');
         return `
-          <div class="runtime-flag-row">
-            <div class="runtime-flag-copy">
-              <div class="runtime-flag-label">${p.label}</div>
-              <div class="runtime-flag-help">${p.help}</div>
-            </div>
-            <label class="runtime-flag-switch">
-              <input type="checkbox" data-flag-key="${p.key}"${checked}>
-              <span>${flags[p.key] ? 'On' : 'Off'}</span>
-            </label>
+          <div>
+            <div style="font-weight:600;margin-bottom:2px;">${esc(p.label)}</div>
+            ${p.description ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px;">${esc(p.description)}</div>` : ''}
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="text-align:left;">
+                  <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;">Platform</th>
+                  <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;text-align:center;width:100px;">Generate</th>
+                  <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;text-align:center;width:120px;">Auto-publish</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
           </div>`;
       }).join('');
-      container.querySelectorAll('input[data-flag-key]').forEach(input => {
-        input.addEventListener('change', () => saveFlag(input));
+
+      container.querySelectorAll('input[data-pipeline]').forEach(input => {
+        input.addEventListener('change', () => saveCell(input));
       });
     }
 
-    async function loadFlags() {
-      setStatus('');
+    async function loadMatrix() {
+      setStatus('Loading…', '');
       try {
-        const res = await fetch('/api/admin/runtime-flags');
+        const res = await fetch('/api/admin/publishing-matrix');
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load.');
-        render(data.flags || {});
-      } catch (err) {
-        setStatus(err.message || 'Failed to load.', 'error');
+        if (!res.ok || !data.ok) throw new Error(data.error || 'load failed');
+        render(data.pipelines || []);
+        setStatus('', '');
+      } catch (e) {
+        setStatus('Failed to load: ' + e.message, 'error');
       }
     }
 
-    async function saveFlag(input) {
-      const key = input.dataset.flagKey;
+    async function saveCell(input) {
       const label = input.closest('.runtime-flag-switch').querySelector('span');
       input.disabled = true;
       setStatus('');
       try {
-        const body = {};
-        body[key] = input.checked;
-        const res = await fetch('/api/admin/runtime-flags', {
+        const body = {
+          updates: [{
+            pipeline: input.dataset.pipeline,
+            platform: input.dataset.platform,
+            action: input.dataset.action,
+            value: input.checked,
+          }],
+        };
+        const res = await fetch('/api/admin/publishing-matrix', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
-        const newVal = data.flags && data.flags[key];
-        input.checked = !!newVal;
-        label.textContent = newVal ? 'On' : 'Off';
+        if (!res.ok || !data.ok) throw new Error(data.error || 'save failed');
+        label.textContent = input.checked ? 'On' : 'Off';
         setStatus('Saved', 'success');
-      } catch (err) {
+      } catch (e) {
         input.checked = !input.checked;
         label.textContent = input.checked ? 'On' : 'Off';
-        setStatus(err.message || 'Failed to save.', 'error');
+        setStatus('Save failed: ' + e.message, 'error');
       } finally {
         input.disabled = false;
       }
     }
 
-    loadFlags();
+    loadMatrix();
   })();
 
   /* ── Pipeline Flags ─────────────────────────────────────────────── */

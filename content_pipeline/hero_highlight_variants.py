@@ -122,39 +122,82 @@ def _normalized_platform_list(
     return out
 
 
-def enabled_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
-    candidates = _normalized_platform_list(
-        environ=environ,
-        env_key=HERO_HIGHLIGHT_PLATFORMS_ENV,
-        default=DEFAULT_HERO_HIGHLIGHT_PLATFORMS,
-    )
-    # Honour the per-platform runtime toggles edited from the admin UI:
-    # Settings → "Platform Publishing" → Twitter / Funba toggles. Env var
-    # selection still wins for explicit overrides; the runtime flag is the
-    # admin-driven default-on/off switch.
-    try:
-        from runtime_flags import load_runtime_flags
+def enabled_hero_highlight_platforms(
+    environ: dict[str, str] | None = None,
+    *,
+    session: Session | None = None,
+) -> list[str]:
+    """Hero-card pipeline platforms that should receive a generated variant.
 
-        flags = load_runtime_flags()
-    except Exception:
-        flags = {}
-    return [p for p in candidates if flags.get(f"platform_{p}", True)]
+    Resolution order:
+      1. Env-var override (FUNBA_HERO_HIGHLIGHT_PLATFORMS) — explicit operator pin.
+      2. Otherwise: admin-edited matrix in the Setting table
+         (Settings → Pipeline Publishing → Hero Card row's Generate column).
+    """
+    env = environ if environ is not None else os.environ
+    if env.get(HERO_HIGHLIGHT_PLATFORMS_ENV) is not None:
+        return _normalized_platform_list(
+            environ=environ,
+            env_key=HERO_HIGHLIGHT_PLATFORMS_ENV,
+            default=DEFAULT_HERO_HIGHLIGHT_PLATFORMS,
+        )
+
+    from content_pipeline.publishing_registry import enabled_generate_platforms
+
+    if session is not None:
+        return enabled_generate_platforms(session, "hero_card")
+
+    # No session passed (e.g. unit tests / inspectors) — open a temporary one.
+    from db.models import engine
+
+    with Session(engine) as scope_session:
+        return enabled_generate_platforms(scope_session, "hero_card")
 
 
-def auto_approve_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
-    return _normalized_platform_list(
-        environ=environ,
-        env_key=HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV,
-        default=DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS,
-    )
+def auto_approve_hero_highlight_platforms(
+    environ: dict[str, str] | None = None,
+    *,
+    session: Session | None = None,
+) -> list[str]:
+    """Platforms whose presence flips post.status to 'approved' on creation.
+
+    Same as auto-publish for hero card — keeping a separate function for env
+    override compatibility, but they read the same registry cells.
+    """
+    env = environ if environ is not None else os.environ
+    if env.get(HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV) is not None:
+        return _normalized_platform_list(
+            environ=environ,
+            env_key=HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV,
+            default=DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS,
+        )
+    return list(_registry_autopublish_platforms(session))
 
 
-def auto_publish_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
-    return _normalized_platform_list(
-        environ=environ,
-        env_key=HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV,
-        default=DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS,
-    )
+def auto_publish_hero_highlight_platforms(
+    environ: dict[str, str] | None = None,
+    *,
+    session: Session | None = None,
+) -> list[str]:
+    env = environ if environ is not None else os.environ
+    if env.get(HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV) is not None:
+        return _normalized_platform_list(
+            environ=environ,
+            env_key=HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV,
+            default=DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS,
+        )
+    return list(_registry_autopublish_platforms(session))
+
+
+def _registry_autopublish_platforms(session: Session | None) -> set[str]:
+    from content_pipeline.publishing_registry import autopublish_platforms
+
+    if session is not None:
+        return autopublish_platforms(session, "hero_card")
+    from db.models import engine
+
+    with Session(engine) as scope_session:
+        return autopublish_platforms(scope_session, "hero_card")
 
 
 def auto_publish_hero_highlight_enabled(environ: dict[str, str] | None = None) -> bool:
@@ -165,17 +208,26 @@ def auto_publish_hero_highlight_enabled(environ: dict[str, str] | None = None) -
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _post_status_for_platforms(platforms: list[str], environ: dict[str, str] | None = None) -> str:
-    auto_approve = set(auto_approve_hero_highlight_platforms(environ))
+def _post_status_for_platforms(
+    platforms: list[str],
+    environ: dict[str, str] | None = None,
+    *,
+    session: Session | None = None,
+) -> str:
+    auto_approve = set(auto_approve_hero_highlight_platforms(environ, session=session))
     if platforms and all(platform in auto_approve for platform in platforms):
         return "approved"
     return HERO_HIGHLIGHT_STATUS
 
 
-def _auto_publish_platform_set(environ: dict[str, str] | None = None) -> set[str]:
+def _auto_publish_platform_set(
+    environ: dict[str, str] | None = None,
+    *,
+    session: Session | None = None,
+) -> set[str]:
     if not auto_publish_hero_highlight_enabled(environ):
         return set()
-    return set(auto_publish_hero_highlight_platforms(environ))
+    return set(auto_publish_hero_highlight_platforms(environ, session=session))
 
 
 def _public_game_url(game: Game) -> str:
@@ -757,18 +809,12 @@ def _create_post_for_card(
     if existing is not None:
         return HeroHighlightPostResult(post_id=int(existing.id), created=False)
 
-    post_status = _post_status_for_platforms(platforms)
-    # Auto-publish set is normally only populated when post is approved, but
-    # Funba's home feed should publish regardless of overall post-level review
-    # status — there's no external destination, just home-feed visibility, so
-    # gating it behind Twitter's human review window is unnecessary.
-    auto_publish_set = _auto_publish_platform_set()
-    if post_status == "approved":
-        auto_publish_platforms = auto_publish_set
-    elif FUNBA_INTERNAL_PLATFORM in auto_publish_set:
-        auto_publish_platforms = {FUNBA_INTERNAL_PLATFORM}
-    else:
-        auto_publish_platforms = set()
+    post_status = _post_status_for_platforms(platforms, session=session)
+    # Auto-publish runs per-platform from the matrix: any platform with its
+    # autopublish toggle on auto-publishes the moment the row is written,
+    # regardless of whether the overall post.status is approved or in_review.
+    # That lets Funba's home feed go live even when Twitter sits in review.
+    auto_publish_platforms = _auto_publish_platform_set(session=session)
     auto_publish_deliveries: list[tuple[str, int]] = []
 
     post = SocialPost(
@@ -866,7 +912,7 @@ def generate_hero_highlight_variants_for_game(
     selected_platforms = (
         [_normalize_platform(p) for p in platforms]
         if platforms is not None
-        else enabled_hero_highlight_platforms()
+        else enabled_hero_highlight_platforms(session=session)
     )
     selected_platforms = list(dict.fromkeys(p for p in selected_platforms if p))
     if not selected_platforms:

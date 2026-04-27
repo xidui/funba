@@ -510,9 +510,14 @@ def build_game_analysis_issue_title(target_date: date, game_id: str) -> str:
 
 
 def build_game_analysis_issue_description(target_date: date, game_id: str) -> str:
-    from runtime_flags import get_enabled_platforms
+    from sqlalchemy.orm import Session
+
+    from content_pipeline.publishing_registry import enabled_generate_platforms
+    from db.models import engine
+
     ctx = game_context(game_id)
-    enabled = get_enabled_platforms()
+    with Session(engine) as session:
+        enabled = enabled_generate_platforms(session, "game_analysis")
     return load_game_analysis_issue_template().body_template.format(
         source_date=target_date.isoformat(),
         game_id=game_id,

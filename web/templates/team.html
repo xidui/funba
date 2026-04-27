@@ -1185,92 +1185,80 @@
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
 
-  /* ── Floating right-edge section nav (Notion-style TOC) ─────── */
-  /* When the hero is "stuck" (scrolled past), a vertical column of
-     dots appears pinned to the right edge of the viewport. Hover the
-     column to expand the dots into pill buttons with section labels. */
+  /* ── Section nav: icon row in the compressed team-hero's middle. ── */
+  /* When the hero is "stuck", a tight row of square icon buttons
+     appears in the empty middle slot. Each button hovers a tooltip
+     with the section label. */
   .team-section-nav {
     display: none;
-    position: fixed;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 40;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    padding: 6px;
-    border-radius: 10px;
-    background: transparent;
-    border: 1px solid transparent;
-    transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+    flex: 0 1 auto;
+    align-items: center;
+    justify-content: center;
+    margin: 0 12px;
+    min-width: 0;
   }
   .team-hero.is-stuck .team-section-nav { display: flex; }
-  .team-section-nav:hover,
-  .team-section-nav:focus-within {
-    background: var(--surface, #0d1c2e);
-    border-color: var(--border);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  }
   .team-section-nav-inner {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 2px;
-    align-items: flex-end;
+    background: var(--surface-2, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 3px;
   }
   .team-nav-btn {
-    display: flex;
+    position: relative;
+    display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-    height: 24px;
-    width: 24px;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
     padding: 0;
     background: transparent;
     border: none;
-    border-radius: 12px;
+    border-radius: 6px;
     cursor: pointer;
-    color: transparent;
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    transition: width 0.18s, padding 0.18s, color 0.18s, background 0.18s;
-  }
-  .team-nav-btn::after {
-    content: '';
-    width: 6px;
-    height: 6px;
-    margin-right: 9px;
-    border-radius: 50%;
-    background: var(--muted, rgba(255, 255, 255, 0.4));
-    flex-shrink: 0;
-    transition: background 0.18s, transform 0.18s;
-  }
-  .team-nav-btn.active::after {
-    background: var(--accent, #f97316);
-    transform: scale(1.4);
-  }
-  .team-section-nav:hover .team-nav-btn,
-  .team-section-nav:focus-within .team-nav-btn {
-    width: 100px;
-    padding: 0 0 0 12px;
     color: var(--muted-2, var(--muted));
+    transition: color 0.12s, background 0.12s;
   }
-  .team-section-nav:hover .team-nav-btn:hover {
-    background: var(--surface-2, rgba(255, 255, 255, 0.05));
+  .team-nav-btn svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+  .team-nav-btn:hover {
     color: var(--heading, var(--text));
+    background: var(--surface-3, rgba(255, 255, 255, 0.08));
   }
-  .team-section-nav:hover .team-nav-btn.active,
-  .team-section-nav:focus-within .team-nav-btn.active {
+  .team-nav-btn.active {
     color: var(--accent, #f97316);
+    background: rgba(249, 115, 22, 0.14);
   }
-  /* Hide floating nav on narrow viewports where it would overlap content. */
-  @media (max-width: 1100px) {
-    .team-hero.is-stuck .team-section-nav { display: none; }
+  /* Hover tooltip showing the section label below the icon. */
+  .team-nav-btn::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-3px);
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.92);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s, transform 0.14s;
+    z-index: 50;
   }
-  /* Stuck hero is back to a single thin row (~56px) + 54px topbar. */
+  .team-nav-btn:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
   [id^="section-"] {
     scroll-margin-top: 120px;
   }
@@ -1363,24 +1351,66 @@
     <nav class="team-section-nav" id="team-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
       <div class="team-section-nav-inner">
         {% if team.arena or team.owner or team.general_manager or roster_coaches or team_championships %}
-        <button class="team-nav-btn" data-target="section-info">{{ t('Info', '信息') }}</button>
+        <button class="team-nav-btn" data-target="section-info"
+                data-tooltip="{{ t('Info', '信息') }}"
+                aria-label="{{ t('Info', '信息') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+          </svg>
+        </button>
         {% endif %}
         {% if roster_players %}
-        <button class="team-nav-btn" data-target="section-roster">{{ t('Roster', '名单') }}</button>
+        <button class="team-nav-btn" data-target="section-roster"
+                data-tooltip="{{ t('Roster', '名单') }}"
+                aria-label="{{ t('Roster', '名单') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </button>
         {% endif %}
         {% if salary_players %}
-        <button class="team-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+        <button class="team-nav-btn" data-target="section-salary"
+                data-tooltip="{{ t('Salary', '薪资') }}"
+                aria-label="{{ t('Salary', '薪资') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </button>
         {% endif %}
         {% if team_metrics.season or team_metrics.alltime %}
-        <button class="team-nav-btn" data-target="section-metrics">{{ t('Metrics', '数据') }}</button>
+        <button class="team-nav-btn" data-target="section-metrics"
+                data-tooltip="{{ t('Metrics', '数据') }}"
+                aria-label="{{ t('Metrics', '数据') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>
+          </svg>
+        </button>
         {% endif %}
         {% if current_games %}
-        <button class="team-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+        <button class="team-nav-btn" data-target="section-games"
+                data-tooltip="{{ t('Games', '比赛') }}"
+                aria-label="{{ t('Games', '比赛') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </button>
         {% endif %}
         {% if transactions %}
-        <button class="team-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
+        <button class="team-nav-btn" data-target="section-transactions"
+                data-tooltip="{{ t('Transactions', '交易') }}"
+                aria-label="{{ t('Transactions', '交易') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </button>
         {% endif %}
-        <button class="team-nav-btn" data-target="section-record">{{ t('Record', '战绩') }}</button>
+        <button class="team-nav-btn" data-target="section-record"
+                data-tooltip="{{ t('Record', '战绩') }}"
+                aria-label="{{ t('Record', '战绩') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55.47.98.97 1.21C12.04 18.75 13 20.24 13 22"/><path d="M14 14.66V17c0 .55-.47.98-.97 1.21C11.96 18.75 11 20.24 11 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+          </svg>
+        </button>
       </div>
     </nav>
 

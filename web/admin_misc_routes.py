@@ -696,6 +696,38 @@ def register_admin_misc_routes(app, deps):
                 return jsonify({"ok": False, "error": str(exc)}), 500
         return jsonify({"ok": True, "game_id": game.game_id, "game_slug": game.slug, "paths": [str(p) for p in paths]})
 
+    def api_admin_publishing_matrix():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from content_pipeline.publishing_registry import get_publishing_matrix
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            return jsonify({"ok": True, **get_publishing_matrix(session)})
+
+    def api_admin_update_publishing_matrix():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from content_pipeline.publishing_registry import update_publishing_matrix
+
+        body = request.get_json(force=True) or {}
+        updates = body.get("updates") or []
+        if not isinstance(updates, list) or not updates:
+            return jsonify({"ok": False, "error": "updates required (list of {pipeline, platform, action, value})"}), 400
+        SessionLocal = deps.session_local()
+        try:
+            with SessionLocal() as session:
+                result = update_publishing_matrix(session, updates)
+                session.commit()
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            deps.logger().exception("publishing matrix update failed")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, **result})
+
     def api_admin_runtime_flags():
         denied = deps.require_admin_json()()
         if denied:
@@ -1062,6 +1094,8 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/admin/hero-poster-config", endpoint="api_admin_update_hero_poster_config", view_func=api_admin_update_hero_poster_config, methods=["POST"])
     app.add_url_rule("/api/admin/hero-poster-preview", endpoint="api_admin_hero_poster_preview", view_func=api_admin_hero_poster_preview, methods=["POST"])
     app.add_url_rule("/api/admin/hero-poster-regenerate", endpoint="api_admin_hero_poster_regenerate", view_func=api_admin_hero_poster_regenerate, methods=["POST"])
+    app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_publishing_matrix", view_func=api_admin_publishing_matrix)
+    app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_update_publishing_matrix", view_func=api_admin_update_publishing_matrix, methods=["POST"])
     app.add_url_rule("/admin/backfill/<season>", endpoint="admin_backfill", view_func=admin_backfill, methods=["POST"])
     app.add_url_rule("/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill", view_func=game_shotchart_backfill, methods=["POST"])
     app.add_url_rule("/api/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill_api", view_func=game_shotchart_backfill_api, methods=["POST"])
@@ -1093,4 +1127,6 @@ def register_admin_misc_routes(app, deps):
         api_admin_update_hero_poster_config=api_admin_update_hero_poster_config,
         api_admin_hero_poster_preview=api_admin_hero_poster_preview,
         api_admin_hero_poster_regenerate=api_admin_hero_poster_regenerate,
+        api_admin_publishing_matrix=api_admin_publishing_matrix,
+        api_admin_update_publishing_matrix=api_admin_update_publishing_matrix,
     )

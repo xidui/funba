@@ -12,12 +12,10 @@ DEFAULT_RUNTIME_FLAGS: dict[str, bool] = {
     "ingest_block_shot": False,
     "ingest_block_line_score": False,
     "ingest_block_period_stats": False,
-    "platform_hupu": True,
-    "platform_xiaohongshu": True,
-    "platform_reddit": True,
-    "platform_twitter": True,
-    "platform_funba": True,
 }
+# Per-pipeline-per-platform publishing toggles moved to
+# `content_pipeline/publishing_registry.py` (Setting-table backed). The
+# admin UI under Settings → Pipeline Publishing edits them.
 
 
 def _runtime_flags_path() -> Path:
@@ -48,16 +46,6 @@ def get_runtime_flag(key: str) -> bool:
     if key not in DEFAULT_RUNTIME_FLAGS:
         raise KeyError(key)
     return load_runtime_flags()[key]
-
-
-_PLATFORM_FLAG_PREFIX = "platform_"
-
-KNOWN_PLATFORMS = ["hupu", "xiaohongshu", "reddit", "twitter", "funba"]
-
-
-def get_enabled_platforms() -> list[str]:
-    flags = load_runtime_flags()
-    return [p for p in KNOWN_PLATFORMS if flags.get(f"{_PLATFORM_FLAG_PREFIX}{p}", True)]
 
 
 def set_runtime_flag(key: str, value: Any) -> dict[str, bool]:
