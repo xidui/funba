@@ -183,6 +183,23 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 - Stdout: `logs/web-app-5001-stdout.log`
 - Stderr: `logs/web-app-5001-stderr.log`
 
+### Web watchdog:
+
+`app.funba.web-watchdog` runs every 30 seconds and checks
+`http://127.0.0.1:5001/api/health`. If the local app does not return `200`
+quickly, it terminates stale Funba web processes still holding port 5001 and
+then kickstarts `app.funba.web`.
+
+Install or update it after deploy changes that touch `scripts/funba_web_watchdog.py`:
+
+```bash
+bash /Users/yuewang/Documents/github/funba/.paperclip/deploy-main/scripts/install_web_watchdog_agent.sh
+```
+
+Logs:
+- Stdout: `logs/web-watchdog-stdout.log`
+- Stderr: `logs/web-watchdog-stderr.log`
+
 ### Environment variables (set in plist):
 
 **Web app** (`app.funba.web`):
@@ -399,7 +416,7 @@ lsof -nP -iTCP:5001 -sTCP:LISTEN
 # Verify process: ps -p <PID> -o args= | grep gunicorn
 
 # 2. Web app is up
-curl -s -o /dev/null -w "Flask: %{http_code}\n" http://localhost:5001/
+curl -s -o /dev/null -w "Health: %{http_code}\n" http://localhost:5001/api/health
 
 # 3. Tunnel is connected
 cloudflared tunnel info funba
@@ -492,15 +509,16 @@ ls -lh ~/Documents/github/funba/backups/
 1. MySQL: `brew services list | grep mysql` — should show `started`
 2. Redis: `brew services list | grep redis` — should show `started`
 3. Web app: `launchctl list app.funba.web` — should show PID
-4. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
-5. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
-6. Workers: `launchctl list | grep app.funba.worker` — all three should show PIDs
-7. Scheduler: `launchctl list app.funba.scheduler` — should show PID
+4. Web watchdog: `launchctl list app.funba.web-watchdog` — should show `"LastExitStatus" = 0` between interval runs
+5. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
+6. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
+7. Workers: `launchctl list | grep app.funba.worker` — all three should show PIDs
+8. Scheduler: `launchctl list app.funba.scheduler` — should show PID
 
-Both `app.funba.web` and `app.funba.cloudflared` have `RunAtLoad + KeepAlive` so they
-start automatically after login, restart on crash, and stay up while the screen is
-locked. They do not survive a full logout because they are `LaunchAgent`s, not system
-`LaunchDaemon`s.
+`app.funba.web`, `app.funba.web-watchdog`, and `app.funba.cloudflared` have
+`RunAtLoad` or `KeepAlive` behavior so they start automatically after login and
+stay up while the screen is locked. They do not survive a full logout because
+they are `LaunchAgent`s, not system `LaunchDaemon`s.
 
 ---
 
@@ -509,8 +527,9 @@ locked. They do not survive a full logout because they are `LaunchAgent`s, not s
 ### Site returns 502 / 503
 ```bash
 lsof -nP -iTCP:5001 -sTCP:LISTEN          # What's on port 5001?
-curl http://localhost:5001/                  # Is gunicorn up?
+curl http://localhost:5001/api/health       # Is gunicorn responding?
 launchctl list app.funba.web               # PID?
+launchctl list app.funba.web-watchdog      # LastExitStatus?
 launchctl list app.funba.cloudflared       # PID?
 ```
 If a stale process (dev_server, web.app) is holding port 5001, kill it and kickstart gunicorn:

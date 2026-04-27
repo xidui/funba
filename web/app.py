@@ -501,6 +501,13 @@ def internal_server_error(e):
     return render_template("500.html"), 500
 
 
+# -- Health routes ------------------------------------------------------------
+
+@app.route("/api/health")
+def api_health():
+    return jsonify({"ok": True, "service": "funba"})
+
+
 # ── SEO routes ───────────────────────────────────────────────────────────────
 
 @app.route("/robots.txt")
