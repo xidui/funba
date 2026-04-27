@@ -1,0 +1,73 @@
+{# One feed card. Shared by initial home render and the infinite-scroll API. #}
+{% if item.kind == 'image' %}
+<a class="feed-card feed-image-card" href="{{ item.metric_url or item.game_url or '#' }}">
+  {% if item.poster_url %}
+    <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
+  {% endif %}
+  <div class="fh-body">
+    <div class="fh-title">{{ item.title }}</div>
+    {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
+  </div>
+</a>
+{% else %}
+{% set m = item %}
+{% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
+{% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
+{% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
+{% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
+<a class="feed-card tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
+   href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
+  {% if m.subject_kind == 'player' %}
+    {% if m.player_headshot_url %}
+      <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+    {% else %}
+      <span class="tem-avatar"></span>
+    {% endif %}
+  {% elif m.subject_kind == 'team' %}
+    <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
+  {% endif %}
+  <div class="tem-body">
+    {% if narrative %}
+      <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
+      <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}</div>
+    {% else %}
+    <div class="tem-name">
+      {% if m.is_hero %}★ {% endif %}
+      {% if m.subject_kind == 'player' %}{{ m.player_name }}
+      {% elif m.subject_kind == 'team' %}{{ m.team_abbr }}
+      {% else %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% endif %}
+    </div>
+    <div class="tem-metric">
+      {% if is_entity %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% if m.context_label %} · {{ m.context_label }}{% endif %}
+      {% elif m.context_label %}{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}
+      {% elif not val_short %}{{ val_raw }}{% endif %}
+    </div>
+    {% endif %}
+    {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
+    <div class="tem-badges">
+      {% if m.all_badge_text %}<span class="rank-chip notable">{{ m.all_badge_text }}</span>{% endif %}
+      {% if m.season_badge_text and not m.all_badge_text %}<span class="rank-chip notable">{{ m.season_badge_text }}</span>{% endif %}
+      {% if m.last3_badge_text %}<span class="rank-chip notable">{{ m.last3_badge_text }}</span>{% endif %}
+      {% if m.last5_badge_text %}<span class="rank-chip notable">{{ m.last5_badge_text }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if m.road_abbr and m.home_abbr %}
+    <div class="tem-meta">
+      <span class="tem-meta-game">
+        <span class="tem-team{% if m.winner_id and m.winner_id == m.road_team_id|string %} tem-team-winner{% endif %}">{{ m.road_abbr }}</span>
+        {% if m.road_score is not none and m.home_score is not none %}
+          <span>{{ m.road_score }}–{{ m.home_score }}</span>
+        {% else %}
+          <span class="tem-at">@</span>
+        {% endif %}
+        <span class="tem-team{% if m.winner_id and m.winner_id == m.home_team_id|string %} tem-team-winner{% endif %}">{{ m.home_abbr }}</span>
+      </span>
+      {% if m.game_date %}<span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span>{% endif %}
+    </div>
+    {% elif m.game_date %}
+    <div class="tem-meta"><span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span></div>
+    {% endif %}
+  </div>
+  {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
+</a>
+{% endif %}

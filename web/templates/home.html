@@ -1112,82 +1112,16 @@
         {% endif %}
       </div>
       {% if feed_items %}
-      <div class="feed-waterfall">
+      <div class="feed-waterfall" id="feed-waterfall">
         {% for item in feed_items %}
-          {% if item.kind == 'image' %}
-            <a class="feed-card feed-image-card" href="{{ item.metric_url or item.game_url or '#' }}">
-              {% if item.poster_url %}
-                <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
-              {% endif %}
-              <div class="fh-body">
-                <div class="fh-title">{{ item.title }}</div>
-                {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
-              </div>
-            </a>
-          {% else %}
-            {% set m = item %}
-            {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
-            {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
-            {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
-            {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
-            <a class="feed-card tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
-               href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
-            {% if m.subject_kind == 'player' %}
-              {% if m.player_headshot_url %}
-                <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
-              {% else %}
-                <span class="tem-avatar"></span>
-              {% endif %}
-            {% elif m.subject_kind == 'team' %}
-              <img class="tem-avatar" src="{{ team_logo(m.team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">
-            {% endif %}
-            <div class="tem-body">
-              {% if narrative %}
-                <div class="tem-name">{% if m.is_hero %}★ {% endif %}{{ narrative }}</div>
-                <div class="tem-metric">{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}</div>
-              {% else %}
-              <div class="tem-name">
-                {% if m.is_hero %}★ {% endif %}
-                {% if m.subject_kind == 'player' %}{{ m.player_name }}
-                {% elif m.subject_kind == 'team' %}{{ m.team_abbr }}
-                {% else %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% endif %}
-              </div>
-              <div class="tem-metric">
-                {% if is_entity %}{{ (m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh }}{% if m.context_label %} · {{ m.context_label }}{% endif %}
-                {% elif m.context_label %}{{ m.context_label }}{% if not val_short %} · {{ val_raw }}{% endif %}
-                {% elif not val_short %}{{ val_raw }}{% endif %}
-              </div>
-              {% endif %}
-              {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
-              <div class="tem-badges">
-                {% if m.all_badge_text %}<span class="rank-chip notable">{{ m.all_badge_text }}</span>{% endif %}
-                {% if m.season_badge_text and not m.all_badge_text %}<span class="rank-chip notable">{{ m.season_badge_text }}</span>{% endif %}
-                {% if m.last3_badge_text %}<span class="rank-chip notable">{{ m.last3_badge_text }}</span>{% endif %}
-                {% if m.last5_badge_text %}<span class="rank-chip notable">{{ m.last5_badge_text }}</span>{% endif %}
-              </div>
-              {% endif %}
-              {% if m.road_abbr and m.home_abbr %}
-              <div class="tem-meta">
-                <span class="tem-meta-game">
-                  <span class="tem-team{% if m.winner_id and m.winner_id == m.road_team_id|string %} tem-team-winner{% endif %}">{{ m.road_abbr }}</span>
-                  {% if m.road_score is not none and m.home_score is not none %}
-                    <span>{{ m.road_score }}–{{ m.home_score }}</span>
-                  {% else %}
-                    <span class="tem-at">@</span>
-                  {% endif %}
-                  <span class="tem-team{% if m.winner_id and m.winner_id == m.home_team_id|string %} tem-team-winner{% endif %}">{{ m.home_abbr }}</span>
-                </span>
-                {% if m.game_date %}<span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span>{% endif %}
-              </div>
-              {% elif m.game_date %}
-              <div class="tem-meta"><span class="tem-meta-date">{{ m.game_date.strftime('%b %d') }}</span></div>
-              {% endif %}
-            </div>
-              {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
-            </a>
-          {% endif %}
+          {% include "_feed_card.html" %}
         {% endfor %}
       </div>
+      {% if feed_has_more %}
+      <div id="feed-load-more"
+           data-page="2"
+           style="text-align:center;color:var(--muted);font-size:12px;padding:18px 0;min-height:24px;"></div>
+      {% endif %}
       {% else %}
       <p class="meta" style="margin:8px 0 0 0;">{{ t('No recent games yet. Check back after the next tip-off.', '暂无最近比赛数据，下一场比赛后再来看。') }}</p>
       {% endif %}
@@ -1454,5 +1388,51 @@
 })();
 </script>
 
+<script>
+// ── Infinite-scroll: load older notable cards as the user nears the bottom.
+(function () {
+  var sentinel = document.getElementById('feed-load-more');
+  var waterfall = document.getElementById('feed-waterfall');
+  if (!sentinel || !waterfall || !('IntersectionObserver' in window)) return;
+
+  var loading = false;
+  var done = false;
+
+  async function loadMore() {
+    if (loading || done) return;
+    var page = sentinel.dataset.page;
+    if (!page) { done = true; sentinel.remove(); return; }
+    loading = true;
+    sentinel.textContent = '{{ t("Loading…", "加载中…") }}';
+    try {
+      var resp = await fetch('{{ url_for("home_feed_more") }}?page=' + encodeURIComponent(page));
+      if (!resp.ok) throw new Error('http ' + resp.status);
+      var data = await resp.json();
+      if (data.html) {
+        var tmp = document.createElement('div');
+        tmp.innerHTML = data.html;
+        while (tmp.firstChild) waterfall.appendChild(tmp.firstChild);
+      }
+      if (data.next_page) {
+        sentinel.dataset.page = String(data.next_page);
+        sentinel.textContent = '';
+      } else {
+        done = true;
+        sentinel.textContent = '{{ t("No earlier games.", "没有更早的比赛了。") }}';
+        obs.disconnect();
+      }
+    } catch (e) {
+      sentinel.textContent = '{{ t("Failed to load — scroll to retry.", "加载失败，滚动重试。") }}';
+    } finally {
+      loading = false;
+    }
+  }
+
+  var obs = new IntersectionObserver(function (entries) {
+    if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+  }, { rootMargin: '400px 0px' });
+  obs.observe(sentinel);
+})();
+</script>
 
 {% endblock %}

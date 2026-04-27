@@ -1428,7 +1428,53 @@ def register_public_routes(
             top_scorers=top_scorers,
             featured_highlights=featured_highlights,
             feed_items=feed_items,
+            feed_has_more=True,
         )
+
+    def home_feed_more():
+        """Infinite-scroll endpoint: rendered notable cards for older games."""
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+        try:
+            page = max(2, int(request.args.get("page", "2")))
+        except (ValueError, TypeError):
+            page = 2
+        per_page_games = 15
+        offset = (page - 1) * per_page_games
+        with SessionLocal() as session:
+            team_lookup = get_team_map(session)
+            games = (
+                session.query(Game)
+                .filter(Game.home_team_score.isnot(None), Game.game_date.isnot(None))
+                .order_by(Game.game_date.desc(), Game.game_id.desc())
+                .offset(offset)
+                .limit(per_page_games + 1)
+                .all()
+            )
+        has_more = len(games) > per_page_games
+        games = games[:per_page_games]
+        cards: list[dict] = []
+        for idx, game in enumerate(games):
+            payload = get_cached_game_metrics_payload(game.game_id) if get_cached_game_metrics_payload else None
+            if payload is None and get_load_game_metrics_payload is not None:
+                try:
+                    payload = get_load_game_metrics_payload(game.game_id)
+                except Exception:
+                    payload = None
+            if payload is None:
+                continue
+            cards.extend(_home_highlight_cards_from_payload(game, payload, team_lookup, idx))
+        cards.sort(key=lambda c: c.get("_sort", (9999, 1.0, 9999)))
+        for card in cards:
+            card.pop("_sort", None)
+        cards = cards[:_NOTABLE_MAX_CARDS]
+        items = [{"kind": "notable", **card} for card in cards]
+        render = get_render_template()
+        html = "".join(render("_feed_card.html", item=item) for item in items)
+        return jsonify({
+            "html": html,
+            "next_page": page + 1 if has_more else None,
+        })
 
     def _build_home_news(team_lookup: dict, limit: int = 15) -> list[dict]:
         """Top-scored news clusters for the home feed."""
@@ -2921,6 +2967,7 @@ def register_public_routes(
 
     app.add_url_rule("/cn/", endpoint="home_zh", view_func=home)
     app.add_url_rule("/", endpoint="home", view_func=home)
+    app.add_url_rule("/api/home/feed", endpoint="home_feed_more", view_func=home_feed_more)
     app.add_url_rule("/teams", endpoint="teams_list_page", view_func=teams_list_page)
     app.add_url_rule("/cn/teams", endpoint="teams_list_page_zh", view_func=teams_list_page)
     app.add_url_rule("/news", endpoint="news_page", view_func=news_page)
