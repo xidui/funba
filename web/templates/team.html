@@ -1204,17 +1204,15 @@
   }
   .team-section-nav-inner {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 3px;
     background: var(--surface-2, rgba(255,255,255,0.04));
     border: 1px solid var(--border);
     border-radius: 7px;
     padding: 2px;
     max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
   }
-  .team-section-nav-inner::-webkit-scrollbar { display: none; }
   .team-nav-btn {
     flex-shrink: 0;
     padding: 5px 12px;
