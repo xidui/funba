@@ -536,6 +536,17 @@ def _urlset(urls: list[str]):
     return xml
 
 
+def _sitemap_metric_keys_from_results(published_base_keys: set[str], result_metric_keys) -> list[str]:
+    """Return indexable metric keys, including stored window/career variants."""
+    return sorted(
+        {
+            str(metric_key)
+            for metric_key in result_metric_keys
+            if metric_key and family_base_key(str(metric_key)) in published_base_keys
+        }
+    )
+
+
 @app.route("/sitemap.xml")
 def sitemap_xml():
     """Sitemap index pointing to sub-sitemaps."""
@@ -586,8 +597,20 @@ def sitemap_players_xml():
 @app.route("/sitemap-metrics.xml")
 def sitemap_metrics_xml():
     with SessionLocal() as db:
-        metrics = db.query(MetricDefinitionModel.key).all()
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/metrics/{k}" for (k,) in metrics]))
+        published_base_keys = {
+            str(key)
+            for (key,) in db.query(MetricDefinitionModel.key)
+            .filter(MetricDefinitionModel.status == "published")
+            .all()
+        }
+        result_metric_keys = [
+            key
+            for (key,) in db.query(distinct(MetricResultModel.metric_key))
+            .filter(MetricResultModel.metric_key.isnot(None))
+            .all()
+        ]
+    metric_keys = _sitemap_metric_keys_from_results(published_base_keys, result_metric_keys)
+    return _xml_response(_urlset([f"{_SITEMAP_BASE}/metrics/{k}" for k in metric_keys]))
 
 
 @app.route("/sitemap-games-<int:season>.xml")
@@ -5515,6 +5538,36 @@ _DATACENTER_SCRAPER_CACHE_SECONDS = 60
 _DATACENTER_SCRAPER_MIN_PV = 100
 _DATACENTER_SCRAPER_MIN_DISTINCT_IPS = 5
 _DATACENTER_SCRAPER_MAX_RATIO_PCT = 20
+_IP_COOKIE_CHURN_LOOKBACK = timedelta(hours=3)
+_IP_COOKIE_CHURN_CACHE_SECONDS = 60
+_IP_COOKIE_CHURN_MIN_PV = 25
+_IP_COOKIE_CHURN_MIN_DISTINCT_VISITORS = 18
+_IP_COOKIE_CHURN_MIN_DISTINCT_UAS = 5
+_IP_COOKIE_CHURN_MIN_VISITOR_RATIO_PCT = 60
+_NETWORK_COOKIE_CHURN_LOOKBACK = timedelta(hours=1)
+_NETWORK_COOKIE_CHURN_CACHE_SECONDS = 60
+_NETWORK_COOKIE_CHURN_MIN_PV = 60
+_NETWORK_COOKIE_CHURN_MIN_DISTINCT_VISITORS = 40
+_NETWORK_COOKIE_CHURN_MIN_DISTINCT_IPS = 20
+_NETWORK_COOKIE_CHURN_MIN_DISTINCT_UAS = 8
+_NETWORK_COOKIE_CHURN_MIN_VISITOR_RATIO_PCT = 50
+_DISTRIBUTED_PROXY_LOOKBACK = timedelta(days=1)
+_DISTRIBUTED_PROXY_CACHE_SECONDS = 300
+_DISTRIBUTED_PROXY_MIN_PV = 40
+_DISTRIBUTED_PROXY_MIN_DISTINCT_VISITORS = 35
+_DISTRIBUTED_PROXY_MIN_DISTINCT_IPS = 30
+_DISTRIBUTED_PROXY_MIN_DISTINCT_PATHS = 25
+_DISTRIBUTED_PROXY_MIN_DIRECT_REF_RATIO_PCT = 90
+_DISTRIBUTED_PROXY_MIN_VISITOR_RATIO_PCT = 90
+_DISTRIBUTED_PROXY_MIN_IP_VISITOR_RATIO_PCT = 85
+_DYNAMIC_CRAWLER_REPEAT_LOOKBACK = timedelta(days=30)
+_DYNAMIC_CRAWLER_REPEAT_CACHE_SECONDS = 300
+_DYNAMIC_CRAWLER_NAMES = frozenset({
+    "ip-cookie-churn-scraper",
+    "network-cookie-churn-scraper",
+    "distributed-proxy-scraper",
+    "observed-cloud-scraper",
+})
 
 
 def _crawler_name_from_user_agent(user_agent: str | None) -> str | None:
@@ -5750,6 +5803,230 @@ def _is_datacenter_scraper_ua() -> bool:
     return _datacenter_scraper_ua_cached(ua, cache_bucket)
 
 
+def _ipv4_prefix_16(ip_address: str | None) -> str | None:
+    value = (ip_address or "").strip()
+    try:
+        ipaddress.IPv4Address(value)
+    except ValueError:
+        return None
+    first, second, *_ = value.split(".")
+    return f"{first}.{second}."
+
+
+@lru_cache(maxsize=8192)
+def _ip_cookie_churn_scraper_cached(ip_address: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    value = (ip_address or "").strip()
+    if not value or value in ("127.0.0.1", "::1"):
+        return False
+    cutoff = datetime.utcnow() - _IP_COOKIE_CHURN_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(PageView.id).label("pv"),
+                    func.count(func.distinct(PageView.visitor_id)).label("visitors"),
+                    func.count(func.distinct(PageView.user_agent)).label("uas"),
+                )
+                .filter(
+                    PageView.ip_address == value,
+                    PageView.created_at >= cutoff,
+                    _human_page_view_filter(PageView),
+                )
+                .one()
+            )
+            pv = int(row.pv or 0)
+            visitors = int(row.visitors or 0)
+            uas = int(row.uas or 0)
+            if pv < _IP_COOKIE_CHURN_MIN_PV:
+                return False
+            if visitors < _IP_COOKIE_CHURN_MIN_DISTINCT_VISITORS:
+                return False
+            if uas < _IP_COOKIE_CHURN_MIN_DISTINCT_UAS:
+                return False
+            return visitors * 100 >= pv * _IP_COOKIE_CHURN_MIN_VISITOR_RATIO_PCT
+    except Exception:
+        logger.exception("IP cookie churn scraper lookup failed")
+        return False
+
+
+def _is_ip_cookie_churn_scraper(ip_address: str | None) -> bool:
+    value = (ip_address or "").strip()
+    if not value:
+        return False
+    cache_bucket = int(time.time() // _IP_COOKIE_CHURN_CACHE_SECONDS)
+    return _ip_cookie_churn_scraper_cached(value, cache_bucket)
+
+
+@lru_cache(maxsize=8192)
+def _network_cookie_churn_scraper_cached(prefix: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    value = (prefix or "").strip()
+    if not value:
+        return False
+    cutoff = datetime.utcnow() - _NETWORK_COOKIE_CHURN_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(PageView.id).label("pv"),
+                    func.count(func.distinct(PageView.visitor_id)).label("visitors"),
+                    func.count(func.distinct(PageView.ip_address)).label("ips"),
+                    func.count(func.distinct(PageView.user_agent)).label("uas"),
+                )
+                .filter(
+                    PageView.ip_address.like(f"{value}%"),
+                    PageView.created_at >= cutoff,
+                    _human_page_view_filter(PageView),
+                )
+                .one()
+            )
+            pv = int(row.pv or 0)
+            visitors = int(row.visitors or 0)
+            ips = int(row.ips or 0)
+            uas = int(row.uas or 0)
+            if pv < _NETWORK_COOKIE_CHURN_MIN_PV:
+                return False
+            if visitors < _NETWORK_COOKIE_CHURN_MIN_DISTINCT_VISITORS:
+                return False
+            if ips < _NETWORK_COOKIE_CHURN_MIN_DISTINCT_IPS:
+                return False
+            if uas < _NETWORK_COOKIE_CHURN_MIN_DISTINCT_UAS:
+                return False
+            return visitors * 100 >= pv * _NETWORK_COOKIE_CHURN_MIN_VISITOR_RATIO_PCT
+    except Exception:
+        logger.exception("network cookie churn scraper lookup failed")
+        return False
+
+
+def _is_network_cookie_churn_scraper(ip_address: str | None) -> bool:
+    prefix = _ipv4_prefix_16(ip_address)
+    if not prefix:
+        return False
+    cache_bucket = int(time.time() // _NETWORK_COOKIE_CHURN_CACHE_SECONDS)
+    return _network_cookie_churn_scraper_cached(prefix, cache_bucket)
+
+
+@lru_cache(maxsize=8192)
+def _distributed_proxy_scraper_cached(prefix: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    value = (prefix or "").strip()
+    if not value:
+        return False
+    cutoff = datetime.utcnow() - _DISTRIBUTED_PROXY_LOOKBACK
+    try:
+        direct_ref = or_(PageView.referrer.is_(None), PageView.referrer == "")
+        self_ref = or_(
+            PageView.referrer.like("http%://funba.app%"),
+            PageView.referrer.like("http%://www.funba.app%"),
+        )
+        external_ref = and_(
+            PageView.referrer.isnot(None),
+            PageView.referrer != "",
+            ~PageView.referrer.like("http%://funba.app%"),
+            ~PageView.referrer.like("http%://www.funba.app%"),
+        )
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(PageView.id).label("pv"),
+                    func.count(func.distinct(PageView.visitor_id)).label("visitors"),
+                    func.count(func.distinct(PageView.ip_address)).label("ips"),
+                    func.count(func.distinct(PageView.path)).label("paths"),
+                    func.sum(case((direct_ref, 1), else_=0)).label("direct_refs"),
+                    func.sum(case((self_ref, 1), else_=0)).label("self_refs"),
+                    func.sum(case((external_ref, 1), else_=0)).label("external_refs"),
+                )
+                .filter(
+                    PageView.ip_address.like(f"{value}%"),
+                    PageView.created_at >= cutoff,
+                    _human_page_view_filter(PageView),
+                )
+                .one()
+            )
+            pv = int(row.pv or 0)
+            visitors = int(row.visitors or 0)
+            ips = int(row.ips or 0)
+            paths = int(row.paths or 0)
+            direct_refs = int(row.direct_refs or 0)
+            self_refs = int(row.self_refs or 0)
+            external_refs = int(row.external_refs or 0)
+            if pv < _DISTRIBUTED_PROXY_MIN_PV:
+                return False
+            if visitors < _DISTRIBUTED_PROXY_MIN_DISTINCT_VISITORS:
+                return False
+            if ips < _DISTRIBUTED_PROXY_MIN_DISTINCT_IPS:
+                return False
+            if paths < _DISTRIBUTED_PROXY_MIN_DISTINCT_PATHS:
+                return False
+            if external_refs > 0 or self_refs > 3:
+                return False
+            if visitors * 100 < pv * _DISTRIBUTED_PROXY_MIN_VISITOR_RATIO_PCT:
+                return False
+            if ips * 100 < visitors * _DISTRIBUTED_PROXY_MIN_IP_VISITOR_RATIO_PCT:
+                return False
+            return direct_refs * 100 >= pv * _DISTRIBUTED_PROXY_MIN_DIRECT_REF_RATIO_PCT
+    except Exception:
+        logger.exception("distributed proxy scraper lookup failed")
+        return False
+
+
+def _is_distributed_proxy_scraper(ip_address: str | None) -> bool:
+    prefix = _ipv4_prefix_16(ip_address)
+    if not prefix:
+        return False
+    cache_bucket = int(time.time() // _DISTRIBUTED_PROXY_CACHE_SECONDS)
+    return _distributed_proxy_scraper_cached(prefix, cache_bucket)
+
+
+@lru_cache(maxsize=8192)
+def _recent_marked_dynamic_crawler_prefix_cached(prefix: str, cache_bucket: int) -> bool:
+    del cache_bucket
+    value = (prefix or "").strip()
+    if not value:
+        return False
+    cutoff = datetime.utcnow() - _DYNAMIC_CRAWLER_REPEAT_LOOKBACK
+    try:
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(
+                    func.count(PageView.id).label("pv"),
+                    func.count(func.distinct(PageView.ip_address)).label("ips"),
+                )
+                .filter(
+                    PageView.ip_address.like(f"{value}%"),
+                    PageView.crawler_name.in_(tuple(_DYNAMIC_CRAWLER_NAMES)),
+                    PageView.created_at >= cutoff,
+                )
+                .one()
+            )
+            return int(row.pv or 0) >= 50 and int(row.ips or 0) >= 5
+    except Exception:
+        logger.exception("dynamic crawler prefix repeat lookup failed")
+        return False
+
+
+def _recent_marked_dynamic_crawler_prefix(ip_address: str | None) -> bool:
+    prefix = _ipv4_prefix_16(ip_address)
+    if not prefix:
+        return False
+    cache_bucket = int(time.time() // _DYNAMIC_CRAWLER_REPEAT_CACHE_SECONDS)
+    return _recent_marked_dynamic_crawler_prefix_cached(prefix, cache_bucket)
+
+
+def _dynamic_pageview_crawler_name() -> str | None:
+    ip_address = _real_ip()
+    if _is_ip_cookie_churn_scraper(ip_address):
+        return "ip-cookie-churn-scraper"
+    if _is_network_cookie_churn_scraper(ip_address):
+        return "network-cookie-churn-scraper"
+    if _is_distributed_proxy_scraper(ip_address):
+        return "distributed-proxy-scraper"
+    if _recent_marked_dynamic_crawler_prefix(ip_address):
+        return "network-cookie-churn-scraper"
+    return None
+
+
 def _request_crawler_decision() -> dict[str, object]:
     cached = getattr(g, "_crawler_decision", None)
     if cached is not None:
@@ -5777,6 +6054,12 @@ def _request_crawler_decision() -> dict[str, object]:
                 "is_crawler": True,
                 "crawler_name": "auth-spray-bot",
                 "should_block": True,
+            }
+        elif not app.config.get("TESTING") and (dynamic_crawler_name := _dynamic_pageview_crawler_name()):
+            decision = {
+                "is_crawler": True,
+                "crawler_name": dynamic_crawler_name,
+                "should_block": False,
             }
         elif not app.config.get("TESTING") and _is_proxied_scraper_ua():
             decision = {
@@ -6485,6 +6768,64 @@ def _load_social_post_bundle(db_sess, post_id: int):
     return post, snapshot
 
 
+def _humanize_post_topic(db_sess, topic: str, source_game_ids: list[str]) -> dict[str, object] | None:
+    """Turn an internal `Hero Highlight — game_id — scope — metric_key — entity_id`
+    string into something an admin can read at a glance: matchup + clickable
+    game link + real entity label + human metric name. Returns None for
+    non-hero topics; the caller falls back to the raw topic string.
+    """
+    raw = str(topic or "")
+    if not raw.startswith("Hero Highlight"):
+        return None
+    parts = [p.strip() for p in raw.split("—")]
+    if len(parts) < 5:
+        return None
+    _, game_id, scope, metric_key, entity_id = parts[0], parts[1], parts[2], parts[3], parts[4]
+
+    game = db_sess.query(Game).filter(Game.game_id == game_id).first()
+    matchup_text = ""
+    matchup_href = ""
+    if game is not None:
+        home = db_sess.query(Team).filter(Team.team_id == game.home_team_id).first() if game.home_team_id else None
+        road = db_sess.query(Team).filter(Team.team_id == game.road_team_id).first() if game.road_team_id else None
+        home_abbr = (home.abbr if home else None) or "?"
+        road_abbr = (road.abbr if road else None) or "?"
+        if game.home_team_score is not None and game.road_team_score is not None:
+            matchup_text = f"{road_abbr} {game.road_team_score} @ {home_abbr} {game.home_team_score}"
+        else:
+            matchup_text = f"{road_abbr} @ {home_abbr}"
+        slug = game.slug or game.game_id
+        matchup_href = f"/games/{slug}"
+
+    # Resolve entity label by scope.
+    entity_text = ""
+    if scope == "player":
+        player = db_sess.query(Player).filter(Player.player_id == entity_id).first()
+        if player is not None:
+            entity_text = player.full_name or player.player_id
+    elif scope == "team":
+        # entity_id may be team_id or "{game_id}:{team_id}:Q4" for sub-keyed metrics.
+        team_id = entity_id.split(":")[1] if ":" in entity_id else entity_id
+        team = db_sess.query(Team).filter(Team.team_id == team_id).first()
+        if team is not None:
+            entity_text = team.full_name or team.abbr or team_id
+    # game scope: matchup already covers it; no extra entity label needed.
+
+    metric_text = metric_key.replace("_", " ").title()
+    md = db_sess.query(MetricDefinitionModel).filter(MetricDefinitionModel.key == metric_key).first()
+    if md is not None and md.name:
+        metric_text = md.name
+
+    return {
+        "kind": "hero_highlight",
+        "matchup_text": matchup_text,
+        "matchup_href": matchup_href,
+        "entity_text": entity_text,
+        "metric_text": metric_text,
+        "scope": scope,
+    }
+
+
 def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, object]]:
     post_ids = [p.id for p in posts]
     variants = db_sess.query(SocialPostVariant).filter(
@@ -6523,12 +6864,14 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     for p in posts:
         pvariants = v_by_post.get(p.id, [])
         pipeline_type, pipeline_label = _social_post_pipeline_type(p, game_analysis_post_ids)
+        sgi = json.loads(p.source_game_ids) if p.source_game_ids else []
         rows.append({
             "id": p.id,
             "topic": p.topic,
+            "display_topic": _humanize_post_topic(db_sess, p.topic, sgi),
             "source_date": p.source_date.isoformat() if p.source_date else "",
             "source_metrics": json.loads(p.source_metrics) if p.source_metrics else [],
-            "source_game_ids": json.loads(p.source_game_ids) if p.source_game_ids else [],
+            "source_game_ids": sgi,
             "pipeline_type": pipeline_type,
             "pipeline_label": pipeline_label,
             "status": p.status,
@@ -7836,15 +8179,13 @@ api_admin_runtime_flags = _admin_misc_views.api_admin_runtime_flags
 api_admin_ai_usage = _admin_misc_views.api_admin_ai_usage
 api_admin_visitor_timeseries = _admin_misc_views.api_admin_visitor_timeseries
 api_admin_update_runtime_flags = _admin_misc_views.api_admin_update_runtime_flags
+admin_backfill = _admin_misc_views.admin_backfill
+game_shotchart_backfill = _admin_misc_views.game_shotchart_backfill
+game_shotchart_backfill_api = _admin_misc_views.game_shotchart_backfill_api
 api_admin_hero_poster_config = _admin_misc_views.api_admin_hero_poster_config
 api_admin_update_hero_poster_config = _admin_misc_views.api_admin_update_hero_poster_config
 api_admin_hero_poster_preview = _admin_misc_views.api_admin_hero_poster_preview
 api_admin_hero_poster_regenerate = _admin_misc_views.api_admin_hero_poster_regenerate
-api_admin_publishing_matrix = _admin_misc_views.api_admin_publishing_matrix
-api_admin_update_publishing_matrix = _admin_misc_views.api_admin_update_publishing_matrix
-admin_backfill = _admin_misc_views.admin_backfill
-game_shotchart_backfill = _admin_misc_views.game_shotchart_backfill
-game_shotchart_backfill_api = _admin_misc_views.game_shotchart_backfill_api
 
 
 @app.route("/api/admin/games/<game_id>/curate-highlights", methods=["POST"])
