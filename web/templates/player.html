@@ -402,67 +402,78 @@
   /* Hide every sibling of h1 inside .player-info when stuck. */
   .player-hero.is-stuck .player-info > *:not(h1) { display: none; }
 
-  /* ── Section nav embedded in the compressed player-hero ────── */
-  /* The hero is itself sticky; when "stuck" it compresses to a
-     thin bar with a small avatar + name on the left. We park the
-     section nav in the wide empty slot to the right rather than
-     stacking another sticky bar below. */
+  /* ── Section nav: icon row in the compressed player-hero. ───── */
+  /* When the hero is "stuck", a tight row of square icon buttons
+     appears in the slot to the right of the avatar. Each button
+     hovers a tooltip with the section label. */
   .player-section-nav {
     display: none;
-    flex: 1;
-    min-width: 0;
+    flex: 0 1 auto;
     align-items: center;
     justify-content: flex-end;
     margin: 0 0 0 12px;
+    min-width: 0;
   }
-  .player-hero.is-stuck .player-section-nav {
-    display: flex;
-  }
+  .player-hero.is-stuck .player-section-nav { display: flex; }
   .player-section-nav-inner {
     display: flex;
-    gap: 3px;
+    align-items: center;
+    gap: 2px;
     background: var(--surface-2, rgba(255,255,255,0.04));
     border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 2px;
-    max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    border-radius: 9px;
+    padding: 3px;
   }
-  .player-section-nav-inner::-webkit-scrollbar { display: none; }
-
   .player-nav-btn {
-    flex-shrink: 0;
-    padding: 5px 12px;
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted-2, var(--muted));
-    border: none;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     background: transparent;
-    border-radius: 5px;
+    border: none;
+    border-radius: 6px;
     cursor: pointer;
+    color: var(--muted-2, var(--muted));
     transition: color 0.12s, background 0.12s;
-    white-space: nowrap;
   }
-  .player-nav-btn:hover { color: var(--heading, var(--text)); }
-  .player-nav-btn.active {
-    background: var(--surface-3, rgba(255,255,255,0.10));
+  .player-nav-btn svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+  .player-nav-btn:hover {
     color: var(--heading, var(--text));
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    background: var(--surface-3, rgba(255,255,255,0.08));
   }
-
-  /* On narrow screens, drop the nav to its own row inside the hero. */
-  @media (max-width: 720px) {
-    .player-hero.is-stuck .player-header { flex-wrap: wrap; }
-    .player-hero.is-stuck .player-section-nav {
-      flex: 0 0 100%;
-      order: 99;
-      margin: 6px 0 0;
-      justify-content: flex-start;
-    }
-    .player-nav-btn { min-height: 32px; padding: 5px 12px; }
+  .player-nav-btn.active {
+    color: var(--accent, #f97316);
+    background: rgba(249, 115, 22, 0.14);
+  }
+  .player-nav-btn::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-3px);
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.92);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s, transform 0.14s;
+    z-index: 50;
+  }
+  .player-nav-btn:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 
   /* ── Highlights strip (top of metrics section) ───────────── */
@@ -1839,13 +1850,9 @@
   }
 
   /* Account for sticky topbar (54px) + compressed player-hero (~56px)
-     when jumping to a hash. Mobile bumps higher because the embedded
-     nav adds its own row to the stuck hero. */
+     when jumping to a hash. */
   [id^="section-"] {
     scroll-margin-top: 120px;
-  }
-  @media (max-width: 720px) {
-    [id^="section-"] { scroll-margin-top: 170px; }
   }
 </style>
 
@@ -1988,19 +1995,61 @@
     <nav class="player-section-nav" id="player-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
       <div class="player-section-nav-inner">
         {% if player_stint_timeline %}
-        <button class="player-nav-btn" data-target="section-teams">{{ t('Teams', '效力') }}</button>
+        <button class="player-nav-btn" data-target="section-teams"
+                data-tooltip="{{ t('Teams', '效力') }}"
+                aria-label="{{ t('Teams', '效力') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </button>
         {% endif %}
-        <button class="player-nav-btn active" data-target="section-career">{{ t('Career', '生涯') }}</button>
+        <button class="player-nav-btn active" data-target="section-career"
+                data-tooltip="{{ t('Career', '生涯') }}"
+                aria-label="{{ t('Career', '生涯') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+          </svg>
+        </button>
         {% if player_metrics.season or player_metrics.alltime %}
-        <button class="player-nav-btn" data-target="section-metrics">{{ t('Metrics', '指标') }}</button>
+        <button class="player-nav-btn" data-target="section-metrics"
+                data-tooltip="{{ t('Metrics', '指标') }}"
+                aria-label="{{ t('Metrics', '指标') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>
+          </svg>
+        </button>
         {% endif %}
         {% if salary_panel or salary_rows %}
-        <button class="player-nav-btn" data-target="section-salary">{{ t('Salary', '薪资') }}</button>
+        <button class="player-nav-btn" data-target="section-salary"
+                data-tooltip="{{ t('Salary', '薪资') }}"
+                aria-label="{{ t('Salary', '薪资') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </button>
         {% endif %}
-        <button class="player-nav-btn" data-target="section-shots">{{ t('Shot Chart', '投篮图') }}</button>
-        <button class="player-nav-btn" data-target="section-games">{{ t('Games', '比赛') }}</button>
+        <button class="player-nav-btn" data-target="section-shots"
+                data-tooltip="{{ t('Shot Chart', '投篮图') }}"
+                aria-label="{{ t('Shot Chart', '投篮图') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+          </svg>
+        </button>
+        <button class="player-nav-btn" data-target="section-games"
+                data-tooltip="{{ t('Games', '比赛') }}"
+                aria-label="{{ t('Games', '比赛') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </button>
         {% if player_transactions %}
-        <button class="player-nav-btn" data-target="section-transactions">{{ t('Transactions', '交易') }}</button>
+        <button class="player-nav-btn" data-target="section-transactions"
+                data-tooltip="{{ t('Transactions', '交易') }}"
+                aria-label="{{ t('Transactions', '交易') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </button>
         {% endif %}
       </div>
     </nav>
