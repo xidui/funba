@@ -15,6 +15,8 @@ DEFAULT_RUNTIME_FLAGS: dict[str, bool] = {
     "platform_hupu": True,
     "platform_xiaohongshu": True,
     "platform_reddit": True,
+    "platform_twitter": True,
+    "platform_funba": True,
 }
 
 
@@ -50,7 +52,7 @@ def get_runtime_flag(key: str) -> bool:
 
 _PLATFORM_FLAG_PREFIX = "platform_"
 
-KNOWN_PLATFORMS = ["hupu", "xiaohongshu", "reddit"]
+KNOWN_PLATFORMS = ["hupu", "xiaohongshu", "reddit", "twitter", "funba"]
 
 
 def get_enabled_platforms() -> list[str]:

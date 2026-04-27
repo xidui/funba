@@ -37,9 +37,12 @@ PUBLIC_BASE_URL = "https://funba.app"
 FUNBA_INTERNAL_PLATFORM = "funba"
 DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
 HERO_HIGHLIGHT_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_PLATFORMS"
-DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
+# Funba's home feed auto-approves + auto-publishes (no external API to push
+# to). Twitter requires human review before any external posting — generate
+# the variant, but leave the post in_review so an admin can edit + publish.
+DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = (FUNBA_INTERNAL_PLATFORM,)
 HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS"
-DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
+DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = (FUNBA_INTERNAL_PLATFORM,)
 HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS"
 HERO_HIGHLIGHT_AUTO_PUBLISH_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH"
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
@@ -120,11 +123,22 @@ def _normalized_platform_list(
 
 
 def enabled_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
-    return _normalized_platform_list(
+    candidates = _normalized_platform_list(
         environ=environ,
         env_key=HERO_HIGHLIGHT_PLATFORMS_ENV,
         default=DEFAULT_HERO_HIGHLIGHT_PLATFORMS,
     )
+    # Honour the per-platform runtime toggles edited from the admin UI:
+    # Settings → "Platform Publishing" → Twitter / Funba toggles. Env var
+    # selection still wins for explicit overrides; the runtime flag is the
+    # admin-driven default-on/off switch.
+    try:
+        from runtime_flags import load_runtime_flags
+
+        flags = load_runtime_flags()
+    except Exception:
+        flags = {}
+    return [p for p in candidates if flags.get(f"platform_{p}", True)]
 
 
 def auto_approve_hero_highlight_platforms(environ: dict[str, str] | None = None) -> list[str]:
@@ -744,7 +758,17 @@ def _create_post_for_card(
         return HeroHighlightPostResult(post_id=int(existing.id), created=False)
 
     post_status = _post_status_for_platforms(platforms)
-    auto_publish_platforms = _auto_publish_platform_set() if post_status == "approved" else set()
+    # Auto-publish set is normally only populated when post is approved, but
+    # Funba's home feed should publish regardless of overall post-level review
+    # status — there's no external destination, just home-feed visibility, so
+    # gating it behind Twitter's human review window is unnecessary.
+    auto_publish_set = _auto_publish_platform_set()
+    if post_status == "approved":
+        auto_publish_platforms = auto_publish_set
+    elif FUNBA_INTERNAL_PLATFORM in auto_publish_set:
+        auto_publish_platforms = {FUNBA_INTERNAL_PLATFORM}
+    else:
+        auto_publish_platforms = set()
     auto_publish_deliveries: list[tuple[str, int]] = []
 
     post = SocialPost(

@@ -630,6 +630,18 @@ def register_admin_misc_routes(app, deps):
             return jsonify({"ok": False, "error": str(exc)}), 500
         return jsonify({"ok": True, **result})
 
+    def _resolve_game_lookup(session, ref: str):
+        """Accept either a slug (e.g. '20260426-sas-por') or a raw game_id."""
+        from db.models import Game
+
+        ref = (ref or "").strip()
+        if not ref:
+            return None
+        return (
+            session.query(Game).filter(Game.game_id == ref).first()
+            or session.query(Game).filter(Game.slug == ref).first()
+        )
+
     def api_admin_hero_poster_preview():
         denied = deps.require_admin_json()()
         if denied:
@@ -639,19 +651,18 @@ def register_admin_misc_routes(app, deps):
             get_hero_poster_prompt_template,
             render_prompt,
         )
-        from db.models import Game
 
         body = request.get_json(force=True) or {}
-        game_id = str(body.get("game_id") or "").strip()
+        game_ref = str(body.get("game_id") or body.get("game_slug") or body.get("game") or "").strip()
         metric_key = str(body.get("metric_key") or "").strip()
         scope = str(body.get("scope") or "game").strip() or "game"
         entity_id = str(body.get("entity_id") or "").strip() or None
-        if not game_id or not metric_key:
-            return jsonify({"ok": False, "error": "game_id and metric_key required"}), 400
+        if not game_ref or not metric_key:
+            return jsonify({"ok": False, "error": "game (slug or game_id) and metric_key required"}), 400
 
         SessionLocal = deps.session_local()
         with SessionLocal() as session:
-            game = session.query(Game).filter(Game.game_id == game_id).first()
+            game = _resolve_game_lookup(session, game_ref)
             if game is None:
                 return jsonify({"ok": False, "error": "game_not_found"}), 404
             template_override = body.get("template")
@@ -659,32 +670,31 @@ def register_admin_misc_routes(app, deps):
             card = {"metric_key": metric_key, "scope": scope, "entity_id": entity_id}
             ctx = build_prompt_context(session, card=card, game=game)
             rendered = render_prompt(template, ctx)
-        return jsonify({"ok": True, "context": ctx, "prompt": rendered})
+        return jsonify({"ok": True, "context": ctx, "prompt": rendered, "resolved_game_id": game.game_id})
 
     def api_admin_hero_poster_regenerate():
         denied = deps.require_admin_json()()
         if denied:
             return denied
-        from db.models import Game
         from social_media.hero_poster import generate_posters_for_curated_game
 
         body = request.get_json(force=True) or {}
-        game_id = str(body.get("game_id") or "").strip()
+        game_ref = str(body.get("game_id") or body.get("game_slug") or body.get("game") or "").strip()
         force = bool(body.get("force") or False)
-        if not game_id:
-            return jsonify({"ok": False, "error": "game_id required"}), 400
+        if not game_ref:
+            return jsonify({"ok": False, "error": "game (slug or game_id) required"}), 400
 
         SessionLocal = deps.session_local()
         with SessionLocal() as session:
-            game = session.query(Game).filter(Game.game_id == game_id).first()
+            game = _resolve_game_lookup(session, game_ref)
             if game is None:
                 return jsonify({"ok": False, "error": "game_not_found"}), 404
             try:
                 paths = generate_posters_for_curated_game(session, game, force=force)
             except Exception as exc:
-                deps.logger().exception("hero poster regenerate failed for %s", game_id)
+                deps.logger().exception("hero poster regenerate failed for %s", game_ref)
                 return jsonify({"ok": False, "error": str(exc)}), 500
-        return jsonify({"ok": True, "game_id": game_id, "paths": [str(p) for p in paths]})
+        return jsonify({"ok": True, "game_id": game.game_id, "game_slug": game.slug, "paths": [str(p) for p in paths]})
 
     def api_admin_runtime_flags():
         denied = deps.require_admin_json()()

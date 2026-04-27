@@ -474,8 +474,8 @@
     <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
       <div style="font-weight:600;margin-bottom:8px;">Preview rendered prompt</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-        <input id="hero-poster-preview-game" type="text" placeholder="game_id (e.g. 0042500154)"
-               style="flex:1 1 220px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+        <input id="hero-poster-preview-game" type="text" placeholder="game slug (e.g. 20260426-sas-por) or game_id"
+               style="flex:1 1 280px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
         <input id="hero-poster-preview-metric" type="text" placeholder="metric_key"
                style="flex:1 1 280px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
         <select id="hero-poster-preview-scope" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
@@ -901,6 +901,8 @@
       { key: 'platform_hupu', label: 'Hupu', help: '虎扑 — 湿乎乎的话题 + team forums' },
       { key: 'platform_xiaohongshu', label: 'Xiaohongshu', help: '小红书 — graph note format' },
       { key: 'platform_reddit', label: 'Reddit', help: 'Reddit — r/nba + team subreddits' },
+      { key: 'platform_twitter', label: 'Twitter', help: 'X / Twitter — hero card variants (auto-publish OFF; requires human review)' },
+      { key: 'platform_funba', label: 'Funba (home feed)', help: 'Funba 自家首页瀑布流 — auto-publish ON, no human review' },
     ];
     let clearTimer = null;
 
