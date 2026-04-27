@@ -11,8 +11,8 @@ from typing import Iterable
 from openai import BadRequestError, OpenAI
 
 
-DEFAULT_IMAGE_MODEL = "gpt-image-1.5"
-DEFAULT_RESPONSES_MODEL = "gpt-5.4"
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_RESPONSES_MODEL = "gpt-5.5"
 FALLBACK_RESPONSES_MODEL = "gpt-5"
 DEFAULT_SIZE = "1536x1024"
 DEFAULT_QUALITY = "high"

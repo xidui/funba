@@ -90,7 +90,7 @@ def ensure_model_available(model: str) -> str:
 
 def env_default_llm_model() -> str | None:
     if os.getenv("OPENAI_API_KEY"):
-        return "gpt-5.4"
+        return "gpt-5.5"
     if os.getenv("ANTHROPIC_API_KEY"):
         return "claude-opus-4-7"
     return None
