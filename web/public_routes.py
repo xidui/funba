@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from collections import defaultdict
 from datetime import date, timedelta
@@ -1117,6 +1118,108 @@ def register_public_routes(
                 ],
             }
 
+    def _build_featured_highlights(team_lookup: dict, limit: int = 12) -> list[dict]:
+        """Hero card posts published to Funba's home feed (platform=funba)."""
+        from os.path import basename
+
+        SessionLocal = get_session_local()
+        Game = get_game_model()
+        from db.models import (
+            SocialPost,
+            SocialPostDelivery,
+            SocialPostImage,
+            SocialPostVariant,
+        )
+
+        with SessionLocal() as session:
+            rows = (
+                session.query(SocialPostDelivery, SocialPostVariant, SocialPost)
+                .join(SocialPostVariant, SocialPostDelivery.variant_id == SocialPostVariant.id)
+                .join(SocialPost, SocialPostVariant.post_id == SocialPost.id)
+                .filter(
+                    SocialPostDelivery.platform == "funba",
+                    SocialPostDelivery.status == "published",
+                    SocialPost.status != "archived",
+                )
+                .order_by(SocialPostDelivery.published_at.desc().nullslast(), SocialPostDelivery.id.desc())
+                .limit(limit)
+                .all()
+            )
+            if not rows:
+                return []
+
+            post_ids = [int(r[2].id) for r in rows]
+            poster_rows = (
+                session.query(SocialPostImage)
+                .filter(
+                    SocialPostImage.post_id.in_(post_ids),
+                    SocialPostImage.slot == "poster",
+                    SocialPostImage.is_enabled.is_(True),
+                )
+                .all()
+            )
+            posters_by_post = {int(img.post_id): img for img in poster_rows}
+
+            game_ids: set[str] = set()
+            for _delivery, _variant, post in rows:
+                try:
+                    ids = json.loads(post.source_game_ids or "[]")
+                except Exception:
+                    ids = []
+                for gid in ids:
+                    if gid:
+                        game_ids.add(str(gid))
+            games_by_id: dict[str, Any] = {}
+            if game_ids:
+                for g in session.query(Game).filter(Game.game_id.in_(game_ids)).all():
+                    games_by_id[str(g.game_id)] = g
+
+            entries: list[dict] = []
+            for delivery, variant, post in rows:
+                try:
+                    source_game_ids = json.loads(post.source_game_ids or "[]")
+                except Exception:
+                    source_game_ids = []
+                game = games_by_id.get(str(source_game_ids[0])) if source_game_ids else None
+
+                game_url = ""
+                game_title = ""
+                if game is not None:
+                    slug = game.slug or game.game_id
+                    game_url = f"/games/{slug}"
+                    home_team = team_lookup.get(str(game.home_team_id)) if team_lookup else None
+                    road_team = team_lookup.get(str(game.road_team_id)) if team_lookup else None
+                    home_abbr = getattr(home_team, "abbr", None) or "?"
+                    road_abbr = getattr(road_team, "abbr", None) or "?"
+                    if game.home_team_score is not None and game.road_team_score is not None:
+                        game_title = f"{road_abbr} {game.road_team_score} @ {home_abbr} {game.home_team_score}"
+                    else:
+                        game_title = f"{road_abbr} @ {home_abbr}"
+
+                poster = posters_by_post.get(int(post.id))
+                poster_url: str | None = None
+                if poster and poster.file_path:
+                    fname = basename(str(poster.file_path))
+                    poster_url = f"/media/social_posts/{int(post.id)}/{fname}"
+
+                # Variant content already has [[IMAGE:slot=poster]] tag at the top
+                # — strip that for the home-feed teaser body, since the home card
+                # renders the poster image directly above the text.
+                body = (variant.content_raw or "").replace("[[IMAGE:slot=poster]]", "").strip()
+
+                entries.append(
+                    {
+                        "post_id": int(post.id),
+                        "title": variant.title,
+                        "body": body,
+                        "poster_url": poster_url,
+                        "game_url": game_url,
+                        "game_title": game_title,
+                        "published_at": delivery.published_at,
+                    }
+                )
+            return entries
+
     def home():
         SessionLocal = get_session_local()
         Team = get_team_model()
@@ -1208,6 +1311,7 @@ def register_public_routes(
         today_games_data = _build_today_games(team_lookup)
         notable_recent = _build_recent_notable_metrics(team_lookup)
         top_scorers = _build_top_scorers()
+        featured_highlights = _build_featured_highlights(team_lookup)
 
         games_active = [g for g in today_games_data if g.get("status") in (GAME_STATUS_LIVE, GAME_STATUS_COMPLETED)]
         upcoming_games = [
@@ -1231,6 +1335,7 @@ def register_public_routes(
             upcoming_games=upcoming_games,
             notable_recent=notable_recent,
             top_scorers=top_scorers,
+            featured_highlights=featured_highlights,
         )
 
     def _build_home_news(team_lookup: dict, limit: int = 15) -> list[dict]:

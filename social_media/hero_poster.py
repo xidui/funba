@@ -1,0 +1,690 @@
+"""Generate a Funba hero card poster (PNG) for one curated highlight.
+
+Pipeline:
+    HeroHighlightCard
+      ─► build prompt context (metric def, top 10, trigger row, game)
+      ─► render prompt template (Jinja-style {placeholders})
+      ─► call gpt-image-2 via social_media.funba_imagegen.generate_image
+      ─► save to media/hero_posters/{game_id}/{stable_key}.png
+
+The prompt template lives in the Setting table (key = HERO_POSTER_PROMPT_TEMPLATE_KEY)
+so admins can edit it without a deploy. A package default template is shipped
+below and used as a fallback when the Setting row is missing or empty.
+
+The generator is idempotent: if the target path already exists and is
+non-empty, the call returns it without regenerating.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterable
+
+from sqlalchemy.orm import Session
+
+from db.models import (
+    Game,
+    MetricDefinition,
+    MetricResult,
+    Player,
+    PlayerGameStats,
+    Setting,
+    Team,
+)
+
+logger = logging.getLogger(__name__)
+
+HERO_POSTER_PROMPT_TEMPLATE_KEY = "hero_poster_prompt_template"
+HERO_POSTER_MODEL_KEY = "hero_poster_model"
+HERO_POSTERS_SUBDIR = "hero_posters"
+HERO_POSTER_DEFAULT_MODEL = "gpt-image-2"
+HERO_POSTER_DEFAULT_SIZE = "1024x1536"
+HERO_POSTER_DEFAULT_QUALITY = "high"
+HERO_POSTER_TOP_N = 10
+
+# Default prompt template — admin-editable via the Setting row above. Placeholders
+# in {curly_braces} are substituted via str.format with the context dict produced
+# by build_prompt_context(). Conditional blocks use a tiny Jinja-style syntax
+# implemented in render_prompt(): {% if FLAG %}...{% endif %}.
+DEFAULT_HERO_POSTER_PROMPT_TEMPLATE = """\
+You are designing a vertical 1024x1536 social-media-ready NBA infographic
+poster, formatted like a leaderboard, about ONE specific metric and the
+TOP {top_n} standings of that metric this season — with the row triggered by
+tonight's game visually highlighted.
+
+================ METRIC ================
+Key:           {metric_key}
+Name:          {metric_name}
+Description:   {metric_description}
+Scope:         {metric_scope}
+Category:      {metric_category}
+Season frame:  {season_label}
+
+================ TRIGGERING GAME ================
+Tonight, {game_score_line} ({game_date} · {game_stage}) produced an entry
+on this leaderboard.
+
+Trigger entity: {trigger_label}
+Trigger team:   {trigger_team_full}
+Trigger value:  {trigger_value_str}
+Trigger rank:   #{trigger_rank} ({trigger_window})
+
+{% if trigger_full_line %}Trigger full game line: {trigger_full_line}
+{% endif %}================ TOP {top_n} ================
+Render the leaderboard as {top_n} horizontal rows, ordered top to bottom.
+Each row contains: rank number, accurate {entity_kind} headshot or logo,
+display name, team logo and three-letter team abbreviation, and the
+metric value right-aligned. {% if trigger_in_topn %}The triggering row
+(rank {trigger_rank}, {trigger_label}) was produced by tonight's game —
+render that row noticeably taller, brighter, with a glowing silver-white
+border and a small "TRIGGERED TONIGHT" badge on the row. The other
+rows are slimmer and darker.{% endif %}
+
+Use these EXACT entries in this EXACT order; do not invent or substitute:
+
+{top_n_table}
+
+{% if not trigger_in_topn %}APPEND ONE EXTRA ROW BELOW THE TOP {top_n}, separated
+by a thin divider, labelled "TRIGGERED TONIGHT — outside top {top_n}":
+
+  {trigger_appendix_row}
+
+{% endif %}================ LAYOUT ================
+- Header (top ~15%):
+    Top-left  : white rounded pill "FUNBA" in bold sans-serif
+    Top-right : subtle pill "{game_stage_pill}"
+    Centered  : two-line title in big chrome-silver bevelled type with soft glow:
+                  {title_line_1}
+                  {title_line_2}
+
+- Leaderboard (middle ~70%): the rows described above.
+
+- Footer (bottom ~15%):
+    Centered "FUNBA.APP" in clean uppercase white
+    Subtitle "MORE STATS · MORE INSIGHTS"
+
+================ VISUAL ASSETS ================
+- Player headshots / team imagery: render real, recognizable likenesses
+  in the player's or team's current identity. Each headshot or team mark
+  should be a clean circular crop.
+- Team logos: render accurate official-style NBA team logos next to each
+  row. Each logo small and circular.
+- Do NOT include the NBA league logo or any league mark.
+- Do NOT include any broadcaster watermarks.
+
+================ TYPOGRAPHY RULES ================
+- All numerical values must render EXACTLY as written above.
+- All three-letter team abbreviations must be spelled correctly.
+- All player or team names must be spelled correctly as listed above.
+
+================ AESTHETIC ================
+Adopt the visual identity of {trigger_team_full} as the dominant palette
+(infer the team's primary, secondary, and accent colours from your
+knowledge of the NBA). Dark cinematic background with subtle metallic
+accents and a single warm highlight ray behind the triggering row.
+Premium broadcast graphics energy, ESPN / NBA Studios / Bleacher Report
+editorial feel, high contrast, clean grid alignment, social-media share
+friendly (1024x1536 vertical safe zone).
+"""
+
+
+# ---------------------------------------------------------------------------
+# Setting helpers
+# ---------------------------------------------------------------------------
+
+def get_hero_poster_prompt_template(session: Session) -> str:
+    row = session.get(Setting, HERO_POSTER_PROMPT_TEMPLATE_KEY)
+    if row and row.value and row.value.strip():
+        return row.value
+    return DEFAULT_HERO_POSTER_PROMPT_TEMPLATE
+
+
+def set_hero_poster_prompt_template(session: Session, value: str) -> str:
+    text = (value or "").strip() or DEFAULT_HERO_POSTER_PROMPT_TEMPLATE
+    row = session.get(Setting, HERO_POSTER_PROMPT_TEMPLATE_KEY)
+    if row is None:
+        row = Setting(
+            key=HERO_POSTER_PROMPT_TEMPLATE_KEY,
+            value=text,
+            updated_at=datetime.utcnow(),
+        )
+        session.add(row)
+    else:
+        row.value = text
+        row.updated_at = datetime.utcnow()
+    return text
+
+
+def get_hero_poster_model(session: Session) -> str:
+    row = session.get(Setting, HERO_POSTER_MODEL_KEY)
+    if row and row.value and row.value.strip():
+        return row.value.strip()
+    return HERO_POSTER_DEFAULT_MODEL
+
+
+# ---------------------------------------------------------------------------
+# Prompt template rendering — supports {var} substitution + tiny if blocks
+# ---------------------------------------------------------------------------
+
+_IF_BLOCK_RE = re.compile(
+    r"\{%\s*if\s+(?P<negate>not\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*%\}"
+    r"(?P<body>.*?)"
+    r"\{%\s*endif\s*%\}",
+    re.DOTALL,
+)
+
+
+def _truthy(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return bool(value)
+
+
+def render_prompt(template: str, context: dict[str, Any]) -> str:
+    """Render the template string against the context.
+
+    Two substitutions:
+      1. `{% if NAME %}...{% endif %}` and `{% if not NAME %}...{% endif %}`
+         where NAME is a key in `context`.
+      2. `{var}` style str.format substitution against `context`.
+
+    Unknown `{var}` placeholders are left literal so a typo in the template
+    does not blow up the worker — the resulting prompt will visibly contain
+    the placeholder, which surfaces the bug to the admin reviewer.
+    """
+    def _resolve_block(match: re.Match[str]) -> str:
+        name = match.group("name")
+        body = match.group("body")
+        flag = _truthy(context.get(name))
+        if match.group("negate"):
+            flag = not flag
+        return body if flag else ""
+
+    rendered = _IF_BLOCK_RE.sub(_resolve_block, template)
+    try:
+        return rendered.format_map(_SafeDict(context))
+    except Exception:
+        logger.exception("hero poster prompt rendering failed; falling back to raw template")
+        return rendered
+
+
+class _SafeDict(dict):
+    """Dict subclass that keeps unknown placeholders literal during str.format."""
+
+    def __missing__(self, key: str) -> str:  # pragma: no cover - trivial
+        return "{" + key + "}"
+
+
+# ---------------------------------------------------------------------------
+# Context builder — pulls metric def, top N, trigger details from DB
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TOP_N = HERO_POSTER_TOP_N
+
+
+def _safe_str(value: Any, fallback: str = "") -> str:
+    if value is None:
+        return fallback
+    s = str(value).strip()
+    return s if s else fallback
+
+
+def _player_label(session: Session, entity_id: str) -> tuple[str, Player | None]:
+    p = session.query(Player).filter(Player.player_id == entity_id).first()
+    if p is None:
+        return entity_id, None
+    return p.full_name or entity_id, p
+
+
+def _team_label(session: Session, team_id: str) -> tuple[str, Team | None]:
+    t = session.query(Team).filter(Team.team_id == team_id).first()
+    if t is None:
+        return team_id, None
+    return (t.abbr or t.full_name or team_id), t
+
+
+def _team_for_player_in_game(session: Session, player_id: str, game_id: str) -> Team | None:
+    pgs = (
+        session.query(PlayerGameStats)
+        .filter(PlayerGameStats.player_id == player_id, PlayerGameStats.game_id == game_id)
+        .first()
+    )
+    if not pgs:
+        return None
+    return session.query(Team).filter(Team.team_id == pgs.team_id).first()
+
+
+def _format_top_row(rank: int, name: str, team_abbr: str | None, team_full: str | None, jersey: str | None, value_str: str) -> str:
+    pieces = [f"{rank:>2}.", name]
+    if jersey:
+        pieces.append(f"#{jersey}")
+    if team_abbr:
+        pieces.append(team_abbr)
+    if team_full and team_full != team_abbr:
+        pieces.append(f"({team_full})")
+    pieces.append("—")
+    pieces.append(value_str)
+    return " ".join(pieces)
+
+
+def _full_player_line(pgs: PlayerGameStats | None) -> str:
+    if pgs is None:
+        return ""
+    bits: list[str] = []
+    if pgs.pts is not None:
+        bits.append(f"{int(pgs.pts)} PTS")
+    if pgs.reb is not None:
+        bits.append(f"{int(pgs.reb)} REB")
+    if pgs.ast is not None:
+        bits.append(f"{int(pgs.ast)} AST")
+    if pgs.stl is not None and pgs.stl:
+        bits.append(f"{int(pgs.stl)} STL")
+    if pgs.blk is not None and pgs.blk:
+        bits.append(f"{int(pgs.blk)} BLK")
+    if pgs.plus is not None:
+        sign = "+" if pgs.plus >= 0 else ""
+        bits.append(f"{sign}{int(pgs.plus)} +/-")
+    return " · ".join(bits)
+
+
+def _season_stage(season: str | None) -> tuple[str, str]:
+    raw = str(season or "")
+    if raw[:1] == "4":
+        return "playoffs", "PLAYOFFS"
+    if raw[:1] == "5":
+        return "play-in", "PLAY-IN"
+    return "regular season", "REGULAR SEASON"
+
+
+def _season_label(season: str | None) -> str:
+    raw = str(season or "")
+    if len(raw) == 5 and raw.isdigit():
+        year = raw[1:]
+        try:
+            return f"{year}-{str(int(year) + 1)[-2:]}"
+        except ValueError:
+            return raw
+    return raw or "season"
+
+
+def build_prompt_context(
+    session: Session,
+    *,
+    card: dict[str, Any],
+    game: Game,
+    top_n: int = _DEFAULT_TOP_N,
+) -> dict[str, Any]:
+    """Build the substitution context for the prompt template.
+
+    `card` is the bundled view of one curated hero entry. It can be either:
+      - a raw entry from highlights_curated_*_json (with `metric_key`,
+        `entity_id`, `value_snapshot`, `rank_snapshot`, etc.), OR
+      - a HeroHighlightCard dataclass converted via dataclasses.asdict.
+
+    The triggering game is `game`. Top N is the leaderboard size to
+    surface to GPT.
+    """
+    metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"))
+    md = (
+        session.query(MetricDefinition)
+        .filter(MetricDefinition.key == metric_key)
+        .first()
+    )
+    metric_name = (
+        _safe_str(card.get("metric_name"))
+        or (md.name if md and md.name else metric_key.replace("_", " ").title())
+    )
+    metric_description = (md.description if md and md.description else "") or ""
+    metric_scope = (md.scope if md and md.scope else _safe_str(card.get("scope"), "game"))
+    metric_category = (md.category if md and md.category else "general")
+
+    season = _safe_str(card.get("ranking_season") or card.get("season") or game.season)
+    stage_word, stage_pill_word = _season_stage(season)
+    season_label = f"{_season_label(season)} NBA {stage_word.title()}"
+
+    # ---- top N ----
+    rank_order = "desc"
+    try:
+        from metrics.framework.runtime import get_metric
+
+        m = get_metric(metric_key, session=session)
+        rank_order = "asc" if str(getattr(m, "rank_order", "desc")).lower() == "asc" else "desc"
+    except Exception:
+        pass
+    order_col = MetricResult.value_num.asc() if rank_order == "asc" else MetricResult.value_num.desc()
+    rows: Iterable[MetricResult] = (
+        session.query(MetricResult)
+        .filter(
+            MetricResult.metric_key == metric_key,
+            MetricResult.season == season,
+            MetricResult.value_num.isnot(None),
+        )
+        .order_by(order_col, MetricResult.entity_id.asc())
+        .limit(top_n)
+        .all()
+    )
+
+    trigger_entity_id = _safe_str(card.get("entity_id"))
+    trigger_game_id = str(game.game_id)
+
+    top_lines: list[str] = []
+    trigger_in_topn = False
+    trigger_rank: int | None = None
+    for idx, row in enumerate(rows, start=1):
+        entity_id = _safe_str(row.entity_id)
+        is_trigger = (
+            entity_id == trigger_entity_id
+            and (str(row.game_id or "") == trigger_game_id or metric_scope == "team")
+        )
+        if is_trigger and trigger_rank is None:
+            trigger_rank = idx
+            trigger_in_topn = True
+        if metric_scope == "player":
+            name, p = _player_label(session, entity_id)
+            team = _team_for_player_in_game(session, entity_id, str(row.game_id or ""))
+            jersey = p.jersey if p else None
+            line = _format_top_row(
+                idx,
+                name,
+                team.abbr if team else None,
+                team.full_name if team else None,
+                jersey,
+                _safe_str(row.value_str, "?"),
+            )
+        elif metric_scope == "team":
+            tm = session.query(Team).filter(Team.team_id == entity_id).first()
+            line = _format_top_row(
+                idx,
+                tm.full_name if tm else entity_id,
+                tm.abbr if tm else None,
+                tm.full_name if tm else None,
+                None,
+                _safe_str(row.value_str, "?"),
+            )
+        else:  # game scope
+            g = session.query(Game).filter(Game.game_id == _safe_str(row.game_id or row.entity_id)).first()
+            label = ""
+            if g:
+                home, _ = _team_label(session, str(g.home_team_id or ""))
+                road, _ = _team_label(session, str(g.road_team_id or ""))
+                label = f"{road} @ {home}"
+            line = _format_top_row(idx, label or _safe_str(row.entity_id), None, None, None, _safe_str(row.value_str, "?"))
+        if is_trigger:
+            line += "    ← TRIGGERED TONIGHT"
+        top_lines.append(line)
+
+    # If trigger isn't in top N, query its actual rank.
+    trigger_appendix_row = ""
+    if not trigger_in_topn and trigger_entity_id:
+        trigger_value_num = card.get("value_snapshot")
+        if isinstance(trigger_value_num, (int, float)):
+            better = (
+                session.query(MetricResult)
+                .filter(
+                    MetricResult.metric_key == metric_key,
+                    MetricResult.season == season,
+                    MetricResult.value_num.isnot(None),
+                    MetricResult.value_num
+                    > trigger_value_num
+                    if rank_order == "desc"
+                    else MetricResult.value_num < trigger_value_num,
+                )
+                .count()
+            )
+            trigger_rank = better + 1
+
+    # Trigger row labels
+    trigger_label = _safe_str(card.get("entity_label") or card.get("player_name") or card.get("team_abbr") or trigger_entity_id)
+    trigger_team_full = ""
+    trigger_team_abbr = ""
+    trigger_full_line = ""
+    if metric_scope == "player" and trigger_entity_id:
+        name, p = _player_label(session, trigger_entity_id)
+        if not trigger_label:
+            trigger_label = name
+        team = _team_for_player_in_game(session, trigger_entity_id, str(game.game_id))
+        if team:
+            trigger_team_full = team.full_name or ""
+            trigger_team_abbr = team.abbr or ""
+        pgs = (
+            session.query(PlayerGameStats)
+            .filter(PlayerGameStats.player_id == trigger_entity_id, PlayerGameStats.game_id == str(game.game_id))
+            .first()
+        )
+        trigger_full_line = _full_player_line(pgs)
+    elif metric_scope == "team" and trigger_entity_id:
+        tm = session.query(Team).filter(Team.team_id == trigger_entity_id).first()
+        if tm:
+            trigger_label = tm.full_name or trigger_label
+            trigger_team_full = tm.full_name or ""
+            trigger_team_abbr = tm.abbr or ""
+    else:
+        # game scope — pick the home or road team perspective
+        home, _ = _team_label(session, str(game.home_team_id or ""))
+        road, _ = _team_label(session, str(game.road_team_id or ""))
+        winner = session.query(Team).filter(Team.team_id == game.wining_team_id).first() if game.wining_team_id else None
+        if winner:
+            trigger_team_full = winner.full_name or ""
+            trigger_team_abbr = winner.abbr or ""
+        if not trigger_label:
+            trigger_label = f"{road} @ {home}"
+
+    # Build the appendix row (used when rank > top_n)
+    if not trigger_in_topn and trigger_rank:
+        trigger_appendix_row = _format_top_row(
+            trigger_rank,
+            trigger_label,
+            trigger_team_abbr or None,
+            trigger_team_full or None,
+            None,
+            _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+        )
+
+    # Game line + scoreline
+    home_team = session.query(Team).filter(Team.team_id == game.home_team_id).first()
+    road_team = session.query(Team).filter(Team.team_id == game.road_team_id).first()
+    home_abbr = home_team.abbr if home_team else "HOME"
+    road_abbr = road_team.abbr if road_team else "ROAD"
+    home_score = game.home_team_score if game.home_team_score is not None else "?"
+    road_score = game.road_team_score if game.road_team_score is not None else "?"
+    game_score_line = f"{road_abbr} {road_score} @ {home_abbr} {home_score}"
+
+    game_date_str = ""
+    if game.game_date:
+        game_date_str = game.game_date.strftime("%b %-d, %Y") if hasattr(game.game_date, "strftime") else str(game.game_date)
+
+    title_line_1 = metric_name.upper()
+    title_line_2 = f"{_season_label(season).upper()} NBA {stage_pill_word} · TOP {top_n}"
+
+    # entity_kind: for player metrics this is "player"; for team/game it's "team".
+    if metric_scope == "player":
+        entity_kind_word = "player"
+    else:
+        entity_kind_word = "team"
+
+    return {
+        "metric_key": metric_key,
+        "metric_name": metric_name,
+        "metric_description": metric_description.strip() or "(no description on file)",
+        "metric_scope": metric_scope,
+        "metric_category": metric_category,
+        "season_label": season_label,
+        "game_score_line": game_score_line,
+        "game_date": game_date_str,
+        "game_stage": stage_word,
+        "game_stage_pill": f"{stage_pill_word} · {game_date_str.upper()}" if game_date_str else stage_pill_word,
+        "trigger_label": trigger_label,
+        "trigger_team_full": trigger_team_full or trigger_team_abbr or "the team",
+        "trigger_team_abbr": trigger_team_abbr,
+        "trigger_value_str": _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+        "trigger_rank": trigger_rank or 0,
+        "trigger_window": _safe_str(card.get("rank_window"), "season"),
+        "trigger_full_line": trigger_full_line,
+        "trigger_in_topn": trigger_in_topn,
+        "trigger_appendix_row": trigger_appendix_row,
+        "top_n_table": "\n".join(f"  {line}" for line in top_lines) if top_lines else "  (no top-N rows available)",
+        "top_n": top_n,
+        "title_line_1": title_line_1,
+        "title_line_2": title_line_2,
+        "entity_kind": entity_kind_word,
+    }
+
+
+# ---------------------------------------------------------------------------
+# File-system helpers + idempotent generator
+# ---------------------------------------------------------------------------
+
+def _media_root() -> Path:
+    # Deploy worktree puts media/ at the repo root. Allow override via env for tests.
+    override = os.getenv("FUNBA_MEDIA_ROOT")
+    if override:
+        return Path(override).expanduser()
+    # Walk up from this file: social_media/hero_poster.py → social_media/ → repo
+    return Path(__file__).resolve().parent.parent / "media"
+
+
+def _safe_segment(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "")).strip("._-")
+    return cleaned or "x"
+
+
+def poster_path_for(card: dict[str, Any], game: Game) -> Path:
+    metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"), "metric")
+    entity_id = _safe_str(card.get("entity_id"), "game")
+    scope = _safe_str(card.get("scope"), "game")
+    file_stem = f"{_safe_segment(scope)}.{_safe_segment(metric_key)}.{_safe_segment(entity_id)}"
+    return _media_root() / HERO_POSTERS_SUBDIR / _safe_segment(str(game.game_id)) / f"{file_stem}.png"
+
+
+def generate_hero_poster(
+    session: Session,
+    *,
+    card: dict[str, Any],
+    game: Game,
+    model: str | None = None,
+    force: bool = False,
+) -> Path | None:
+    """Generate (or reuse) one hero card poster. Returns the file path or
+    None when generation was skipped (no metric_key, no entity_id, etc).
+
+    Idempotent: if the destination file already exists and is non-empty,
+    returns it without calling the API. Pass `force=True` to regenerate.
+    """
+    metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"))
+    if not metric_key:
+        logger.info("hero_poster: skipping card with no metric_key (game=%s)", game.game_id)
+        return None
+
+    target = poster_path_for(card, game)
+    if not force and target.exists() and target.stat().st_size > 0:
+        logger.info("hero_poster: reusing existing poster %s", target)
+        return target
+
+    template = get_hero_poster_prompt_template(session)
+    context = build_prompt_context(session, card=card, game=game)
+    prompt = render_prompt(template, context)
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        logger.exception("hero_poster: failed to mkdir %s", target.parent)
+        return None
+
+    chosen_model = model or get_hero_poster_model(session)
+
+    # Late import to keep module importable without OpenAI client at startup.
+    from social_media.funba_imagegen import generate_image
+
+    try:
+        out = generate_image(
+            prompt=prompt,
+            output_path=target,
+            model=chosen_model,
+            size=HERO_POSTER_DEFAULT_SIZE,
+            quality=HERO_POSTER_DEFAULT_QUALITY,
+            output_format="png",
+            background="opaque",
+        )
+    except Exception:
+        logger.exception("hero_poster: generate_image failed (game=%s metric=%s)", game.game_id, metric_key)
+        return None
+
+    return Path(out) if out else None
+
+
+def list_hero_posters_for_game(game_id: str) -> list[dict[str, str]]:
+    """Return all generated hero card poster files for a given game_id.
+
+    Useful for the game-analysis pipeline: when the analyst is assembling
+    the image pool for a game-recap post, it can offer these as
+    pre-generated candidates instead of asking GPT to draw a poster again.
+    Each dict carries `path`, `metric_key`, `entity_id`, `scope` (decoded
+    from the file stem) so the caller can pick by topic.
+    """
+    base = _media_root() / HERO_POSTERS_SUBDIR / _safe_segment(str(game_id))
+    if not base.exists() or not base.is_dir():
+        return []
+    out: list[dict[str, str]] = []
+    for p in sorted(base.glob("*.png")):
+        stem = p.stem
+        # Stem format: "{scope}.{metric_key}.{entity_id}"
+        parts = stem.split(".", 2)
+        scope = parts[0] if len(parts) > 0 else ""
+        metric_key = parts[1] if len(parts) > 1 else ""
+        entity_id = parts[2] if len(parts) > 2 else ""
+        out.append({
+            "path": str(p),
+            "scope": scope,
+            "metric_key": metric_key,
+            "entity_id": entity_id,
+        })
+    return out
+
+
+# Convenience used by the curator hook: generate posters for every hero entry
+# across the three curated JSONs. Errors per-card are swallowed so a single
+# poster failure doesn't block the rest of the pipeline.
+def generate_posters_for_curated_game(
+    session: Session,
+    game: Game,
+    *,
+    model: str | None = None,
+    force: bool = False,
+) -> list[Path]:
+    paths: list[Path] = []
+    blobs = (
+        ("game", game.highlights_curated_json),
+        ("player", game.highlights_curated_player_json),
+        ("team", game.highlights_curated_team_json),
+    )
+    for scope, blob in blobs:
+        try:
+            parsed = json.loads(blob) if blob else {}
+        except Exception:
+            continue
+        for entry in (parsed.get("hero") or []):
+            if not isinstance(entry, dict) or not entry.get("metric_key"):
+                continue
+            entry = dict(entry)
+            entry.setdefault("scope", scope)
+            try:
+                p = generate_hero_poster(session, card=entry, game=game, model=model, force=force)
+            except Exception:
+                logger.exception("hero_poster: unexpected failure for game=%s scope=%s metric=%s", game.game_id, scope, entry.get("metric_key"))
+                continue
+            if p:
+                paths.append(p)
+    return paths

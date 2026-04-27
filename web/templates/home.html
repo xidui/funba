@@ -902,6 +902,78 @@
       grid-row: auto;
     }
   }
+
+  /* Featured Highlights — image-dominant hero card posters */
+  .featured-highlights-card { margin-top: 16px; }
+  .fh-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  @media (max-width: 540px) {
+    .fh-grid { grid-template-columns: 1fr; }
+  }
+  .fh-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .fh-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    border-color: var(--accent, #f97316);
+  }
+  .fh-poster {
+    width: 100%;
+    aspect-ratio: 1024 / 1536;
+    background: #0a0a0a;
+    overflow: hidden;
+  }
+  .fh-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .fh-body {
+    padding: 10px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .fh-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .fh-meta {
+    font-size: 11.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .fh-text {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+    white-space: pre-line;
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 4px;
+  }
 </style>
 
 <div class="home-grid">
@@ -1082,6 +1154,33 @@
       <p class="meta" style="margin:8px 0 0 0;">{{ t('No recent games yet. Check back after the next tip-off.', '暂无最近比赛数据，下一场比赛后再来看。') }}</p>
       {% endif %}
     </div>
+
+    {% if featured_highlights %}
+    <div class="card featured-highlights-card">
+      <div class="notable-header">
+        <h2 class="notable-title">
+          <svg class="notable-title-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          {{ t('Featured Highlights', '本日精选') }}
+        </h2>
+      </div>
+      <div class="fh-grid">
+        {% for item in featured_highlights %}
+        <a class="fh-card" href="{{ item.game_url or '#' }}">
+          {% if item.poster_url %}
+            <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
+          {% endif %}
+          <div class="fh-body">
+            <div class="fh-title">{{ item.title }}</div>
+            {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
+            {% if not item.poster_url and item.body %}
+              <div class="fh-text">{{ item.body }}</div>
+            {% endif %}
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </main>
 
   <!-- ================================================================ -->

@@ -532,6 +532,160 @@ def register_admin_misc_routes(app, deps):
             response_payload["available_models_meta"] = models_meta()()
         return jsonify(response_payload)
 
+    def api_admin_hero_poster_config():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from social_media.hero_poster import (
+            DEFAULT_HERO_POSTER_PROMPT_TEMPLATE,
+            HERO_POSTER_DEFAULT_MODEL,
+            get_hero_poster_model,
+            get_hero_poster_prompt_template,
+        )
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            template = get_hero_poster_prompt_template(session)
+            model = get_hero_poster_model(session)
+        return jsonify({
+            "ok": True,
+            "template": template,
+            "default_template": DEFAULT_HERO_POSTER_PROMPT_TEMPLATE,
+            "model": model,
+            "default_model": HERO_POSTER_DEFAULT_MODEL,
+            "placeholders": [
+                {"key": "{metric_key}", "desc": "Metric definition key (e.g. best_single_game_blk_per_game)"},
+                {"key": "{metric_name}", "desc": "Human-readable metric name"},
+                {"key": "{metric_description}", "desc": "Description from MetricDefinition"},
+                {"key": "{metric_scope}", "desc": "player | team | game"},
+                {"key": "{metric_category}", "desc": "Metric category"},
+                {"key": "{season_label}", "desc": "Pretty season label, e.g. '2025-26 NBA Playoffs'"},
+                {"key": "{game_score_line}", "desc": "Final scoreline, e.g. 'SAS 114 @ POR 93'"},
+                {"key": "{game_date}", "desc": "Formatted game date"},
+                {"key": "{game_stage}", "desc": "playoffs | regular season | play-in"},
+                {"key": "{game_stage_pill}", "desc": "Compact uppercase pill, e.g. 'PLAYOFFS · APR 26 2026'"},
+                {"key": "{trigger_label}", "desc": "Triggering entity name (player, team, game)"},
+                {"key": "{trigger_team_full}", "desc": "Full team name of trigger row"},
+                {"key": "{trigger_team_abbr}", "desc": "Three-letter team abbr of trigger row"},
+                {"key": "{trigger_value_str}", "desc": "Trigger value as string (e.g. '7 blk')"},
+                {"key": "{trigger_rank}", "desc": "Trigger row's actual rank in the season"},
+                {"key": "{trigger_window}", "desc": "Best ranking window: alltime | season | last5 | last3"},
+                {"key": "{trigger_full_line}", "desc": "Player's full game line if scope=player (PTS · REB · AST · …)"},
+                {"key": "{trigger_in_topn}", "desc": "Bool — true when trigger is within top N (use in {% if %} blocks)"},
+                {"key": "{trigger_appendix_row}", "desc": "Pre-formatted extra row when trigger is outside top N"},
+                {"key": "{top_n_table}", "desc": "Top N rows already formatted as plain text"},
+                {"key": "{top_n}", "desc": "Number of leaderboard rows (currently 10)"},
+                {"key": "{title_line_1}", "desc": "Suggested poster title line 1 (uppercase metric name)"},
+                {"key": "{title_line_2}", "desc": "Suggested poster title line 2 (season label · TOP N)"},
+                {"key": "{entity_kind}", "desc": "player | team — for visual asset hints"},
+            ],
+        })
+
+    def api_admin_update_hero_poster_config():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from social_media.hero_poster import (
+            DEFAULT_HERO_POSTER_PROMPT_TEMPLATE,
+            HERO_POSTER_MODEL_KEY,
+            HERO_POSTER_PROMPT_TEMPLATE_KEY,
+            set_hero_poster_prompt_template,
+        )
+        from datetime import datetime as _dt
+
+        from db.models import Setting
+
+        body = request.get_json(force=True) or {}
+        SessionLocal = deps.session_local()
+        try:
+            with SessionLocal() as session:
+                result = {}
+                if "template" in body:
+                    template = body["template"]
+                    if template is None or str(template).strip() == "":
+                        # Treat empty as "reset to default"
+                        row = session.get(Setting, HERO_POSTER_PROMPT_TEMPLATE_KEY)
+                        if row is not None:
+                            session.delete(row)
+                        result["template"] = DEFAULT_HERO_POSTER_PROMPT_TEMPLATE
+                    else:
+                        result["template"] = set_hero_poster_prompt_template(session, str(template))
+                if "model" in body:
+                    model = str(body["model"] or "").strip()
+                    row = session.get(Setting, HERO_POSTER_MODEL_KEY)
+                    if not model:
+                        if row is not None:
+                            session.delete(row)
+                        result["model"] = None
+                    else:
+                        if row is None:
+                            session.add(Setting(key=HERO_POSTER_MODEL_KEY, value=model, updated_at=_dt.utcnow()))
+                        else:
+                            row.value = model
+                            row.updated_at = _dt.utcnow()
+                        result["model"] = model
+                session.commit()
+        except Exception as exc:
+            deps.logger().exception("failed to save hero poster config")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, **result})
+
+    def api_admin_hero_poster_preview():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from social_media.hero_poster import (
+            build_prompt_context,
+            get_hero_poster_prompt_template,
+            render_prompt,
+        )
+        from db.models import Game
+
+        body = request.get_json(force=True) or {}
+        game_id = str(body.get("game_id") or "").strip()
+        metric_key = str(body.get("metric_key") or "").strip()
+        scope = str(body.get("scope") or "game").strip() or "game"
+        entity_id = str(body.get("entity_id") or "").strip() or None
+        if not game_id or not metric_key:
+            return jsonify({"ok": False, "error": "game_id and metric_key required"}), 400
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                return jsonify({"ok": False, "error": "game_not_found"}), 404
+            template_override = body.get("template")
+            template = template_override if template_override else get_hero_poster_prompt_template(session)
+            card = {"metric_key": metric_key, "scope": scope, "entity_id": entity_id}
+            ctx = build_prompt_context(session, card=card, game=game)
+            rendered = render_prompt(template, ctx)
+        return jsonify({"ok": True, "context": ctx, "prompt": rendered})
+
+    def api_admin_hero_poster_regenerate():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from db.models import Game
+        from social_media.hero_poster import generate_posters_for_curated_game
+
+        body = request.get_json(force=True) or {}
+        game_id = str(body.get("game_id") or "").strip()
+        force = bool(body.get("force") or False)
+        if not game_id:
+            return jsonify({"ok": False, "error": "game_id required"}), 400
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                return jsonify({"ok": False, "error": "game_not_found"}), 404
+            try:
+                paths = generate_posters_for_curated_game(session, game, force=force)
+            except Exception as exc:
+                deps.logger().exception("hero poster regenerate failed for %s", game_id)
+                return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "game_id": game_id, "paths": [str(p) for p in paths]})
+
     def api_admin_runtime_flags():
         denied = deps.require_admin_json()()
         if denied:
@@ -894,6 +1048,10 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/admin/ai-usage", endpoint="api_admin_ai_usage", view_func=api_admin_ai_usage)
     app.add_url_rule("/api/admin/visitor-timeseries", endpoint="api_admin_visitor_timeseries", view_func=api_admin_visitor_timeseries)
     app.add_url_rule("/api/admin/runtime-flags", endpoint="api_admin_update_runtime_flags", view_func=api_admin_update_runtime_flags, methods=["POST"])
+    app.add_url_rule("/api/admin/hero-poster-config", endpoint="api_admin_hero_poster_config", view_func=api_admin_hero_poster_config)
+    app.add_url_rule("/api/admin/hero-poster-config", endpoint="api_admin_update_hero_poster_config", view_func=api_admin_update_hero_poster_config, methods=["POST"])
+    app.add_url_rule("/api/admin/hero-poster-preview", endpoint="api_admin_hero_poster_preview", view_func=api_admin_hero_poster_preview, methods=["POST"])
+    app.add_url_rule("/api/admin/hero-poster-regenerate", endpoint="api_admin_hero_poster_regenerate", view_func=api_admin_hero_poster_regenerate, methods=["POST"])
     app.add_url_rule("/admin/backfill/<season>", endpoint="admin_backfill", view_func=admin_backfill, methods=["POST"])
     app.add_url_rule("/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill", view_func=game_shotchart_backfill, methods=["POST"])
     app.add_url_rule("/api/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill_api", view_func=game_shotchart_backfill_api, methods=["POST"])
@@ -921,4 +1079,8 @@ def register_admin_misc_routes(app, deps):
         admin_backfill=admin_backfill,
         game_shotchart_backfill=game_shotchart_backfill,
         game_shotchart_backfill_api=game_shotchart_backfill_api,
+        api_admin_hero_poster_config=api_admin_hero_poster_config,
+        api_admin_update_hero_poster_config=api_admin_update_hero_poster_config,
+        api_admin_hero_poster_preview=api_admin_hero_poster_preview,
+        api_admin_hero_poster_regenerate=api_admin_hero_poster_regenerate,
     )

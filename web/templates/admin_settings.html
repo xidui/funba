@@ -441,6 +441,61 @@
     <div id="ingest-block-status" class="runtime-flag-status" role="status"></div>
   </div>
 
+  <!-- Hero Card Poster Prompt -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Hero Card Poster (gpt-image-2)</h2>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+      Master prompt template used to generate the hero card leaderboard poster after the curator picks heroes.
+      Edits take effect on the next curator run for any game; you can also regenerate retroactively for one game below.
+      Placeholders in <code>{curly_braces}</code> are substituted with metric + game data; conditional blocks use
+      <code>{% raw %}{% if NAME %}…{% endif %}{% endraw %}</code> (e.g. <code>{% raw %}{% if not trigger_in_topn %}…{% endif %}{% endraw %}</code>).
+    </p>
+    <div style="margin-bottom:10px;">
+      <label class="llm-settings-label" for="hero-poster-model" style="display:block;margin-bottom:4px;">Image model override (blank = use package default)</label>
+      <input id="hero-poster-model" type="text" placeholder="gpt-image-2"
+             style="width:240px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+    </div>
+    <div style="margin-bottom:10px;">
+      <label class="llm-settings-label" for="hero-poster-template" style="display:block;margin-bottom:4px;">Prompt template</label>
+      <textarea id="hero-poster-template" rows="22"
+                style="width:100%;font-family:ui-monospace,monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:8px;line-height:1.5;"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button id="hero-poster-save" class="llm-settings-save">Save</button>
+      <button id="hero-poster-reset" class="llm-settings-save" style="background:var(--bg);border:1px solid var(--border);color:var(--text);">Reset to default</button>
+      <span id="hero-poster-status" class="llm-settings-status" role="status"></span>
+    </div>
+
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;font-weight:600;">Available placeholders</summary>
+      <div id="hero-poster-placeholders" style="margin-top:10px;font-size:12px;line-height:1.6;color:var(--muted);"></div>
+    </details>
+
+    <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
+      <div style="font-weight:600;margin-bottom:8px;">Preview rendered prompt</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <input id="hero-poster-preview-game" type="text" placeholder="game_id (e.g. 0042500154)"
+               style="flex:1 1 220px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+        <input id="hero-poster-preview-metric" type="text" placeholder="metric_key"
+               style="flex:1 1 280px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+        <select id="hero-poster-preview-scope" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+          <option value="game">game</option>
+          <option value="player">player</option>
+          <option value="team">team</option>
+        </select>
+        <input id="hero-poster-preview-entity" type="text" placeholder="entity_id (optional, for player/team)"
+               style="flex:1 1 220px;padding:6px 8px;font-family:ui-monospace,monospace;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button id="hero-poster-preview-btn" class="llm-settings-save">Render preview</button>
+        <button id="hero-poster-regen-btn" class="llm-settings-save" style="background:#92400e;">Regenerate posters for this game</button>
+        <span id="hero-poster-preview-status" class="llm-settings-status" role="status"></span>
+      </div>
+      <pre id="hero-poster-preview-out"
+           style="margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:10px;max-height:400px;overflow:auto;font-size:11.5px;line-height:1.5;color:var(--text);white-space:pre-wrap;display:none;"></pre>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1069,6 +1124,121 @@
           el.innerHTML = '<div style="color:var(--loss);font-size:13px;">Failed to load</div>';
         });
     });
+  })();
+
+  /* ── Hero Card Poster ───────────────────────────────────────────── */
+  (function () {
+    const ta = document.getElementById('hero-poster-template');
+    if (!ta) return;
+    const modelInput = document.getElementById('hero-poster-model');
+    const status = document.getElementById('hero-poster-status');
+    const phEl = document.getElementById('hero-poster-placeholders');
+    const previewBtn = document.getElementById('hero-poster-preview-btn');
+    const regenBtn = document.getElementById('hero-poster-regen-btn');
+    const previewOut = document.getElementById('hero-poster-preview-out');
+    const previewStatus = document.getElementById('hero-poster-preview-status');
+    let defaultTemplate = '';
+
+    function setStatus(el, text, kind) {
+      el.textContent = text;
+      el.style.color = kind === 'err' ? 'var(--loss)' : (kind === 'ok' ? 'var(--win)' : 'var(--muted)');
+    }
+
+    async function load() {
+      setStatus(status, 'Loading…', '');
+      try {
+        const res = await fetch('/api/admin/hero-poster-config');
+        if (!res.ok) throw new Error('http ' + res.status);
+        const data = await res.json();
+        ta.value = data.template || '';
+        modelInput.value = data.model && data.model !== data.default_model ? data.model : '';
+        modelInput.placeholder = data.default_model || 'gpt-image-2';
+        defaultTemplate = data.default_template || '';
+        if (Array.isArray(data.placeholders)) {
+          phEl.innerHTML = data.placeholders.map(p =>
+            `<div style="margin-bottom:4px;"><code style="background:var(--bg);padding:1px 5px;border-radius:3px;">${p.key}</code> — ${p.desc.replace(/</g,'&lt;')}</div>`
+          ).join('');
+        }
+        setStatus(status, '', '');
+      } catch (e) {
+        setStatus(status, 'Failed to load: ' + e.message, 'err');
+      }
+    }
+
+    document.getElementById('hero-poster-save').addEventListener('click', async function () {
+      setStatus(status, 'Saving…', '');
+      try {
+        const body = { template: ta.value, model: modelInput.value };
+        const res = await fetch('/api/admin/hero-poster-config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error('http ' + res.status);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        setStatus(status, 'Saved', 'ok');
+      } catch (e) {
+        setStatus(status, 'Save failed: ' + e.message, 'err');
+      }
+    });
+
+    document.getElementById('hero-poster-reset').addEventListener('click', function () {
+      if (!confirm('Reset to package-default template? Your edits will be lost.')) return;
+      ta.value = defaultTemplate || ta.value;
+      setStatus(status, 'Loaded default template (not saved yet — click Save to persist)', '');
+    });
+
+    previewBtn.addEventListener('click', async function () {
+      const game_id = document.getElementById('hero-poster-preview-game').value.trim();
+      const metric_key = document.getElementById('hero-poster-preview-metric').value.trim();
+      const scope = document.getElementById('hero-poster-preview-scope').value;
+      const entity_id = document.getElementById('hero-poster-preview-entity').value.trim() || null;
+      if (!game_id || !metric_key) {
+        setStatus(previewStatus, 'game_id and metric_key are required', 'err');
+        return;
+      }
+      setStatus(previewStatus, 'Rendering…', '');
+      previewOut.style.display = 'none';
+      try {
+        const res = await fetch('/api/admin/hero-poster-preview', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({game_id, metric_key, scope, entity_id, template: ta.value}),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        previewOut.textContent = data.prompt;
+        previewOut.style.display = 'block';
+        setStatus(previewStatus, '', '');
+      } catch (e) {
+        setStatus(previewStatus, 'Preview failed: ' + e.message, 'err');
+      }
+    });
+
+    regenBtn.addEventListener('click', async function () {
+      const game_id = document.getElementById('hero-poster-preview-game').value.trim();
+      if (!game_id) {
+        setStatus(previewStatus, 'game_id required', 'err');
+        return;
+      }
+      if (!confirm('Regenerate posters for game ' + game_id + '? This calls gpt-image-2 (slow + costs $).')) return;
+      setStatus(previewStatus, 'Regenerating (may take 2-5 min)…', '');
+      try {
+        const res = await fetch('/api/admin/hero-poster-regenerate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({game_id, force: true}),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        setStatus(previewStatus, 'Regenerated ' + (data.paths || []).length + ' poster(s)', 'ok');
+      } catch (e) {
+        setStatus(previewStatus, 'Regenerate failed: ' + e.message, 'err');
+      }
+    });
+
+    load();
   })();
 </script>
 {% endblock %}

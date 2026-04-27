@@ -25,22 +25,26 @@ from db.models import (
     Player,
     SocialPost,
     SocialPostDelivery,
+    SocialPostImage,
     SocialPostVariant,
     Team,
 )
 from metrics.framework.family import family_career_key, family_window_key, window_type_from_key
+from social_media.funba_internal.hero_highlight import render_hero_highlight as render_funba_hero_highlight
 from social_media.twitter.hero_highlight import render_hero_highlight as render_twitter_hero_highlight
 
 PUBLIC_BASE_URL = "https://funba.app"
-DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter",)
+FUNBA_INTERNAL_PLATFORM = "funba"
+DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
 HERO_HIGHLIGHT_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_PLATFORMS"
-DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = ("twitter",)
+DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
 HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS"
-DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = ("twitter",)
+DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
 HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS"
 HERO_HIGHLIGHT_AUTO_PUBLISH_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH"
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
 HERO_HIGHLIGHT_STATUS = "in_review"
+HERO_POSTER_SLOT = "poster"
 
 logger = logging.getLogger(__name__)
 
@@ -654,6 +658,7 @@ def _variant_title(card: HeroHighlightCard, platform: str) -> str:
 
 HERO_HIGHLIGHT_RENDERERS: dict[str, Callable[[HeroHighlightCard], str]] = {
     "twitter": render_twitter_hero_highlight,
+    FUNBA_INTERNAL_PLATFORM: render_funba_hero_highlight,
 }
 
 
@@ -668,6 +673,61 @@ def _find_existing_post(session: Session, topic: str, source_date: date) -> Soci
         .order_by(SocialPost.id.asc())
         .first()
     )
+
+
+def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightCard, *, now: datetime) -> None:
+    """Find a pre-generated poster for this card (created by the curator hook),
+    copy it into media/social_posts/{post.id}/, and create a SocialPostImage row.
+
+    Silent no-op if no poster file exists. Called inside _create_post_for_card
+    after the post has been flushed to obtain its id.
+    """
+    try:
+        from social_media.hero_poster import poster_path_for
+        from social_media.images import store_prepared_image
+    except Exception:
+        logger.exception("hero poster attach: import failed for post_id=%s", post.id)
+        return
+
+    # Reconstruct the entry shape poster_path_for expects
+    entry = {
+        "metric_key": card.ranking_metric_key or card.metric_key,
+        "entity_id": card.entity_id,
+        "scope": card.scope,
+    }
+    game = session.query(Game).filter(Game.game_id == card.game_id).first()
+    if game is None:
+        return
+    src = poster_path_for(entry, game)
+    if not src.exists() or src.stat().st_size == 0:
+        logger.info("hero poster attach: no poster file at %s; skipping", src)
+        return
+
+    try:
+        stored = store_prepared_image(str(src), post_id=int(post.id), slot=HERO_POSTER_SLOT)
+    except Exception:
+        logger.exception("hero poster attach: store_prepared_image failed for post_id=%s", post.id)
+        return
+
+    spec = {
+        "source": "hero_poster",
+        "metric_key": card.ranking_metric_key or card.metric_key,
+        "entity_id": card.entity_id,
+        "scope": card.scope,
+        "model": "gpt-image-2",
+    }
+    image_row = SocialPostImage(
+        post_id=int(post.id),
+        slot=HERO_POSTER_SLOT,
+        image_type="ai_generated",
+        spec=json.dumps(spec, ensure_ascii=False),
+        note=f"Hero card poster — {card.metric_name}",
+        file_path=str(stored),
+        is_enabled=True,
+        created_at=now,
+    )
+    session.add(image_row)
+    session.flush()
 
 
 def _create_post_for_card(
@@ -702,6 +762,9 @@ def _create_post_for_card(
     session.add(post)
     session.flush()
 
+    # Attach the pre-generated hero poster (if any) to this post's image pool.
+    _attach_hero_poster(session, post, card, now=now)
+
     for platform in platforms:
         renderer = HERO_HIGHLIGHT_RENDERERS[platform]
         variant = SocialPostVariant(
@@ -714,18 +777,28 @@ def _create_post_for_card(
         )
         session.add(variant)
         session.flush()
+        # Funba's own platform "publishes" by simply having a SocialPostDelivery
+        # row visible to the home feed; there's no external API to push to,
+        # so we mark it published immediately when auto-publish is enabled.
+        is_funba_auto_publish = (
+            platform == FUNBA_INTERNAL_PLATFORM and platform in auto_publish_platforms
+        )
         delivery = SocialPostDelivery(
             variant_id=variant.id,
             platform=platform,
             forum=None,
             is_enabled=True,
-            status="pending",
+            status="published" if is_funba_auto_publish else "pending",
+            content_final=renderer(card) if is_funba_auto_publish else None,
+            published_at=now if is_funba_auto_publish else None,
             created_at=now,
             updated_at=now,
         )
         session.add(delivery)
         session.flush()
-        if platform in auto_publish_platforms:
+        # Only enqueue background publishing for platforms with external APIs
+        # (Twitter etc). Funba is published the moment the row hits the DB.
+        if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
             auto_publish_deliveries.append((platform, int(delivery.id)))
     return HeroHighlightPostResult(
         post_id=int(post.id),

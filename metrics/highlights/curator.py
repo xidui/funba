@@ -955,6 +955,13 @@ def run_curator_for_game(
         logger.exception("failed to invalidate game metrics cache for %s", game.game_id)
 
     try:
+        from social_media.hero_poster import generate_posters_for_curated_game
+
+        generate_posters_for_curated_game(session, game)
+    except Exception:
+        logger.exception("failed to generate hero card posters for %s", game.game_id)
+
+    try:
         from content_pipeline.hero_highlight_variants import generate_hero_highlight_variants_for_game
 
         generate_hero_highlight_variants_for_game(session, game.game_id)

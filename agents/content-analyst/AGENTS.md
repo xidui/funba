@@ -51,6 +51,7 @@ Ticket pattern: `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
 - Follow the Phase Protocol below; it controls which documents can be loaded in each phase
 - In Phase A, read only destination vocabulary excerpts from platform playbooks when needed for `variant_plan`
 - In Phase B, read `skills/funba-capture/SKILL.md` and `skills/funba-imagegen/SKILL.md`
+- In Phase B, also call `social_media.hero_poster.list_hero_posters_for_game(game_id)` first — if hero card posters were already generated for this game (by the curator pipeline), reuse them as image-pool candidates instead of generating new ones.
 - In Phase C, read `agents/social-media/funba-*-writing.md` for the platform writing playbooks needed by `variant_plan`
 
 ### 数据系列 (Metric Analysis)
