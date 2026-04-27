@@ -6120,9 +6120,9 @@ def _build_metric_deep_dive_brief(
     metric_page_url: str,
 ) -> str:
     from content_pipeline.metric_analysis_issues import build_metric_analysis_issue_description
-    from runtime_flags import get_enabled_platforms
+    from content_pipeline.publishing_registry import enabled_generate_platforms
 
-    enabled = get_enabled_platforms()
+    enabled = enabled_generate_platforms(session, "metric_analysis")
     return build_metric_analysis_issue_description(
         session=session,
         metric_key=metric_key,
@@ -7836,6 +7836,12 @@ api_admin_runtime_flags = _admin_misc_views.api_admin_runtime_flags
 api_admin_ai_usage = _admin_misc_views.api_admin_ai_usage
 api_admin_visitor_timeseries = _admin_misc_views.api_admin_visitor_timeseries
 api_admin_update_runtime_flags = _admin_misc_views.api_admin_update_runtime_flags
+api_admin_hero_poster_config = _admin_misc_views.api_admin_hero_poster_config
+api_admin_update_hero_poster_config = _admin_misc_views.api_admin_update_hero_poster_config
+api_admin_hero_poster_preview = _admin_misc_views.api_admin_hero_poster_preview
+api_admin_hero_poster_regenerate = _admin_misc_views.api_admin_hero_poster_regenerate
+api_admin_publishing_matrix = _admin_misc_views.api_admin_publishing_matrix
+api_admin_update_publishing_matrix = _admin_misc_views.api_admin_update_publishing_matrix
 admin_backfill = _admin_misc_views.admin_backfill
 game_shotchart_backfill = _admin_misc_views.game_shotchart_backfill
 game_shotchart_backfill_api = _admin_misc_views.game_shotchart_backfill_api
