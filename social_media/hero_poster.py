@@ -569,6 +569,41 @@ def poster_path_for(card: dict[str, Any], game: Game) -> Path:
     return _media_root() / HERO_POSTERS_SUBDIR / _safe_segment(str(game.game_id)) / f"{file_stem}.png"
 
 
+def _try_claim_poster_file(target: Path) -> bool:
+    """Atomically reserve `target` so concurrent callers don't all hit the API.
+
+    Uses os.open with O_CREAT|O_EXCL: the first caller wins and creates the
+    file as a 0-byte placeholder, subsequent callers get FileExistsError and
+    return False. The winner is responsible for filling the file with real
+    bytes; on exceptions the caller must remove the placeholder so a retry
+    can claim it again.
+    """
+    try:
+        fd = os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return False
+    except Exception:
+        logger.exception("hero_poster: failed to claim placeholder %s", target)
+        return False
+    os.close(fd)
+    return True
+
+
+def _wait_for_poster_completion(target: Path, *, timeout_seconds: float = 300.0, poll_interval: float = 2.0) -> bool:
+    """Poll until the target file has non-zero size (winner finished writing)."""
+    import time as _time
+
+    deadline = _time.time() + timeout_seconds
+    while _time.time() < deadline:
+        try:
+            if target.exists() and target.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+        _time.sleep(poll_interval)
+    return False
+
+
 def generate_hero_poster(
     session: Session,
     *,
@@ -580,8 +615,11 @@ def generate_hero_poster(
     """Generate (or reuse) one hero card poster. Returns the file path or
     None when generation was skipped (no metric_key, no entity_id, etc).
 
-    Idempotent: if the destination file already exists and is non-empty,
-    returns it without calling the API. Pass `force=True` to regenerate.
+    Idempotent at the file system level: if the destination file already
+    exists and is non-empty, returns it without calling the API. Concurrent
+    callers race-safely via os.O_CREAT|O_EXCL — only the first one calls the
+    paid API, others wait for the file to materialise then return the path.
+    Pass `force=True` to bypass both checks and regenerate.
     """
     metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"))
     if not metric_key:
@@ -593,15 +631,31 @@ def generate_hero_poster(
         logger.info("hero_poster: reusing existing poster %s", target)
         return target
 
-    template = get_hero_poster_prompt_template(session)
-    context = build_prompt_context(session, card=card, game=game)
-    prompt = render_prompt(template, context)
-
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
         logger.exception("hero_poster: failed to mkdir %s", target.parent)
         return None
+
+    if force and target.exists():
+        # Force: drop any existing file (placeholder or real) so we re-claim cleanly.
+        try:
+            target.unlink()
+        except Exception:
+            pass
+
+    # Race-safe claim: only one concurrent caller crosses this barrier and
+    # actually calls the (paid) API. Losers poll until the winner finishes.
+    if not _try_claim_poster_file(target):
+        logger.info("hero_poster: another worker is generating %s — waiting", target)
+        if _wait_for_poster_completion(target):
+            return target
+        logger.warning("hero_poster: timeout waiting for %s; returning None", target)
+        return None
+
+    template = get_hero_poster_prompt_template(session)
+    context = build_prompt_context(session, card=card, game=game)
+    prompt = render_prompt(template, context)
 
     chosen_model = model or get_hero_poster_model(session)
 
@@ -620,6 +674,13 @@ def generate_hero_poster(
         )
     except Exception:
         logger.exception("hero_poster: generate_image failed (game=%s metric=%s)", game.game_id, metric_key)
+        # Remove the empty placeholder so a future call can retry instead of
+        # forever-waiting on a 0-byte file.
+        try:
+            if target.exists() and target.stat().st_size == 0:
+                target.unlink()
+        except Exception:
+            pass
         return None
 
     return Path(out) if out else None
@@ -864,10 +925,23 @@ def generate_posters_for_curated_game(
         entry, target, prompt = plan
         if not prompt:
             return target  # already exists, reused
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            logger.exception("hero_poster: failed to mkdir %s", target.parent)
+            return None
+
+        # Race-safe claim across processes. Loser of the race waits for the
+        # winner's bytes to land.
+        if not _try_claim_poster_file(target):
+            logger.info("hero_poster: another worker generating %s — waiting", target)
+            if _wait_for_poster_completion(target):
+                return target
+            return None
+
         from social_media.funba_imagegen import generate_image
 
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
             out = generate_image(
                 prompt=prompt,
                 output_path=target,
@@ -880,6 +954,11 @@ def generate_posters_for_curated_game(
             return Path(out) if out else None
         except Exception:
             logger.exception("hero_poster: generate_image failed game=%s metric=%s", game.game_id, entry.get("metric_key"))
+            try:
+                if target.exists() and target.stat().st_size == 0:
+                    target.unlink()
+            except Exception:
+                pass
             return None
 
     paths: list[Path] = []

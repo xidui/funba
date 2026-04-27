@@ -208,6 +208,11 @@ class Game(Base):
     highlights_curated_model = Column(String(64), nullable=True)
     highlights_curated_player_json = Column(Text, nullable=True)
     highlights_curated_team_json = Column(Text, nullable=True)
+    # Idempotency stamp: set after run_curator_for_game finishes generating
+    # hero card posters + SocialPost variants. A second curator pass on the
+    # same game becomes a fast no-op when this is set, so worker restarts /
+    # admin re-triggers / OOM-redeliveries don't produce duplicate posts.
+    variants_generated_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         Index('ix_Game_season_game_date', 'season', 'game_date'),

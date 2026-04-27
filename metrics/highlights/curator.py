@@ -954,19 +954,34 @@ def run_curator_for_game(
     except Exception:
         logger.exception("failed to invalidate game metrics cache for %s", game.game_id)
 
-    try:
-        from social_media.hero_poster import generate_posters_for_curated_game
+    # Idempotency gate: the variant + poster stage costs real money (gpt-image-2)
+    # and is the source of every duplicate SocialPost row we've seen — worker
+    # SIGKILLs mid-flight and admin re-triggers re-enter this function. Skip
+    # the entire downstream pipeline if a previous run already finished it,
+    # unless the caller explicitly asks to re-run via force_variants=True.
+    skip_variants = bool(getattr(game, "variants_generated_at", None))
+    if not skip_variants:
+        try:
+            from social_media.hero_poster import generate_posters_for_curated_game
 
-        generate_posters_for_curated_game(session, game)
-    except Exception:
-        logger.exception("failed to generate hero card posters for %s", game.game_id)
+            generate_posters_for_curated_game(session, game)
+        except Exception:
+            logger.exception("failed to generate hero card posters for %s", game.game_id)
 
-    try:
-        from content_pipeline.hero_highlight_variants import generate_hero_highlight_variants_for_game
+        try:
+            from content_pipeline.hero_highlight_variants import generate_hero_highlight_variants_for_game
 
-        generate_hero_highlight_variants_for_game(session, game.game_id)
-    except Exception:
-        logger.exception("failed to generate hero highlight variants for %s", game.game_id)
+            generate_hero_highlight_variants_for_game(session, game.game_id)
+            game.variants_generated_at = datetime.now(timezone.utc)
+            session.commit()
+        except Exception:
+            logger.exception("failed to generate hero highlight variants for %s", game.game_id)
+    else:
+        logger.info(
+            "skipping hero card poster + variant gen for %s (variants_generated_at=%s already set)",
+            game.game_id,
+            game.variants_generated_at,
+        )
 
     return {"game": game_curated, "player": player_curated, "team": team_curated}
 
