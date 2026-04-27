@@ -51,96 +51,49 @@ HERO_POSTER_TOP_N = 10
 # in {curly_braces} are substituted via str.format with the context dict produced
 # by build_prompt_context(). Conditional blocks use a tiny Jinja-style syntax
 # implemented in render_prompt(): {% if FLAG %}...{% endif %}.
+#
+# Design philosophy: give the model the data and the brand red lines, then get
+# out of the way. Earlier verbose prompts dictated palette / layout / typography
+# down to the last bevel, which made every poster look like the same template
+# with different rows. Letting the model interpret the metric (defense vs
+# scoring vs comeback vs milestone) yields more visual variety.
 DEFAULT_HERO_POSTER_PROMPT_TEMPLATE = """\
-You are designing a vertical 1024x1536 social-media-ready NBA infographic
-poster, formatted like a leaderboard, about ONE specific metric and the
-TOP {top_n} standings of that metric this season — with the row triggered by
-tonight's game visually highlighted.
+Design a vertical 1024x1536 social-media poster about an NBA statistical
+story. You decide the layout, palette, mood, typography, and overall
+composition — match the energy of the metric (a defense story shouldn't
+look like a scoring story; a career milestone shouldn't look like a hot
+single night).
 
-================ METRIC ================
-Key:           {metric_key}
-Name:          {metric_name}
-Description:   {metric_description}
-Scope:         {metric_scope}
-Category:      {metric_category}
-Season frame:  {season_label}
+THE STORY
+Metric: {metric_name}
+{% if metric_description %}What it measures: {metric_description}
+{% endif %}Season frame: {season_label}
+Tonight's game: {game_score_line} on {game_date} ({game_stage})
+Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trigger_in_topn %}, appears in the top {top_n} below{% else %}, sits outside the top {top_n}{% endif %})
+{% if trigger_full_line %}Trigger's full game line: {trigger_full_line}
+{% endif %}{% if trigger_team_full %}Anchor the visual identity to {trigger_team_full}'s real-world colors.
+{% endif %}
 
-================ TRIGGERING GAME ================
-Tonight, {game_score_line} ({game_date} · {game_stage}) produced an entry
-on this leaderboard.
-
-Trigger entity: {trigger_label}
-Trigger team:   {trigger_team_full}
-Trigger value:  {trigger_value_str}
-Trigger rank:   #{trigger_rank} ({trigger_window})
-
-{% if trigger_full_line %}Trigger full game line: {trigger_full_line}
-{% endif %}================ TOP {top_n} ================
-Render the leaderboard as {top_n} horizontal rows, ordered top to bottom.
-
-Row anatomy:
-  - rank number on the far left
-  - the entity's primary visual: a player headshot for player metrics, a
-    team logo for team or game metrics
-  - the entity's display name as text (full team name for team rows;
-    player name plus optional jersey number and three-letter team abbr
-    for player rows). DO NOT show both the full team name AND the
-    three-letter abbreviation in the same team row — that's redundant
-    when the logo and full name are already there.
-  - the metric value right-aligned
-
-{% if trigger_in_topn %}The triggering row (rank {trigger_rank}, {trigger_label})
-was produced by tonight's game — render that row noticeably taller,
-brighter, with a glowing silver-white border and a small "TRIGGERED
-TONIGHT" badge on the row. The other rows are slimmer and darker.
-DO NOT also append a duplicate appended row for the trigger at the
-bottom — it is already highlighted in place above.{% endif %}
-
-Use these EXACT entries in this EXACT order; do not invent or substitute:
-
+LEADERBOARD (use these EXACT entries in this EXACT order; do not invent, substitute, or reorder)
 {top_n_table}
+{% if not trigger_in_topn %}
+Plus one extra row for the trigger, sitting outside the top {top_n}:
+{trigger_appendix_row}
+{% endif %}{% if trigger_in_topn %}
+The trigger row above is the headline — make it visually distinct.
+DO NOT add a separate duplicate row for the trigger anywhere else; it's
+already in place.
+{% endif %}
 
-{% if not trigger_in_topn %}APPEND ONE EXTRA ROW BELOW THE TOP {top_n}, separated
-by a thin divider, labelled "TRIGGERED TONIGHT — outside top {top_n}":
-
-  {trigger_appendix_row}
-
-{% endif %}================ LAYOUT ================
-- Header (top ~15%):
-    Top-left  : white rounded pill "FUNBA" in bold sans-serif
-    Top-right : subtle pill "{game_stage_pill}"
-    Centered  : two-line title in big chrome-silver bevelled type with soft glow:
-                  {title_line_1}
-                  {title_line_2}
-
-- Leaderboard (middle ~70%): the rows described above.
-
-- Footer (bottom ~15%):
-    Centered "FUNBA.APP" in clean uppercase white
-    Subtitle "MORE STATS · MORE INSIGHTS"
-
-================ VISUAL ASSETS ================
-- Player headshots / team imagery: render real, recognizable likenesses
-  in the player's or team's current identity. Each headshot or team mark
-  should be a clean circular crop.
-- Team logos: render accurate official-style NBA team logos next to each
-  row. Each logo small and circular.
-- Do NOT include the NBA league logo or any league mark.
-- Do NOT include any broadcaster watermarks.
-
-================ TYPOGRAPHY RULES ================
-- All numerical values must render EXACTLY as written above.
-- All three-letter team abbreviations must be spelled correctly.
-- All player or team names must be spelled correctly as listed above.
-
-================ AESTHETIC ================
-Adopt the visual identity of {trigger_team_full} as the dominant palette
-(infer the team's primary, secondary, and accent colours from your
-knowledge of the NBA). Dark cinematic background with subtle metallic
-accents and a single warm highlight ray behind the triggering row.
-Premium broadcast graphics energy, ESPN / NBA Studios / Bleacher Report
-editorial feel, high contrast, clean grid alignment, social-media share
-friendly (1024x1536 vertical safe zone).
+NON-NEGOTIABLES
+- Render every number EXACTLY as written. No rounding, no replacements.
+- Render real, recognizable team logos and player likenesses where they
+  apply (the data is real, the people are real).
+- A small "FUNBA" mark visible somewhere prominent (pill, watermark,
+  badge — your call where).
+- "FUNBA.APP" appears as the footer URL.
+- DO NOT include the NBA league logo or any broadcaster watermark.
+- 1024x1536 vertical, social-media share safe-zone friendly.
 """
 
 
