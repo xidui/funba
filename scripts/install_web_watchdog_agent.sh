@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="${FUNBA_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-DEPLOY_ROOT="${FUNBA_DEPLOY_ROOT:-$REPO_ROOT/.paperclip/deploy-main}"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "$(basename "$SCRIPT_ROOT")" == "deploy-main" && "$(basename "$(dirname "$SCRIPT_ROOT")")" == ".paperclip" ]]; then
+  DEFAULT_REPO_ROOT="$(cd "$SCRIPT_ROOT/../.." && pwd)"
+  DEFAULT_DEPLOY_ROOT="$SCRIPT_ROOT"
+else
+  DEFAULT_REPO_ROOT="$SCRIPT_ROOT"
+  DEFAULT_DEPLOY_ROOT="$SCRIPT_ROOT/.paperclip/deploy-main"
+fi
+
+REPO_ROOT="${FUNBA_REPO_ROOT:-$DEFAULT_REPO_ROOT}"
+DEPLOY_ROOT="${FUNBA_DEPLOY_ROOT:-$DEFAULT_DEPLOY_ROOT}"
 SCRIPT_PATH="${FUNBA_WATCHDOG_SCRIPT:-$DEPLOY_ROOT/scripts/funba_web_watchdog.py}"
 if [[ ! -f "$SCRIPT_PATH" ]]; then
   SCRIPT_PATH="$REPO_ROOT/scripts/funba_web_watchdog.py"
