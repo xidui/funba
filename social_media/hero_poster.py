@@ -912,6 +912,15 @@ def generate_posters_for_curated_game(
         if not force and target.exists() and target.stat().st_size > 0:
             plans.append((entry, target, ""))  # empty prompt => reuse path
             continue
+        # force=True: drop the existing file so _try_claim_poster_file can
+        # actually claim it (otherwise it'd think another worker is mid-flight
+        # and skip into the wait-for-completion branch, returning the stale
+        # file in milliseconds).
+        if force and target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                logger.exception("hero_poster: failed to unlink %s for force regen", target)
         try:
             ctx = build_prompt_context(session, card=entry, game=game)
             prompt = render_prompt(template, ctx)
