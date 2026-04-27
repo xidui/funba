@@ -625,6 +625,156 @@ def generate_hero_poster(
     return Path(out) if out else None
 
 
+def backfill_posters_into_existing_posts(
+    session: Session,
+    game_id: str,
+    *,
+    add_funba_variant: bool = True,
+) -> dict[str, Any]:
+    """One-off: attach already-generated hero poster files to SocialPost rows
+    that were created BEFORE the curator-side hookup landed. New games get
+    posters attached automatically via _create_post_for_card; this helper is
+    only for catch-up on legacy posts.
+    """
+    import json as _json
+    from datetime import UTC as _UTC, datetime as _dt
+
+    from db.models import (
+        SocialPost,
+        SocialPostDelivery,
+        SocialPostImage,
+        SocialPostVariant,
+    )
+
+    posts = (
+        session.query(SocialPost)
+        .filter(SocialPost.source_game_ids.like(f"%{game_id}%"))
+        .filter(SocialPost.status != "archived")
+        .all()
+    )
+    attached = 0
+    funba_variants_added = 0
+    skipped = 0
+    for post in posts:
+        # Topic is "Hero Highlight — {game_id} — {scope} — {metric_key} — {entity_id}"
+        parts = [p.strip() for p in str(post.topic or "").split("—")]
+        if len(parts) < 5 or parts[0] != "Hero Highlight" or parts[1] != game_id:
+            skipped += 1
+            continue
+        scope, metric_key, entity_id = parts[2], parts[3], parts[4]
+        # Find poster file (scope.metric_key.entity_id.png) — list_hero_posters
+        # for the game and match by all three keys.
+        candidates = list_hero_posters_for_game(game_id)
+        match = next(
+            (c for c in candidates if c["scope"] == scope and c["metric_key"] == metric_key and c["entity_id"] == entity_id),
+            None,
+        )
+        if not match:
+            # Fallback: match by metric_key + entity_id only (scope mismatch tolerable)
+            match = next(
+                (c for c in candidates if c["metric_key"] == metric_key and c["entity_id"] == entity_id),
+                None,
+            )
+        if not match:
+            skipped += 1
+            continue
+
+        # Attach SocialPostImage if not already there
+        existing_img = (
+            session.query(SocialPostImage)
+            .filter(SocialPostImage.post_id == post.id, SocialPostImage.slot == "poster")
+            .first()
+        )
+        if existing_img is None:
+            from social_media.images import store_prepared_image
+
+            stored = store_prepared_image(match["path"], post_id=int(post.id), slot="poster")
+            spec = {
+                "source": "hero_poster",
+                "metric_key": metric_key,
+                "entity_id": entity_id,
+                "scope": scope,
+                "model": "gpt-image-2",
+            }
+            session.add(SocialPostImage(
+                post_id=int(post.id),
+                slot="poster",
+                image_type="ai_generated",
+                spec=_json.dumps(spec, ensure_ascii=False),
+                note=f"Hero card poster — {metric_key}",
+                file_path=stored,
+                is_enabled=True,
+                created_at=_dt.now(_UTC).replace(tzinfo=None),
+            ))
+            attached += 1
+
+        # Add funba variant + auto-publish delivery if missing
+        if add_funba_variant:
+            from content_pipeline.hero_highlight_variants import (
+                FUNBA_INTERNAL_PLATFORM,
+                HERO_HIGHLIGHT_RENDERERS,
+                _variant_title,
+                collect_hero_highlight_cards,
+            )
+
+            existing_funba = (
+                session.query(SocialPostVariant)
+                .join(SocialPostDelivery, SocialPostDelivery.variant_id == SocialPostVariant.id)
+                .filter(
+                    SocialPostVariant.post_id == post.id,
+                    SocialPostDelivery.platform == FUNBA_INTERNAL_PLATFORM,
+                )
+                .first()
+            )
+            if existing_funba is None:
+                from db.models import Game as _Game
+
+                game = session.query(_Game).filter(_Game.game_id == game_id).first()
+                if game is None:
+                    continue
+                cards = collect_hero_highlight_cards(session, game)
+                # Match the card by (scope, metric_key, entity_id)
+                card = next(
+                    (c for c in cards if c.scope == scope and (c.ranking_metric_key == metric_key or c.metric_key == metric_key)),
+                    None,
+                )
+                if card is None:
+                    continue
+                renderer = HERO_HIGHLIGHT_RENDERERS[FUNBA_INTERNAL_PLATFORM]
+                now = _dt.now(_UTC).replace(tzinfo=None)
+                variant = SocialPostVariant(
+                    post_id=int(post.id),
+                    title=_variant_title(card, FUNBA_INTERNAL_PLATFORM),
+                    content_raw=renderer(card),
+                    audience_hint=f"deterministic hero highlight / {FUNBA_INTERNAL_PLATFORM}",
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(variant)
+                session.flush()
+                session.add(SocialPostDelivery(
+                    variant_id=int(variant.id),
+                    platform=FUNBA_INTERNAL_PLATFORM,
+                    forum=None,
+                    is_enabled=True,
+                    status="published",
+                    content_final=variant.content_raw,
+                    published_at=now,
+                    created_at=now,
+                    updated_at=now,
+                ))
+                funba_variants_added += 1
+
+    session.commit()
+    return {
+        "game_id": game_id,
+        "posts_seen": len(posts),
+        "posters_attached": attached,
+        "funba_variants_added": funba_variants_added,
+        "skipped": skipped,
+    }
+
+
 def list_hero_posters_for_game(game_id: str) -> list[dict[str, str]]:
     """Return all generated hero card poster files for a given game_id.
 
@@ -656,20 +806,25 @@ def list_hero_posters_for_game(game_id: str) -> list[dict[str, str]]:
 
 # Convenience used by the curator hook: generate posters for every hero entry
 # across the three curated JSONs. Errors per-card are swallowed so a single
-# poster failure doesn't block the rest of the pipeline.
+# poster failure doesn't block the rest of the pipeline. Image gen calls run
+# in parallel — they are pure IO-bound (waiting on the OpenAI API), so a small
+# ThreadPoolExecutor cuts wall time roughly to the slowest single call.
 def generate_posters_for_curated_game(
     session: Session,
     game: Game,
     *,
     model: str | None = None,
     force: bool = False,
+    max_workers: int = 6,
 ) -> list[Path]:
-    paths: list[Path] = []
+    from concurrent.futures import ThreadPoolExecutor
+
     blobs = (
         ("game", game.highlights_curated_json),
         ("player", game.highlights_curated_player_json),
         ("team", game.highlights_curated_team_json),
     )
+    cards: list[dict[str, Any]] = []
     for scope, blob in blobs:
         try:
             parsed = json.loads(blob) if blob else {}
@@ -680,11 +835,56 @@ def generate_posters_for_curated_game(
                 continue
             entry = dict(entry)
             entry.setdefault("scope", scope)
-            try:
-                p = generate_hero_poster(session, card=entry, game=game, model=model, force=force)
-            except Exception:
-                logger.exception("hero_poster: unexpected failure for game=%s scope=%s metric=%s", game.game_id, scope, entry.get("metric_key"))
-                continue
-            if p:
-                paths.append(p)
+            cards.append(entry)
+
+    if not cards:
+        return []
+
+    # Resolve template + model + context UP FRONT in the calling thread, since
+    # session/SQLAlchemy work isn't safe to share across threads. Each worker
+    # then only does the file write + HTTP call.
+    chosen_model = model or get_hero_poster_model(session)
+    template = get_hero_poster_prompt_template(session)
+    plans: list[tuple[dict[str, Any], Path, str]] = []
+    for entry in cards:
+        target = poster_path_for(entry, game)
+        if not force and target.exists() and target.stat().st_size > 0:
+            plans.append((entry, target, ""))  # empty prompt => reuse path
+            continue
+        try:
+            ctx = build_prompt_context(session, card=entry, game=game)
+            prompt = render_prompt(template, ctx)
+        except Exception:
+            logger.exception("hero_poster: prompt build failed game=%s metric=%s", game.game_id, entry.get("metric_key"))
+            continue
+        plans.append((entry, target, prompt))
+
+    def _run(plan: tuple[dict[str, Any], Path, str]) -> Path | None:
+        entry, target, prompt = plan
+        if not prompt:
+            return target  # already exists, reused
+        from social_media.funba_imagegen import generate_image
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            out = generate_image(
+                prompt=prompt,
+                output_path=target,
+                model=chosen_model,
+                size=HERO_POSTER_DEFAULT_SIZE,
+                quality=HERO_POSTER_DEFAULT_QUALITY,
+                output_format="png",
+                background="opaque",
+            )
+            return Path(out) if out else None
+        except Exception:
+            logger.exception("hero_poster: generate_image failed game=%s metric=%s", game.game_id, entry.get("metric_key"))
+            return None
+
+    paths: list[Path] = []
+    workers = max(1, min(max_workers, len(plans)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for result in pool.map(_run, plans):
+            if result is not None:
+                paths.append(result)
     return paths
