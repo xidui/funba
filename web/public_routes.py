@@ -1133,7 +1133,13 @@ def register_public_routes(
         }
 
     def _build_featured_highlights(team_lookup: dict, limit: int = 12) -> list[dict]:
-        """Hero card posts published to Funba's home feed (platform=funba)."""
+        """Hero card posts published to Funba's home feed (platform=funba).
+
+        Server-side dedup: a metric can have several SocialPost rows (race
+        conditions on concurrent curator runs, manual retriggers, …); the
+        feed should show each (game, metric, entity) story exactly once,
+        keeping the most recently published delivery.
+        """
         from os.path import basename
 
         SessionLocal = get_session_local()
@@ -1146,6 +1152,7 @@ def register_public_routes(
         )
 
         with SessionLocal() as session:
+            # Pull more than `limit` so dedup has room to drop dupes.
             rows = (
                 session.query(SocialPostDelivery, SocialPostVariant, SocialPost)
                 .join(SocialPostVariant, SocialPostDelivery.variant_id == SocialPostVariant.id)
@@ -1156,7 +1163,7 @@ def register_public_routes(
                     SocialPost.status != "archived",
                 )
                 .order_by(SocialPostDelivery.published_at.is_(None), SocialPostDelivery.published_at.desc(), SocialPostDelivery.id.desc())
-                .limit(limit)
+                .limit(limit * 5)
                 .all()
             )
             if not rows:
@@ -1222,6 +1229,12 @@ def register_public_routes(
                 body = (variant.content_raw or "").replace("[[IMAGE:slot=poster]]", "").strip()
 
                 source = _parse_hero_topic(post.topic)
+                metric_url = ""
+                if source.get("source_metric_key"):
+                    # /metrics/{key} (no leading /cn — Flask language middleware
+                    # adds the /cn prefix automatically when the user is in zh).
+                    mk = source["source_metric_key"]
+                    metric_url = f"/metrics/{mk}"
                 entries.append(
                     {
                         "post_id": int(post.id),
@@ -1229,13 +1242,33 @@ def register_public_routes(
                         "body": body,
                         "poster_url": poster_url,
                         "game_url": game_url,
+                        "metric_url": metric_url,
                         "game_title": game_title,
                         "published_at": delivery.published_at,
                         "game_date": getattr(game, "game_date", None) if game is not None else None,
                         **source,
                     }
                 )
-            return entries
+
+            # Dedup by (game_id, scope, metric_key, entity_id). The list is
+            # already ordered newest-first; first hit per key wins.
+            deduped: list[dict] = []
+            seen: set[tuple[str, str, str, str]] = set()
+            for entry in entries:
+                key = (
+                    str(entry.get("source_game_id") or ""),
+                    str(entry.get("source_scope") or ""),
+                    str(entry.get("source_metric_key") or ""),
+                    str(entry.get("source_entity_id") or ""),
+                )
+                if not all(key):
+                    deduped.append(entry)
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(entry)
+            return deduped[:limit]
 
     def home():
         SessionLocal = get_session_local()

@@ -47,8 +47,35 @@ def resolve_openai_api_key(*, cwd: str | Path | None = None) -> str:
     if env_value:
         return env_value
 
-    base_dir = Path(cwd or os.getcwd())
-    for candidate in (base_dir / ".env", base_dir / "SECRETS.md"):
+    # Search candidate directories in priority order:
+    #   1. Caller-supplied cwd (or os.getcwd())
+    #   2. The repo root inferred from this module's path (handy when this is
+    #      imported from a deploy worktree but the secret lives in the parent
+    #      checkout — e.g. running ad-hoc CLI scripts from the wrong cwd)
+    #   3. Walk up from the inferred repo root one extra level (e.g. when the
+    #      module is loaded from .paperclip/deploy-main/, SECRETS.md sits two
+    #      levels up at the actual repo)
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(directory: Path) -> None:
+        try:
+            resolved = directory.resolve()
+        except Exception:
+            return
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        candidates.append(resolved / ".env")
+        candidates.append(resolved / "SECRETS.md")
+
+    _add(Path(cwd or os.getcwd()))
+    module_dir = Path(__file__).resolve().parent
+    _add(module_dir.parent)              # social_media/ → repo root
+    _add(module_dir.parent.parent)       # repo root → its parent (covers worktree → main)
+    _add(module_dir.parent.parent.parent)
+
+    for candidate in candidates:
         try:
             if not candidate.exists():
                 continue

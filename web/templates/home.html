@@ -1096,7 +1096,7 @@
       <div class="feed-waterfall">
         {% for item in feed_items %}
           {% if item.kind == 'image' %}
-            <a class="feed-card feed-image-card" href="{{ item.game_url or '#' }}">
+            <a class="feed-card feed-image-card" href="{{ item.metric_url or item.game_url or '#' }}">
               {% if item.poster_url %}
                 <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
               {% endif %}
