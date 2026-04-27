@@ -77,13 +77,24 @@ Trigger rank:   #{trigger_rank} ({trigger_window})
 {% if trigger_full_line %}Trigger full game line: {trigger_full_line}
 {% endif %}================ TOP {top_n} ================
 Render the leaderboard as {top_n} horizontal rows, ordered top to bottom.
-Each row contains: rank number, accurate {entity_kind} headshot or logo,
-display name, team logo and three-letter team abbreviation, and the
-metric value right-aligned. {% if trigger_in_topn %}The triggering row
-(rank {trigger_rank}, {trigger_label}) was produced by tonight's game —
-render that row noticeably taller, brighter, with a glowing silver-white
-border and a small "TRIGGERED TONIGHT" badge on the row. The other
-rows are slimmer and darker.{% endif %}
+
+Row anatomy:
+  - rank number on the far left
+  - the entity's primary visual: a player headshot for player metrics, a
+    team logo for team or game metrics
+  - the entity's display name as text (full team name for team rows;
+    player name plus optional jersey number and three-letter team abbr
+    for player rows). DO NOT show both the full team name AND the
+    three-letter abbreviation in the same team row — that's redundant
+    when the logo and full name are already there.
+  - the metric value right-aligned
+
+{% if trigger_in_topn %}The triggering row (rank {trigger_rank}, {trigger_label})
+was produced by tonight's game — render that row noticeably taller,
+brighter, with a glowing silver-white border and a small "TRIGGERED
+TONIGHT" badge on the row. The other rows are slimmer and darker.
+DO NOT also append a duplicate appended row for the trigger at the
+bottom — it is already highlighted in place above.{% endif %}
 
 Use these EXACT entries in this EXACT order; do not invent or substitute:
 
@@ -301,16 +312,26 @@ def _full_player_line(pgs: PlayerGameStats | None) -> str:
 
 
 def _season_stage(season: str | None) -> tuple[str, str]:
+    """Return (stage_word, stage_pill_word) — recognises virtual season keys
+    like all_playoffs / last3_playoffs / all_regular as well as numeric
+    single-season ids (2xxxx, 4xxxx, 5xxxx)."""
     raw = str(season or "")
-    if raw[:1] == "4":
+    if raw[:1] == "4" or "_playoffs" in raw:
         return "playoffs", "PLAYOFFS"
-    if raw[:1] == "5":
+    if raw[:1] == "5" or "_playin" in raw:
         return "play-in", "PLAY-IN"
     return "regular season", "REGULAR SEASON"
 
 
 def _season_label(season: str | None) -> str:
+    """Year/scope label suitable for prefixing 'NBA <stage>' to."""
     raw = str(season or "")
+    if raw.startswith("all_"):
+        return "All-Time"
+    if raw.startswith("last3_"):
+        return "Last 3 Seasons"
+    if raw.startswith("last5_"):
+        return "Last 5 Seasons"
     if len(raw) == 5 and raw.isdigit():
         year = raw[1:]
         try:
@@ -380,18 +401,28 @@ def build_prompt_context(
     trigger_entity_id = _safe_str(card.get("entity_id"))
     trigger_game_id = str(game.game_id)
 
-    top_lines: list[str] = []
-    trigger_in_topn = False
+    # Locate the trigger row inside the top-N. Two-pass match: first try
+    # entity_id + game_id (single-game metrics where the same player has
+    # multiple top rows); fall back to entity_id alone (season aggregates
+    # often have row.game_id == NULL, and team-scope metrics never carry a
+    # game_id).
     trigger_rank: int | None = None
+    if trigger_entity_id:
+        for idx, row in enumerate(rows, start=1):
+            if str(row.entity_id) == trigger_entity_id and str(row.game_id or "") == trigger_game_id:
+                trigger_rank = idx
+                break
+        if trigger_rank is None:
+            for idx, row in enumerate(rows, start=1):
+                if str(row.entity_id) == trigger_entity_id:
+                    trigger_rank = idx
+                    break
+    trigger_in_topn = trigger_rank is not None
+
+    top_lines: list[str] = []
     for idx, row in enumerate(rows, start=1):
         entity_id = _safe_str(row.entity_id)
-        is_trigger = (
-            entity_id == trigger_entity_id
-            and (str(row.game_id or "") == trigger_game_id or metric_scope == "team")
-        )
-        if is_trigger and trigger_rank is None:
-            trigger_rank = idx
-            trigger_in_topn = True
+        is_trigger = trigger_in_topn and idx == trigger_rank
         if metric_scope == "player":
             name, p = _player_label(session, entity_id)
             team = _team_for_player_in_game(session, entity_id, str(row.game_id or ""))
@@ -406,11 +437,14 @@ def build_prompt_context(
             )
         elif metric_scope == "team":
             tm = session.query(Team).filter(Team.team_id == entity_id).first()
+            # For team scope show only the full name (no abbr appended). The
+            # logo + full name carries everything; doubling up made GPT print
+            # "Boston Celtics | BOS" with the abbr column redundant.
             line = _format_top_row(
                 idx,
                 tm.full_name if tm else entity_id,
-                tm.abbr if tm else None,
-                tm.full_name if tm else None,
+                None,
+                None,
                 None,
                 _safe_str(row.value_str, "?"),
             )
@@ -482,16 +516,28 @@ def build_prompt_context(
         if not trigger_label:
             trigger_label = f"{road} @ {home}"
 
-    # Build the appendix row (used when rank > top_n)
+    # Build the appendix row (used when rank > top_n). Team scope prints
+    # only full name; player scope prints player name + team abbr (no full
+    # name) for compact context.
     if not trigger_in_topn and trigger_rank:
-        trigger_appendix_row = _format_top_row(
-            trigger_rank,
-            trigger_label,
-            trigger_team_abbr or None,
-            trigger_team_full or None,
-            None,
-            _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
-        )
+        if metric_scope == "team":
+            trigger_appendix_row = _format_top_row(
+                trigger_rank,
+                trigger_label,
+                None,
+                None,
+                None,
+                _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+            )
+        else:
+            trigger_appendix_row = _format_top_row(
+                trigger_rank,
+                trigger_label,
+                trigger_team_abbr or None,
+                None,
+                None,
+                _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+            )
 
     # Game line + scoreline
     home_team = session.query(Team).filter(Team.team_id == game.home_team_id).first()
