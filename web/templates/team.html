@@ -1187,35 +1187,34 @@
 
   /* ── Section nav embedded in the compressed team-hero ──────── */
   /* The team-hero is itself sticky; when "stuck" it compresses to a
-     thin bar with logo + name on the left and the season picker on
-     the right, leaving a wide empty slot in the middle. We park the
-     section nav there to avoid stacking yet another sticky bar. */
+     thin bar (identity + season picker). We append the section nav as
+     its own full-width row beneath that, so the buttons get the full
+     hero width and never need to scroll or wrap awkwardly. */
+  .team-hero.is-stuck .team-hero-top { flex-wrap: wrap; }
   .team-section-nav {
     /* Hidden by default — only visible when the hero is stuck. */
     display: none;
-    flex: 1;
-    min-width: 0;  /* allow inner scroll */
+    flex: 0 0 100%;
+    order: 99;
+    margin: 8px 0 0;
     align-items: center;
     justify-content: center;
-    margin: 0 12px;
   }
   .team-hero.is-stuck .team-section-nav {
     display: flex;
   }
   .team-section-nav-inner {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
     gap: 3px;
     background: var(--surface-2, rgba(255,255,255,0.04));
     border: 1px solid var(--border);
     border-radius: 7px;
     padding: 2px;
-    max-width: 100%;
+    justify-content: center;
   }
   .team-nav-btn {
     flex-shrink: 0;
-    padding: 5px 12px;
+    padding: 6px 12px;
     font-family: 'Inter', sans-serif;
     font-size: 12px;
     font-weight: 600;
@@ -1226,6 +1225,7 @@
     cursor: pointer;
     transition: color 0.12s, background 0.12s;
     white-space: nowrap;
+    text-align: center;
   }
   .team-nav-btn:hover { color: var(--heading, var(--text)); }
   .team-nav-btn.active {
@@ -1233,26 +1233,14 @@
     color: var(--heading, var(--text));
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   }
-  /* On narrow screens, drop the nav to its own row inside the hero
-     so it doesn't crush the identity/controls. */
+  /* Mobile: bump tap target height. */
   @media (max-width: 720px) {
-    .team-hero.is-stuck .team-hero-top { flex-wrap: wrap; }
-    .team-hero.is-stuck .team-section-nav {
-      flex: 0 0 100%;
-      order: 99;
-      margin: 6px 0 0;
-      justify-content: flex-start;
-    }
-    .team-nav-btn { min-height: 32px; padding: 5px 12px; }
+    .team-nav-btn { min-height: 32px; }
   }
-  /* Account for the sticky team-hero (~56px when stuck) + topbar (54px)
-     when jumping to a hash. Mobile bumps higher because the embedded
-     nav adds its own row to the stuck hero. */
+  /* Account for the sticky team-hero when jumping to a hash. Stuck
+     hero is now ~92px (identity row + nav row) + 54px topbar. */
   [id^="section-"] {
-    scroll-margin-top: 120px;
-  }
-  @media (max-width: 720px) {
-    [id^="section-"] { scroll-margin-top: 170px; }
+    scroll-margin-top: 160px;
   }
 </style>
 
