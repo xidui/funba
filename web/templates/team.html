@@ -1185,62 +1185,94 @@
   .team-hero.is-stuck .sp-kind-tabs { display: none; }
   .team-hero.is-stuck .sp-barcode-wrap { display: none; }
 
-  /* ── Section nav embedded in the compressed team-hero ──────── */
-  /* The team-hero is itself sticky; when "stuck" it compresses to a
-     thin bar (identity + season picker). We append the section nav as
-     its own full-width row beneath that, so the buttons get the full
-     hero width and never need to scroll or wrap awkwardly. */
-  .team-hero.is-stuck .team-hero-top { flex-wrap: wrap; }
+  /* ── Floating right-edge section nav (Notion-style TOC) ─────── */
+  /* When the hero is "stuck" (scrolled past), a vertical column of
+     dots appears pinned to the right edge of the viewport. Hover the
+     column to expand the dots into pill buttons with section labels. */
   .team-section-nav {
-    /* Hidden by default — only visible when the hero is stuck. */
     display: none;
-    flex: 0 0 100%;
-    order: 99;
-    margin: 8px 0 0;
-    align-items: center;
-    justify-content: center;
+    position: fixed;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 40;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 6px;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
   }
-  .team-hero.is-stuck .team-section-nav {
-    display: flex;
+  .team-hero.is-stuck .team-section-nav { display: flex; }
+  .team-section-nav:hover,
+  .team-section-nav:focus-within {
+    background: var(--surface, #0d1c2e);
+    border-color: var(--border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
   .team-section-nav-inner {
     display: flex;
-    gap: 3px;
-    background: var(--surface-2, rgba(255,255,255,0.04));
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 2px;
-    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-end;
   }
   .team-nav-btn {
-    flex-shrink: 0;
-    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    height: 24px;
+    width: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    color: transparent;
     font-family: 'Inter', sans-serif;
     font-size: 12px;
     font-weight: 600;
-    color: var(--muted-2, var(--muted));
-    border: none;
-    background: transparent;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: color 0.12s, background 0.12s;
     white-space: nowrap;
-    text-align: center;
+    overflow: hidden;
+    transition: width 0.18s, padding 0.18s, color 0.18s, background 0.18s;
   }
-  .team-nav-btn:hover { color: var(--heading, var(--text)); }
-  .team-nav-btn.active {
-    background: var(--surface-3, rgba(255,255,255,0.10));
+  .team-nav-btn::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    margin-right: 9px;
+    border-radius: 50%;
+    background: var(--muted, rgba(255, 255, 255, 0.4));
+    flex-shrink: 0;
+    transition: background 0.18s, transform 0.18s;
+  }
+  .team-nav-btn.active::after {
+    background: var(--accent, #f97316);
+    transform: scale(1.4);
+  }
+  .team-section-nav:hover .team-nav-btn,
+  .team-section-nav:focus-within .team-nav-btn {
+    width: 100px;
+    padding: 0 0 0 12px;
+    color: var(--muted-2, var(--muted));
+  }
+  .team-section-nav:hover .team-nav-btn:hover {
+    background: var(--surface-2, rgba(255, 255, 255, 0.05));
     color: var(--heading, var(--text));
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   }
-  /* Mobile: bump tap target height. */
-  @media (max-width: 720px) {
-    .team-nav-btn { min-height: 32px; }
+  .team-section-nav:hover .team-nav-btn.active,
+  .team-section-nav:focus-within .team-nav-btn.active {
+    color: var(--accent, #f97316);
   }
-  /* Account for the sticky team-hero when jumping to a hash. Stuck
-     hero is now ~92px (identity row + nav row) + 54px topbar. */
+  /* Hide floating nav on narrow viewports where it would overlap content. */
+  @media (max-width: 1100px) {
+    .team-hero.is-stuck .team-section-nav { display: none; }
+  }
+  /* Stuck hero is back to a single thin row (~56px) + 54px topbar. */
   [id^="section-"] {
-    scroll-margin-top: 160px;
+    scroll-margin-top: 120px;
   }
 </style>
 
