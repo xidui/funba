@@ -1141,7 +1141,7 @@ def register_public_routes(
                     SocialPostDelivery.status == "published",
                     SocialPost.status != "archived",
                 )
-                .order_by(SocialPostDelivery.published_at.desc().nullslast(), SocialPostDelivery.id.desc())
+                .order_by(SocialPostDelivery.published_at.is_(None), SocialPostDelivery.published_at.desc(), SocialPostDelivery.id.desc())
                 .limit(limit)
                 .all()
             )
