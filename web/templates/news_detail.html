@@ -100,12 +100,140 @@
   .news-detail .sibling-title { flex: 1; }
   .news-detail .sibling-time { font-size: 11px; color: var(--text-muted); align-self: center; }
   .news-detail .view-count { opacity: 0.7; }
+
+  /* ===== Funba poster-first layout ===== */
+  .funba-poster-page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 8px 0 48px;
+  }
+  .funba-poster-page .funba-hero {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 14px;
+    background: var(--surface-3);
+    box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55), 0 8px 24px -12px rgba(0, 0, 0, 0.35);
+  }
+  .funba-poster-page .funba-card {
+    margin-top: 22px;
+    padding: 18px 20px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .funba-poster-page .funba-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .funba-poster-page .funba-badge {
+    font-family: 'Outfit', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 3px 9px;
+    border-radius: 4px;
+    background: var(--accent);
+    color: #000;
+    font-size: 11px;
+  }
+  .funba-poster-page .funba-meta-dot { color: var(--text-muted); opacity: 0.5; }
+  .funba-poster-page .funba-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .funba-poster-page .funba-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .funba-poster-page .funba-cta:hover { opacity: 0.9; }
+  .funba-poster-page .funba-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .funba-poster-page .funba-tag {
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+    border: 1px solid var(--border-2);
+  }
+  .funba-poster-page .funba-tag:hover { border-color: var(--accent); }
+  .funba-poster-page .funba-tag-team { color: var(--accent); }
+  @media (max-width: 640px) {
+    .funba-poster-page { padding: 0 0 32px; }
+    .funba-poster-page .funba-hero { border-radius: 0; }
+    .funba-poster-page .funba-card { margin: 18px 12px 0; }
+  }
 </style>
 
+{% if entry.article.source == 'funba' %}
+{# Poster-first layout: the hero card is a designed visual that already
+   carries metric, leaderboard, logos, and branding. Page chrome stays
+   minimal — image takes center stage; meta/CTA/tags compress into a
+   small card below. #}
+<div class="funba-poster-page">
+  {% if entry.article.original_image_url or entry.article.thumbnail_url %}
+  <img class="funba-hero"
+       src="{{ entry.article.original_image_url or entry.article.thumbnail_url }}"
+       alt="{{ entry.article.title|e }}"
+       referrerpolicy="no-referrer">
+  {% endif %}
+
+  <div class="funba-card">
+    <div class="funba-meta">
+      <span class="funba-badge">FUNBA</span>
+      <span class="funba-meta-dot">·</span>
+      <span>{{ entry.article.published_at.strftime('%b %d, %Y') }}</span>
+      {% if entry.cluster.unique_view_count > 0 %}
+      <span class="funba-meta-dot">·</span>
+      <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
+      {% endif %}
+    </div>
+
+    {% if entry.article.metric_url or entry.teams or entry.players %}
+    <div class="funba-cta-row">
+      {% if entry.article.metric_url %}
+      <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
+      {% endif %}
+      {% if entry.teams or entry.players %}
+      <div class="funba-tags">
+        {% for team in entry.teams %}
+        <a class="funba-tag funba-tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
+        {% endfor %}
+        {% for player in entry.players %}
+        <a class="funba-tag" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
 <div class="news-detail">
   <div class="news-meta">
     <span class="news-source news-source-{{ entry.article.source }}">
-      {% if entry.article.source == 'espn' %}ESPN{% elif entry.article.source == 'nba' %}NBA.com{% elif entry.article.source == 'funba' %}FUNBA{% else %}{{ entry.article.source|upper }}{% endif %}
+      {% if entry.article.source == 'espn' %}ESPN{% elif entry.article.source == 'nba' %}NBA.com{% else %}{{ entry.article.source|upper }}{% endif %}
     </span>
     <span>{{ entry.article.published_at.strftime('%b %d, %Y · %H:%M UTC') }}</span>
     {% if entry.cluster.unique_view_count > 0 %}
@@ -119,13 +247,7 @@
   <h1>{{ entry.article.title }}</h1>
 
   {% if entry.article.thumbnail_url %}
-    {% if entry.article.original_image_url and entry.article.original_image_url != entry.article.thumbnail_url %}
-    <a href="{{ entry.article.original_image_url }}" target="_blank" rel="noopener" title="{{ t('Tap for full size', '点击查看大图') }}">
-      <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
-    </a>
-    {% else %}
-    <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
-    {% endif %}
+  <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
   {% endif %}
 
   {% if entry.article.summary %}
@@ -133,18 +255,12 @@
   {% endif %}
 
   <div class="cta-row">
-    {% if entry.article.source == 'funba' %}
-      {% if entry.article.metric_url %}
-      <a class="cta-external" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
-      {% endif %}
-    {% else %}
     <a class="cta-external" href="{{ entry.article.url }}" target="_blank" rel="noopener">
       {% if entry.article.source == 'espn' %}{{ t('Read on ESPN →', '前往 ESPN 阅读 →') }}
       {% elif entry.article.source == 'nba' %}{{ t('Read on NBA.com →', '前往 NBA.com 阅读 →') }}
       {% else %}{{ t('Read full article →', '阅读全文 →') }}
       {% endif %}
     </a>
-    {% endif %}
   </div>
 
   {% if entry.teams or entry.players %}
@@ -165,7 +281,7 @@
     {% for s in entry.siblings %}
     <a class="sibling-item" href="{{ s.url }}" target="_blank" rel="noopener">
       <span class="sibling-source">
-        {% if s.source == 'espn' %}ESPN{% elif s.source == 'nba' %}NBA.com{% elif s.source == 'funba' %}FUNBA{% else %}{{ s.source|upper }}{% endif %}
+        {% if s.source == 'espn' %}ESPN{% elif s.source == 'nba' %}NBA.com{% else %}{{ s.source|upper }}{% endif %}
       </span>
       <span class="sibling-title">{{ s.title }}</span>
       <span class="sibling-time">{{ s.published_at.strftime('%b %d %H:%M') }}</span>
@@ -174,4 +290,5 @@
   </div>
   {% endif %}
 </div>
+{% endif %}
 {% endblock %}
