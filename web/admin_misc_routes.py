@@ -770,8 +770,31 @@ def register_admin_misc_routes(app, deps):
             t = session.query(Team).filter(Team.team_id == tid).first()
             entity_label = t.full_name if t and t.full_name else entity_id
 
-        # Try sidecar prompt if not in spec.
-        prompt = str(spec.get("prompt") or "")
+        # Render the prompt LIVE using the current code (so admins see what
+        # gpt-image-2 would receive *today*, not what it received when this
+        # asset was first generated). Fall back to spec / sidecar only when
+        # we lack the metadata to re-render (e.g. orphaned assets).
+        prompt = ""
+        if game_id and scope and metric_key:
+            try:
+                from social_media.hero_poster import (
+                    build_prompt_context,
+                    get_hero_poster_prompt_template,
+                    render_prompt,
+                )
+                game = session.query(Game).filter(Game.game_id == game_id).first()
+                if game is not None:
+                    template = get_hero_poster_prompt_template(session)
+                    ctx = build_prompt_context(
+                        session,
+                        card={"metric_key": metric_key, "scope": scope, "entity_id": entity_id},
+                        game=game,
+                    )
+                    prompt = render_prompt(template, ctx)
+            except Exception:
+                prompt = ""
+        if not prompt:
+            prompt = str(spec.get("prompt") or "")
         if not prompt:
             try:
                 from social_media.hero_poster import read_prompt_sidecar
