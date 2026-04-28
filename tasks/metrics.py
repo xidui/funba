@@ -17,6 +17,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import logging
+import os
 from datetime import date, datetime
 from random import randint
 import uuid
@@ -1047,14 +1048,67 @@ def milestone_detection_complete_task(
             active_runs,
         )
         return {"status": "deferred", "games": len(game_ids), "active_runs": int(active_runs)}
+
+    # The active_runs check above defers curator while metrics are still
+    # mapping/reducing. But in the final stretch (last few metric runs all
+    # transitioning to COMPLETE within the same millisecond) several sister
+    # callbacks see active_runs=0 simultaneously and all reach this point.
+    # Without SETNX dedup, they'd each enqueue an identical curator task per
+    # season — N parallel curator workers picking the same recent games.
+    #
+    # The downstream curator already serializes via Game.with_for_update(),
+    # so these N tasks won't produce duplicate posts. But they do waste N-1
+    # worker pickups doing redundant SELECTs. Dedup at the source: same
+    # season, 5min window, first writer wins.
+    enqueued: list[str] = []
+    deduped: list[str] = []
+    redis_client = None
+    try:
+        import redis as _redis  # noqa: PLC0415
+        redis_client = _redis.Redis.from_url(
+            os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
+            socket_timeout=2,
+        )
+    except Exception:
+        logger.warning("milestone_detection_complete: redis unavailable, skipping dedup", exc_info=True)
+
     for season in sorted(seasons):
+        if redis_client is not None:
+            try:
+                key = f"funba:curator-enqueued:{season}"
+                if not redis_client.set(key, "1", nx=True, ex=300):
+                    deduped.append(season)
+                    logger.info(
+                        "milestone_detection_complete: skip curator for season=%s — already enqueued in last 5min",
+                        season,
+                    )
+                    continue
+            except Exception:
+                logger.warning(
+                    "milestone_detection_complete: redis SETNX failed for season=%s, falling through",
+                    season,
+                    exc_info=True,
+                )
         try:
             from tasks.content import curate_then_analyze_for_season_task
 
             curate_then_analyze_for_season_task.delay(season, force_curator=False)
+            enqueued.append(season)
         except Exception:
             logger.warning("milestone_detection_complete: failed to enqueue curator season=%s", season, exc_info=True)
-    return {"status": "complete", "games": len(game_ids), "seasons": sorted(seasons)}
+            # Failed enqueue: release the lock so a sister callback can retry.
+            if redis_client is not None:
+                try:
+                    redis_client.delete(f"funba:curator-enqueued:{season}")
+                except Exception:
+                    pass
+    return {
+        "status": "complete",
+        "games": len(game_ids),
+        "seasons": sorted(seasons),
+        "enqueued_seasons": enqueued,
+        "deduped_seasons": deduped,
+    }
 
 
 @shared_task(
