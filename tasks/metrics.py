@@ -1059,7 +1059,7 @@ def milestone_detection_complete_task(
     # The downstream curator already serializes via Game.with_for_update(),
     # so these N tasks won't produce duplicate posts. But they do waste N-1
     # worker pickups doing redundant SELECTs. Dedup at the source: same
-    # season, 5min window, first writer wins.
+    # season, 60s window, first writer wins.
     enqueued: list[str] = []
     deduped: list[str] = []
     redis_client = None
@@ -1076,10 +1076,16 @@ def milestone_detection_complete_task(
         if redis_client is not None:
             try:
                 key = f"funba:curator-enqueued:{season}"
-                if not redis_client.set(key, "1", nx=True, ex=300):
+                # 60s TTL: long enough to dedupe the burst of sister chord
+                # callbacks that fire within milliseconds of each other when
+                # the last metric runs converge on COMPLETE; short enough that
+                # a game whose metrics finish *just after* the in-flight
+                # curator has already iterated past it gets re-curated by the
+                # next trigger within ~1 min instead of waiting 5 min.
+                if not redis_client.set(key, "1", nx=True, ex=60):
                     deduped.append(season)
                     logger.info(
-                        "milestone_detection_complete: skip curator for season=%s — already enqueued in last 5min",
+                        "milestone_detection_complete: skip curator for season=%s — already enqueued in last 60s",
                         season,
                     )
                     continue
