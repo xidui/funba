@@ -42,6 +42,19 @@
   }
   .pill.enabled { color: var(--win); border-color: color-mix(in srgb, var(--win) 40%, var(--border)); }
   .pill.disabled { color: var(--loss); border-color: color-mix(in srgb, var(--loss) 40%, var(--border)); }
+  .prompt-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .prompt-tab {
+    cursor: pointer; padding: 5px 12px; font-size: 12px; border-radius: 6px 6px 0 0;
+    border: 1px solid var(--border); border-bottom: none; background: transparent;
+    color: var(--muted);
+  }
+  .prompt-tab:hover { color: var(--text); }
+  .prompt-tab.active { background: var(--bg); color: var(--accent); border-color: var(--accent); }
+  .prompt-tab .pill { margin-left: 6px; padding: 1px 6px; font-size: 10px; }
+  .prompt-diff-hint {
+    font-size: 11px; color: var(--muted); margin-left: auto; align-self: center;
+  }
+  .prompt-diff-hint.differs { color: #f97316; }
 </style>
 
 <nav style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
@@ -115,8 +128,13 @@
         </div>
 
         <div class="panel">
-          <h3>Prompt that produced this image</h3>
-          <textarea id="prompt-box" class="prompt-box" readonly>${esc(m.prompt || '(prompt unavailable — likely produced before prompt persistence was added)')}</textarea>
+          <h3>Prompt</h3>
+          <div class="prompt-tabs" style="display:flex;align-items:center;">
+            <button class="prompt-tab active" data-prompt-mode="live">Live <span class="pill">re-rendered now</span></button>
+            <button class="prompt-tab" data-prompt-mode="original">Original <span class="pill">at generation time</span></button>
+            <span id="prompt-diff-hint" class="prompt-diff-hint"></span>
+          </div>
+          <textarea id="prompt-box" class="prompt-box" readonly>${esc(m.prompt_live || m.prompt || '(prompt unavailable — likely produced before prompt persistence was added)')}</textarea>
           <div class="btn-row">
             <button id="btn-copy" class="btn">Copy prompt</button>
             <span id="status-copy" class="status"></span>
@@ -156,9 +174,34 @@
       </div>
     `;
 
+    // Prompt tab toggle (Live vs Original).
+    const promptLive = m.prompt_live || '';
+    const promptOriginal = m.prompt_original || '';
+    const promptBox = document.getElementById('prompt-box');
+    const diffHint = document.getElementById('prompt-diff-hint');
+    if (promptLive && promptOriginal && promptLive !== promptOriginal) {
+      diffHint.textContent = '⚠ live differs from original';
+      diffHint.classList.add('differs');
+    } else if (promptLive && !promptOriginal) {
+      diffHint.textContent = 'no original on file';
+    } else if (!promptLive && promptOriginal) {
+      diffHint.textContent = 'live re-render unavailable';
+    } else {
+      diffHint.textContent = '';
+    }
+    document.querySelectorAll('.prompt-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.prompt-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const mode = tab.getAttribute('data-prompt-mode');
+        promptBox.value = (mode === 'original' ? promptOriginal : promptLive)
+          || '(unavailable)';
+      });
+    });
+
     document.getElementById('btn-copy').addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(document.getElementById('prompt-box').value || '');
+        await navigator.clipboard.writeText(promptBox.value || '');
         setStatus('status-copy', 'Copied to clipboard', 'ok');
       } catch (e) {
         setStatus('status-copy', 'Copy failed: ' + e.message, 'err');

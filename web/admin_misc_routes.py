@@ -770,11 +770,14 @@ def register_admin_misc_routes(app, deps):
             t = session.query(Team).filter(Team.team_id == tid).first()
             entity_label = t.full_name if t and t.full_name else entity_id
 
-        # Render the prompt LIVE using the current code (so admins see what
-        # gpt-image-2 would receive *today*, not what it received when this
-        # asset was first generated). Fall back to spec / sidecar only when
-        # we lack the metadata to re-render (e.g. orphaned assets).
-        prompt = ""
+        # Two prompt views are surfaced:
+        #   - prompt_live: re-rendered from the current code path. Reflects
+        #     today's template + builder logic. This is what gpt-image-2
+        #     would receive if you regen'd the asset *now*.
+        #   - prompt_original: the prompt actually used when this asset was
+        #     first generated, recovered from spec.prompt or the sidecar.
+        # The UI lets admins toggle between them.
+        prompt_live = ""
         if game_id and scope and metric_key:
             try:
                 from social_media.hero_poster import (
@@ -790,20 +793,25 @@ def register_admin_misc_routes(app, deps):
                         card={"metric_key": metric_key, "scope": scope, "entity_id": entity_id},
                         game=game,
                     )
-                    prompt = render_prompt(template, ctx)
+                    prompt_live = render_prompt(template, ctx)
             except Exception:
-                prompt = ""
-        if not prompt:
-            prompt = str(spec.get("prompt") or "")
-        if not prompt:
+                prompt_live = ""
+
+        prompt_original = str(spec.get("prompt") or "")
+        if not prompt_original:
             try:
                 from social_media.hero_poster import read_prompt_sidecar
 
                 source_path = spec.get("source_poster_path") or img.file_path
                 if source_path:
-                    prompt = read_prompt_sidecar(source_path) or ""
+                    prompt_original = read_prompt_sidecar(source_path) or ""
             except Exception:
-                prompt = ""
+                prompt_original = ""
+
+        # `prompt` keeps showing whatever is most useful — live if available,
+        # else original — so callers that don't care about the distinction
+        # still get something. New UI uses prompt_live / prompt_original.
+        prompt = prompt_live or prompt_original
 
         url = None
         size_kb = None
@@ -856,6 +864,8 @@ def register_admin_misc_routes(app, deps):
             "model": spec.get("model") or "gpt-image-2",
             "matchup": matchup_text,
             "prompt": prompt,
+            "prompt_live": prompt_live,
+            "prompt_original": prompt_original,
         }
 
     def api_admin_assets_list():
