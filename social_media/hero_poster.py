@@ -245,6 +245,21 @@ def _format_top_row(rank: int, name: str, team_abbr: str | None, team_full: str 
     return " ".join(pieces)
 
 
+def _game_label(road_abbr: str, home_abbr: str, game_date: Any) -> str:
+    """`MIN @ DEN, Apr 27, 2026` — full date is mandatory for game-scope
+    leaderboards because (a) all-time / multi-season metrics revisit the
+    same matchup repeatedly, and (b) without a date GPT has no way to
+    distinguish the rows in the rendered poster.
+    """
+    base = f"{road_abbr} @ {home_abbr}"
+    if not game_date:
+        return base
+    try:
+        return f"{base}, {game_date.strftime('%b %-d, %Y')}"
+    except Exception:
+        return f"{base}, {game_date}"
+
+
 def _team_player_pool_for_game(session: Session, game_id: str, team_id: str) -> list[str]:
     """Return display names of players who logged real minutes for `team_id`
     in `game_id`, ordered by minutes played descending (most prominent first).
@@ -435,7 +450,7 @@ def build_prompt_context(
             if g:
                 home, _ = _team_label(session, str(g.home_team_id or ""))
                 road, _ = _team_label(session, str(g.road_team_id or ""))
-                label = f"{road} @ {home}"
+                label = _game_label(road, home, getattr(g, "game_date", None))
             line = _format_top_row(idx, label or _safe_str(row.entity_id), None, None, None, _safe_str(row.value_str, "?"))
         if is_trigger:
             line += "    ← TRIGGERED TONIGHT"
@@ -494,8 +509,10 @@ def build_prompt_context(
         if winner:
             trigger_team_full = winner.full_name or ""
             trigger_team_abbr = winner.abbr or ""
-        if not trigger_label:
-            trigger_label = f"{road} @ {home}"
+        # Always overwrite for game scope — the early-init trigger_label
+        # is the raw game_id from card.entity_id, which is meaningless to
+        # GPT. We need "ROAD @ HOME, date" so the model has a real label.
+        trigger_label = _game_label(road, home, getattr(game, "game_date", None))
 
     # Build the appendix row (used when rank > top_n). Team scope prints
     # only full name; player scope prints player name + team abbr (no full
