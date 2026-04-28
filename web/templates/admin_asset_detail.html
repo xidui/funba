@@ -123,10 +123,16 @@
           </div>
         </div>
 
-        <div class="panel">
-          <h3>Replace image</h3>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-            Upload a PNG (e.g. one you generated yourself in ChatGPT). The new file replaces the current one in place — the home feed and any social variants pointing at this slot pick it up immediately.
+        <div class="panel" style="border-color: color-mix(in srgb, var(--win) 40%, var(--border));">
+          <h3 style="color: var(--win);">✓ Recommended: Replace with your own ChatGPT output (free)</h3>
+          <div style="font-size:12.5px;color:var(--text);line-height:1.6;margin-bottom:10px;">
+            If you have a <b>ChatGPT Plus / Team / Enterprise</b> subscription, this path is free for Funba:
+            <ol style="margin:6px 0 0 18px;padding:0;color:var(--muted);">
+              <li>Click <b>Copy prompt</b> above.</li>
+              <li>Paste into ChatGPT (it'll generate the image for you under your existing subscription).</li>
+              <li>Download the result.</li>
+              <li>Upload it here — replaces the current image in place; home feed picks it up immediately.</li>
+            </ol>
           </div>
           <input id="replace-input" class="file-input" type="file" accept="image/png,image/jpeg,image/webp">
           <div class="btn-row">
@@ -136,12 +142,14 @@
         </div>
 
         <div class="panel">
-          <h3>Regenerate via gpt-image-2</h3>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-            Re-run the same prompt against the API and overwrite this asset. Costs ~$0.10 per call.
+          <h3 style="color: var(--muted);">Regenerate via gpt-image-2 API (costs money)</h3>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.55;">
+            Fallback: re-call the gpt-image-2 API with the prompt above and overwrite this asset.
+            Costs <b>~$0.10 per call</b> against Funba's OpenAI bill, so prefer the ChatGPT route above
+            whenever you have a subscription handy.
           </div>
           <div class="btn-row">
-            <button id="btn-regen" class="btn btn-warn">Regenerate</button>
+            <button id="btn-regen" class="btn btn-warn">Regenerate (charges API)</button>
             <span id="status-regen" class="status"></span>
           </div>
         </div>
