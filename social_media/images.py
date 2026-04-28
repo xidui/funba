@@ -51,4 +51,8 @@ def store_prepared_image(source_path: str, *, post_id: int, slot: str) -> str:
 
     if not same_file:
         shutil.copy2(source, destination)
+
+    from social_media.thumbnail import make_thumbnail
+    make_thumbnail(destination)
+
     return str(destination)

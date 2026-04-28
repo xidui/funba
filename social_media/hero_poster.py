@@ -761,6 +761,10 @@ def generate_hero_poster(
     # Persist the rendered prompt next to the PNG so the admin Assets page
     # (and any future re-renders) can recover what we asked the model for.
     _write_prompt_sidecar(target, prompt)
+
+    from social_media.thumbnail import make_thumbnail
+    make_thumbnail(target)
+
     return Path(out) if out else None
 
 
@@ -1040,6 +1044,8 @@ def generate_posters_for_curated_game(
             )
             if out:
                 _write_prompt_sidecar(target, prompt)
+                from social_media.thumbnail import make_thumbnail
+                make_thumbnail(target)
             return Path(out) if out else None
         except Exception:
             logger.exception("hero_poster: generate_image failed game=%s metric=%s", game.game_id, entry.get("metric_key"))

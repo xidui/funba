@@ -1140,7 +1140,7 @@ def register_public_routes(
         feed should show each (game, metric, entity) story exactly once,
         keeping the most recently published delivery.
         """
-        from os.path import basename
+        from pathlib import Path
 
         SessionLocal = get_session_local()
         Game = get_game_model()
@@ -1220,7 +1220,9 @@ def register_public_routes(
                 poster = posters_by_post.get(int(post.id))
                 poster_url: str | None = None
                 if poster and poster.file_path:
-                    fname = basename(str(poster.file_path))
+                    src_path = Path(str(poster.file_path))
+                    thumb_path = src_path.with_suffix(".thumb.webp")
+                    fname = thumb_path.name if thumb_path.exists() else src_path.name
                     poster_url = f"/media/social_posts/{int(post.id)}/{fname}"
 
                 # Variant content already has [[IMAGE:slot=poster]] tag at the top

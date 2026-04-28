@@ -17,6 +17,7 @@ nba_api==1.11.4
 numpy==1.26.2
 orm-mysql==1.0.6
 pandas>=2.1.4
+Pillow>=10.0.0
 PyMySQL==1.1.0
 python-dateutil==2.8.2
 pytz==2023.3.post1
