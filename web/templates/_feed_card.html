@@ -1,6 +1,7 @@
 {# One feed card. Shared by initial home render and the infinite-scroll API. #}
 {% macro share_btn(url, title) -%}
 <button type="button" class="feed-share-btn"
+        data-share-popover
         data-share-url="{{ url }}"
         data-share-title="{{ title|e }}"
         aria-label="{{ t('Share', '分享') }}"
