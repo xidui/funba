@@ -122,9 +122,9 @@
   .funba-poster-page {
     --poster-color: #1f2937;
     position: relative;
-    max-width: 760px;
+    max-width: 1080px;
     margin: 0 auto;
-    padding: 12px 16px 80px;
+    padding: 24px 24px 96px;
   }
   .funba-poster-page::before {
     content: "";
@@ -139,6 +139,34 @@
   }
   .funba-poster-page > * { position: relative; z-index: 1; }
 
+  /* Two-column layout: poster on the left, headline + actions stacked
+     on the right. Grid areas let mobile reorder to title → poster → side
+     while desktop keeps title aligned with the top of the poster. */
+  .funba-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+    grid-template-areas:
+      "poster title"
+      "poster side";
+    grid-template-rows: auto 1fr;
+    gap: 18px 44px;
+    align-items: start;
+  }
+
+  .funba-poster-page .funba-headline {
+    grid-area: title;
+    font-family: 'Outfit', system-ui, sans-serif;
+    font-size: 28px;
+    line-height: 1.22;
+    font-weight: 800;
+    color: var(--heading, var(--text));
+    margin: 0;
+    letter-spacing: -0.015em;
+  }
+
+  .funba-poster-col {
+    grid-area: poster;
+  }
   .funba-poster-page .funba-hero {
     width: 100%;
     height: auto;
@@ -149,17 +177,15 @@
       0 32px 80px -24px color-mix(in srgb, var(--poster-color) 60%, #000 30%),
       0 12px 32px -16px rgba(0, 0, 0, 0.45);
   }
-  .funba-poster-page .funba-card {
-    margin-top: 24px;
-    padding: 18px 20px;
-    background: color-mix(in srgb, var(--surface-2) 90%, var(--poster-color) 10%);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border-2);
-    border-radius: 14px;
+
+  .funba-sidebar-col {
+    grid-area: side;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
+    /* Sidebar is content, not chrome — no card box. */
   }
+
   .funba-poster-page .funba-meta {
     display: flex;
     align-items: center;
@@ -179,22 +205,6 @@
     font-size: 11px;
   }
   .funba-poster-page .funba-meta-dot { color: var(--text-muted); opacity: 0.5; }
-  .funba-poster-page .funba-headline {
-    font-family: 'Outfit', system-ui, sans-serif;
-    font-size: 30px;
-    line-height: 1.25;
-    font-weight: 800;
-    color: var(--heading, var(--text));
-    margin: 4px 0 18px;
-    letter-spacing: -0.015em;
-  }
-  @media (max-width: 600px) {
-    .funba-poster-page .funba-headline {
-      font-size: 22px;
-      margin: 4px 0 14px;
-      padding: 0 4px;
-    }
-  }
   .funba-poster-page .funba-cta-row {
     display: flex;
     flex-wrap: wrap;
@@ -226,12 +236,11 @@
     opacity: 1;
   }
 
-  /* Share toolbar — icon-only buttons separated from primary CTAs. */
+  /* Share toolbar — icon-only buttons, own row inside the sidebar. */
   .funba-share-row {
     display: flex;
     gap: 6px;
     align-items: center;
-    margin-left: auto;
   }
   .funba-share-btn {
     width: 36px;
@@ -253,13 +262,12 @@
     background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
   .funba-share-btn svg { width: 16px; height: 16px; display: block; }
-  /* Tags row — separated to its own line for clarity. */
+  /* Tags row — last block in the sidebar, no longer needs a divider
+     since sidebar gap already separates it from the share row. */
   .funba-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding-top: 4px;
-    border-top: 1px dashed var(--border-2);
   }
   .funba-tag {
     padding: 5px 11px;
@@ -328,14 +336,32 @@
     white-space: nowrap;
   }
 
+  /* Tablet / narrow desktop — collapse the 2-col grid to a single
+     column. Title on top, then poster, then sidebar content. */
+  @media (max-width: 900px) {
+    .funba-poster-page { max-width: 760px; padding: 16px 16px 96px; }
+    .funba-detail-grid {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "title"
+        "poster"
+        "side";
+      grid-template-rows: auto auto auto;
+      gap: 14px;
+    }
+    .funba-poster-page .funba-headline { font-size: 24px; }
+    .funba-sidebar-col { gap: 16px; }
+  }
+
   /* Mobile sticky action bar — primary CTAs follow you down the page. */
   .funba-sticky-bar {
     display: none;
   }
   @media (max-width: 640px) {
     .funba-poster-page { padding: 0 0 96px; }
+    .funba-poster-page .funba-headline { font-size: 22px; padding: 0 16px; }
     .funba-poster-page .funba-hero { border-radius: 0; }
-    .funba-poster-page .funba-card { margin: 18px 12px 0; }
+    .funba-sidebar-col { padding: 0 16px; }
     .funba-related { margin: 28px 12px 0; }
     .funba-related-grid {
       grid-template-columns: none;
@@ -347,7 +373,6 @@
       -webkit-overflow-scrolling: touch;
     }
     .funba-related-item { scroll-snap-align: start; }
-    .funba-share-row { margin-left: 0; }
 
     .funba-sticky-bar {
       display: flex;
@@ -374,34 +399,40 @@
    sourced from the poster's own dominant color gives every story its
    own color identity. #}
 <div class="funba-poster-page"{% if entry.article.dominant_color %} style="--poster-color: {{ entry.article.dominant_color }}"{% endif %}>
-  <h1 class="funba-headline">{{ entry.article.title }}</h1>
+  <div class="funba-detail-grid">
+    <h1 class="funba-headline">{{ entry.article.title }}</h1>
 
-  {% if entry.article.original_image_url or entry.article.thumbnail_url %}
-  <img class="funba-hero"
-       src="{{ entry.article.original_image_url or entry.article.thumbnail_url }}"
-       alt="{{ entry.article.title|e }}"
-       referrerpolicy="no-referrer">
-  {% endif %}
-
-  <div class="funba-card">
-    <div class="funba-meta">
-      <span class="funba-badge">FUNBA</span>
-      <span class="funba-meta-dot">·</span>
-      <span data-role="published-relative" data-published-utc="{{ entry.article.published_at.isoformat() }}Z">{{ entry.article.published_at.strftime('%b %d, %Y') }}</span>
-      {% if entry.cluster.unique_view_count > 0 %}
-      <span class="funba-meta-dot">·</span>
-      <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
+    <div class="funba-poster-col">
+      {% if entry.article.original_image_url or entry.article.thumbnail_url %}
+      <img class="funba-hero"
+           src="{{ entry.article.original_image_url or entry.article.thumbnail_url }}"
+           alt="{{ entry.article.title|e }}"
+           referrerpolicy="no-referrer">
       {% endif %}
     </div>
 
-    {% if entry.article.metric_url or entry.article.game_url %}
-    <div class="funba-cta-row">
-      {% if entry.article.metric_url %}
-      <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
+    <aside class="funba-sidebar-col">
+      <div class="funba-meta">
+        <span class="funba-badge">FUNBA</span>
+        <span class="funba-meta-dot">·</span>
+        <span data-role="published-relative" data-published-utc="{{ entry.article.published_at.isoformat() }}Z">{{ entry.article.published_at.strftime('%b %d, %Y') }}</span>
+        {% if entry.cluster.unique_view_count > 0 %}
+        <span class="funba-meta-dot">·</span>
+        <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
+        {% endif %}
+      </div>
+
+      {% if entry.article.metric_url or entry.article.game_url %}
+      <div class="funba-cta-row">
+        {% if entry.article.metric_url %}
+        <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
+        {% endif %}
+        {% if entry.article.game_url %}
+        <a class="funba-cta funba-cta-secondary" href="{{ entry.article.game_url }}">{% if entry.article.game_label %}{{ entry.article.game_label }} →{% else %}{{ t('View game →', '查看比赛 →') }}{% endif %}</a>
+        {% endif %}
+      </div>
       {% endif %}
-      {% if entry.article.game_url %}
-      <a class="funba-cta funba-cta-secondary" href="{{ entry.article.game_url }}">{% if entry.article.game_label %}{{ entry.article.game_label }} →{% else %}{{ t('View game →', '查看比赛 →') }}{% endif %}</a>
-      {% endif %}
+
       <div class="funba-share-row">
         {% if entry.article.original_image_url %}
         <a class="funba-share-btn" href="{{ entry.article.original_image_url }}" download title="{{ t('Download image', '下载海报') }}" aria-label="{{ t('Download image', '下载海报') }}">
@@ -418,19 +449,18 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
         </button>
       </div>
-    </div>
-    {% endif %}
 
-    {% if entry.teams or entry.players %}
-    <div class="funba-tags">
-      {% for team in entry.teams %}
-      <a class="funba-tag funba-tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
-      {% endfor %}
-      {% for player in entry.players %}
-      <a class="funba-tag" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
-      {% endfor %}
-    </div>
-    {% endif %}
+      {% if entry.teams or entry.players %}
+      <div class="funba-tags">
+        {% for team in entry.teams %}
+        <a class="funba-tag funba-tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
+        {% endfor %}
+        {% for player in entry.players %}
+        <a class="funba-tag" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </aside>
   </div>
 
   {% if entry.related %}
