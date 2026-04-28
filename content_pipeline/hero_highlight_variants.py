@@ -812,6 +812,8 @@ def _create_post_for_card(
     *,
     platforms: list[str],
 ) -> HeroHighlightPostResult:
+    from sqlalchemy.exc import IntegrityError
+
     now = datetime.now(UTC).replace(tzinfo=None)
     topic = _stable_topic(card)
     source_date = card.game_date or date.today()
@@ -820,6 +822,20 @@ def _create_post_for_card(
         return HeroHighlightPostResult(post_id=int(existing.id), created=False)
 
     post_status = _post_status_for_platforms(platforms, session=session)
+    # Helper called below if the SocialPost INSERT trips the
+    # uq_SocialPost_active_dedup_key unique index — meaning another worker
+    # raced past our SELECT-then-INSERT and won. Re-fetch and treat that as
+    # the "existing" return path. This is the DB-level safety net under the
+    # row-lock-based serialization at the curator entry; if both fail we'd
+    # rather get a clean idempotent return than a 500.
+    def _on_unique_collision() -> HeroHighlightPostResult:
+        session.rollback()
+        survivor = _find_existing_post(session, topic, source_date)
+        if survivor is None:
+            # Should not happen: unique index fired but the surviving row
+            # isn't visible. Re-raise so the caller knows.
+            raise
+        return HeroHighlightPostResult(post_id=int(survivor.id), created=False)
     # Auto-publish runs per-platform from the matrix: any platform with its
     # autopublish toggle on auto-publishes the moment the row is written,
     # regardless of whether the overall post.status is approved or in_review.
@@ -840,7 +856,10 @@ def _create_post_for_card(
         updated_at=now,
     )
     session.add(post)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        return _on_unique_collision()
 
     # Attach the pre-generated hero poster (if any) to this post's image pool.
     _attach_hero_poster(session, post, card, now=now)
@@ -938,14 +957,33 @@ def generate_hero_highlight_variants_for_game(
     if not selected_platforms:
         return {"ok": True, "game_id": game_id, "platforms": [], "created_post_ids": [], "skipped": "no_platforms"}
 
-    game = session.query(Game).filter(Game.game_id == game_id).first()
+    # Row-level lock + idempotency check inside one transaction. Concurrent
+    # callers (e.g. multiple curator tasks for the same season firing in
+    # parallel) serialize on the Game row; the second one through sees
+    # variants_generated_at set and bails without calling _create_post_for_card,
+    # so we never accumulate duplicate SocialPost rows.
+    game = session.query(Game).filter(Game.game_id == game_id).with_for_update().first()
     if game is None:
         return {"ok": False, "game_id": game_id, "error": "game_not_found"}
+    if getattr(game, "variants_generated_at", None) is not None:
+        session.rollback()
+        return {
+            "ok": True,
+            "game_id": game_id,
+            "platforms": selected_platforms,
+            "created_post_ids": [],
+            "skipped": "variants_already_generated",
+        }
 
     cards = collect_hero_highlight_cards(session, game)
     post_results: list[HeroHighlightPostResult] = []
     for card in cards:
         post_results.append(_create_post_for_card(session, card, platforms=selected_platforms))
+    # Mark generated under the lock so the next concurrent worker sees it the
+    # moment we commit. The caller (run_curator_for_game) also stamps this
+    # field after we return, but doing it here is the load-bearing step.
+    from datetime import datetime as _dt, timezone as _tz
+    game.variants_generated_at = _dt.now(_tz.utc)
     session.commit()
 
     auto_publish_enqueued: list[int] = []

@@ -382,10 +382,20 @@ def curate_then_analyze_for_season_task(
                 )
                 continue
             try:
+                # Row-level lock on the Game row serializes concurrent workers.
+                # Without this, 10 metric-completion callbacks can all enqueue
+                # this task for the same season; each picks the same game_id;
+                # all 10 read highlights_curated_at=None; all 10 enter the
+                # curator + variant pipeline; all 10 produce duplicate posts.
+                # The lock holds only until run_curator_for_game's first
+                # internal commit (which sets highlights_curated_at), at which
+                # point any worker queued behind us sees the timestamp and
+                # skips below.
                 with Session(engine) as session:
                     game = (
                         session.query(Game)
                         .filter(Game.game_id == game_id)
+                        .with_for_update()
                         .first()
                     )
                     if game is None:
@@ -393,6 +403,7 @@ def curate_then_analyze_for_season_task(
                         continue
                     if game.highlights_curated_at is not None and not force_curator:
                         skipped += 1
+                        session.rollback()  # release the row lock immediately
                         continue
                     run_curator_for_game(session, game)
                     curated += 1

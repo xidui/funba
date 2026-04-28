@@ -9,12 +9,17 @@ left alone.
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from collections import defaultdict
+from pathlib import Path
 
-from sqlalchemy.orm import Session
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-from db.models import SocialPost, engine
+from sqlalchemy.orm import Session  # noqa: E402
+
+from db.models import SocialPost, engine  # noqa: E402
 
 
 def main() -> None:
