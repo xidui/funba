@@ -36,13 +36,14 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 def find_eligible_posts(session) -> list[SocialPost]:
-    """Posts approved/published with a published funba_internal delivery."""
+    """Posts visible on the home feed (i.e. not archived) with a published
+    funba_internal delivery — same eligibility as mirror_published_social_post."""
     return (
         session.query(SocialPost)
         .join(SocialPostVariant, SocialPostVariant.post_id == SocialPost.id)
         .join(SocialPostDelivery, SocialPostDelivery.variant_id == SocialPostVariant.id)
         .filter(
-            SocialPost.status.in_(["approved", "published"]),
+            SocialPost.status != "archived",
             SocialPostDelivery.platform == "funba",
             SocialPostDelivery.status == "published",
         )

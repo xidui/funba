@@ -87,7 +87,12 @@ def mirror_published_social_post(session, social_post: SocialPost) -> NewsArticl
     """
     if social_post is None:
         return None
-    if (social_post.status or "").lower() not in {"approved", "published"}:
+    # Mirror anything that the home feed would show — i.e. anything not
+    # archived. The auto-publish hook only invokes us after a funba_internal
+    # delivery is written with status='published', so visibility is already
+    # guaranteed; SocialPost.status may legitimately still be 'in_review'
+    # when other platforms (Twitter, Hupu) need manual approval.
+    if (social_post.status or "").lower() == "archived":
         return None
 
     source_guid = f"funba:{social_post.id}"
