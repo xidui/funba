@@ -1762,6 +1762,7 @@ def register_public_routes(
         SessionLocal = get_session_local()
         Player = get_player_model()
         Team = get_team_model()
+        Game = get_game_model()
         news_models = _load_news_models()
         if news_models is None:
             abort(404)
@@ -1799,6 +1800,8 @@ def register_public_routes(
             )
 
             metric_url: str | None = None
+            game_url: str | None = None
+            game_label: str | None = None
             original_image_url: str | None = None
             if rep.source == "funba" and rep.internal_social_post_id:
                 from db.models import SocialPost as _SocialPost, SocialPostImage as _SocialPostImage
@@ -1808,6 +1811,20 @@ def register_public_routes(
                     mk = parsed.get("source_metric_key")
                     if mk:
                         metric_url = f"/metrics/{mk}"
+                    try:
+                        gids = json.loads(post.source_game_ids or "[]")
+                    except Exception:
+                        gids = []
+                    if gids:
+                        game = session.query(Game).filter(Game.game_id == str(gids[0])).first()
+                        if game is not None:
+                            slug = game.slug or game.game_id
+                            game_url = f"/games/{slug}"
+                            home_team = session.query(Team).filter(Team.team_id == game.home_team_id).first() if game.home_team_id else None
+                            road_team = session.query(Team).filter(Team.team_id == game.road_team_id).first() if game.road_team_id else None
+                            home_abbr = (home_team.abbr if home_team else None) or "?"
+                            road_abbr = (road_team.abbr if road_team else None) or "?"
+                            game_label = f"{road_abbr} @ {home_abbr}"
                     poster = (
                         session.query(_SocialPostImage)
                         .filter(
@@ -1838,6 +1855,8 @@ def register_public_routes(
                     "original_image_url": original_image_url,
                     "published_at": rep.published_at,
                     "metric_url": metric_url,
+                    "game_url": game_url,
+                    "game_label": game_label,
                 },
                 "siblings": [
                     {

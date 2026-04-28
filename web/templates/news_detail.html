@@ -163,6 +163,16 @@
     font-size: 14px;
   }
   .funba-poster-page .funba-cta:hover { opacity: 0.9; }
+  .funba-poster-page .funba-cta-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border-2);
+  }
+  .funba-poster-page .funba-cta-secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    opacity: 1;
+  }
   .funba-poster-page .funba-tags {
     display: flex;
     flex-wrap: wrap;
@@ -210,10 +220,13 @@
       {% endif %}
     </div>
 
-    {% if entry.article.metric_url or entry.teams or entry.players %}
+    {% if entry.article.metric_url or entry.article.game_url or entry.teams or entry.players %}
     <div class="funba-cta-row">
       {% if entry.article.metric_url %}
       <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
+      {% endif %}
+      {% if entry.article.game_url %}
+      <a class="funba-cta funba-cta-secondary" href="{{ entry.article.game_url }}">{% if entry.article.game_label %}{{ entry.article.game_label }} →{% else %}{{ t('View game →', '查看比赛 →') }}{% endif %}</a>
       {% endif %}
       {% if entry.teams or entry.players %}
       <div class="funba-tags">
