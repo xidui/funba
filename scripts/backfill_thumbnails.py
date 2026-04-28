@@ -23,6 +23,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from social_media.thumbnail import (  # noqa: E402
     SOURCE_EXTS,
+    color_sidecar_path_for,
+    ensure_dominant_color_sidecar,
     is_thumbnail,
     make_thumbnail,
     thumbnail_path_for,
@@ -47,7 +49,7 @@ def iter_source_images(root: Path):
 
 
 def backfill(root: Path, *, force: bool, verbose: bool) -> dict[str, int]:
-    stats = {"seen": 0, "created": 0, "skipped": 0, "failed": 0, "bytes_in": 0, "bytes_out": 0}
+    stats = {"seen": 0, "created": 0, "skipped": 0, "failed": 0, "color_added": 0, "bytes_in": 0, "bytes_out": 0}
     for src in iter_source_images(root):
         stats["seen"] += 1
         thumb = thumbnail_path_for(src)
@@ -58,20 +60,25 @@ def backfill(root: Path, *, force: bool, verbose: bool) -> dict[str, int]:
         )
         if already_good and not force:
             stats["skipped"] += 1
-            continue
-        result = make_thumbnail(src, force=force)
-        if result is None:
-            stats["failed"] += 1
+        else:
+            result = make_thumbnail(src, force=force)
+            if result is None:
+                stats["failed"] += 1
+                if verbose:
+                    print(f"  FAIL  {src}", flush=True)
+                continue
+            stats["created"] += 1
+            stats["bytes_in"] += src.stat().st_size
+            stats["bytes_out"] += result.stat().st_size
             if verbose:
-                print(f"  FAIL  {src}", flush=True)
-            continue
-        stats["created"] += 1
-        stats["bytes_in"] += src.stat().st_size
-        stats["bytes_out"] += result.stat().st_size
-        if verbose:
-            print(f"  ok    {src.name} -> {result.name} ({src.stat().st_size//1024}KB -> {result.stat().st_size//1024}KB)", flush=True)
-        if stats["created"] % 50 == 0:
-            print(f"  ... {stats['created']} created, {stats['skipped']} skipped", flush=True)
+                print(f"  ok    {src.name} -> {result.name} ({src.stat().st_size//1024}KB -> {result.stat().st_size//1024}KB)", flush=True)
+            if stats["created"] % 50 == 0:
+                print(f"  ... {stats['created']} created, {stats['skipped']} skipped", flush=True)
+        # Color sidecar: cheap, run even when thumb is already cached so older
+        # backfills that skipped the thumb still get the color file.
+        if not color_sidecar_path_for(src).exists() or force:
+            if ensure_dominant_color_sidecar(src, force=force):
+                stats["color_added"] += 1
     return stats
 
 
@@ -89,21 +96,22 @@ def main() -> int:
         print("no media roots found", file=sys.stderr)
         return 1
 
-    overall = {"seen": 0, "created": 0, "skipped": 0, "failed": 0, "bytes_in": 0, "bytes_out": 0}
+    overall = {"seen": 0, "created": 0, "skipped": 0, "failed": 0, "color_added": 0, "bytes_in": 0, "bytes_out": 0}
     t0 = time.time()
     for root in roots:
         print(f"\n== {root} ==", flush=True)
         stats = backfill(root, force=args.force, verbose=args.verbose)
         for k in overall:
             overall[k] += stats[k]
-        print(f"  -> seen={stats['seen']} created={stats['created']} skipped={stats['skipped']} failed={stats['failed']}", flush=True)
+        print(f"  -> seen={stats['seen']} created={stats['created']} skipped={stats['skipped']} failed={stats['failed']} color+={stats['color_added']}", flush=True)
 
     elapsed = time.time() - t0
     print("\n== summary ==")
-    print(f"  seen    : {overall['seen']}")
-    print(f"  created : {overall['created']}")
-    print(f"  skipped : {overall['skipped']}")
-    print(f"  failed  : {overall['failed']}")
+    print(f"  seen        : {overall['seen']}")
+    print(f"  created     : {overall['created']}")
+    print(f"  skipped     : {overall['skipped']}")
+    print(f"  failed      : {overall['failed']}")
+    print(f"  colors added: {overall['color_added']}")
     if overall["bytes_in"]:
         ratio = overall["bytes_in"] / max(overall["bytes_out"], 1)
         print(f"  size    : {overall['bytes_in']/1e6:.1f} MB -> {overall['bytes_out']/1e6:.1f} MB ({ratio:.1f}x)")

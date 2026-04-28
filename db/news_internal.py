@@ -8,23 +8,73 @@ skip the (paid) embedding API call entirely.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
 from pathlib import Path
 
 from db.models import (
+    Game,
     NewsArticle,
+    NewsArticlePlayer,
+    NewsArticleTeam,
     NewsCluster,
     SocialPost,
     SocialPostImage,
     SocialPostVariant,
 )
-from db.news_ingest import build_alias_index, tag_article
 from db.news_ranking import recompute_cluster_score
 
 _IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:[^\]]*\]\]")
 FUNBA_PLATFORM = "funba"
+
+
+def _parse_hero_topic(topic: str) -> dict[str, str]:
+    """Decode 'Hero Highlight — {game_id} — {scope} — {metric_key} — {entity_id}'."""
+    if not topic:
+        return {}
+    parts = [p.strip() for p in str(topic).split("—")]
+    if len(parts) < 5 or parts[0] != "Hero Highlight":
+        return {}
+    return {"game_id": parts[1], "scope": parts[2], "metric_key": parts[3], "entity_id": parts[4]}
+
+
+def _funba_article_tags(session, social_post: SocialPost) -> tuple[list[str], list[str]]:
+    """Return (player_ids, team_ids) for a funba post.
+
+    Scoped to the actual game and trigger entity — never scans leaderboard
+    text. Otherwise a Top-10 list inside the variant text would smear tags
+    across every team mentioned.
+    """
+    parsed = _parse_hero_topic(social_post.topic or "")
+    try:
+        gids = json.loads(social_post.source_game_ids or "[]")
+    except Exception:
+        gids = []
+    game_id = parsed.get("game_id") or (str(gids[0]) if gids else "")
+    scope = parsed.get("scope") or ""
+    entity_id = parsed.get("entity_id") or ""
+
+    team_ids: list[str] = []
+    if game_id:
+        game = session.query(Game).filter(Game.game_id == str(game_id)).first()
+        if game is not None:
+            if game.home_team_id:
+                team_ids.append(str(game.home_team_id))
+            if game.road_team_id and str(game.road_team_id) != str(game.home_team_id):
+                team_ids.append(str(game.road_team_id))
+
+    player_ids: list[str] = []
+    if scope == "player" and entity_id:
+        player_ids.append(str(entity_id))
+    elif scope == "team" and entity_id:
+        # Entity may be raw team_id or "<season>:<team_id>" — split out the trailing id.
+        team_part = entity_id.split(":")[-1]
+        if team_part and team_part not in team_ids:
+            team_ids.append(team_part)
+
+    return player_ids, team_ids
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +194,7 @@ def mirror_published_social_post(session, social_post: SocialPost) -> NewsArticl
     cluster.representative_article_id = article.id
     recompute_cluster_score(cluster, now=now)
 
-    alias_index = build_alias_index(session)
-    player_ids, team_ids = tag_article(title, summary, alias_index)
-    from db.models import NewsArticlePlayer, NewsArticleTeam  # local to avoid cycle
+    player_ids, team_ids = _funba_article_tags(session, social_post)
     for pid in player_ids:
         session.add(NewsArticlePlayer(article_id=article.id, player_id=pid))
     for tid in team_ids:

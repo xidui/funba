@@ -102,28 +102,51 @@
   .news-detail .view-count { opacity: 0.7; }
 
   /* ===== Funba poster-first layout ===== */
+  /* The whole page floats over an ambient backdrop sourced from the
+     poster's dominant color — every story gets its own color identity
+     without us needing per-team palette data. The backdrop is a soft
+     radial wash that fades to transparent so the rest of the site
+     chrome (header, footer) stays visually consistent. */
   .funba-poster-page {
-    max-width: 720px;
+    --poster-color: #1f2937;
+    position: relative;
+    max-width: 760px;
     margin: 0 auto;
-    padding: 8px 0 48px;
+    padding: 12px 16px 80px;
   }
+  .funba-poster-page::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(1100px 700px at 50% -10%, color-mix(in srgb, var(--poster-color) 55%, transparent) 0%, transparent 65%),
+      radial-gradient(900px 600px at 50% 110%, color-mix(in srgb, var(--poster-color) 25%, transparent) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.85;
+  }
+  .funba-poster-page > * { position: relative; z-index: 1; }
+
   .funba-poster-page .funba-hero {
     width: 100%;
     height: auto;
     display: block;
     border-radius: 14px;
     background: var(--surface-3);
-    box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55), 0 8px 24px -12px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      0 32px 80px -24px color-mix(in srgb, var(--poster-color) 60%, #000 30%),
+      0 12px 32px -16px rgba(0, 0, 0, 0.45);
   }
   .funba-poster-page .funba-card {
-    margin-top: 22px;
+    margin-top: 24px;
     padding: 18px 20px;
-    background: var(--surface-2);
+    background: color-mix(in srgb, var(--surface-2) 90%, var(--poster-color) 10%);
+    backdrop-filter: blur(8px);
     border: 1px solid var(--border-2);
     border-radius: 14px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
   }
   .funba-poster-page .funba-meta {
     display: flex;
@@ -161,8 +184,9 @@
     font-weight: 600;
     text-decoration: none;
     font-size: 14px;
+    transition: transform 0.12s ease, opacity 0.12s ease;
   }
-  .funba-poster-page .funba-cta:hover { opacity: 0.9; }
+  .funba-poster-page .funba-cta:hover { opacity: 0.9; transform: translateY(-1px); }
   .funba-poster-page .funba-cta-secondary {
     background: transparent;
     color: var(--text);
@@ -173,35 +197,175 @@
     color: var(--accent);
     opacity: 1;
   }
-  .funba-poster-page .funba-tags {
+
+  /* Share toolbar — icon-only buttons separated from primary CTAs. */
+  .funba-share-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: auto;
+  }
+  .funba-share-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: 1px solid var(--border-2);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  }
+  .funba-share-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .funba-share-btn svg { width: 16px; height: 16px; display: block; }
+  .funba-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 92px;
+    transform: translateX(-50%) translateY(20px);
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fff;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    z-index: 1000;
+  }
+  .funba-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* Tags row — separated to its own line for clarity. */
+  .funba-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--border-2);
   }
-  .funba-poster-page .funba-tag {
+  .funba-tag {
     padding: 5px 11px;
     border-radius: 999px;
-    background: var(--surface-3);
+    background: transparent;
     color: var(--text);
     text-decoration: none;
     font-size: 12px;
     border: 1px solid var(--border-2);
+    transition: border-color 0.12s ease, color 0.12s ease;
   }
-  .funba-poster-page .funba-tag:hover { border-color: var(--accent); }
-  .funba-poster-page .funba-tag-team { color: var(--accent); }
+  .funba-tag:hover { border-color: var(--accent); color: var(--accent); }
+  .funba-tag-team { color: var(--accent); }
+
+  /* Related carousel — horizontal scroll on mobile, grid on wide. */
+  .funba-related {
+    margin-top: 36px;
+  }
+  .funba-related-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 12px;
+  }
+  .funba-related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  .funba-related-item {
+    display: block;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .funba-related-item:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent);
+  }
+  .funba-related-thumb {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    display: block;
+    background: var(--surface-3);
+  }
+  .funba-related-meta {
+    padding: 8px 10px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.35;
+  }
+  .funba-related-metric {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 600;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Mobile sticky action bar — primary CTAs follow you down the page. */
+  .funba-sticky-bar {
+    display: none;
+  }
   @media (max-width: 640px) {
-    .funba-poster-page { padding: 0 0 32px; }
+    .funba-poster-page { padding: 0 0 96px; }
     .funba-poster-page .funba-hero { border-radius: 0; }
     .funba-poster-page .funba-card { margin: 18px 12px 0; }
+    .funba-related { margin: 28px 12px 0; }
+    .funba-related-grid {
+      grid-template-columns: none;
+      grid-auto-flow: column;
+      grid-auto-columns: 130px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      padding-bottom: 6px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .funba-related-item { scroll-snap-align: start; }
+    .funba-share-row { margin-left: 0; }
+
+    .funba-sticky-bar {
+      display: flex;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      gap: 8px;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+      background: color-mix(in srgb, var(--bg) 92%, var(--poster-color) 8%);
+      border-top: 1px solid var(--border-2);
+      backdrop-filter: blur(10px);
+      z-index: 50;
+    }
+    .funba-sticky-bar .funba-cta { flex: 1; justify-content: center; padding: 11px 12px; font-size: 13px; }
+    .funba-sticky-bar .funba-share-btn { flex: 0 0 auto; }
   }
 </style>
 
 {% if entry.article.source == 'funba' %}
 {# Poster-first layout: the hero card is a designed visual that already
    carries metric, leaderboard, logos, and branding. Page chrome stays
-   minimal — image takes center stage; meta/CTA/tags compress into a
-   small card below. #}
-<div class="funba-poster-page">
+   minimal — image takes center stage; an ambient gradient backdrop
+   sourced from the poster's own dominant color gives every story its
+   own color identity. #}
+<div class="funba-poster-page"{% if entry.article.dominant_color %} style="--poster-color: {{ entry.article.dominant_color }}"{% endif %}>
   {% if entry.article.original_image_url or entry.article.thumbnail_url %}
   <img class="funba-hero"
        src="{{ entry.article.original_image_url or entry.article.thumbnail_url }}"
@@ -213,14 +377,14 @@
     <div class="funba-meta">
       <span class="funba-badge">FUNBA</span>
       <span class="funba-meta-dot">·</span>
-      <span>{{ entry.article.published_at.strftime('%b %d, %Y') }}</span>
+      <span data-role="published-relative" data-published-utc="{{ entry.article.published_at.isoformat() }}Z">{{ entry.article.published_at.strftime('%b %d, %Y') }}</span>
       {% if entry.cluster.unique_view_count > 0 %}
       <span class="funba-meta-dot">·</span>
       <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
       {% endif %}
     </div>
 
-    {% if entry.article.metric_url or entry.article.game_url or entry.teams or entry.players %}
+    {% if entry.article.metric_url or entry.article.game_url %}
     <div class="funba-cta-row">
       {% if entry.article.metric_url %}
       <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
@@ -228,20 +392,140 @@
       {% if entry.article.game_url %}
       <a class="funba-cta funba-cta-secondary" href="{{ entry.article.game_url }}">{% if entry.article.game_label %}{{ entry.article.game_label }} →{% else %}{{ t('View game →', '查看比赛 →') }}{% endif %}</a>
       {% endif %}
-      {% if entry.teams or entry.players %}
-      <div class="funba-tags">
-        {% for team in entry.teams %}
-        <a class="funba-tag funba-tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
-        {% endfor %}
-        {% for player in entry.players %}
-        <a class="funba-tag" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
-        {% endfor %}
+      <div class="funba-share-row">
+        <button class="funba-share-btn" type="button" data-share-action="copy" title="{{ t('Copy link', '复制链接') }}" aria-label="{{ t('Copy link', '复制链接') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </button>
+        {% if entry.article.original_image_url %}
+        <a class="funba-share-btn" href="{{ entry.article.original_image_url }}" download title="{{ t('Download image', '下载海报') }}" aria-label="{{ t('Download image', '下载海报') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </a>
+        {% endif %}
+        <button class="funba-share-btn" type="button" data-share-action="native" title="{{ t('Share', '分享') }}" aria-label="{{ t('Share', '分享') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+        </button>
       </div>
-      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if entry.teams or entry.players %}
+    <div class="funba-tags">
+      {% for team in entry.teams %}
+      <a class="funba-tag funba-tag-team" href="{{ team_url(team.team_id) }}">{{ (lang == 'zh' and team.full_name_zh) or team.full_name }}</a>
+      {% endfor %}
+      {% for player in entry.players %}
+      <a class="funba-tag" href="{{ player_url(player.player_id) }}">{{ (lang == 'zh' and player.full_name_zh) or player.full_name }}</a>
+      {% endfor %}
     </div>
     {% endif %}
   </div>
+
+  {% if entry.related %}
+  <div class="funba-related">
+    <h3 class="funba-related-title">{{ t('More from FUNBA', '更多 FUNBA 故事') }}</h3>
+    <div class="funba-related-grid">
+      {% for r in entry.related %}
+      <a class="funba-related-item" href="{{ r.cluster_url }}">
+        {% if r.thumbnail_url %}
+        <img class="funba-related-thumb" src="{{ r.thumbnail_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+        {% endif %}
+        <div class="funba-related-meta">
+          {% if r.metric_label %}<div class="funba-related-metric">{{ r.metric_label }}</div>{% endif %}
+          <div data-role="published-relative" data-published-utc="{{ r.published_at.isoformat() }}Z">{{ r.published_at.strftime('%b %d') }}</div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
+
+{# Mobile-only sticky bottom action bar — keeps primary CTAs reachable
+   while user scrolls through the related carousel. #}
+{% if entry.article.metric_url or entry.article.game_url %}
+<div class="funba-sticky-bar"{% if entry.article.dominant_color %} style="--poster-color: {{ entry.article.dominant_color }}"{% endif %}>
+  {% if entry.article.metric_url %}
+  <a class="funba-cta" href="{{ entry.article.metric_url }}">{{ t('Metric', '指标') }} →</a>
+  {% endif %}
+  {% if entry.article.game_url %}
+  <a class="funba-cta funba-cta-secondary" href="{{ entry.article.game_url }}">{{ entry.article.game_label or t('Game', '比赛') }}</a>
+  {% endif %}
+  <button class="funba-share-btn" type="button" data-share-action="native" aria-label="{{ t('Share', '分享') }}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+  </button>
+</div>
+{% endif %}
+
+<div class="funba-toast" data-role="toast"></div>
+
+<script>
+(function () {
+  // Relative time on the meta line. Re-runs on each page render (fresh
+  // every visit thanks to the home page's no-cache header chain).
+  function relTimeZh(diffSec) {
+    if (diffSec < 60) return '刚刚';
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + ' 分钟前';
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + ' 小时前';
+    if (diffSec < 86400 * 7) return Math.floor(diffSec / 86400) + ' 天前';
+    return null;
+  }
+  function relTimeEn(diffSec) {
+    if (diffSec < 60) return 'just now';
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + 'm ago';
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + 'h ago';
+    if (diffSec < 86400 * 7) return Math.floor(diffSec / 86400) + 'd ago';
+    return null;
+  }
+  var isZh = document.documentElement.lang && document.documentElement.lang.indexOf('zh') === 0;
+  document.querySelectorAll('[data-role="published-relative"]').forEach(function (el) {
+    var iso = el.getAttribute('data-published-utc');
+    if (!iso) return;
+    var t = new Date(iso).getTime();
+    if (isNaN(t)) return;
+    var diff = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    var rel = isZh ? relTimeZh(diff) : relTimeEn(diff);
+    if (rel) el.textContent = rel;
+  });
+
+  // Share toolbar.
+  var toast = document.querySelector('[data-role="toast"]');
+  function showToast(msg) {
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 1800);
+  }
+  document.querySelectorAll('[data-share-action="copy"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var url = window.location.href;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          showToast(isZh ? '已复制链接' : 'Link copied');
+        }).catch(function () {
+          showToast(isZh ? '复制失败' : 'Copy failed');
+        });
+      } else {
+        showToast(url);
+      }
+    });
+  });
+  document.querySelectorAll('[data-share-action="native"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var title = document.title;
+      var url = window.location.href;
+      if (navigator.share) {
+        navigator.share({ title: title, url: url }).catch(function () { /* user dismissed */ });
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          showToast(isZh ? '已复制链接' : 'Link copied');
+        });
+      } else {
+        showToast(url);
+      }
+    });
+  });
+})();
+</script>
 {% else %}
 <div class="news-detail">
   <div class="news-meta">

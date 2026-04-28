@@ -1766,6 +1766,54 @@ def register_public_routes(
         entries = _build_home_news(team_lookup, limit=60)
         return get_render_template()("news.html", news_entries=entries)
 
+    def _related_funba_cards(session, *, exclude_cluster_id: int, limit: int = 8) -> list[dict]:
+        """Most-recent OTHER funba hero cards for the carousel under a detail.
+
+        Each entry: {cluster_url, thumbnail_url, title, published_at, game_label}.
+        Falls back to the original PNG if no thumbnail exists. Excludes the
+        current cluster so the user always sees something new.
+        """
+        from db.models import (
+            NewsArticle as _NA,
+            SocialPost as _SP,
+        )
+        rows = (
+            session.query(_NA)
+            .filter(
+                _NA.source == "funba",
+                _NA.cluster_id != exclude_cluster_id,
+                _NA.thumbnail_url.isnot(None),
+            )
+            .order_by(_NA.published_at.desc(), _NA.id.desc())
+            .limit(limit)
+            .all()
+        )
+        if not rows:
+            return []
+
+        post_ids = [int(r.internal_social_post_id) for r in rows if r.internal_social_post_id]
+        topics: dict[int, str] = {}
+        if post_ids:
+            for pid, topic in session.query(_SP.id, _SP.topic).filter(_SP.id.in_(post_ids)).all():
+                topics[int(pid)] = topic or ""
+
+        out: list[dict] = []
+        for r in rows:
+            label = ""
+            topic = topics.get(int(r.internal_social_post_id) if r.internal_social_post_id else -1, "")
+            if topic:
+                parsed = _parse_hero_topic(topic)
+                mk = parsed.get("source_metric_key") or ""
+                label = mk.replace("_", " ").title()
+            out.append({
+                "cluster_url": f"/news/{int(r.cluster_id)}" if r.cluster_id else "#",
+                "thumbnail_url": r.thumbnail_url,
+                "title": r.title,
+                "published_at": r.published_at,
+                "metric_label": label,
+            })
+        return out
+
     def news_detail(cluster_id: int):
         SessionLocal = get_session_local()
         Player = get_player_model()
@@ -1811,6 +1859,7 @@ def register_public_routes(
             game_url: str | None = None
             game_label: str | None = None
             original_image_url: str | None = None
+            dominant_color: str | None = None
             if rep.source == "funba" and rep.internal_social_post_id:
                 from db.models import SocialPost as _SocialPost, SocialPostImage as _SocialPostImage
                 post = session.get(_SocialPost, rep.internal_social_post_id)
@@ -1844,8 +1893,24 @@ def register_public_routes(
                     )
                     if poster and poster.file_path:
                         from os.path import basename as _basename
+                        from social_media.thumbnail import (
+                            color_sidecar_path_for as _color_sidecar_path_for,
+                            ensure_dominant_color_sidecar as _ensure_color,
+                        )
                         fname = _basename(str(poster.file_path))
                         original_image_url = f"/media/social_posts/{int(post.id)}/{fname}"
+                        # Read pre-computed sidecar; on miss compute lazily so
+                        # never-thumbnailed assets still get a color first paint.
+                        try:
+                            sidecar = _color_sidecar_path_for(poster.file_path)
+                            if sidecar.exists():
+                                text = sidecar.read_text(encoding="utf-8").strip()
+                                if text.startswith("#") and len(text) == 7:
+                                    dominant_color = text
+                            if not dominant_color:
+                                dominant_color = _ensure_color(poster.file_path)
+                        except Exception:
+                            dominant_color = None
 
             entry = {
                 "cluster": {
@@ -1865,7 +1930,9 @@ def register_public_routes(
                     "metric_url": metric_url,
                     "game_url": game_url,
                     "game_label": game_label,
+                    "dominant_color": dominant_color,
                 },
+                "related": _related_funba_cards(session, exclude_cluster_id=cluster.id, limit=8) if rep.source == "funba" else [],
                 "siblings": [
                     {
                         "id": s.id,
