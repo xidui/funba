@@ -1,6 +1,18 @@
 {% extends "base.html" %}
+{%- set _share_img = entry.article.original_image_url or entry.article.thumbnail_url -%}
+{%- if _share_img and _share_img.startswith('/') -%}
+  {%- set _share_img = request.url_root.rstrip('/') ~ _share_img -%}
+{%- endif -%}
+{%- set _share_desc = (entry.article.summary|striptags|truncate(200))|e -%}
 {% block title %}{{ entry.article.title }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ (entry.article.summary|striptags|truncate(200))|e }}{% endblock %}
+{% block meta_description %}{{ _share_desc }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ entry.article.title }}{% endblock %}
+{% block og_description %}{{ _share_desc }}{% endblock %}
+{% block tw_title %}{{ entry.article.title }}{% endblock %}
+{% block tw_description %}{{ _share_desc }}{% endblock %}
+{% block og_image %}{% if _share_img %}{{ _share_img }}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% block tw_image %}{% if _share_img %}{{ _share_img }}{% else %}{{ super() }}{% endif %}{% endblock %}
 {% block content %}
 <style>
   .news-detail {
