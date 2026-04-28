@@ -1052,18 +1052,20 @@
     .feed-share-btn { opacity: 0.85; }
   }
 
-  /* Single global popover anchored next to the active button */
+  /* Single global popover. Always dark, theme-independent — matches the
+     share button's floating/social aesthetic and guarantees the white X
+     icon stays legible regardless of page theme. */
   .feed-share-popover {
     position: absolute;
     z-index: 1000;
-    background: var(--surface-3, #142438);
-    border: 1px solid var(--border-2);
-    border-radius: 10px;
-    padding: 6px;
+    background: #0f1c2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 7px;
     display: none;
     flex-direction: row;
-    gap: 4px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    gap: 5px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
   }
   .feed-share-popover.open {
     display: flex;
@@ -1074,14 +1076,14 @@
     to { opacity: 1; transform: translateY(0); }
   }
   .feed-share-item {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--surface-2);
-    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f5f5f5;
     border: 1px solid transparent;
     cursor: pointer;
     text-decoration: none;
@@ -1089,22 +1091,22 @@
     padding: 0;
   }
   .feed-share-item:hover {
-    background: var(--surface);
-    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.2);
     transform: scale(1.08);
   }
   .feed-share-item svg { width: 16px; height: 16px; display: block; }
   .feed-share-item.brand-x svg { color: #ffffff; }
-  .feed-share-item.brand-facebook svg { color: #1877f2; }
+  .feed-share-item.brand-facebook svg { color: #4d8cf5; }
   .feed-share-item.brand-whatsapp svg { color: #25d366; }
-  .feed-share-item.brand-telegram svg { color: #229ED9; }
-  .feed-share-item.brand-weibo svg { color: #e6162d; }
-  .feed-share-item.brand-copy svg { color: var(--muted-2); }
+  .feed-share-item.brand-telegram svg { color: #2aabee; }
+  .feed-share-item.brand-weibo svg { color: #ff5b6c; }
+  .feed-share-item.brand-copy svg { color: rgba(255, 255, 255, 0.72); }
   .feed-share-item.copied {
-    background: color-mix(in srgb, var(--win) 22%, transparent);
-    border-color: var(--win);
+    background: rgba(74, 222, 128, 0.18);
+    border-color: rgba(74, 222, 128, 0.55);
   }
-  .feed-share-item.copied svg { color: var(--win); }
+  .feed-share-item.copied svg { color: #4ade80; }
 </style>
 
 <div class="home-grid">
