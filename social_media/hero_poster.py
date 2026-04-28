@@ -87,7 +87,7 @@ already in place.
 {% endif %}
 
 NON-NEGOTIABLES
-- Render every number EXACTLY as written. No rounding, no replacements.
+- Render numbers as written — don't round, don't substitute, don't invent. Defensive exception: if a single-game count (one game's assists, rebounds, points, blocks, steals, 3PM, FTM, plus/minus) arrives with trailing decimals ("12.00", "7.0"), drop them ("12", "7"). Per-game averages (PPG, RPG, APG, …), percentages, and ratios keep their decimals exactly as written, even when the decimal is zero — "7.0 PPG" stays "7.0 PPG", "100%" stays "100%".
 - Render real, recognizable team logos and player likenesses where they
   apply (the data is real, the people are real).
 - A small "FUNBA" mark visible somewhere prominent (pill, watermark,
