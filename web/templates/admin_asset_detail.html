@@ -88,7 +88,7 @@
       ? `<a href="${esc(m.metric_url)}">${esc(m.metric_name || m.metric_key)}</a>`
       : esc(m.metric_name || m.metric_key || '—');
     const linkPost = m.post_id
-      ? `<a href="/admin/content/post/${m.post_id}">post #${m.post_id}</a>`
+      ? `<a href="/admin/content/${m.post_id}">post #${m.post_id}</a>`
       : '—';
     const enabledPill = m.is_enabled ? '<span class="pill enabled">enabled</span>' : '<span class="pill disabled">disabled</span>';
 
