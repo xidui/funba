@@ -814,6 +814,7 @@ def register_admin_misc_routes(app, deps):
         prompt = prompt_live or prompt_original
 
         url = None
+        thumbnail_url = None
         size_kb = None
         if img.file_path:
             try:
@@ -822,6 +823,13 @@ def register_admin_misc_routes(app, deps):
                 fpath = _Path(str(img.file_path))
                 if fpath.exists():
                     size_kb = round(fpath.stat().st_size / 1024)
+                # Thumbnail variant lives at the same dir with .thumb.webp
+                # extension. Falls back to original if missing.
+                thumb_path = fpath.with_suffix(".thumb.webp")
+                if thumb_path.exists():
+                    thumbnail_url = f"/media/social_posts/{int(img.post_id)}/{thumb_path.name}"
+                else:
+                    thumbnail_url = url
             except Exception:
                 pass
 
@@ -846,6 +854,7 @@ def register_admin_misc_routes(app, deps):
             "image_type": img.image_type,
             "is_enabled": bool(img.is_enabled),
             "url": url,
+            "thumbnail_url": thumbnail_url,
             "file_path": img.file_path,
             "size_kb": size_kb,
             "created_at": img.created_at.isoformat() if img.created_at else None,

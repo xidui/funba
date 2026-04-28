@@ -130,7 +130,7 @@
     const scopeClass = item.scope ? `scope-${esc(item.scope)}` : '';
     return `
       <a class="asset-tile ${item.is_enabled ? '' : 'disabled'}" href="/admin/assets/${item.id}">
-        ${item.url ? `<img class="asset-thumb" src="${esc(item.url)}" alt="" loading="lazy">` : '<div class="asset-thumb"></div>'}
+        ${(item.thumbnail_url || item.url) ? `<img class="asset-thumb" src="${esc(item.thumbnail_url || item.url)}" alt="" loading="lazy">` : '<div class="asset-thumb"></div>'}
         <div class="asset-meta">
           <span>
             <span class="asset-pill ${scopeClass}">${esc(item.scope || 'asset')}</span>
