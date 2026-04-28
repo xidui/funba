@@ -1,6 +1,20 @@
 {# One feed card. Shared by initial home render and the infinite-scroll API. #}
+{% macro share_btn(url, title) -%}
+<button type="button" class="feed-share-btn"
+        data-share-url="{{ url }}"
+        data-share-title="{{ title|e }}"
+        aria-label="{{ t('Share', '分享') }}"
+        aria-expanded="false">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+  </svg>
+</button>
+{%- endmacro %}
 {% if item.kind == 'image' %}
-<a class="feed-card feed-image-card" href="{{ item.news_url or item.metric_url or item.game_url or '#' }}">
+{% set _share_url = item.news_url or item.metric_url or item.game_url or '#' %}
+<div class="feed-card feed-image-card">
+  <a class="feed-card-link" href="{{ _share_url }}" aria-label="{{ item.title }}"></a>
   {% if item.poster_url %}
     <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
   {% endif %}
@@ -8,15 +22,18 @@
     <div class="fh-title">{{ item.title }}</div>
     {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
   </div>
-</a>
+  {{ share_btn(_share_url, item.title or '') }}
+</div>
 {% else %}
 {% set m = item %}
 {% set val_raw = m.value_str if m.value_str else ("%.3g"|format(m.value_num) if m.value_num is not none else "—") %}
 {% set val_short = (not m.value_str) or (m.value_str|length <= 8) %}
 {% set is_entity = m.subject_kind == 'player' or m.subject_kind == 'team' %}
 {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_zh or m.narrative_en or m.narrative %}
-<a class="feed-card tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}"
-   href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) }}">
+{% set _metric_url = url_for('metric_detail', metric_key=m.metric_key, season=m.game_season) %}
+{% set _share_title = narrative or ((m.metric_name_zh if lang == 'zh' else m.metric_name) or m.metric_name or m.metric_name_zh or '') %}
+<div class="feed-card tem-card{% if m.is_hero %} tem-hero{% endif %}{% if not is_entity %} tem-card-game{% endif %}{% if narrative %} has-narrative{% endif %}">
+  <a class="feed-card-link" href="{{ _metric_url }}" aria-label="{{ _share_title }}"></a>
   {% if m.subject_kind == 'player' %}
     {% if m.player_headshot_url %}
       <img class="tem-avatar" src="{{ m.player_headshot_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
@@ -69,5 +86,6 @@
     {% endif %}
   </div>
   {% if val_short %}<div class="tem-value">{{ val_raw }}</div>{% endif %}
-</a>
+  {{ share_btn(_metric_url, _share_title) }}
+</div>
 {% endif %}

@@ -1000,6 +1000,111 @@
     overflow: hidden;
     margin-top: 4px;
   }
+
+  /* ── Share button on feed cards (stretched-link pattern) ── */
+  .feed-card { position: relative; }
+  .feed-card-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    text-decoration: none;
+    /* visually empty but accessible — covers the whole card for clicks */
+  }
+  .feed-card-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 10px;
+  }
+  .feed-share-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(8, 15, 26, 0.7);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #f5f5f5;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .15s, background .15s, transform .15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .feed-card:hover .feed-share-btn,
+  .feed-share-btn:focus-visible,
+  .feed-share-btn[aria-expanded="true"] {
+    opacity: 1;
+  }
+  .feed-share-btn:hover {
+    background: rgba(8, 15, 26, 0.92);
+    color: var(--accent);
+    transform: scale(1.06);
+  }
+  .feed-share-btn svg { width: 13px; height: 13px; }
+  /* On touch devices, hover doesn't fire — keep the button visible */
+  @media (hover: none) {
+    .feed-share-btn { opacity: 0.85; }
+  }
+
+  /* Single global popover anchored next to the active button */
+  .feed-share-popover {
+    position: absolute;
+    z-index: 1000;
+    background: var(--surface-3, #142438);
+    border: 1px solid var(--border-2);
+    border-radius: 10px;
+    padding: 6px;
+    display: none;
+    flex-direction: row;
+    gap: 4px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  }
+  .feed-share-popover.open {
+    display: flex;
+    animation: sharePop 0.12s ease-out;
+  }
+  @keyframes sharePop {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .feed-share-item {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background .12s, transform .12s, border-color .12s;
+    padding: 0;
+  }
+  .feed-share-item:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+    transform: scale(1.08);
+  }
+  .feed-share-item svg { width: 16px; height: 16px; display: block; }
+  .feed-share-item.brand-x svg { color: #ffffff; }
+  .feed-share-item.brand-facebook svg { color: #1877f2; }
+  .feed-share-item.brand-whatsapp svg { color: #25d366; }
+  .feed-share-item.brand-telegram svg { color: #229ED9; }
+  .feed-share-item.brand-weibo svg { color: #e6162d; }
+  .feed-share-item.brand-copy svg { color: var(--muted-2); }
+  .feed-share-item.copied {
+    background: color-mix(in srgb, var(--win) 22%, transparent);
+    border-color: var(--win);
+  }
+  .feed-share-item.copied svg { color: var(--win); }
 </style>
 
 <div class="home-grid">
@@ -1438,6 +1543,191 @@
     if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
   }, { rootMargin: '400px 0px' });
   obs.observe(sentinel);
+})();
+</script>
+
+<script>
+// ── Share popover for feed cards. Language-aware target list, native share
+//    on mobile when available, otherwise a small popover with brand icons.
+(function () {
+  var docLang = (document.documentElement.lang || 'en').toLowerCase();
+  var IS_ZH = docLang.indexOf('zh') === 0;
+  var I18N = {
+    copy: IS_ZH ? '复制链接' : 'Copy link',
+    copied: IS_ZH ? '已复制' : 'Copied',
+    weibo: IS_ZH ? '微博' : 'Weibo',
+    x: 'X',
+    facebook: 'Facebook',
+    whatsapp: 'WhatsApp',
+    telegram: 'Telegram',
+  };
+  // Order matters — left-to-right in the popover.
+  var TARGETS_BY_LANG = {
+    zh: ['weibo', 'x', 'telegram', 'copy'],
+    en: ['x', 'facebook', 'whatsapp', 'telegram', 'copy'],
+  };
+  var URL_TEMPLATES = {
+    x: function (u, t) { return 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(t) + '&url=' + encodeURIComponent(u); },
+    facebook: function (u) { return 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(u); },
+    whatsapp: function (u, t) { return 'https://wa.me/?text=' + encodeURIComponent((t ? t + ' ' : '') + u); },
+    telegram: function (u, t) { return 'https://t.me/share/url?url=' + encodeURIComponent(u) + '&text=' + encodeURIComponent(t); },
+    weibo: function (u, t) { return 'https://service.weibo.com/share/share.php?url=' + encodeURIComponent(u) + '&title=' + encodeURIComponent(t); },
+  };
+  // Inline SVGs (24×24 viewBox). currentColor lets brand colors come from CSS.
+  var ICONS = {
+    x: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+    facebook: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.675 0H1.325C.593 0 0 .593 0 1.325v21.351C0 23.407.593 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.593 1.323-1.325V1.325C24 .593 23.407 0 22.675 0z"/></svg>',
+    whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413"/></svg>',
+    telegram: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.417 15.181l-.397 5.584c.568 0 .814-.244 1.109-.537l2.663-2.545 5.518 4.041c1.012.564 1.725.267 1.998-.931L23.93 3.821c.321-1.496-.541-2.081-1.527-1.714L1.114 10.45c-1.451.564-1.43 1.378-.247 1.746l5.503 1.713 12.785-8.054c.601-.398 1.148-.178.698.219z"/></svg>',
+    weibo: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.81 14.495c-2.413.475-4.495-.622-4.65-2.45-.155-1.829 1.674-3.696 4.087-4.171 2.413-.475 4.495.622 4.65 2.45.156 1.83-1.673 3.696-4.087 4.171zm-.314-2.78c-.245.394-.77.566-1.171.385-.394-.179-.51-.638-.265-1.024.243-.388.755-.56 1.155-.39.405.17.527.633.281 1.029zm.91-1.165c-.089.153-.288.226-.443.16-.153-.064-.2-.236-.111-.385.089-.149.28-.222.434-.163.156.058.21.231.12.388zm6.87-3.53a4.625 4.625 0 00-4.426-1.42.654.654 0 10.27 1.279 3.319 3.319 0 013.176 1.018 3.32 3.32 0 01.713 3.255.655.655 0 001.244.405 4.628 4.628 0 00-.977-4.537zm-1.99 1.89a2.275 2.275 0 00-2.16-.694.564.564 0 10.232 1.103.142.142 0 01.02-.005c.317-.066.65.034.876.265.225.232.314.566.234.881a.566.566 0 001.097.279l.001-.005a2.276 2.276 0 00-.3-1.824zm-3.39-3.755c-3.78-.74-7.62 1.43-8.704 4.74C2.197 13.105 4.59 16.4 8.39 17.13c3.93.755 8.06-1.45 9.137-4.93 1.07-3.452-1.41-6.92-5.43-7.715zm6.5-1.81a8.79 8.79 0 00-8.34-2.62.738.738 0 10.298 1.446 7.26 7.26 0 016.886 2.165 7.262 7.262 0 011.553 7.046.738.738 0 101.413.428 8.79 8.79 0 00-1.81-8.466z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+  };
+
+  var popover = null;
+  var activeBtn = null;
+
+  function ensurePopover() {
+    if (popover) return popover;
+    popover = document.createElement('div');
+    popover.className = 'feed-share-popover';
+    popover.setAttribute('role', 'menu');
+    document.body.appendChild(popover);
+    return popover;
+  }
+
+  function buildItems(url, title) {
+    var lang = IS_ZH ? 'zh' : 'en';
+    var keys = TARGETS_BY_LANG[lang];
+    var frag = document.createDocumentFragment();
+    keys.forEach(function (k) {
+      if (k === 'copy') {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'feed-share-item brand-copy';
+        b.title = I18N.copy;
+        b.setAttribute('aria-label', I18N.copy);
+        b.innerHTML = ICONS.copy;
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var fallback = function () {
+            try {
+              var ta = document.createElement('textarea');
+              ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+              document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+              document.body.removeChild(ta);
+              return true;
+            } catch (_) { return false; }
+          };
+          var done = function () {
+            b.classList.add('copied');
+            b.innerHTML = ICONS.check;
+            b.title = I18N.copied;
+            b.setAttribute('aria-label', I18N.copied);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done, function () { if (fallback()) done(); });
+          } else if (fallback()) {
+            done();
+          }
+        });
+        frag.appendChild(b);
+      } else {
+        var a = document.createElement('a');
+        a.href = URL_TEMPLATES[k](url, title);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'feed-share-item brand-' + k;
+        a.title = I18N[k];
+        a.setAttribute('aria-label', I18N[k]);
+        a.innerHTML = ICONS[k];
+        a.addEventListener('click', function (e) { e.stopPropagation(); closePopover(); });
+        frag.appendChild(a);
+      }
+    });
+    return frag;
+  }
+
+  function positionPopover(btn) {
+    var rect = btn.getBoundingClientRect();
+    var pop = ensurePopover();
+    // Render off-screen first to measure
+    pop.style.visibility = 'hidden';
+    pop.classList.add('open');
+    var pw = pop.offsetWidth;
+    var ph = pop.offsetHeight;
+    var top = rect.bottom + window.scrollY + 6;
+    var left = rect.right + window.scrollX - pw;
+    // Clamp to viewport
+    var minLeft = 8 + window.scrollX;
+    if (left < minLeft) left = minLeft;
+    var maxLeft = window.scrollX + document.documentElement.clientWidth - pw - 8;
+    if (left > maxLeft) left = maxLeft;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+    pop.style.visibility = '';
+  }
+
+  function closePopover() {
+    if (popover) popover.classList.remove('open');
+    if (activeBtn) activeBtn.setAttribute('aria-expanded', 'false');
+    activeBtn = null;
+  }
+
+  function openShare(btn) {
+    var rawUrl = btn.getAttribute('data-share-url') || '';
+    var title = btn.getAttribute('data-share-title') || '';
+    var url;
+    try {
+      url = new URL(rawUrl, window.location.origin).href;
+    } catch (_) {
+      url = window.location.origin + rawUrl;
+    }
+    // Mobile-first: native share sheet when available.
+    var canNative = typeof navigator.share === 'function' &&
+      /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (canNative) {
+      navigator.share({ title: title, text: title, url: url }).catch(function () {});
+      return;
+    }
+    var pop = ensurePopover();
+    if (activeBtn === btn && pop.classList.contains('open')) {
+      closePopover();
+      return;
+    }
+    closePopover();
+    pop.innerHTML = '';
+    pop.appendChild(buildItems(url, title));
+    activeBtn = btn;
+    btn.setAttribute('aria-expanded', 'true');
+    positionPopover(btn);
+  }
+
+  // Use capture to intercept before the stretched-link absorbs the click.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.feed-share-btn');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openShare(btn);
+      return;
+    }
+    if (activeBtn && !(e.target.closest && e.target.closest('.feed-share-popover'))) {
+      closePopover();
+    }
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closePopover();
+  });
+
+  window.addEventListener('scroll', function () {
+    if (activeBtn) positionPopover(activeBtn);
+  }, { passive: true });
+  window.addEventListener('resize', function () {
+    if (activeBtn) positionPopover(activeBtn);
+  });
 })();
 </script>
 
