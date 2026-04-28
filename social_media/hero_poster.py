@@ -621,6 +621,29 @@ def poster_path_for(card: dict[str, Any], game: Game) -> Path:
     return _media_root() / HERO_POSTERS_SUBDIR / _safe_segment(str(game.game_id)) / f"{file_stem}.png"
 
 
+def prompt_sidecar_path_for(poster_path: Path) -> Path:
+    """Path of the rendered-prompt sidecar that lives next to a poster PNG."""
+    return poster_path.with_suffix(".prompt.txt")
+
+
+def _write_prompt_sidecar(target: Path, prompt: str) -> None:
+    try:
+        prompt_sidecar_path_for(target).write_text(prompt, encoding="utf-8")
+    except Exception:
+        logger.exception("hero_poster: failed to write prompt sidecar for %s", target)
+
+
+def read_prompt_sidecar(poster_path: Path | str) -> str | None:
+    """Return the rendered prompt that produced this poster, if available."""
+    try:
+        path = prompt_sidecar_path_for(Path(poster_path))
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+
 def _try_claim_poster_file(target: Path) -> bool:
     """Atomically reserve `target` so concurrent callers don't all hit the API.
 
@@ -735,6 +758,9 @@ def generate_hero_poster(
             pass
         return None
 
+    # Persist the rendered prompt next to the PNG so the admin Assets page
+    # (and any future re-renders) can recover what we asked the model for.
+    _write_prompt_sidecar(target, prompt)
     return Path(out) if out else None
 
 
@@ -1012,6 +1038,8 @@ def generate_posters_for_curated_game(
                 output_format="png",
                 background="opaque",
             )
+            if out:
+                _write_prompt_sidecar(target, prompt)
             return Path(out) if out else None
         except Exception:
             logger.exception("hero_poster: generate_image failed game=%s metric=%s", game.game_id, entry.get("metric_key"))

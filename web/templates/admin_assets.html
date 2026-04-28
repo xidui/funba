@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Admin — AI Assets{% endblock %}
+
+{% block content %}
+<style>
+  .cov-toggle {
+    display: inline-flex; align-items: center; padding: 5px 12px;
+    border: 1px solid var(--border); border-radius: 999px;
+    color: var(--muted); text-decoration: none; font-size: 12px;
+    background: var(--surface-2, #0d1c2e);
+  }
+  .cov-toggle:hover { color: var(--text); border-color: var(--accent); }
+  .cov-toggle.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .asset-toolbar {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center;
+  }
+  .asset-toolbar input, .asset-toolbar select {
+    padding: 6px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .asset-tile {
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform .12s, border-color .12s, box-shadow .12s;
+  }
+  .asset-tile:hover { transform: translateY(-2px); border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+  .asset-tile.disabled { opacity: 0.45; }
+  .asset-thumb {
+    width: 100%; aspect-ratio: 1024 / 1536;
+    background: #0a0a0a; object-fit: cover; display: block;
+  }
+  .asset-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+  .asset-title { font-size: 12px; font-weight: 600; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .asset-sub { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .asset-pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .asset-pill.scope-game { background: #1c2230; }
+  .asset-pill.scope-team { background: #1f2a1c; }
+  .asset-pill.scope-player { background: #2a1c2a; }
+  .empty { color: var(--muted); padding: 20px; font-size: 13px; }
+</style>
+
+<nav style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
+  <a href="{{ url_for('admin_pipeline') }}" class="cov-toggle">Pipeline</a>
+  <a href="{{ url_for('admin_settings') }}" class="cov-toggle">Settings</a>
+  <a href="{{ url_for('admin_monitor') }}" class="cov-toggle">Monitor</a>
+  <a href="{{ url_for('admin_tickets') }}" class="cov-toggle">Tickets</a>
+  <a href="{{ url_for('admin_assets') }}" class="cov-toggle active">AI Assets</a>
+</nav>
+
+<div style="margin-bottom:1.25rem;">
+  <h1 style="margin:0;">AI Assets</h1>
+  <div style="color:var(--muted);font-size:12.5px;margin-top:4px;">
+    Every poster gpt-image-2 has produced. Click a tile to inspect the full prompt, replace the image, or regenerate.
+  </div>
+</div>
+
+<div class="asset-toolbar">
+  <input id="filter-game" type="text" placeholder="game slug or game_id" style="width:240px;">
+  <input id="filter-metric" type="text" placeholder="metric_key contains" style="width:240px;">
+  <select id="filter-scope">
+    <option value="">all scopes</option>
+    <option value="game">game</option>
+    <option value="team">team</option>
+    <option value="player">player</option>
+  </select>
+  <select id="filter-status">
+    <option value="">enabled + disabled</option>
+    <option value="enabled">enabled only</option>
+    <option value="disabled">disabled only</option>
+  </select>
+  <button id="filter-apply" class="cov-toggle" style="cursor:pointer;">Apply</button>
+  <span id="asset-count" style="margin-left:auto;color:var(--muted);font-size:12px;"></span>
+</div>
+
+<div id="asset-grid" class="asset-grid">
+  <div class="empty">Loading…</div>
+</div>
+
+<div id="asset-pagination" style="margin-top:14px;display:flex;gap:8px;align-items:center;justify-content:center;"></div>
+
+<script>
+(function () {
+  const grid = document.getElementById('asset-grid');
+  const countEl = document.getElementById('asset-count');
+  const pager = document.getElementById('asset-pagination');
+  const fGame = document.getElementById('filter-game');
+  const fMetric = document.getElementById('filter-metric');
+  const fScope = document.getElementById('filter-scope');
+  const fStatus = document.getElementById('filter-status');
+  document.getElementById('filter-apply').addEventListener('click', () => loadPage(1));
+  [fGame, fMetric].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') loadPage(1); }));
+  [fScope, fStatus].forEach(el => el.addEventListener('change', () => loadPage(1)));
+
+  function esc(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value || '');
+    return div.innerHTML;
+  }
+
+  function buildTile(item) {
+    const sub = [
+      item.matchup || '',
+      item.metric_name || item.metric_key || '',
+    ].filter(Boolean).join(' · ');
+    const ago = item.created_at_human || '';
+    const scopeClass = item.scope ? `scope-${esc(item.scope)}` : '';
+    return `
+      <a class="asset-tile ${item.is_enabled ? '' : 'disabled'}" href="/admin/assets/${item.id}">
+        ${item.url ? `<img class="asset-thumb" src="${esc(item.url)}" alt="" loading="lazy">` : '<div class="asset-thumb"></div>'}
+        <div class="asset-meta">
+          <span>
+            <span class="asset-pill ${scopeClass}">${esc(item.scope || 'asset')}</span>
+            ${item.is_enabled ? '' : '<span class="asset-pill" style="color:var(--loss);">disabled</span>'}
+          </span>
+          <div class="asset-title">${esc(sub)}</div>
+          <div class="asset-sub">${esc(ago)} · post #${item.post_id}</div>
+        </div>
+      </a>`;
+  }
+
+  async function loadPage(page) {
+    grid.innerHTML = '<div class="empty">Loading…</div>';
+    const params = new URLSearchParams();
+    params.set('page', String(page || 1));
+    if (fGame.value.trim()) params.set('game', fGame.value.trim());
+    if (fMetric.value.trim()) params.set('metric', fMetric.value.trim());
+    if (fScope.value) params.set('scope', fScope.value);
+    if (fStatus.value) params.set('status', fStatus.value);
+    try {
+      const res = await fetch('/api/admin/assets?' + params.toString());
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      countEl.textContent = `${data.total} asset(s) · page ${data.page}/${data.total_pages}`;
+      if (!data.items || !data.items.length) {
+        grid.innerHTML = '<div class="empty">No assets match your filters.</div>';
+      } else {
+        grid.innerHTML = data.items.map(buildTile).join('');
+      }
+      // Pagination
+      const links = [];
+      if (data.page > 1) links.push(`<button class="cov-toggle" data-pg="${data.page - 1}" style="cursor:pointer;">‹ Prev</button>`);
+      links.push(`<span style="color:var(--muted);font-size:12px;">page ${data.page} / ${data.total_pages}</span>`);
+      if (data.page < data.total_pages) links.push(`<button class="cov-toggle" data-pg="${data.page + 1}" style="cursor:pointer;">Next ›</button>`);
+      pager.innerHTML = links.join('');
+      pager.querySelectorAll('button[data-pg]').forEach(btn => btn.addEventListener('click', () => loadPage(Number(btn.dataset.pg))));
+    } catch (e) {
+      grid.innerHTML = `<div class="empty">Failed: ${esc(e.message)}</div>`;
+    }
+  }
+
+  loadPage(1);
+})();
+</script>
+{% endblock %}

@@ -749,7 +749,7 @@ def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightC
     after the post has been flushed to obtain its id.
     """
     try:
-        from social_media.hero_poster import poster_path_for
+        from social_media.hero_poster import poster_path_for, read_prompt_sidecar
         from social_media.images import store_prepared_image
     except Exception:
         logger.exception("hero poster attach: import failed for post_id=%s", post.id)
@@ -775,12 +775,22 @@ def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightC
         logger.exception("hero poster attach: store_prepared_image failed for post_id=%s", post.id)
         return
 
+    # Pull the rendered prompt from its sidecar so the admin Assets page can
+    # show what we actually asked the model for.
+    prompt_text = read_prompt_sidecar(src) or ""
     spec = {
         "source": "hero_poster",
         "metric_key": card.ranking_metric_key or card.metric_key,
         "entity_id": card.entity_id,
         "scope": card.scope,
         "model": "gpt-image-2",
+        "game_id": card.game_id,
+        "matchup": card.matchup,
+        "metric_name": card.metric_name,
+        "rank_text": card.rank_text,
+        "value_text": card.value_text,
+        "source_poster_path": str(src),
+        "prompt": prompt_text,
     }
     image_row = SocialPostImage(
         post_id=int(post.id),

@@ -696,6 +696,319 @@ def register_admin_misc_routes(app, deps):
                 return jsonify({"ok": False, "error": str(exc)}), 500
         return jsonify({"ok": True, "game_id": game.game_id, "game_slug": game.slug, "paths": [str(p) for p in paths]})
 
+    def admin_assets():
+        denied = deps.require_admin_page()()
+        if denied:
+            return denied
+        return deps.render_template()("admin_assets.html")
+
+    def admin_asset_detail(image_id: int):
+        denied = deps.require_admin_page()()
+        if denied:
+            return denied
+        return deps.render_template()("admin_asset_detail.html", image_id=int(image_id))
+
+    def _build_asset_view(session, img):
+        """Shape one SocialPostImage row into the JSON the assets pages render."""
+        import json as _json
+        from datetime import datetime as _dt
+        from os.path import basename
+        from pathlib import Path as _Path
+        from db.models import Game, MetricDefinition, Player, SocialPost, Team
+
+        spec = {}
+        if img.spec:
+            try:
+                spec = _json.loads(img.spec) or {}
+            except Exception:
+                spec = {}
+
+        post = session.query(SocialPost).filter(SocialPost.id == img.post_id).first()
+
+        # Resolve game / metric / entity from spec, falling back to topic parsing.
+        game_id = str(spec.get("game_id") or "")
+        scope = str(spec.get("scope") or "")
+        metric_key = str(spec.get("metric_key") or "")
+        entity_id = str(spec.get("entity_id") or "")
+        if (not game_id or not scope) and post is not None and post.topic:
+            parts = [p.strip() for p in str(post.topic).split("—")]
+            if len(parts) >= 5 and parts[0] == "Hero Highlight":
+                game_id = game_id or parts[1]
+                scope = scope or parts[2]
+                metric_key = metric_key or parts[3]
+                entity_id = entity_id or parts[4]
+
+        matchup_text = ""
+        game_url = ""
+        if game_id:
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is not None:
+                home = session.query(Team).filter(Team.team_id == game.home_team_id).first() if game.home_team_id else None
+                road = session.query(Team).filter(Team.team_id == game.road_team_id).first() if game.road_team_id else None
+                home_abbr = home.abbr if home else "?"
+                road_abbr = road.abbr if road else "?"
+                if game.home_team_score is not None and game.road_team_score is not None:
+                    matchup_text = f"{road_abbr} {game.road_team_score} @ {home_abbr} {game.home_team_score}"
+                else:
+                    matchup_text = f"{road_abbr} @ {home_abbr}"
+                slug = game.slug or game.game_id
+                game_url = f"/games/{slug}"
+
+        metric_name = ""
+        metric_url = ""
+        if metric_key:
+            metric_url = f"/metrics/{metric_key}"
+            md = session.query(MetricDefinition).filter(MetricDefinition.key == metric_key).first()
+            metric_name = (md.name if md and md.name else metric_key.replace("_", " ").title())
+
+        entity_label = ""
+        if scope == "player" and entity_id:
+            p = session.query(Player).filter(Player.player_id == entity_id).first()
+            entity_label = p.full_name if p and p.full_name else entity_id
+        elif scope == "team" and entity_id:
+            tid = entity_id.split(":")[1] if ":" in entity_id else entity_id
+            t = session.query(Team).filter(Team.team_id == tid).first()
+            entity_label = t.full_name if t and t.full_name else entity_id
+
+        # Try sidecar prompt if not in spec.
+        prompt = str(spec.get("prompt") or "")
+        if not prompt:
+            try:
+                from social_media.hero_poster import read_prompt_sidecar
+
+                source_path = spec.get("source_poster_path") or img.file_path
+                if source_path:
+                    prompt = read_prompt_sidecar(source_path) or ""
+            except Exception:
+                prompt = ""
+
+        url = None
+        size_kb = None
+        if img.file_path:
+            try:
+                fname = basename(str(img.file_path))
+                url = f"/media/social_posts/{int(img.post_id)}/{fname}"
+                fpath = _Path(str(img.file_path))
+                if fpath.exists():
+                    size_kb = round(fpath.stat().st_size / 1024)
+            except Exception:
+                pass
+
+        created_human = ""
+        if img.created_at:
+            try:
+                ago = _dt.utcnow() - img.created_at
+                hours = int(ago.total_seconds() // 3600)
+                if hours < 1:
+                    created_human = "just now"
+                elif hours < 24:
+                    created_human = f"{hours}h ago"
+                else:
+                    created_human = f"{hours // 24}d ago"
+            except Exception:
+                created_human = ""
+
+        return {
+            "id": int(img.id),
+            "post_id": int(img.post_id),
+            "slot": img.slot,
+            "image_type": img.image_type,
+            "is_enabled": bool(img.is_enabled),
+            "url": url,
+            "file_path": img.file_path,
+            "size_kb": size_kb,
+            "created_at": img.created_at.isoformat() if img.created_at else None,
+            "created_at_human": created_human,
+            "scope": scope,
+            "metric_key": metric_key,
+            "metric_name": metric_name,
+            "metric_url": metric_url,
+            "matchup_text": matchup_text,
+            "game_id": game_id,
+            "game_url": game_url,
+            "entity_id": entity_id,
+            "entity_label": entity_label,
+            "value_text": spec.get("value_text") or "",
+            "rank_text": spec.get("rank_text") or "",
+            "model": spec.get("model") or "gpt-image-2",
+            "matchup": matchup_text,
+            "prompt": prompt,
+        }
+
+    def api_admin_assets_list():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from db.models import Game, SocialPost, SocialPostImage
+
+        page = max(1, request.args.get("page", 1, type=int))
+        page_size = 60
+        game_filter = (request.args.get("game") or "").strip()
+        metric_filter = (request.args.get("metric") or "").strip()
+        scope_filter = (request.args.get("scope") or "").strip()
+        status_filter = (request.args.get("status") or "").strip()
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            q = (
+                session.query(SocialPostImage)
+                .filter(SocialPostImage.image_type == "ai_generated")
+            )
+            if game_filter:
+                # accept slug or raw game_id; resolve slug → id when possible
+                game = (
+                    session.query(Game).filter(Game.game_id == game_filter).first()
+                    or session.query(Game).filter(Game.slug == game_filter).first()
+                )
+                gid = game.game_id if game else game_filter
+                q = q.join(SocialPost, SocialPost.id == SocialPostImage.post_id).filter(
+                    SocialPost.source_game_ids.like(f"%{gid}%")
+                )
+            if metric_filter:
+                q = q.filter(SocialPostImage.spec.like(f"%{metric_filter}%"))
+            if scope_filter:
+                q = q.filter(SocialPostImage.spec.like(f'%"scope": "{scope_filter}"%'))
+            if status_filter == "enabled":
+                q = q.filter(SocialPostImage.is_enabled.is_(True))
+            elif status_filter == "disabled":
+                q = q.filter(SocialPostImage.is_enabled.is_(False))
+
+            total = q.count()
+            import math
+
+            total_pages = max(1, math.ceil(total / page_size))
+            page = min(page, total_pages)
+            imgs = (
+                q.order_by(SocialPostImage.created_at.desc(), SocialPostImage.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            items = [_build_asset_view(session, img) for img in imgs]
+        return jsonify({
+            "ok": True,
+            "items": items,
+            "total": int(total),
+            "page": int(page),
+            "total_pages": int(total_pages),
+            "page_size": int(page_size),
+        })
+
+    def api_admin_asset_detail(image_id: int):
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from db.models import SocialPostImage
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            img = session.query(SocialPostImage).filter(SocialPostImage.id == int(image_id)).first()
+            if img is None:
+                return jsonify({"ok": False, "error": "asset_not_found"}), 404
+            return jsonify({"ok": True, "meta": _build_asset_view(session, img)})
+
+    def api_admin_asset_replace(image_id: int):
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        import shutil as _shutil
+        from datetime import datetime as _dt
+        from pathlib import Path as _Path
+
+        from db.models import SocialPostImage
+
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify({"ok": False, "error": "no_file"}), 400
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            img = session.query(SocialPostImage).filter(SocialPostImage.id == int(image_id)).first()
+            if img is None or not img.file_path:
+                return jsonify({"ok": False, "error": "asset_not_found"}), 404
+            dst = _Path(str(img.file_path))
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                upload.save(str(dst))
+                # Mark this row as human-replaced so future audits can tell.
+                img.image_type = "human_replaced"
+                img.review_decision = "keep"
+                img.review_source = "human_reviewer"
+                img.reviewed_at = _dt.utcnow()
+                session.commit()
+            except Exception as exc:
+                deps.logger().exception("asset replace failed for image_id=%s", image_id)
+                return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "image_id": int(image_id)})
+
+    def api_admin_asset_regenerate(image_id: int):
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        import json as _json
+        from pathlib import Path as _Path
+
+        from db.models import Game, SocialPost, SocialPostImage
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            img = session.query(SocialPostImage).filter(SocialPostImage.id == int(image_id)).first()
+            if img is None:
+                return jsonify({"ok": False, "error": "asset_not_found"}), 404
+            spec = {}
+            if img.spec:
+                try:
+                    spec = _json.loads(img.spec) or {}
+                except Exception:
+                    spec = {}
+            game_id = spec.get("game_id")
+            scope = spec.get("scope")
+            metric_key = spec.get("metric_key")
+            entity_id = spec.get("entity_id")
+            if not (game_id and scope and metric_key):
+                # Try parsing topic
+                post = session.query(SocialPost).filter(SocialPost.id == img.post_id).first()
+                if post and post.topic:
+                    parts = [p.strip() for p in str(post.topic).split("—")]
+                    if len(parts) >= 5 and parts[0] == "Hero Highlight":
+                        game_id = game_id or parts[1]
+                        scope = scope or parts[2]
+                        metric_key = metric_key or parts[3]
+                        entity_id = entity_id or parts[4]
+            if not (game_id and scope and metric_key):
+                return jsonify({"ok": False, "error": "missing_metadata"}), 400
+
+            game = session.query(Game).filter(Game.game_id == game_id).first()
+            if game is None:
+                return jsonify({"ok": False, "error": "game_not_found"}), 404
+
+            try:
+                from social_media.hero_poster import generate_hero_poster, poster_path_for
+                import shutil as _shutil
+
+                src = generate_hero_poster(
+                    session,
+                    card={"metric_key": metric_key, "scope": scope, "entity_id": entity_id},
+                    game=game,
+                    force=True,
+                )
+                if src is None:
+                    return jsonify({"ok": False, "error": "regen_failed"}), 500
+                # Refresh the per-post file copy.
+                if img.file_path:
+                    dst = _Path(str(img.file_path))
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    _shutil.copy2(str(src), str(dst))
+                # Update spec with the fresh prompt.
+                from social_media.hero_poster import read_prompt_sidecar
+
+                spec["prompt"] = read_prompt_sidecar(str(src)) or spec.get("prompt", "")
+                img.spec = _json.dumps(spec, ensure_ascii=False)
+                session.commit()
+            except Exception as exc:
+                deps.logger().exception("asset regenerate failed for image_id=%s", image_id)
+                return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "image_id": int(image_id)})
+
     def api_admin_publishing_matrix():
         denied = deps.require_admin_json()()
         if denied:
@@ -1096,6 +1409,12 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/admin/hero-poster-regenerate", endpoint="api_admin_hero_poster_regenerate", view_func=api_admin_hero_poster_regenerate, methods=["POST"])
     app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_publishing_matrix", view_func=api_admin_publishing_matrix)
     app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_update_publishing_matrix", view_func=api_admin_update_publishing_matrix, methods=["POST"])
+    app.add_url_rule("/admin/assets", endpoint="admin_assets", view_func=admin_assets)
+    app.add_url_rule("/admin/assets/<int:image_id>", endpoint="admin_asset_detail", view_func=admin_asset_detail)
+    app.add_url_rule("/api/admin/assets", endpoint="api_admin_assets_list", view_func=api_admin_assets_list)
+    app.add_url_rule("/api/admin/assets/<int:image_id>", endpoint="api_admin_asset_detail", view_func=api_admin_asset_detail)
+    app.add_url_rule("/api/admin/assets/<int:image_id>/replace", endpoint="api_admin_asset_replace", view_func=api_admin_asset_replace, methods=["POST"])
+    app.add_url_rule("/api/admin/assets/<int:image_id>/regenerate", endpoint="api_admin_asset_regenerate", view_func=api_admin_asset_regenerate, methods=["POST"])
     app.add_url_rule("/admin/backfill/<season>", endpoint="admin_backfill", view_func=admin_backfill, methods=["POST"])
     app.add_url_rule("/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill", view_func=game_shotchart_backfill, methods=["POST"])
     app.add_url_rule("/api/games/<game_id>/shotchart/backfill", endpoint="game_shotchart_backfill_api", view_func=game_shotchart_backfill_api, methods=["POST"])
@@ -1129,4 +1448,10 @@ def register_admin_misc_routes(app, deps):
         api_admin_hero_poster_regenerate=api_admin_hero_poster_regenerate,
         api_admin_publishing_matrix=api_admin_publishing_matrix,
         api_admin_update_publishing_matrix=api_admin_update_publishing_matrix,
+        admin_assets=admin_assets,
+        admin_asset_detail=admin_asset_detail,
+        api_admin_assets_list=api_admin_assets_list,
+        api_admin_asset_detail=api_admin_asset_detail,
+        api_admin_asset_replace=api_admin_asset_replace,
+        api_admin_asset_regenerate=api_admin_asset_regenerate,
     )
