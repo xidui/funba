@@ -161,3 +161,81 @@ The metric search/detail UI uses `color-mix()` in CSS for badges and status surf
 **Acceptance criteria:**
 - [ ] Decide whether older-browser support matters for this project
 - [ ] If yes, replace `color-mix()` usage with static color values or a compatible fallback pattern
+
+---
+
+## [INFRA-3] Migrate metric/curator/publish pipeline from Celery to Temporal Workflow
+
+The current pipeline (ingest → 440 metric runs → milestone detection → curator → variant generation → poster generation → SocialPost → news mirror → external publish) is implemented as a chain of Celery tasks linked by `chord` callbacks. The shape of work is a textbook workflow, but Celery makes you assemble it ad-hoc and the failure modes (race conditions, idempotency, fan-in completion detection) require hand-rolled fixes at every layer.
+
+**Why this came up:** debugging duplicate SocialPost rows traced to N parallel chord callbacks all enqueueing the same curator task. We layered three defenses — `Game.with_for_update()` row lock, Redis SETNX dedup at enqueue time, `dedup_key` UNIQUE index on SocialPost — to plug the leak. With ~440 metric definitions per game (`MetricDefinition` count, not the "30" sometimes used in casual discussion), the race surface is large enough that more failure modes will keep surfacing as the pipeline grows.
+
+**What Temporal would replace:**
+- `chord(...)` fan-in via Redis backend → native `asyncio.gather(*activities)` with deterministic completion semantics
+- `with_for_update()` row locks → workflow ID-based idempotency (`workflow_id="game-pipeline-{game_id}"` is a no-op on a second start)
+- Redis SETNX dedup at curator enqueue → not needed, workflow handles dedup
+- `MetricComputeRun.status` state machine + `highlights_curated_at` / `variants_generated_at` flag fields → workflow execution history is the canonical state
+- Custom retry logic + the `defer if active_runs > 0` check → activity retry policies + workflow await semantics
+- `scripts/archive_duplicate_hero_posts.py` cleanup script → unnecessary, no duplicates produced
+- Worker-restart-while-mid-flight risks → workflow versioning (in-flight workflows finish on the version they started; new ones use new code)
+
+**Sketch of the target shape:**
+
+```python
+@workflow.defn
+class GamePipeline:
+    @workflow.run
+    async def run(self, game_id: str) -> dict:
+        season = await activity.execute(get_season, game_id)
+        metrics = await activity.execute(list_eligible_metrics, season)
+        await asyncio.gather(*[
+            activity.execute(compute_metric, key, season, retry_policy=METRIC_RETRY)
+            for key in metrics
+        ])
+        await activity.execute(detect_milestones, [game_id])
+        await activity.execute(curate_game, game_id, retry_policy=CURATOR_RETRY)
+        await activity.execute(generate_variants, game_id)
+        cards = await activity.execute(get_hero_cards, game_id)
+        await asyncio.gather(*[
+            activity.execute(generate_poster, card, retry_policy=OPENAI_RETRY)
+            for card in cards
+        ])
+        await activity.execute(mirror_to_news, game_id)
+        return {"status": "complete"}
+```
+
+`workflow_id="game-pipeline-{game_id}"` makes the entire per-game pipeline naturally idempotent.
+
+**Why not now:**
+- Mac mini single-host deployment is the bottleneck for production-scale Temporal anyway.
+- Current Celery setup with the race fixes (commits f7c5b60 → ba124cf area) is correct, just not elegant.
+- Migration is ~2-3 weeks of focused work given the breadth of `tasks/`, `metrics/highlights/curator.py`, `content_pipeline/hero_highlight_variants.py`, and `social_media/hero_poster.py` touched.
+- Worker scaling story is identical (long-lived poll-based workers) — Temporal isn't more dynamic than Celery's `--autoscale=N,M` here.
+
+**When to revisit:**
+- External publishing fully rolls out (Twitter + Hupu + Reddit + Xiaohongshu each with own retry semantics) — the Celery callback graph will grow another layer per platform.
+- More than one person actively maintaining the pipeline (workflow code self-documents the steps; chord chains do not).
+- Game ingestion frequency goes up (NBA is fixed but synthetic games for testing or backfill bursts amplify race surface).
+- "Where is game X stuck?" debugging becomes a routine question — currently spread across `MetricComputeRun.status`, `highlights_curated_at`, `variants_generated_at`, `SocialPost.status`, `SocialPostDelivery.status`.
+
+**Prerequisites worth doing now (independently of the migration):**
+- [ ] Consolidate per-game pipeline state into one `GamePipelineState` table (or a single computed view). Currently 5 status fields across 3 tables — Temporal migration will turn this into a workflow query, but the data-model cleanup is independently useful.
+- [ ] Admin page that shows "what stage is game X in" by reading the consolidated state.
+
+**Migration work breakdown (rough order):**
+- [ ] Stand up Temporal locally (Docker compose with temporal-server + UI) and validate the toolchain works on the dev box.
+- [ ] Decide host: self-hosted Temporal on the Mac mini vs Temporal Cloud vs deferred until cloud move.
+- [ ] Identify the activity boundary set: every existing Celery task body becomes either an activity (most) or workflow code (the orchestration glue, currently in `curate_then_analyze_for_season_task` and similar).
+- [ ] Port `compute_season_metric` family first — it's the largest fan-out and most DB-isolated (good first activity).
+- [ ] Port the curator chain (`curate_then_analyze` → `run_curator_for_game` → `generate_hero_highlight_variants_for_game` → `generate_posters_for_curated_game`) as a single workflow.
+- [ ] Port external publish (Twitter / Hupu / etc.) as activities under the same workflow with retry policies tuned per platform.
+- [ ] Run Celery and Temporal in parallel for a season cycle; compare outputs (post IDs, news mirrors, publish results) row-by-row.
+- [ ] Cut over: route all triggers (cron + ad-hoc admin actions) to the Temporal workflow start instead of Celery `delay`.
+- [ ] Decommission Celery: remove tasks, archive `tasks/celery_app.py`, drop the chord/SETNX/row-lock scaffolding that the workflow makes obsolete.
+- [ ] Decide what to do with the existing race-fix safety nets (the dedup_key UNIQUE index is cheap to keep as belt-and-suspenders; the SETNX scaffolding can be deleted).
+
+**Acceptance criteria:**
+- [ ] One game's full pipeline (ingest → published) runs as a single Temporal workflow with a stable `workflow_id`.
+- [ ] All current race-fix scaffolding (SETNX, with_for_update, archive script) is either deleted or proven structurally unreachable.
+- [ ] Temporal Web UI shows in-flight game pipelines with per-stage status, replacing the patchwork of status fields in the admin pages.
+- [ ] Worker process count + concurrency tuning preserved or simplified — no regression on throughput vs current Celery setup.
