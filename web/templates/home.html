@@ -1107,6 +1107,35 @@
     border-color: rgba(74, 222, 128, 0.55);
   }
   .feed-share-item.copied svg { color: #4ade80; }
+
+  /* Light-theme popover: airy white card so it doesn't look like a dark
+     island floating over a white page. Brand icons keep their official
+     colors on white; X switches to black (its rebrand color on light
+     surfaces) so it's actually legible. */
+  html[data-theme='light'] .feed-share-popover {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
+  }
+  html[data-theme='light'] .feed-share-item {
+    background: #f4f5f8;
+    color: #0f172a;
+  }
+  html[data-theme='light'] .feed-share-item:hover {
+    background: #e9ecf1;
+    border-color: rgba(15, 23, 42, 0.1);
+  }
+  html[data-theme='light'] .feed-share-item.brand-x svg { color: #000000; }
+  html[data-theme='light'] .feed-share-item.brand-facebook svg { color: #1877f2; }
+  html[data-theme='light'] .feed-share-item.brand-whatsapp svg { color: #1da856; }
+  html[data-theme='light'] .feed-share-item.brand-telegram svg { color: #229ED9; }
+  html[data-theme='light'] .feed-share-item.brand-weibo svg { color: #e6162d; }
+  html[data-theme='light'] .feed-share-item.brand-copy svg { color: #5b6473; }
+  html[data-theme='light'] .feed-share-item.copied {
+    background: rgba(22, 163, 74, 0.1);
+    border-color: rgba(22, 163, 74, 0.4);
+  }
+  html[data-theme='light'] .feed-share-item.copied svg { color: #16a34a; }
 </style>
 
 <div class="home-grid">
