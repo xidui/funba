@@ -119,7 +119,13 @@
   <h1>{{ entry.article.title }}</h1>
 
   {% if entry.article.thumbnail_url %}
-  <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
+    {% if entry.article.original_image_url and entry.article.original_image_url != entry.article.thumbnail_url %}
+    <a href="{{ entry.article.original_image_url }}" target="_blank" rel="noopener" title="{{ t('Tap for full size', '点击查看大图') }}">
+      <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
+    </a>
+    {% else %}
+    <img class="hero-thumb" src="{{ entry.article.thumbnail_url }}" alt="" referrerpolicy="no-referrer">
+    {% endif %}
   {% endif %}
 
   {% if entry.article.summary %}
@@ -128,7 +134,9 @@
 
   <div class="cta-row">
     {% if entry.article.source == 'funba' %}
-    <a class="cta-external" href="{{ entry.article.url }}">{{ t('Read full post →', '查看全文 →') }}</a>
+      {% if entry.article.metric_url %}
+      <a class="cta-external" href="{{ entry.article.metric_url }}">{{ t('View related metric →', '查看相关指标 →') }}</a>
+      {% endif %}
     {% else %}
     <a class="cta-external" href="{{ entry.article.url }}" target="_blank" rel="noopener">
       {% if entry.article.source == 'espn' %}{{ t('Read on ESPN →', '前往 ESPN 阅读 →') }}

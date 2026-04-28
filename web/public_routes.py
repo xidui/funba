@@ -1145,6 +1145,7 @@ def register_public_routes(
         SessionLocal = get_session_local()
         Game = get_game_model()
         from db.models import (
+            NewsArticle,
             SocialPost,
             SocialPostDelivery,
             SocialPostImage,
@@ -1180,6 +1181,17 @@ def register_public_routes(
                 .all()
             )
             posters_by_post = {int(img.post_id): img for img in poster_rows}
+
+            news_rows = (
+                session.query(NewsArticle.internal_social_post_id, NewsArticle.cluster_id)
+                .filter(
+                    NewsArticle.source == "funba",
+                    NewsArticle.internal_social_post_id.in_(post_ids),
+                    NewsArticle.cluster_id.isnot(None),
+                )
+                .all()
+            )
+            news_cluster_by_post = {int(r[0]): int(r[1]) for r in news_rows if r[0] is not None}
 
             game_ids: set[str] = set()
             for _delivery, _variant, post in rows:
@@ -1237,6 +1249,8 @@ def register_public_routes(
                     # adds the /cn prefix automatically when the user is in zh).
                     mk = source["source_metric_key"]
                     metric_url = f"/metrics/{mk}"
+                cluster_id = news_cluster_by_post.get(int(post.id))
+                news_url = f"/news/{cluster_id}" if cluster_id else ""
                 entries.append(
                     {
                         "post_id": int(post.id),
@@ -1245,6 +1259,7 @@ def register_public_routes(
                         "poster_url": poster_url,
                         "game_url": game_url,
                         "metric_url": metric_url,
+                        "news_url": news_url,
                         "game_title": game_title,
                         "published_at": delivery.published_at,
                         "game_date": getattr(game, "game_date", None) if game is not None else None,
@@ -1783,6 +1798,30 @@ def register_public_routes(
                 .all()
             )
 
+            metric_url: str | None = None
+            original_image_url: str | None = None
+            if rep.source == "funba" and rep.internal_social_post_id:
+                from db.models import SocialPost as _SocialPost, SocialPostImage as _SocialPostImage
+                post = session.get(_SocialPost, rep.internal_social_post_id)
+                if post is not None:
+                    parsed = _parse_hero_topic(post.topic or "")
+                    mk = parsed.get("source_metric_key")
+                    if mk:
+                        metric_url = f"/metrics/{mk}"
+                    poster = (
+                        session.query(_SocialPostImage)
+                        .filter(
+                            _SocialPostImage.post_id == post.id,
+                            _SocialPostImage.slot == "poster",
+                            _SocialPostImage.is_enabled.is_(True),
+                        )
+                        .first()
+                    )
+                    if poster and poster.file_path:
+                        from os.path import basename as _basename
+                        fname = _basename(str(poster.file_path))
+                        original_image_url = f"/media/social_posts/{int(post.id)}/{fname}"
+
             entry = {
                 "cluster": {
                     "id": cluster.id,
@@ -1796,7 +1835,9 @@ def register_public_routes(
                     "source": rep.source,
                     "url": rep.url,
                     "thumbnail_url": rep.thumbnail_url,
+                    "original_image_url": original_image_url,
                     "published_at": rep.published_at,
+                    "metric_url": metric_url,
                 },
                 "siblings": [
                     {

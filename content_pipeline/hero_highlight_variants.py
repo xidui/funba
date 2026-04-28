@@ -880,6 +880,16 @@ def _create_post_for_card(
         # (Twitter etc). Funba is published the moment the row hits the DB.
         if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
             auto_publish_deliveries.append((platform, int(delivery.id)))
+
+    # If funba_internal auto-published, mirror this post into NewsArticle so it
+    # surfaces on the news detail page (and clusters / tagging / scoring).
+    if FUNBA_INTERNAL_PLATFORM in auto_publish_platforms:
+        try:
+            from db.news_internal import mirror_published_social_post
+            mirror_published_social_post(session, post)
+        except Exception:
+            logger.exception("hero highlight: mirror_published_social_post failed post_id=%s", post.id)
+
     return HeroHighlightPostResult(
         post_id=int(post.id),
         created=True,
