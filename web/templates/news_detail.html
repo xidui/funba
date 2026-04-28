@@ -181,15 +181,19 @@
   .funba-poster-page .funba-meta-dot { color: var(--text-muted); opacity: 0.5; }
   .funba-poster-page .funba-headline {
     font-family: 'Outfit', system-ui, sans-serif;
-    font-size: 22px;
-    line-height: 1.3;
-    font-weight: 700;
-    color: var(--text);
-    margin: 14px 0 4px;
-    letter-spacing: -0.005em;
+    font-size: 30px;
+    line-height: 1.25;
+    font-weight: 800;
+    color: var(--heading, var(--text));
+    margin: 4px 0 18px;
+    letter-spacing: -0.015em;
   }
   @media (max-width: 600px) {
-    .funba-poster-page .funba-headline { font-size: 19px; }
+    .funba-poster-page .funba-headline {
+      font-size: 22px;
+      margin: 4px 0 14px;
+      padding: 0 4px;
+    }
   }
   .funba-poster-page .funba-cta-row {
     display: flex;
@@ -370,6 +374,8 @@
    sourced from the poster's own dominant color gives every story its
    own color identity. #}
 <div class="funba-poster-page"{% if entry.article.dominant_color %} style="--poster-color: {{ entry.article.dominant_color }}"{% endif %}>
+  <h1 class="funba-headline">{{ entry.article.title }}</h1>
+
   {% if entry.article.original_image_url or entry.article.thumbnail_url %}
   <img class="funba-hero"
        src="{{ entry.article.original_image_url or entry.article.thumbnail_url }}"
@@ -387,8 +393,6 @@
       <span class="view-count">👁 {{ entry.cluster.unique_view_count }} {{ t('readers', '读者') }}</span>
       {% endif %}
     </div>
-
-    <h1 class="funba-headline">{{ entry.article.title }}</h1>
 
     {% if entry.article.metric_url or entry.article.game_url %}
     <div class="funba-cta-row">
