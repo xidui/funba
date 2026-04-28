@@ -8,7 +8,7 @@ from itertools import groupby as _groupby
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from flask import abort, jsonify, request
+from flask import abort, jsonify, make_response, request
 from sqlalchemy import case, func, or_
 
 from db.game_status import (
@@ -1428,7 +1428,7 @@ def register_public_routes(
             and (g.get("home_team_id") or g.get("road_team_id"))
         ]
 
-        return get_render_template()(
+        rendered = get_render_template()(
             "home.html",
             teams=teams,
             legacy_teams=legacy_teams,
@@ -1447,6 +1447,14 @@ def register_public_routes(
             feed_items=feed_items,
             feed_has_more=True,
         )
+        # Force a fresh fetch every visit so live scores aren't served from a
+        # stale HTML cache. The 15s JS poller still updates an open tab in
+        # place; this header just prevents a returning visitor from seeing the
+        # render snapshot the browser cached an hour ago.
+        response = make_response(rendered)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     def home_feed_more():
         """Infinite-scroll endpoint: rendered notable cards for older games."""

@@ -1012,7 +1012,7 @@
       <h3>{{ t("Today's Games", '今日比赛') }}{% if today_games %} <span class="meta" style="font-weight:400;text-transform:none;letter-spacing:0;">· {{ today_games[0].game_date.strftime('%b %d') }}</span>{% endif %}</h3>
       <div class="mini-games-list">
         {% for g in games_active %}
-        <a href="{{ game_url(g.game_id) }}" class="mini-game" {% if g.status == 'live' %}data-live-game-id="{{ g.game_id }}"{% endif %}>
+        <a href="{{ game_url(g.game_id) }}" class="mini-game" {% if g.status != 'completed' %}data-live-game-id="{{ g.game_id }}" data-rendered-status="{{ g.status }}"{% endif %}>
           <div class="mini-game-row">
             <span class="mini-game-team">
               <img src="{{ team_logo(g.road_team_id) }}" alt="" onerror="this.style.display='none'">
@@ -1362,13 +1362,19 @@
     for (const game of (payload.games || [])) {
       const card = document.querySelector('[data-live-game-id="' + game.game_id + '"]');
       if (!card) continue;
+      const renderedStatus = card.getAttribute('data-rendered-status');
+      if (renderedStatus && renderedStatus !== game.status) {
+        // Status flipped (upcoming → live, live → completed). The mini-game
+        // card was rendered for the old status with a different layout/CSS;
+        // reload once so the server can re-render with the new status.
+        window.location.reload();
+        return;
+      }
       updateScore(card.querySelector('[data-role="road-score"]'), game.road_score);
       updateScore(card.querySelector('[data-role="home-score"]'), game.home_score);
       const summary = card.querySelector('[data-role="live-summary"]');
       if (summary) summary.textContent = game.summary || '';
       if (game.status !== 'live') {
-        // Game just ended — reload once to pull DB-backed completed view.
-        window.location.reload();
         return;
       }
       updateText(card.querySelector('[data-role="road-fg-pct"]'), game.road_fg_pct, '%');
