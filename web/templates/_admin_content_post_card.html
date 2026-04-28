@@ -141,6 +141,12 @@
           <div class="img-meta">
             <span class="img-slot">{{ img.slot }}</span>
             <span class="img-type {{ img.image_type }}">{{ img.image_type.replace('_', ' ') }}</span>
+            {% if img.image_type in ('ai_generated', 'human_replaced') %}
+            <a href="{{ url_for('admin_asset_detail', image_id=img.id) }}"
+               onclick="event.stopPropagation();"
+               title="Open in AI Assets — see prompt, replace, regenerate"
+               style="margin-left:auto;color:var(--accent);text-decoration:none;font-size:11px;">↗ Asset</a>
+            {% endif %}
           </div>
           {% if img.note %}<div class="img-note">{{ img.note }}</div>{% endif %}
           {% if img.error_title %}
