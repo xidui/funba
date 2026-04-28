@@ -72,7 +72,7 @@ Tonight's game: {game_score_line} on {game_date} ({game_stage})
 Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trigger_in_topn %}, appears in the top {top_n} below{% else %}, sits outside the top {top_n}{% endif %})
 {% if trigger_full_line %}Trigger's full game line: {trigger_full_line}
 {% endif %}{% if trigger_team_full %}Anchor the visual identity to {trigger_team_full}'s real-world colors.
-{% endif %}{% if trigger_team_player_pool %}Players who actually played in this game for the triggering team (use ONLY these for any player likenesses; do NOT render anyone else, even famous historical figures associated with the franchise): {trigger_team_player_pool}
+{% endif %}{% if trigger_team_player_pool %}Roster constraint — any player likeness you choose to render MUST be from this list (the actual players who logged minutes in this game). DO NOT draw anyone outside it, even famous historical figures associated with the franchise. The list is a whitelist, not a target — you are not expected to fit everyone in. Typical compositions feature 1–3 likenesses (often just the trigger player alone, sometimes a teammate or opponent for context). Pick whoever serves the story; the trigger player stays central. Roster: {trigger_team_player_pool}
 {% endif %}
 
 LEADERBOARD (use these EXACT entries in this EXACT order; do not invent, substitute, or reorder)
