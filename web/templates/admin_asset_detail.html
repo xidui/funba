@@ -57,8 +57,11 @@
   .prompt-diff-hint.differs { color: #f97316; }
   /* Variant switcher — only renders when this asset has a sibling
      (vertical ⇄ square). Hidden otherwise so single assets keep their
-     original cleaner header. */
+     original cleaner header. Spans the full width of the asset-page
+     grid so it sits above both columns instead of getting jammed into
+     the left preview column. */
   .variant-switcher {
+    grid-column: 1 / -1;
     display: flex; gap: 6px; margin-bottom: 1rem; align-items: center;
     flex-wrap: wrap;
   }
