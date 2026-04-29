@@ -2880,7 +2880,7 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
 
 
 def _dedupe_triggered_cards(cards: list[dict], game_id: str) -> list[dict]:
-    from metrics.framework.base import is_career_season
+    from metrics.framework.base import is_career_season, window_type_from_season
 
     def _priority(card: dict) -> tuple:
         source_score = 0
@@ -2901,10 +2901,16 @@ def _dedupe_triggered_cards(cards: list[dict], game_id: str) -> list[dict]:
             float(card.get("value_num") or 0.0),
         )
 
-    grouped: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
+    # Include the season's window (career / last3 / last5 / "season") in the
+    # group key so each window keeps its own card. Folding by family alone
+    # collapsed e.g. Jokic's 25/5/5 milestones across 4 windows into a single
+    # winner — last3/last5 stories never surfaced even after the detector
+    # was fixed.
+    grouped: dict[tuple[str, str, str, str, str], list[dict]] = defaultdict(list)
     for card in cards:
         grouped[(
             family_base_key(str(card.get("metric_key") or "")),
+            window_type_from_season(card.get("season")) or "season",
             str(card.get("entity_type") or ""),
             str(card.get("entity_id") or ""),
             game_id,
