@@ -750,12 +750,18 @@ def _safe_segment(value: str) -> str:
     return cleaned or "x"
 
 
-def poster_path_for(card: dict[str, Any], game: Game) -> Path:
+def poster_path_for(card: dict[str, Any], game: Game, *, variant: str = "vertical") -> Path:
     metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"), "metric")
     entity_id = _safe_str(card.get("entity_id"), "game")
     scope = _safe_str(card.get("scope"), "game")
     file_stem = f"{_safe_segment(scope)}.{_safe_segment(metric_key)}.{_safe_segment(entity_id)}"
+    if variant == "square":
+        file_stem = f"{file_stem}{HERO_POSTER_SQUARE_SUFFIX}"
     return _media_root() / HERO_POSTERS_SUBDIR / _safe_segment(str(game.game_id)) / f"{file_stem}.png"
+
+
+def _size_for_variant(variant: str) -> str:
+    return HERO_POSTER_SQUARE_SIZE if variant == "square" else HERO_POSTER_DEFAULT_SIZE
 
 
 def prompt_sidecar_path_for(poster_path: Path) -> Path:
@@ -823,6 +829,7 @@ def generate_hero_poster(
     game: Game,
     model: str | None = None,
     force: bool = False,
+    variant: str = "vertical",
 ) -> Path | None:
     """Generate (or reuse) one hero card poster. Returns the file path or
     None when generation was skipped (no metric_key, no entity_id, etc).
@@ -838,7 +845,7 @@ def generate_hero_poster(
         logger.info("hero_poster: skipping card with no metric_key (game=%s)", game.game_id)
         return None
 
-    target = poster_path_for(card, game)
+    target = poster_path_for(card, game, variant=variant)
     if not force and target.exists() and target.stat().st_size > 0:
         logger.info("hero_poster: reusing existing poster %s", target)
         return target
@@ -866,7 +873,7 @@ def generate_hero_poster(
         return None
 
     template = get_hero_poster_prompt_template(session)
-    context = build_prompt_context(session, card=card, game=game)
+    context = build_prompt_context(session, card=card, game=game, variant=variant)
     prompt = render_prompt(template, context)
 
     chosen_model = model or get_hero_poster_model(session)
@@ -879,7 +886,7 @@ def generate_hero_poster(
             prompt=prompt,
             output_path=target,
             model=chosen_model,
-            size=HERO_POSTER_DEFAULT_SIZE,
+            size=_size_for_variant(variant),
             quality=HERO_POSTER_DEFAULT_QUALITY,
             output_format="png",
             background="opaque",
@@ -1097,6 +1104,7 @@ def generate_posters_for_curated_game(
     model: str | None = None,
     force: bool = False,
     max_workers: int = 6,
+    include_square: bool = False,
 ) -> list[Path]:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -1126,31 +1134,34 @@ def generate_posters_for_curated_game(
     # then only does the file write + HTTP call.
     chosen_model = model or get_hero_poster_model(session)
     template = get_hero_poster_prompt_template(session)
-    plans: list[tuple[dict[str, Any], Path, str]] = []
+    variants_to_run: tuple[str, ...] = ("vertical", "square") if include_square else ("vertical",)
+    plans: list[tuple[dict[str, Any], Path, str, str]] = []
     for entry in cards:
-        target = poster_path_for(entry, game)
-        if not force and target.exists() and target.stat().st_size > 0:
-            plans.append((entry, target, ""))  # empty prompt => reuse path
-            continue
-        # force=True: drop the existing file so _try_claim_poster_file can
-        # actually claim it (otherwise it'd think another worker is mid-flight
-        # and skip into the wait-for-completion branch, returning the stale
-        # file in milliseconds).
-        if force and target.exists():
+        for variant in variants_to_run:
+            target = poster_path_for(entry, game, variant=variant)
+            size = _size_for_variant(variant)
+            if not force and target.exists() and target.stat().st_size > 0:
+                plans.append((entry, target, "", size))  # empty prompt => reuse path
+                continue
+            # force=True: drop the existing file so _try_claim_poster_file can
+            # actually claim it (otherwise it'd think another worker is mid-flight
+            # and skip into the wait-for-completion branch, returning the stale
+            # file in milliseconds).
+            if force and target.exists():
+                try:
+                    target.unlink()
+                except Exception:
+                    logger.exception("hero_poster: failed to unlink %s for force regen", target)
             try:
-                target.unlink()
+                ctx = build_prompt_context(session, card=entry, game=game, variant=variant)
+                prompt = render_prompt(template, ctx)
             except Exception:
-                logger.exception("hero_poster: failed to unlink %s for force regen", target)
-        try:
-            ctx = build_prompt_context(session, card=entry, game=game)
-            prompt = render_prompt(template, ctx)
-        except Exception:
-            logger.exception("hero_poster: prompt build failed game=%s metric=%s", game.game_id, entry.get("metric_key"))
-            continue
-        plans.append((entry, target, prompt))
+                logger.exception("hero_poster: prompt build failed game=%s metric=%s variant=%s", game.game_id, entry.get("metric_key"), variant)
+                continue
+            plans.append((entry, target, prompt, size))
 
-    def _run(plan: tuple[dict[str, Any], Path, str]) -> Path | None:
-        entry, target, prompt = plan
+    def _run(plan: tuple[dict[str, Any], Path, str, str]) -> Path | None:
+        entry, target, prompt, size = plan
         if not prompt:
             return target  # already exists, reused
         try:
@@ -1174,7 +1185,7 @@ def generate_posters_for_curated_game(
                 prompt=prompt,
                 output_path=target,
                 model=chosen_model,
-                size=HERO_POSTER_DEFAULT_SIZE,
+                size=size,
                 quality=HERO_POSTER_DEFAULT_QUALITY,
                 output_format="png",
                 background="opaque",
