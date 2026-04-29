@@ -1313,6 +1313,7 @@
       .feed-share-item.brand-whatsapp svg { color: #25d366; }
       .feed-share-item.brand-telegram svg { color: #2aabee; }
       .feed-share-item.brand-weibo svg { color: #ff5b6c; }
+      .feed-share-item.brand-instagram svg { color: #e4405f; }
       .feed-share-item.brand-copy svg { color: rgba(255, 255, 255, 0.72); }
       .feed-share-item.copied {
         background: rgba(74, 222, 128, 0.18);
@@ -1338,6 +1339,7 @@
       html[data-theme='light'] .feed-share-item.brand-whatsapp svg { color: #1da856; }
       html[data-theme='light'] .feed-share-item.brand-telegram svg { color: #229ED9; }
       html[data-theme='light'] .feed-share-item.brand-weibo svg { color: #e6162d; }
+      html[data-theme='light'] .feed-share-item.brand-instagram svg { color: #c1355e; }
       html[data-theme='light'] .feed-share-item.brand-copy svg { color: #5b6473; }
       html[data-theme='light'] .feed-share-item.copied {
         background: rgba(22, 163, 74, 0.1);
@@ -2038,10 +2040,12 @@
         facebook: 'Facebook',
         whatsapp: 'WhatsApp',
         telegram: 'Telegram',
+        instagram: 'Instagram',
+        ig_hint: IS_ZH ? '已复制，去 Instagram 粘贴' : 'Copied — paste into Instagram',
       };
       var TARGETS_BY_LANG = {
-        zh: ['weibo', 'x', 'telegram', 'copy'],
-        en: ['x', 'facebook', 'whatsapp', 'telegram', 'copy'],
+        zh: ['weibo', 'x', 'instagram', 'telegram', 'copy'],
+        en: ['x', 'facebook', 'instagram', 'whatsapp', 'telegram', 'copy'],
       };
       var URL_TEMPLATES = {
         x: function (u, t) { return 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(t) + '&url=' + encodeURIComponent(u); },
@@ -2056,6 +2060,7 @@
         whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413"/></svg>',
         telegram: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.417 15.181l-.397 5.584c.568 0 .814-.244 1.109-.537l2.663-2.545 5.518 4.041c1.012.564 1.725.267 1.998-.931L23.93 3.821c.321-1.496-.541-2.081-1.527-1.714L1.114 10.45c-1.451.564-1.43 1.378-.247 1.746l5.503 1.713 12.785-8.054c.601-.398 1.148-.178.698.219z"/></svg>',
         weibo: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.81 14.495c-2.413.475-4.495-.622-4.65-2.45-.155-1.829 1.674-3.696 4.087-4.171 2.413-.475 4.495.622 4.65 2.45.156 1.83-1.673 3.696-4.087 4.171zm-.314-2.78c-.245.394-.77.566-1.171.385-.394-.179-.51-.638-.265-1.024.243-.388.755-.56 1.155-.39.405.17.527.633.281 1.029zm.91-1.165c-.089.153-.288.226-.443.16-.153-.064-.2-.236-.111-.385.089-.149.28-.222.434-.163.156.058.21.231.12.388zm6.87-3.53a4.625 4.625 0 00-4.426-1.42.654.654 0 10.27 1.279 3.319 3.319 0 013.176 1.018 3.32 3.32 0 01.713 3.255.655.655 0 001.244.405 4.628 4.628 0 00-.977-4.537zm-1.99 1.89a2.275 2.275 0 00-2.16-.694.564.564 0 10.232 1.103.142.142 0 01.02-.005c.317-.066.65.034.876.265.225.232.314.566.234.881a.566.566 0 001.097.279l.001-.005a2.276 2.276 0 00-.3-1.824zm-3.39-3.755c-3.78-.74-7.62 1.43-8.704 4.74C2.197 13.105 4.59 16.4 8.39 17.13c3.93.755 8.06-1.45 9.137-4.93 1.07-3.452-1.41-6.92-5.43-7.715zm6.5-1.81a8.79 8.79 0 00-8.34-2.62.738.738 0 10.298 1.446 7.26 7.26 0 016.886 2.165 7.262 7.262 0 011.553 7.046.738.738 0 101.413.428 8.79 8.79 0 00-1.81-8.466z"/></svg>',
+        instagram: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zm0 10.162a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>',
         copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
         check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
       };
@@ -2109,6 +2114,48 @@
               }
             });
             frag.appendChild(b);
+          } else if (k === 'instagram') {
+            // Instagram has no URL share intent — copy URL, open instagram.com so the
+            // user can paste into Story / DM / bio.
+            var ig = document.createElement('button');
+            ig.type = 'button';
+            ig.className = 'feed-share-item brand-instagram';
+            ig.title = I18N.instagram;
+            ig.setAttribute('aria-label', I18N.instagram);
+            ig.innerHTML = ICONS.instagram;
+            ig.addEventListener('click', function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              var openIg = function () {
+                window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer');
+              };
+              var fallback = function () {
+                try {
+                  var ta = document.createElement('textarea');
+                  ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                  document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+                  document.body.removeChild(ta);
+                  return true;
+                } catch (_) { return false; }
+              };
+              var done = function () {
+                ig.classList.add('copied');
+                ig.innerHTML = ICONS.check;
+                ig.title = I18N.ig_hint;
+                ig.setAttribute('aria-label', I18N.ig_hint);
+                openIg();
+              };
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(done, function () {
+                  if (fallback()) done(); else openIg();
+                });
+              } else if (fallback()) {
+                done();
+              } else {
+                openIg();
+              }
+            });
+            frag.appendChild(ig);
           } else {
             var a = document.createElement('a');
             a.href = URL_TEMPLATES[k](url, title);
