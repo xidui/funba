@@ -44,6 +44,28 @@
     width: 100%; aspect-ratio: 1024 / 1536;
     background: #0a0a0a; object-fit: cover; display: block;
   }
+  /* Paired hero tiles fit two thumbs side-by-side (vertical 2:3 + square 1:1).
+     The container reserves the height of the taller thumb (vertical) so
+     square sits centered vertically beside it, anchored to the same top edge. */
+  .asset-pair {
+    display: grid; grid-template-columns: 2fr 1fr; gap: 4px;
+    background: #0a0a0a; aspect-ratio: 1024 / 1024;
+  }
+  .asset-pair .pair-half {
+    position: relative; overflow: hidden;
+    background: #050505;
+  }
+  .asset-pair .pair-half img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .asset-pair .pair-half a { position: absolute; inset: 0; }
+  .asset-pair .pair-badge {
+    position: absolute; top: 4px; left: 4px;
+    padding: 1px 6px; font-size: 9.5px; border-radius: 999px;
+    background: rgba(0,0,0,0.65); color: #fff;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    pointer-events: none;
+  }
   .asset-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
   .asset-title { font-size: 12px; font-weight: 600; line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -122,24 +144,75 @@
   }
 
   function buildTile(item) {
+    if (item.kind === 'hero_pair') return buildPairTile(item);
+    return buildSingleTile(item);
+  }
+
+  function buildSingleTile(item) {
     const sub = [
       item.matchup || '',
       item.metric_name || item.metric_key || '',
     ].filter(Boolean).join(' · ');
     const ago = item.created_at_human || '';
     const scopeClass = item.scope ? `scope-${esc(item.scope)}` : '';
+    // For square-only or vertical-only orphan hero rows we still want the
+    // square aspect-ratio thumb, otherwise stick with the original 2:3.
+    const isSquare = item.variant === 'square' || item.slot === 'poster_ig';
+    const thumbStyle = isSquare ? 'aspect-ratio: 1 / 1;' : '';
     return `
       <a class="asset-tile ${item.is_enabled ? '' : 'disabled'}" href="/admin/assets/${item.id}">
-        ${(item.thumbnail_url || item.url) ? `<img class="asset-thumb" src="${esc(item.thumbnail_url || item.url)}" alt="" loading="lazy">` : '<div class="asset-thumb"></div>'}
+        ${(item.thumbnail_url || item.url) ? `<img class="asset-thumb" style="${thumbStyle}" src="${esc(item.thumbnail_url || item.url)}" alt="" loading="lazy">` : '<div class="asset-thumb"></div>'}
         <div class="asset-meta">
           <span>
             <span class="asset-pill ${scopeClass}">${esc(item.scope || 'asset')}</span>
+            ${isSquare ? '<span class="asset-pill" style="color:#f97316;border-color:#f97316;">IG</span>' : ''}
             ${item.is_enabled ? '' : '<span class="asset-pill" style="color:var(--loss);">disabled</span>'}
           </span>
           <div class="asset-title">${esc(sub)}</div>
           <div class="asset-sub">${esc(ago)} · post #${item.post_id}</div>
         </div>
       </a>`;
+  }
+
+  function buildPairTile(item) {
+    // Hero pair: vertical (2:3) + square (1:1) for the same post. We render
+    // both thumbs side by side inside one tile so the admin sees them as a
+    // single content unit, but each half is a distinct link to its own
+    // detail page (preserves URL stability).
+    const v = item.vertical;
+    const s = item.square;
+    const sub = [
+      item.matchup || item.matchup_text || '',
+      item.metric_name || item.metric_key || '',
+    ].filter(Boolean).join(' · ');
+    const ago = item.created_at_human || '';
+    const scopeClass = item.scope ? `scope-${esc(item.scope)}` : '';
+    const vThumb = v.thumbnail_url || v.url || '';
+    const sThumb = s.thumbnail_url || s.url || '';
+    return `
+      <div class="asset-tile ${item.is_enabled ? '' : 'disabled'}">
+        <div class="asset-pair">
+          <div class="pair-half">
+            ${vThumb ? `<img src="${esc(vThumb)}" alt="" loading="lazy">` : ''}
+            <span class="pair-badge">2:3</span>
+            <a href="/admin/assets/${v.id}" aria-label="open vertical"></a>
+          </div>
+          <div class="pair-half">
+            ${sThumb ? `<img src="${esc(sThumb)}" alt="" loading="lazy">` : ''}
+            <span class="pair-badge" style="background:#f97316;">IG 1:1</span>
+            <a href="/admin/assets/${s.id}" aria-label="open square"></a>
+          </div>
+        </div>
+        <div class="asset-meta">
+          <span>
+            <span class="asset-pill ${scopeClass}">${esc(item.scope || 'asset')}</span>
+            <span class="asset-pill" style="color:#f97316;border-color:#f97316;">pair</span>
+            ${item.is_enabled ? '' : '<span class="asset-pill" style="color:var(--loss);">disabled</span>'}
+          </span>
+          <div class="asset-title">${esc(sub)}</div>
+          <div class="asset-sub">${esc(ago)} · post #${item.post_id}</div>
+        </div>
+      </div>`;
   }
 
   async function loadPage(page) {

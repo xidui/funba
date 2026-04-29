@@ -55,6 +55,28 @@
     font-size: 11px; color: var(--muted); margin-left: auto; align-self: center;
   }
   .prompt-diff-hint.differs { color: #f97316; }
+  /* Variant switcher — only renders when this asset has a sibling
+     (vertical ⇄ square). Hidden otherwise so single assets keep their
+     original cleaner header. */
+  .variant-switcher {
+    display: flex; gap: 6px; margin-bottom: 1rem; align-items: center;
+    flex-wrap: wrap;
+  }
+  .variant-switcher .label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-right: 4px;
+  }
+  .variant-tab {
+    padding: 5px 14px; font-size: 12px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+    text-decoration: none; background: var(--surface-2, #0d1c2e);
+  }
+  .variant-tab:hover { color: var(--text); border-color: var(--accent); }
+  .variant-tab.active {
+    background: var(--accent-dim); color: var(--accent);
+    border-color: var(--accent);
+  }
+  .variant-tab .dim { color: var(--muted); font-size: 11px; }
 </style>
 
 <nav style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
@@ -94,6 +116,7 @@
 
   function render(d) {
     const m = d.meta || {};
+    const sib = d.sibling || null;
     const linkGame = m.game_url
       ? `<a href="${esc(m.game_url)}">${esc(m.matchup_text || m.game_id || '')}</a>`
       : esc(m.matchup_text || m.game_id || '—');
@@ -105,7 +128,33 @@
       : '—';
     const enabledPill = m.is_enabled ? '<span class="pill enabled">enabled</span>' : '<span class="pill disabled">disabled</span>';
 
+    // Hero pair switcher: appears when this asset has a sibling. Tab clicks
+    // navigate to the sibling's URL — one URL = one variant, no client-side
+    // tab state to manage. Vertical always sits left of Square so the order
+    // is stable regardless of which side you arrived on.
+    const hasSibling = !!sib;
+    const variantLabel = (v) => v === 'square' ? 'Square 1024×1024' : 'Vertical 1024×1536';
+    const variantSwitcher = hasSibling
+      ? (() => {
+          const cur = m.variant === 'square' ? 'square' : 'vertical';
+          const sibVariant = cur === 'square' ? 'vertical' : 'square';
+          const tabSelf = `<span class="variant-tab active">${esc(variantLabel(cur))}</span>`;
+          const tabSib = `<a class="variant-tab" href="/admin/assets/${sib.id}">${esc(variantLabel(sibVariant))}</a>`;
+          // Always render Vertical | Square in that order regardless of cur.
+          const left  = cur === 'vertical' ? tabSelf : tabSib;
+          const right = cur === 'square'   ? tabSelf : tabSib;
+          return `<div class="variant-switcher">
+            <span class="label">Variant</span>
+            ${left}${right}
+            <span class="dim" style="font-size:11px;color:var(--muted);margin-left:8px;">
+              IG 用方版（square），其他平台用 vertical。同一份 prompt，size 段落不同。
+            </span>
+          </div>`;
+        })()
+      : '';
+
     root.innerHTML = `
+      ${variantSwitcher}
       <div class="asset-preview">
         ${m.url ? `<img src="${esc(m.url)}" alt="">` : '<div style="padding:30px;text-align:center;color:var(--muted);">no image</div>'}
         <div style="margin-top:10px;font-size:11px;color:var(--muted);">${esc(m.file_path || '')}</div>
@@ -121,7 +170,7 @@
             ${m.value_text ? `<tr><th>Value</th><td>${esc(m.value_text)} ${m.rank_text ? `· ${esc(m.rank_text)}` : ''}</td></tr>` : ''}
             <tr><th>Generated at</th><td>${esc(m.created_at_human || m.created_at || '—')}</td></tr>
             <tr><th>Model</th><td>${esc(m.model || 'gpt-image-2')}</td></tr>
-            <tr><th>Slot</th><td>${esc(m.slot || '—')}</td></tr>
+            <tr><th>Variant</th><td>${esc(variantLabel(m.variant === 'square' ? 'square' : 'vertical'))}<span class="pill" style="margin-left:6px;">slot=${esc(m.slot || '—')}</span></td></tr>
             <tr><th>Post</th><td>${linkPost}</td></tr>
             ${m.size_kb ? `<tr><th>File size</th><td>${esc(m.size_kb)} KB</td></tr>` : ''}
           </table>

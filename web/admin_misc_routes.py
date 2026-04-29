@@ -723,6 +723,13 @@ def register_admin_misc_routes(app, deps):
             except Exception:
                 spec = {}
 
+        # variant: "vertical" (default 2:3) or "square" (1:1 IG sibling).
+        # Preferred source is spec.variant; fall back to slot inference for
+        # legacy rows that pre-date the variant field in spec.
+        variant = str(spec.get("variant") or "").strip()
+        if variant not in ("vertical", "square"):
+            variant = "square" if img.slot == "poster_ig" else "vertical"
+
         post = session.query(SocialPost).filter(SocialPost.id == img.post_id).first()
 
         # Resolve game / metric / entity from spec, falling back to topic parsing.
@@ -792,6 +799,7 @@ def register_admin_misc_routes(app, deps):
                         session,
                         card={"metric_key": metric_key, "scope": scope, "entity_id": entity_id},
                         game=game,
+                        variant=variant,
                     )
                     prompt_live = render_prompt(template, ctx)
             except Exception:
@@ -851,6 +859,7 @@ def register_admin_misc_routes(app, deps):
             "id": int(img.id),
             "post_id": int(img.post_id),
             "slot": img.slot,
+            "variant": variant,
             "image_type": img.image_type,
             "is_enabled": bool(img.is_enabled),
             "url": url,
@@ -876,6 +885,17 @@ def register_admin_misc_routes(app, deps):
             "prompt_live": prompt_live,
             "prompt_original": prompt_original,
         }
+
+    def _is_hero_pair_member(img) -> bool:
+        """A row is part of a hero vertical/square pair if its slot is one of
+        the two known hero slots. Used by the list page to decide whether to
+        try to find a sibling and merge them into a single tile."""
+        return img.slot in ("poster", "poster_ig")
+
+    def _dt_min():
+        """Sentinel for sorting tiles whose created_at is somehow NULL."""
+        from datetime import datetime as _dt2
+        return _dt2.min
 
     def api_admin_assets_list():
         denied = deps.require_admin_json()()
@@ -915,18 +935,98 @@ def register_admin_misc_routes(app, deps):
             elif status_filter == "disabled":
                 q = q.filter(SocialPostImage.is_enabled.is_(False))
 
-            total = q.count()
-            import math
-
-            total_pages = max(1, math.ceil(total / page_size))
-            page = min(page, total_pages)
-            imgs = (
+            # Fetch all matching rows in one shot. We need everything in
+            # memory to do post_id-level pairing of the (poster, poster_ig)
+            # hero siblings before paginating; tile count != row count once
+            # pairs collapse into a single visual unit. Admin lists are
+            # bounded by the filters so this is fine in practice.
+            all_imgs = (
                 q.order_by(SocialPostImage.created_at.desc(), SocialPostImage.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
                 .all()
             )
-            items = [_build_asset_view(session, img) for img in imgs]
+
+            # Group hero (poster, poster_ig) rows by post_id; route everything
+            # else (img1..img9, screenshots, lone hero halves) through the
+            # single-tile path.
+            hero_by_post: dict[int, dict[str, SocialPostImage]] = {}
+            singles: list[SocialPostImage] = []
+            for img in all_imgs:
+                if _is_hero_pair_member(img):
+                    bucket = hero_by_post.setdefault(int(img.post_id), {})
+                    # Take the freshest row per slot if duplicates exist.
+                    existing = bucket.get(img.slot)
+                    if existing is None or (
+                        img.created_at and existing.created_at and img.created_at > existing.created_at
+                    ) or (existing is not None and img.id > existing.id and not existing.created_at):
+                        bucket[img.slot] = img
+                else:
+                    singles.append(img)
+
+            # Build tiles: paired (both slots present) → 1 tile carrying both
+            # views; orphan hero half → fall back to single tile so the admin
+            # can still see + regen the missing sibling later.
+            tiles: list[dict] = []
+            for post_id, slots in hero_by_post.items():
+                vert = slots.get("poster")
+                sq = slots.get("poster_ig")
+                if vert and sq:
+                    v_view = _build_asset_view(session, vert)
+                    s_view = _build_asset_view(session, sq)
+                    latest = max(
+                        vert.created_at or _dt_min(),
+                        sq.created_at or _dt_min(),
+                    )
+                    tiles.append({
+                        "kind": "hero_pair",
+                        "post_id": int(post_id),
+                        "vertical": v_view,
+                        "square": s_view,
+                        "primary": v_view,
+                        # `id` so the existing pagination/filter UI keeps
+                        # working with mixed paired + single tiles.
+                        "id": v_view["id"],
+                        "thumbnail_url": v_view.get("thumbnail_url") or v_view.get("url"),
+                        "url": v_view.get("url"),
+                        "is_enabled": v_view.get("is_enabled", True) and s_view.get("is_enabled", True),
+                        "scope": v_view.get("scope"),
+                        "metric_name": v_view.get("metric_name"),
+                        "metric_key": v_view.get("metric_key"),
+                        "matchup": v_view.get("matchup"),
+                        "matchup_text": v_view.get("matchup_text"),
+                        "created_at_human": v_view.get("created_at_human"),
+                        "_sort_ts": latest,
+                    })
+                else:
+                    # Orphan: render as single, but keep its slot info so
+                    # the detail page can still surface "no sibling yet".
+                    only = vert or sq
+                    if only is None:
+                        continue
+                    view = _build_asset_view(session, only)
+                    tiles.append({
+                        "kind": "hero_single",
+                        **view,
+                        "_sort_ts": only.created_at or _dt_min(),
+                    })
+            for img in singles:
+                view = _build_asset_view(session, img)
+                tiles.append({
+                    "kind": "single",
+                    **view,
+                    "_sort_ts": img.created_at or _dt_min(),
+                })
+
+            tiles.sort(key=lambda t: t["_sort_ts"], reverse=True)
+            for t in tiles:
+                t.pop("_sort_ts", None)
+
+            total = len(tiles)
+            import math
+
+            total_pages = max(1, math.ceil(total / page_size)) if total else 1
+            page = min(page, total_pages)
+            start = (page - 1) * page_size
+            items = tiles[start:start + page_size]
         return jsonify({
             "ok": True,
             "items": items,
@@ -947,7 +1047,26 @@ def register_admin_misc_routes(app, deps):
             img = session.query(SocialPostImage).filter(SocialPostImage.id == int(image_id)).first()
             if img is None:
                 return jsonify({"ok": False, "error": "asset_not_found"}), 404
-            return jsonify({"ok": True, "meta": _build_asset_view(session, img)})
+            meta = _build_asset_view(session, img)
+
+            # Sibling lookup: hero posts have a vertical (slot=poster) +
+            # square (slot=poster_ig) pair sharing the same post_id. The
+            # admin detail page shows them side-by-side / via tabs.
+            sibling_meta = None
+            if _is_hero_pair_member(img):
+                sibling_slot = "poster_ig" if img.slot == "poster" else "poster"
+                sibling = (
+                    session.query(SocialPostImage)
+                    .filter(
+                        SocialPostImage.post_id == img.post_id,
+                        SocialPostImage.slot == sibling_slot,
+                    )
+                    .order_by(SocialPostImage.created_at.desc(), SocialPostImage.id.desc())
+                    .first()
+                )
+                if sibling is not None:
+                    sibling_meta = _build_asset_view(session, sibling)
+            return jsonify({"ok": True, "meta": meta, "sibling": sibling_meta})
 
     def api_admin_asset_replace(image_id: int):
         denied = deps.require_admin_json()()
@@ -1023,6 +1142,13 @@ def register_admin_misc_routes(app, deps):
             if game is None:
                 return jsonify({"ok": False, "error": "game_not_found"}), 404
 
+            # Variant is derived from slot so the regen button is
+            # "do the right thing" — no extra param from the client needed.
+            # Falls back to spec.variant for legacy rows.
+            variant = str(spec.get("variant") or "").strip()
+            if variant not in ("vertical", "square"):
+                variant = "square" if img.slot == "poster_ig" else "vertical"
+
             try:
                 from social_media.hero_poster import generate_hero_poster, poster_path_for
                 import shutil as _shutil
@@ -1032,6 +1158,7 @@ def register_admin_misc_routes(app, deps):
                     card={"metric_key": metric_key, "scope": scope, "entity_id": entity_id},
                     game=game,
                     force=True,
+                    variant=variant,
                 )
                 if src is None:
                     return jsonify({"ok": False, "error": "regen_failed"}), 500
@@ -1040,10 +1167,18 @@ def register_admin_misc_routes(app, deps):
                     dst = _Path(str(img.file_path))
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     _shutil.copy2(str(src), str(dst))
-                # Update spec with the fresh prompt.
+                    # Refresh the .thumb.webp sibling so the list page
+                    # reflects the new image without admin browser cache hacks.
+                    try:
+                        from social_media.thumbnail import make_thumbnail
+                        make_thumbnail(dst)
+                    except Exception:
+                        deps.logger().exception("regen: thumbnail refresh failed for %s", dst)
+                # Update spec with the fresh prompt + variant.
                 from social_media.hero_poster import read_prompt_sidecar
 
                 spec["prompt"] = read_prompt_sidecar(str(src)) or spec.get("prompt", "")
+                spec["variant"] = variant
                 img.spec = _json.dumps(spec, ensure_ascii=False)
                 session.commit()
             except Exception as exc:
