@@ -368,6 +368,10 @@ def _build_game_posters(session, game, *, lang: str) -> list[dict]:
         except (FileNotFoundError, OSError):
             pass
 
+        metric_url = ""
+        if metric_key:
+            metric_url = f"{'/cn' if is_zh else ''}/metrics/{metric_key}"
+
         out.append({
             "thumb_url": thumb_url,
             "full_url": full_url,
@@ -375,6 +379,7 @@ def _build_game_posters(session, game, *, lang: str) -> list[dict]:
             "sub_caption": sub_caption,
             "accent_color": accent_color,
             "scope": entry["scope"],
+            "metric_url": metric_url,
         })
 
     return out
