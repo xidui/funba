@@ -794,10 +794,19 @@ def register_admin_content_routes(app, deps):
 
         prompts: list[dict] = []
         if poster_dir.is_dir():
-            preferred = None
-            if scope and metric_key and entity_id:
-                preferred = f"{scope}.{metric_key}.{entity_id}.prompt.txt"
-            for path in sorted(poster_dir.glob("*.prompt.txt")):
+            preferred_name = None
+            # Hero highlights bind a post to one (scope, entity, metric_key) tuple.
+            # Match scope + entity so we surface only variants of *this* highlight
+            # (e.g. _career vs _last5 of the same metric family on the same team)
+            # — not unrelated posters that happen to share the game.
+            if scope and entity_id:
+                pattern = f"{scope}.*.{entity_id}.prompt.txt"
+                if metric_key:
+                    preferred_name = f"{scope}.{metric_key}.{entity_id}.prompt.txt"
+                candidates = sorted(poster_dir.glob(pattern))
+            else:
+                candidates = sorted(poster_dir.glob("*.prompt.txt"))
+            for path in candidates:
                 try:
                     text = path.read_text(encoding="utf-8")
                 except OSError:
@@ -805,7 +814,7 @@ def register_admin_content_routes(app, deps):
                 prompts.append(
                     {
                         "filename": path.name,
-                        "is_preferred": (preferred is not None and path.name == preferred),
+                        "is_preferred": (preferred_name is not None and path.name == preferred_name),
                         "content": text,
                     }
                 )
