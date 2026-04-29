@@ -12,6 +12,23 @@
   </svg>
 </button>
 {%- endmacro %}
+{% macro game_chip(gid, road_team_id, home_team_id, road_abbr, home_abbr, road_score, home_score, winner_id, game_date) -%}
+{%- if gid -%}
+<a class="feed-game-chip" href="{{ game_url(gid) }}"
+   aria-label="{{ road_abbr }}{% if road_score is not none and home_score is not none %} {{ road_score }}–{{ home_score }} {% else %} @ {% endif %}{{ home_abbr }}{% if game_date %} · {{ game_date.strftime('%b %d') }}{% endif %}">
+  {% if road_team_id %}<img src="{{ team_logo(road_team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
+  <span class="feed-game-chip-abbr{% if winner_id and winner_id == road_team_id|string %} winner{% endif %}">{{ road_abbr }}</span>
+  {% if road_score is not none and home_score is not none %}
+  <span class="feed-game-chip-score">{{ road_score }}–{{ home_score }}</span>
+  {% else %}
+  <span class="feed-game-chip-at">@</span>
+  {% endif %}
+  <span class="feed-game-chip-abbr{% if winner_id and winner_id == home_team_id|string %} winner{% endif %}">{{ home_abbr }}</span>
+  {% if home_team_id %}<img src="{{ team_logo(home_team_id) }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
+  {% if game_date %}<span class="feed-game-chip-date">{{ game_date.strftime('%b %d') }}</span>{% endif %}
+</a>
+{%- endif -%}
+{%- endmacro %}
 {% if item.kind == 'image' %}
 {% set _share_url = item.news_url or item.metric_url or item.game_url or '#' %}
 <div class="feed-card feed-image-card">
@@ -21,7 +38,7 @@
   {% endif %}
   <div class="fh-body">
     <div class="fh-title">{{ item.title }}</div>
-    {% if item.game_title %}<div class="fh-meta">{{ item.game_title }}</div>{% endif %}
+    {{ game_chip(item.game_id, item.road_team_id, item.home_team_id, item.road_abbr, item.home_abbr, item.road_score, item.home_score, item.winner_id, item.game_date) }}
   </div>
   {{ share_btn(_share_url, item.title or '') }}
 </div>
@@ -70,7 +87,9 @@
       {% if m.last3_badge_text %}<span class="rank-chip notable">{{ m.last3_badge_text }}</span>{% endif %}
     </div>
     {% endif %}
-    {% if m.road_abbr and m.home_abbr %}
+    {% if m.road_abbr and m.home_abbr and m.game_id %}
+    {{ game_chip(m.game_id, m.road_team_id, m.home_team_id, m.road_abbr, m.home_abbr, m.road_score, m.home_score, m.winner_id, m.game_date) }}
+    {% elif m.road_abbr and m.home_abbr %}
     <div class="tem-meta">
       <span class="tem-meta-game">
         <span class="tem-team{% if m.winner_id and m.winner_id == m.road_team_id|string %} tem-team-winner{% endif %}">{{ m.road_abbr }}</span>

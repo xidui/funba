@@ -1217,15 +1217,27 @@ def register_public_routes(
 
                 game_url = ""
                 game_title = ""
+                home_team_id = None
+                road_team_id = None
+                home_abbr = ""
+                road_abbr = ""
+                home_score = None
+                road_score = None
+                winner_id = None
                 if game is not None:
                     slug = game.slug or game.game_id
                     game_url = f"/games/{slug}"
                     home_team = team_lookup.get(str(game.home_team_id)) if team_lookup else None
                     road_team = team_lookup.get(str(game.road_team_id)) if team_lookup else None
+                    home_team_id = game.home_team_id
+                    road_team_id = game.road_team_id
                     home_abbr = getattr(home_team, "abbr", None) or "?"
                     road_abbr = getattr(road_team, "abbr", None) or "?"
-                    if game.home_team_score is not None and game.road_team_score is not None:
-                        game_title = f"{road_abbr} {game.road_team_score} @ {home_abbr} {game.home_team_score}"
+                    home_score = game.home_team_score
+                    road_score = game.road_team_score
+                    winner_id = str(game.wining_team_id) if getattr(game, "wining_team_id", None) else None
+                    if home_score is not None and road_score is not None:
+                        game_title = f"{road_abbr} {road_score} @ {home_abbr} {home_score}"
                     else:
                         game_title = f"{road_abbr} @ {home_abbr}"
 
@@ -1261,6 +1273,14 @@ def register_public_routes(
                         "metric_url": metric_url,
                         "news_url": news_url,
                         "game_title": game_title,
+                        "game_id": getattr(game, "game_id", None),
+                        "home_team_id": home_team_id,
+                        "road_team_id": road_team_id,
+                        "home_abbr": home_abbr,
+                        "road_abbr": road_abbr,
+                        "home_score": home_score,
+                        "road_score": road_score,
+                        "winner_id": winner_id,
                         "published_at": delivery.published_at,
                         "game_date": getattr(game, "game_date", None) if game is not None else None,
                         **source,
