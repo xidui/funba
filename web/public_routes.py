@@ -1132,13 +1132,25 @@ def register_public_routes(
             "source_entity_id": parts[4],
         }
 
-    def _build_featured_highlights(team_lookup: dict, limit: int = 12) -> list[dict]:
+    def _build_featured_highlights(
+        team_lookup: dict,
+        *,
+        limit: int | None = 12,
+        game_ids: set[str] | None = None,
+        max_per_game: int = 2,
+    ) -> list[dict]:
         """Hero card posts published to Funba's home feed (platform=funba).
 
         Server-side dedup: a metric can have several SocialPost rows (race
         conditions on concurrent curator runs, manual retriggers, …); the
         feed should show each (game, metric, entity) story exactly once,
         keeping the most recently published delivery.
+
+        When `game_ids` is provided, the query is scoped to deliveries whose
+        `source_game_ids` mentions one of those games — used by the home
+        feed pagination so each scroll page shows hero cards for that
+        page's slice of games. `limit` is the global cap (None = uncapped);
+        `max_per_game` keeps a single noisy game from filling the slice.
         """
         from pathlib import Path
 
@@ -1151,10 +1163,10 @@ def register_public_routes(
             SocialPostImage,
             SocialPostVariant,
         )
+        from sqlalchemy import or_
 
         with SessionLocal() as session:
-            # Pull more than `limit` so dedup has room to drop dupes.
-            rows = (
+            query = (
                 session.query(SocialPostDelivery, SocialPostVariant, SocialPost)
                 .join(SocialPostVariant, SocialPostDelivery.variant_id == SocialPostVariant.id)
                 .join(SocialPost, SocialPostVariant.post_id == SocialPost.id)
@@ -1164,9 +1176,16 @@ def register_public_routes(
                     SocialPost.status != "archived",
                 )
                 .order_by(SocialPostDelivery.published_at.is_(None), SocialPostDelivery.published_at.desc(), SocialPostDelivery.id.desc())
-                .limit(limit * 5)
-                .all()
             )
+            if game_ids:
+                # source_game_ids is a JSON-encoded list of strings; LIKE
+                # '%"<id>"%' is exact since JSON encoding always quotes ids.
+                conds = [SocialPost.source_game_ids.like(f'%"{gid}"%') for gid in game_ids]
+                query = query.filter(or_(*conds))
+            if limit is not None:
+                # Pull more than `limit` so dedup has room to drop dupes.
+                query = query.limit(limit * 5)
+            rows = query.all()
             if not rows:
                 return []
 
@@ -1289,22 +1308,36 @@ def register_public_routes(
 
             # Dedup by (game_id, scope, metric_key, entity_id). The list is
             # already ordered newest-first; first hit per key wins.
+            # Also cap at `max_per_game` to prevent one noisy game from
+            # filling the slice — without this cap, a 5-poster blowout eats
+            # the older days' hero cards.
+            from collections import defaultdict as _defaultdict
             deduped: list[dict] = []
             seen: set[tuple[str, str, str, str]] = set()
+            per_game: dict[str, int] = _defaultdict(int)
             for entry in entries:
+                gid = str(entry.get("source_game_id") or "")
+                if max_per_game and gid and per_game[gid] >= max_per_game:
+                    continue
                 key = (
-                    str(entry.get("source_game_id") or ""),
+                    gid,
                     str(entry.get("source_scope") or ""),
                     str(entry.get("source_metric_key") or ""),
                     str(entry.get("source_entity_id") or ""),
                 )
                 if not all(key):
                     deduped.append(entry)
+                    if gid:
+                        per_game[gid] += 1
                     continue
                 if key in seen:
                     continue
                 seen.add(key)
                 deduped.append(entry)
+                if gid:
+                    per_game[gid] += 1
+            if limit is None:
+                return deduped
             return deduped[:limit]
 
     def home():
@@ -1397,8 +1430,17 @@ def register_public_routes(
 
         today_games_data = _build_today_games(team_lookup)
         notable_recent = _build_recent_notable_metrics(team_lookup)
+        first_page_game_ids = notable_recent.get("game_ids") or set()
         top_scorers = _build_top_scorers()
-        featured_highlights = _build_featured_highlights(team_lookup)
+        # Scope hero cards to the first 15 games (the same window that
+        # notable cards cover) and cap at 2/game so a single blowout
+        # doesn't fill the slice. Older games' hero cards arrive via
+        # infinite scroll, not by getting bumped off page 1.
+        featured_highlights = (
+            _build_featured_highlights(team_lookup, limit=None, game_ids=first_page_game_ids)
+            if first_page_game_ids
+            else _build_featured_highlights(team_lookup)
+        )
 
         # ── merge text-only notable cards with image-dominant featured posters
         # into one waterfall, with dedup so a metric that already has a poster
@@ -1477,7 +1519,8 @@ def register_public_routes(
         return response
 
     def home_feed_more():
-        """Infinite-scroll endpoint: rendered notable cards for older games."""
+        """Infinite-scroll endpoint: hero card posters + notable text cards
+        for the next slice of older games."""
         SessionLocal = get_session_local()
         Game = get_game_model()
         try:
@@ -1498,6 +1541,8 @@ def register_public_routes(
             )
         has_more = len(games) > per_page_games
         games = games[:per_page_games]
+
+        # Notable cards for these games
         cards: list[dict] = []
         for idx, game in enumerate(games):
             payload = get_cached_game_metrics_payload(game.game_id) if get_cached_game_metrics_payload else None
@@ -1513,9 +1558,55 @@ def register_public_routes(
         for card in cards:
             card.pop("_sort", None)
         cards = cards[:_NOTABLE_MAX_CARDS]
-        items = [{"kind": "notable", **card} for card in cards]
+
+        # Image (hero poster) cards scoped to this page's games — capped
+        # at 2 per game so a single noisy game can't fill the slice.
+        page_game_ids = {str(g.game_id) for g in games}
+        image_items = (
+            _build_featured_highlights(team_lookup, limit=None, game_ids=page_game_ids)
+            if page_game_ids
+            else []
+        )
+
+        # Drop notable cards already covered by an image card from the same
+        # (game, scope, metric_key, entity_id) — no duplicate stories.
+        covered: set[tuple[str, str, str, str]] = set()
+        for fh in image_items:
+            key = (
+                str(fh.get("source_game_id") or ""),
+                str(fh.get("source_scope") or ""),
+                str(fh.get("source_metric_key") or ""),
+                str(fh.get("source_entity_id") or ""),
+            )
+            if all(key):
+                covered.add(key)
+
+        def _notable_match_keys(card: dict) -> list[tuple[str, str, str, str]]:
+            scope = str(card.get("subject_kind") or "")
+            metric_key = str(card.get("metric_key") or "")
+            game_id = str(card.get("game_id") or card.get("home_game_id") or "")
+            entity = str(card.get("entity_id") or card.get("player_id") or card.get("team_id") or "")
+            return [(game_id, scope, metric_key, entity)] if (game_id and metric_key) else []
+
+        feed_items: list[dict] = [{"kind": "image", **fh} for fh in image_items]
+        for card in cards:
+            if any(k in covered for k in _notable_match_keys(card)):
+                continue
+            feed_items.append({"kind": "notable", **card})
+
+        # Sort same as initial render: most recent date first; image
+        # before notable within a date.
+        def _sort_key(item: dict) -> tuple:
+            gd = item.get("game_date")
+            ts = gd.toordinal() if hasattr(gd, "toordinal") else 0
+            kind_rank = 0 if item.get("kind") == "image" else 1
+            ratio = item.get("ratio") or item.get("best_ratio") or 9999
+            return (-ts, kind_rank, ratio)
+
+        feed_items.sort(key=_sort_key)
+
         render = get_render_template()
-        html = "".join(render("_feed_card.html", item=item) for item in items)
+        html = "".join(render("_feed_card.html", item=item) for item in feed_items)
         return jsonify({
             "html": html,
             "next_page": page + 1 if has_more else None,
@@ -1780,7 +1871,8 @@ def register_public_routes(
             if game.game_date and game.game_date not in seen_dates:
                 dates.append(game.game_date)
                 seen_dates.add(game.game_date)
-        return {"cards": cards[:_NOTABLE_MAX_CARDS], "game_dates": dates}
+        game_ids = {str(g.game_id) for g in games}
+        return {"cards": cards[:_NOTABLE_MAX_CARDS], "game_dates": dates, "game_ids": game_ids}
 
     def news_page():
         SessionLocal = get_session_local()
