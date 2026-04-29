@@ -1733,9 +1733,26 @@
   }
 
   .gp-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 14px;
+    position: relative;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%);
+  }
+  .gp-track {
+    display: flex;
+    width: max-content;
+    animation: gp-marquee var(--gp-duration, 32s) linear infinite;
+  }
+  .gp-strip:hover .gp-track,
+  .gp-strip:focus-within .gp-track {
+    animation-play-state: paused;
+  }
+  @keyframes gp-marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gp-track { animation: none; }
   }
 
   .gp-item {
@@ -1750,6 +1767,8 @@
     cursor: zoom-in;
     color: inherit;
     font: inherit;
+    flex: 0 0 180px;
+    margin-right: 14px;
   }
 
   .gp-thumb-wrap {
@@ -1811,19 +1830,26 @@
     .gp-card { padding: 20px 0 20px; }
     .gp-head { padding: 0 18px; }
     .gp-strip {
-      display: flex;
       overflow-x: auto;
+      -webkit-mask-image: none;
+      mask-image: none;
       scroll-snap-type: x mandatory;
-      gap: 12px;
       padding: 4px 18px 6px;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
     }
     .gp-strip::-webkit-scrollbar { display: none; }
+    .gp-track {
+      animation: none;
+      width: auto;
+    }
+    /* drop the duplicate set on mobile: user controls scroll manually */
+    .gp-track .gp-item[data-clone="1"] { display: none; }
     .gp-item {
       flex: 0 0 60%;
       max-width: 220px;
       scroll-snap-align: start;
+      margin-right: 12px;
     }
   }
 
@@ -1994,31 +2020,37 @@
     <div class="gp-title">{{ t('Game posters', '本场海报') }}</div>
     <div class="gp-count">{{ game_posters|length }}</div>
   </div>
+  {%- set _gp_duration = (game_posters|length * 5) if (game_posters|length * 5) > 20 else 20 -%}
   <div class="gp-strip" data-role="game-poster-strip">
-    {% for poster in game_posters %}
-    <button
-      type="button"
-      class="gp-item"
-      style="--gp-accent: {{ poster.accent_color }};"
-      data-full-url="{{ poster.full_url }}"
-      data-caption="{{ poster.caption }}"
-      data-sub-caption="{{ poster.sub_caption }}">
-      <span class="gp-thumb-wrap">
-        <img
-          class="gp-thumb"
-          src="{{ poster.thumb_url }}"
-          alt="{{ poster.caption }}{% if poster.sub_caption %} — {{ poster.sub_caption }}{% endif %}"
-          loading="lazy"
-          decoding="async">
-      </span>
-      <span class="gp-meta">
-        <span class="gp-caption">{{ poster.caption }}</span>
-        {% if poster.sub_caption %}
-        <span class="gp-sub-caption">{{ poster.sub_caption }}</span>
-        {% endif %}
-      </span>
-    </button>
-    {% endfor %}
+    <div class="gp-track" style="--gp-duration: {{ _gp_duration }}s;">
+      {% for clone in [false, true] %}
+      {% for poster in game_posters %}
+      <button
+        type="button"
+        class="gp-item"
+        style="--gp-accent: {{ poster.accent_color }};"
+        data-full-url="{{ poster.full_url }}"
+        data-caption="{{ poster.caption }}"
+        data-sub-caption="{{ poster.sub_caption }}"
+        {% if clone %}data-clone="1" aria-hidden="true" tabindex="-1"{% endif %}>
+        <span class="gp-thumb-wrap">
+          <img
+            class="gp-thumb"
+            src="{{ poster.thumb_url }}"
+            alt="{% if not clone %}{{ poster.caption }}{% if poster.sub_caption %} — {{ poster.sub_caption }}{% endif %}{% endif %}"
+            loading="lazy"
+            decoding="async">
+        </span>
+        <span class="gp-meta">
+          <span class="gp-caption">{{ poster.caption }}</span>
+          {% if poster.sub_caption %}
+          <span class="gp-sub-caption">{{ poster.sub_caption }}</span>
+          {% endif %}
+        </span>
+      </button>
+      {% endfor %}
+      {% endfor %}
+    </div>
   </div>
 </div>
 
