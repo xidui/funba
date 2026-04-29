@@ -2,27 +2,61 @@
 {% set team_name = era.name if era and era.name else display_team_name(team) %}
 {% set team_display_abbr = era.abbr if era and era.abbr else team.abbr %}
 {% set team_header_title = team_name + (' ' + selected_year_label if selected_year_label and selected_year_label != '—' else '') %}
+{%- set _wins = season_record.wins if season_record else 0 -%}
+{%- set _losses = season_record.losses if season_record else 0 -%}
+{%- set _has_record = season_record and (_wins or _losses) -%}
+{%- if _has_record and lang == 'zh' -%}
+  {%- set _meta_desc = team_header_title ~ ' 战绩 ' ~ _wins|string ~ '胜' ~ _losses|string ~ '负。比赛记录、战绩走势、高级指标。' -%}
+{%- elif _has_record -%}
+  {%- set _meta_desc = team_header_title ~ ' — ' ~ _wins|string ~ '–' ~ _losses|string ~ ' record. Game log, standings, and advanced metrics on FUNBA.' -%}
+{%- else -%}
+  {%- set _meta_desc = team_header_title ~ ' ' ~ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') -%}
+{%- endif -%}
 {% block title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ team_header_title }} {{ t('season record, game log, and advanced metrics on FUNBA.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block meta_description %}{{ _meta_desc }}{% endblock %}
 {% block og_title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
-{% block og_description %}{{ team_header_title }} {{ t('season record, game log, and advanced metrics.', '球队战绩、比赛记录和高级指标。') }}{% endblock %}
+{% block og_description %}{{ _meta_desc }}{% endblock %}
 {% block tw_title %}{{ team_header_title }} — {{ site_name }}{% endblock %}
-{% block tw_description %}{{ team_header_title }} {{ t('season record and game log.', '球队战绩和比赛记录。') }}{% endblock %}
+{% block tw_description %}{{ _meta_desc }}{% endblock %}
 {% block og_image %}{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}{% endblock %}
 {% block tw_image %}{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}{% endblock %}
 {% block json_ld %}
+{%- set _team_logo = era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') -%}
+{%- if _team_logo and _team_logo.startswith('/') -%}
+  {%- set _team_logo = 'https://funba.app' ~ _team_logo -%}
+{%- endif -%}
+{%- set _addr = team.city if team.city else '' -%}
+{%- if team.state and team.state != team.city -%}
+  {%- set _addr = (_addr ~ (', ' if _addr else '')) ~ team.state -%}
+{%- endif -%}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SportsTeam",
-  "name": "{{ team_name }}",
-  "url": "https://funba.app/teams/{{ team.slug }}",
-  "logo": "{{ era.logo_url if era and era.logo_url else ('https://cdn.nba.com/logos/nba/' ~ team.team_id ~ '/global/L/logo.svg') }}",
-  "sport": "Basketball",
+  "name": {{ team_name|tojson }},
+  "url": {{ ('https://funba.app/teams/' ~ team.slug)|tojson }},
+  "logo": {{ _team_logo|tojson }},
+  "sport": "Basketball",{% if team.arena %}
+  "location": {
+    "@type": "Place",
+    "name": {{ team.arena|tojson }}{% if _addr %},
+    "address": {{ _addr|tojson }}{% endif %}
+  },{% endif %}
   "memberOf": {
     "@type": "SportsOrganization",
     "name": "NBA"
   }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": {{ t('Home', '首页')|tojson }}, "item": "https://funba.app/"},
+    {"@type": "ListItem", "position": 2, "name": {{ t('Teams', '球队')|tojson }}, "item": "https://funba.app/teams"},
+    {"@type": "ListItem", "position": 3, "name": {{ team_name|tojson }}}
+  ]
 }
 </script>
 {% endblock %}

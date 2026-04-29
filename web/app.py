@@ -515,32 +515,81 @@ def robots_txt():
     lines = [
         "User-agent: *",
         "Allow: /",
-        "Disallow: /admin",
+        # Auth + account pages have no public content worth indexing.
+        "Disallow: /admin/",
+        "Disallow: /cn/admin/",
         "Disallow: /auth/",
+        "Disallow: /login",
+        "Disallow: /cn/login",
+        "Disallow: /account",
+        "Disallow: /cn/account",
+        "Disallow: /pricing",
+        "Disallow: /cn/pricing",
+        "Disallow: /upgrade",
+        "Disallow: /cn/upgrade",
+        # Internal API surface (keep /api/health public for monitors).
         "Disallow: /api/",
+        "Allow: /api/health",
+        # Editor tooling for user-defined metrics — not indexable.
+        "Disallow: /metrics/new",
+        "Disallow: /cn/metrics/new",
+        "Disallow: /metrics/mine",
+        "Disallow: /cn/metrics/mine",
+        "Disallow: /*/edit",
         "",
         "Sitemap: https://funba.app/sitemap.xml",
     ]
-    return make_response("\n".join(lines)), 200, {"Content-Type": "text/plain"}
+    return make_response("\n".join(lines)), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 _SITEMAP_BASE = "https://funba.app"
 _SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+_SITEMAP_XHTML_NS = "http://www.w3.org/1999/xhtml"
 
 
 def _xml_response(xml_lines: list[str]):
-    return make_response("\n".join(xml_lines)), 200, {"Content-Type": "application/xml"}
+    body = '<?xml version="1.0" encoding="UTF-8"?>\n' + "\n".join(xml_lines)
+    return make_response(body), 200, {"Content-Type": "application/xml; charset=utf-8"}
 
 
-def _urlset(urls: list[str]):
+def _fmt_lastmod(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0).isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return None
+
+
+def _urlset_localized(entries: list[tuple[str, object]]):
+    """Build a urlset where every path has en + zh-CN hreflang alternates.
+
+    `entries` is a list of (path, lastmod) where path starts with "/" and is
+    the English URL path. The /cn/ variant is emitted as an xhtml:link
+    alternate inside the same <url> entry (per Google's recommendation).
+    """
     xml = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        f'<urlset xmlns="{_SITEMAP_NS}">',
+        f'<urlset xmlns="{_SITEMAP_NS}" xmlns:xhtml="{_SITEMAP_XHTML_NS}">',
     ]
-    for url in urls:
-        xml.append(f"  <url><loc>{url}</loc></url>")
+    for path, lastmod in entries:
+        en_url = f"{_SITEMAP_BASE}{path}"
+        zh_url = f"{_SITEMAP_BASE}/cn{path}"
+        xml.append("  <url>")
+        xml.append(f"    <loc>{en_url}</loc>")
+        lm = _fmt_lastmod(lastmod)
+        if lm:
+            xml.append(f"    <lastmod>{lm}</lastmod>")
+        xml.append(f'    <xhtml:link rel="alternate" hreflang="en" href="{en_url}"/>')
+        xml.append(f'    <xhtml:link rel="alternate" hreflang="zh-CN" href="{zh_url}"/>')
+        xml.append(f'    <xhtml:link rel="alternate" hreflang="x-default" href="{en_url}"/>')
+        xml.append("  </url>")
     xml.append("</urlset>")
     return xml
+
+
+# Sitemap URL count limit per the spec is 50,000. Stay well under it.
+_SITEMAP_URL_LIMIT = 50000
 
 
 def _sitemap_metric_keys_from_results(published_base_keys: set[str], result_metric_keys) -> list[str]:
@@ -557,48 +606,86 @@ def _sitemap_metric_keys_from_results(published_base_keys: set[str], result_metr
 @app.route("/sitemap.xml")
 def sitemap_xml():
     """Sitemap index pointing to sub-sitemaps."""
-    subs = [
-        f"{_SITEMAP_BASE}/sitemap-static.xml",
-        f"{_SITEMAP_BASE}/sitemap-teams.xml",
-        f"{_SITEMAP_BASE}/sitemap-players.xml",
-        f"{_SITEMAP_BASE}/sitemap-metrics.xml",
-    ]
+    today = date.today().isoformat()
     with SessionLocal() as db:
         seasons = [s for (s,) in db.query(distinct(Game.season)).order_by(Game.season).all()]
-    for season in seasons:
-        subs.append(f"{_SITEMAP_BASE}/sitemap-games-{season}.xml")
-    xml = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        f'<sitemapindex xmlns="{_SITEMAP_NS}">',
+        latest_team_game = db.query(func.max(Game.game_date)).scalar()
+        latest_player_game = latest_team_game
+        latest_metric = db.query(func.max(MetricResultModel.computed_at)).scalar()
+
+    subs: list[tuple[str, object]] = [
+        ("sitemap-static.xml", today),
+        ("sitemap-teams.xml", latest_team_game or today),
+        ("sitemap-players.xml", latest_player_game or today),
+        ("sitemap-metrics.xml", latest_metric or today),
     ]
-    for loc in subs:
-        xml.append(f"  <sitemap><loc>{loc}</loc></sitemap>")
+    for season in seasons:
+        # Per-season game lastmod is computed fresh in each sub-sitemap; use
+        # the season's last game date as the index-level lastmod.
+        with SessionLocal() as db:
+            season_lastmod = (
+                db.query(func.max(Game.game_date))
+                .filter(Game.season == season)
+                .scalar()
+            )
+        subs.append((f"sitemap-games-{season}.xml", season_lastmod or today))
+
+    xml = [f'<sitemapindex xmlns="{_SITEMAP_NS}">']
+    for path, lastmod in subs:
+        xml.append("  <sitemap>")
+        xml.append(f"    <loc>{_SITEMAP_BASE}/{path}</loc>")
+        lm = _fmt_lastmod(lastmod)
+        if lm:
+            xml.append(f"    <lastmod>{lm}</lastmod>")
+        xml.append("  </sitemap>")
     xml.append("</sitemapindex>")
     return _xml_response(xml)
 
 
 @app.route("/sitemap-static.xml")
 def sitemap_static_xml():
-    return _xml_response(_urlset([
-        f"{_SITEMAP_BASE}/",
-        f"{_SITEMAP_BASE}/games",
-        f"{_SITEMAP_BASE}/awards",
-        f"{_SITEMAP_BASE}/metrics",
+    today = date.today()
+    return _xml_response(_urlset_localized([
+        ("/", today),
+        ("/games", today),
+        ("/teams", today),
+        ("/players", today),
+        ("/awards", today),
+        ("/metrics", today),
+        ("/news", today),
     ]))
 
 
 @app.route("/sitemap-teams.xml")
 def sitemap_teams_xml():
     with SessionLocal() as db:
-        teams = db.query(Team.slug).filter(Team.slug.isnot(None)).all()
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/teams/{slug}" for (slug,) in teams]))
+        rows = (
+            db.query(Team.slug, func.max(Game.game_date))
+            .outerjoin(TeamGameStats, TeamGameStats.team_id == Team.team_id)
+            .outerjoin(Game, Game.game_id == TeamGameStats.game_id)
+            .filter(Team.slug.isnot(None))
+            .group_by(Team.slug)
+            .all()
+        )
+    today = date.today()
+    entries = [(f"/teams/{slug}", lastmod or today) for slug, lastmod in rows]
+    return _xml_response(_urlset_localized(entries[:_SITEMAP_URL_LIMIT]))
 
 
 @app.route("/sitemap-players.xml")
 def sitemap_players_xml():
     with SessionLocal() as db:
-        players = db.query(Player.slug).filter(Player.slug.isnot(None)).all()
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/players/{slug}" for (slug,) in players]))
+        rows = (
+            db.query(Player.slug, func.max(Game.game_date))
+            .outerjoin(PlayerGameStats, PlayerGameStats.player_id == Player.player_id)
+            .outerjoin(Game, Game.game_id == PlayerGameStats.game_id)
+            .filter(Player.slug.isnot(None))
+            .group_by(Player.slug)
+            .all()
+        )
+    today = date.today()
+    entries = [(f"/players/{slug}", lastmod or today) for slug, lastmod in rows]
+    return _xml_response(_urlset_localized(entries[:_SITEMAP_URL_LIMIT]))
 
 
 @app.route("/sitemap-metrics.xml")
@@ -610,23 +697,34 @@ def sitemap_metrics_xml():
             .filter(MetricDefinitionModel.status == "published")
             .all()
         }
-        result_metric_keys = [
-            key
-            for (key,) in db.query(distinct(MetricResultModel.metric_key))
+        rows = (
+            db.query(MetricResultModel.metric_key, func.max(MetricResultModel.computed_at))
             .filter(MetricResultModel.metric_key.isnot(None))
+            .group_by(MetricResultModel.metric_key)
             .all()
-        ]
-    metric_keys = _sitemap_metric_keys_from_results(published_base_keys, result_metric_keys)
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/metrics/{k}" for k in metric_keys]))
+        )
+    today = date.today()
+    lastmod_by_key = {str(k): lm for k, lm in rows}
+    metric_keys = _sitemap_metric_keys_from_results(
+        published_base_keys, [k for k, _ in rows]
+    )
+    entries = [(f"/metrics/{k}", lastmod_by_key.get(k) or today) for k in metric_keys]
+    return _xml_response(_urlset_localized(entries[:_SITEMAP_URL_LIMIT]))
 
 
 @app.route("/sitemap-games-<int:season>.xml")
 def sitemap_games_xml(season: int):
     with SessionLocal() as db:
-        games = db.query(Game.slug).filter(Game.season == season, Game.slug.isnot(None)).all()
+        games = (
+            db.query(Game.slug, Game.game_date)
+            .filter(Game.season == season, Game.slug.isnot(None))
+            .all()
+        )
     if not games:
         abort(404)
-    return _xml_response(_urlset([f"{_SITEMAP_BASE}/games/{slug}" for (slug,) in games]))
+    today = date.today()
+    entries = [(f"/games/{slug}", game_date or today) for slug, game_date in games]
+    return _xml_response(_urlset_localized(entries[:_SITEMAP_URL_LIMIT]))
 
 
 # ── Google OAuth ─────────────────────────────────────────────────────────────

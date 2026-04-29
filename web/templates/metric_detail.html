@@ -1,4 +1,45 @@
 {% extends "base.html" %}
+{% set metric_seo_description = (metric_def.description|default('', true)|striptags|replace('\n', ' ')|trim) or (metric_def.name ~ ' NBA metric rankings and leaderboards on FUNBA.') %}
+{% block title %}{{ metric_def.name }} — NBA Metric | {{ site_name }}{% endblock %}
+{% block meta_description %}{{ metric_seo_description|truncate(155, True) }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ metric_def.name }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ metric_seo_description|truncate(200, True) }}{% endblock %}
+{% block tw_title %}{{ metric_def.name }} — {{ site_name }}{% endblock %}
+{% block tw_description %}{{ metric_seo_description|truncate(200, True) }}{% endblock %}
+{% block head_extra %}
+  {% set metric_index_statuses = ['queued', 'running', 'finalizing', 'not_started', 'draft'] %}
+  {% if request.query_string or (total is defined and total == 0) or (backfill and backfill.status in metric_index_statuses) %}
+    <meta name="robots" content="noindex,follow" />
+  {% endif %}
+{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{{ {
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  "name": metric_def.name,
+  "description": metric_seo_description,
+  "url": canonical_url or request.url,
+  "isAccessibleForFree": true,
+  "creator": {
+    "@type": "Organization",
+    "name": "FUNBA"
+  }
+}|tojson }}
+</script>
+<script type="application/ld+json">
+{{ {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": t('Home', '首页'), "item": "https://funba.app/"},
+    {"@type": "ListItem", "position": 2, "name": t('Metrics', '指标'), "item": "https://funba.app/metrics"},
+    {"@type": "ListItem", "position": 3, "name": metric_def.name}
+  ]
+}|tojson }}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   .active-dot {
@@ -136,6 +177,8 @@
     font-size: 26px;
     font-weight: 800;
     color: var(--text);
+    line-height: 1.15;
+    margin-top: 0;
     margin-bottom: 4px;
   }
 
@@ -1290,7 +1333,7 @@
 <div class="detail-header">
   <div>
     <div class="detail-title-row">
-      <div class="detail-title">{{ metric_def.name }}</div>
+      <h1 class="detail-title">{{ metric_def.name }}</h1>
       {% if window_tabs and window_tabs|length > 1 %}
       <div class="metric-switch">
         {% for tab in window_tabs %}

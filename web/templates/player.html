@@ -1,12 +1,24 @@
 {% extends "base.html" %}
 {% set player_name = display_player_name(player) %}
-{% block title %}{{ player_name }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics on FUNBA.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
+{%- set _team_label = display_team_name(player_current_team) if player_current_team else '' -%}
+{%- set _has_career = career_overall and career_overall.ppg and career_overall.ppg != '-' -%}
+{%- set _seasons_played = (player.season_exp if player.season_exp is not none else (player.to_year - player.from_year + 1 if player.from_year and player.to_year else None)) -%}
+{%- if _has_career -%}
+  {%- if lang == 'zh' -%}
+    {%- set _meta_desc = player_name ~ (' · ' ~ _team_label if _team_label else '') ~ ' — 生涯场均 ' ~ career_overall.ppg ~ ' 分 ' ~ career_overall.rpg ~ ' 板 ' ~ career_overall.apg ~ ' 助' ~ ((' ，共 ' ~ _seasons_played|string ~ ' 个赛季') if _seasons_played else '') ~ '。投篮图、比赛日志、高级指标。' -%}
+  {%- else -%}
+    {%- set _meta_desc = player_name ~ (' (' ~ _team_label ~ ')' if _team_label else '') ~ ' — career averages ' ~ career_overall.ppg ~ ' PPG, ' ~ career_overall.rpg ~ ' RPG, ' ~ career_overall.apg ~ ' APG' ~ ((' over ' ~ _seasons_played|string ~ ' seasons') if _seasons_played else '') ~ '. Shot chart, game log, and advanced metrics on FUNBA.' -%}
+  {%- endif -%}
+{%- else -%}
+  {%- set _meta_desc = player_name ~ ' — ' ~ t('career stats, shot charts, game log, and advanced metrics on FUNBA.', '球员生涯数据、投篮图、比赛日志和高级指标。') -%}
+{%- endif -%}
+{% block title %}{{ player_name }}{% if _team_label %} ({{ _team_label }}){% endif %} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ _meta_desc }}{% endblock %}
 {% block og_title %}{{ player_name }} — {{ site_name }}{% endblock %}
-{% block og_description %}{{ player_name }} {{ t('career stats, shot charts, game log, and advanced metrics.', '球员生涯数据、投篮图、比赛日志和高级指标。') }}{% endblock %}
+{% block og_description %}{{ _meta_desc }}{% endblock %}
 {% block og_type %}profile{% endblock %}
 {% block tw_title %}{{ player_name }} — {{ site_name }}{% endblock %}
-{% block tw_description %}{{ player_name }} {{ t('career stats, shot charts, and game log.', '球员生涯数据、投篮图和比赛日志。') }}{% endblock %}
+{% block tw_description %}{{ _meta_desc }}{% endblock %}
 {% block og_image %}https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png{% endblock %}
 {% block tw_image %}https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png{% endblock %}
 {% block json_ld %}
@@ -14,14 +26,36 @@
 {
   "@context": "https://schema.org",
   "@type": "Person",
-  "name": "{{ player_name }}",
-  "url": "https://funba.app/players/{{ player.slug }}",
-  "image": "https://cdn.nba.com/headshots/nba/latest/260x190/{{ player.player_id }}.png",
+  "name": {{ player_name|tojson }},
+  {% if lang == 'zh' and player.full_name and player.full_name != player_name %}"alternateName": {{ player.full_name|tojson }},
+  {% endif %}"url": {{ ('https://funba.app/players/' ~ player.slug)|tojson }},
+  "image": {{ ('https://cdn.nba.com/headshots/nba/latest/260x190/' ~ player.player_id ~ '.png')|tojson }},
   "jobTitle": "Professional Basketball Player",
-  "memberOf": {
+  {% if player.birth_date %}"birthDate": {{ player.birth_date.isoformat()|tojson }},
+  {% endif %}{% if player.country %}"nationality": {{ player.country|tojson }},
+  {% endif %}{% if player.height %}"height": {{ player.height|tojson }},
+  {% endif %}{% if player.weight %}"weight": {{ ((player.weight|string) ~ ' lbs')|tojson }},
+  {% endif %}{% if player_current_team and player_current_team.slug %}"affiliation": {
+    "@type": "SportsTeam",
+    "name": {{ display_team_name(player_current_team)|tojson }},
+    "url": {{ ('https://funba.app/teams/' ~ player_current_team.slug)|tojson }}
+  },
+  {% endif %}"memberOf": {
     "@type": "SportsOrganization",
     "name": "NBA"
-  }
+  }{% set _same_as = [] %}{% if player.player_id %}{% set _ = _same_as.append('https://www.nba.com/player/' ~ player.player_id) %}{% endif %}{% if player.br_slug %}{% set _ = _same_as.append('https://www.basketball-reference.com/players/' ~ (player.br_slug[0]|lower) ~ '/' ~ player.br_slug ~ '.html') %}{% endif %}{% if _same_as %},
+  "sameAs": {{ _same_as|tojson }}{% endif %}
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": {{ t('Home', '首页')|tojson }}, "item": "https://funba.app/"},
+    {"@type": "ListItem", "position": 2, "name": {{ t('Players', '球员')|tojson }}, "item": "https://funba.app/players"},
+    {"@type": "ListItem", "position": 3, "name": {{ player_name|tojson }}}
+  ]
 }
 </script>
 {% endblock %}

@@ -1,6 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ t('News', '资讯') }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ t('Latest NBA news aggregated from ESPN, NBA.com and FUNBA.', '聚合自 ESPN、NBA.com 和 FUNBA 的最新 NBA 资讯。') }}{% endblock %}
+{%- set _news_desc = t('Latest NBA news aggregated from ESPN, NBA.com and FUNBA.', '聚合自 ESPN、NBA.com 和 FUNBA 的最新 NBA 资讯。') -%}
+{% block title %}{{ t('NBA News', 'NBA资讯') }} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ _news_desc }}{% endblock %}
+{% block og_title %}{{ t('NBA News', 'NBA资讯') }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ _news_desc }}{% endblock %}
+{% block tw_title %}{{ t('NBA News', 'NBA资讯') }} — {{ site_name }}{% endblock %}
+{% block tw_description %}{{ _news_desc }}{% endblock %}
 {% block content %}
 <style>
   .news-page-hero {

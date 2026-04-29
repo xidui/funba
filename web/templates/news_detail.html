@@ -13,6 +13,38 @@
 {% block tw_description %}{{ _share_desc }}{% endblock %}
 {% block og_image %}{% if _share_img %}{{ _share_img }}{% else %}{{ super() }}{% endif %}{% endblock %}
 {% block tw_image %}{% if _share_img %}{{ _share_img }}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% block json_ld %}
+{%- set _publisher_name = 'ESPN' if entry.article.source == 'espn' else ('NBA.com' if entry.article.source == 'nba' else (site_name if entry.article.source == 'funba' else (entry.article.source or site_name)|string)) -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "NewsArticle",
+  "headline": {{ entry.article.title|tojson }},
+  "description": {{ _share_desc|tojson }},
+  "url": {{ (canonical_url or request.url)|tojson }},
+  "mainEntityOfPage": {{ (canonical_url or request.url)|tojson }}{% if entry.article.published_at %},
+  "datePublished": {{ (entry.article.published_at.isoformat() ~ 'Z')|tojson }},
+  "dateModified": {{ (entry.article.published_at.isoformat() ~ 'Z')|tojson }}{% endif %}{% if _share_img %},
+  "image": {{ _share_img|tojson }}{% endif %},
+  "publisher": {
+    "@type": "Organization",
+    "name": {{ _publisher_name|tojson }}
+  },
+  "isAccessibleForFree": true
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": {{ t('Home', '首页')|tojson }}, "item": "https://funba.app/"},
+    {"@type": "ListItem", "position": 2, "name": {{ t('News', '资讯')|tojson }}, "item": "https://funba.app/news"},
+    {"@type": "ListItem", "position": 3, "name": {{ entry.article.title|tojson }}}
+  ]
+}
+</script>
+{% endblock %}
 {% block content %}
 <style>
   .news-detail {

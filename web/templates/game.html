@@ -1,29 +1,57 @@
 {% extends "base.html" %}
-{% block title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — {{ site_name }}{% endblock %}
-{% block meta_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score, play-by-play, and shot charts on {{ site_name }}.{% endblock %}
-{% block og_title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — {{ site_name }}{% endblock %}
-{% block og_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score, play-by-play, and shot charts.{% endblock %}
-{% block tw_title %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} — {{ site_name }}{% endblock %}
-{% block tw_description %}{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }} box score and shot charts.{% endblock %}
+{%- set _road_abbr = team_abbr(game.road_team_id) -%}
+{%- set _home_abbr = team_abbr(game.home_team_id) -%}
+{%- set _date_label = game.game_date.strftime('%b %-d, %Y') if game.game_date else '' -%}
+{%- set _has_score = game_status == 'completed' and game.home_team_score is not none and game.road_team_score is not none -%}
+{%- if _has_score and lang == 'zh' -%}
+  {%- set _meta_desc = _date_label ~ ' ' ~ team_name(game.road_team_id) ~ ' ' ~ game.road_team_score|string ~ ' - ' ~ game.home_team_score|string ~ ' ' ~ team_name(game.home_team_id) ~ '。技术统计、回合记录、投篮图、双方得分图。' -%}
+{%- elif _has_score -%}
+  {%- set _meta_desc = team_name(game.road_team_id) ~ ' ' ~ game.road_team_score|string ~ ', ' ~ team_name(game.home_team_id) ~ ' ' ~ game.home_team_score|string ~ ' — ' ~ _date_label ~ '. Box score, play-by-play, shot charts on FUNBA.' -%}
+{%- elif lang == 'zh' -%}
+  {%- set _meta_desc = _road_abbr ~ ' 客场对阵 ' ~ _home_abbr ~ '：技术统计、回合记录、投篮图。' -%}
+{%- else -%}
+  {%- set _meta_desc = _road_abbr ~ ' at ' ~ _home_abbr ~ (' (' ~ _date_label ~ ')' if _date_label else '') ~ ' — box score, play-by-play, and shot charts on FUNBA.' -%}
+{%- endif -%}
+{%- set _title_base = _road_abbr ~ (' ' ~ game.road_team_score|string if _has_score else '') ~ ' @ ' ~ _home_abbr ~ (' ' ~ game.home_team_score|string if _has_score else '') -%}
+{% block title %}{{ _title_base }}{% if _date_label %} ({{ _date_label }}){% endif %} — {{ site_name }}{% endblock %}
+{% block meta_description %}{{ _meta_desc }}{% endblock %}
+{% block og_title %}{{ _title_base }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ _meta_desc }}{% endblock %}
+{% block tw_title %}{{ _title_base }} — {{ site_name }}{% endblock %}
+{% block tw_description %}{{ _meta_desc }}{% endblock %}
 {% block json_ld %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SportsEvent",
-  "name": "{{ team_abbr(game.road_team_id) }} vs {{ team_abbr(game.home_team_id) }}",
-  "startDate": "{{ game.game_date.isoformat() if game.game_date else '' }}",
-  "url": "https://funba.app/games/{{ game.game_id }}",
+  "name": {{ (team_name(game.road_team_id) ~ ' at ' ~ team_name(game.home_team_id))|tojson }},
+  "startDate": {{ (game.game_date.isoformat() if game.game_date else '')|tojson }},
+  "url": {{ ('https://funba.app/games/' ~ (game.slug or game.game_id))|tojson }},
+  "sport": "Basketball",
   "homeTeam": {
     "@type": "SportsTeam",
-    "name": "{{ team_name(game.home_team_id) }}",
-    "identifier": "{{ game.home_team_id }}"
+    "name": {{ team_name(game.home_team_id)|tojson }},
+    "identifier": {{ game.home_team_id|tojson }}
   },
   "awayTeam": {
     "@type": "SportsTeam",
-    "name": "{{ team_name(game.road_team_id) }}",
-    "identifier": "{{ game.road_team_id }}"
-  },
-  "sport": "Basketball"
+    "name": {{ team_name(game.road_team_id)|tojson }},
+    "identifier": {{ game.road_team_id|tojson }}
+  }{% if game_status == 'completed' and game.home_team_score is not none and game.road_team_score is not none %},
+  "eventStatus": "https://schema.org/EventScheduled",
+  "homeTeamScore": {{ game.home_team_score|tojson }},
+  "awayTeamScore": {{ game.road_team_score|tojson }}{% endif %}
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": {{ t('Home', '首页')|tojson }}, "item": "https://funba.app/"},
+    {"@type": "ListItem", "position": 2, "name": {{ t('Games', '比赛')|tojson }}, "item": "https://funba.app/games"},
+    {"@type": "ListItem", "position": 3, "name": {{ (team_abbr(game.road_team_id) ~ ' @ ' ~ team_abbr(game.home_team_id))|tojson }}}
+  ]
 }
 </script>
 {% endblock %}
