@@ -1986,18 +1986,18 @@ def _catalog_eligible_window_types(row, *, search_fields: dict) -> list[str]:
     if scope == "season":
         return []
     if scope == "game":
-        # Game-scope windows (last3/last5) are virtual views computed by
+        # Game-scope windows (last3/last5/last10) are virtual views computed by
         # filtering base-metric rows to the most recent N seasons of the same
         # type, so they don't require supports_career or a season trigger.
         # A "career" view would be redundant with the existing All-<type>
         # dropdown option on the base metric page.
-        return ["last5", "last3"]
+        return ["last10", "last5", "last3"]
     if not search_fields.get("supports_career"):
         return []
     window_types = ["career"]
     trigger = str(search_fields.get("trigger") or "game").strip().lower()
     if trigger == "season":
-        window_types.extend(["last5", "last3"])
+        window_types.extend(["last10", "last5", "last3"])
     return window_types
 
 
@@ -2041,11 +2041,13 @@ def _virtual_window_catalog_metrics(
         "career": "（队史）" if scope == "team" else "（生涯）",
         "last3": "（近 3 季）",
         "last5": "（近 5 季）",
+        "last10": "（近 10 季）",
     }
     _WINDOW_ZH_DESC_PREFIX = {
         "career": "队史" if scope == "team" else "生涯",
         "last3": "近 3 季",
         "last5": "近 5 季",
+        "last10": "近 10 季",
     }
 
     entries: list[dict] = []
@@ -2206,7 +2208,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
         return {}
 
     # Build map of metric_key → (scope, rank_order, window_type)
-    # window_type is "career"/"last3"/"last5" for pseudo-season metrics, None for concrete-season metrics.
+    # window_type is "career"/"last3"/"last5"/"last10" for pseudo-season metrics, None for concrete-season metrics.
     metric_info: dict[str, tuple[str, str, str | None]] = {}
     for m in metrics_list:
         if m.get("status") != "published":
@@ -2221,7 +2223,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
 
     season_keys = [k for k, v in metric_info.items() if v[2] is None and v[0] != "season"]
     season_scope_keys = [k for k, v in metric_info.items() if v[2] is None and v[0] == "season"]
-    window_keys_by_type: dict[str, list[str]] = {"career": [], "last3": [], "last5": []}
+    window_keys_by_type: dict[str, list[str]] = {"career": [], "last3": [], "last5": [], "last10": []}
     for k, v in metric_info.items():
         if v[2] in window_keys_by_type:
             window_keys_by_type[v[2]].append(k)
@@ -2291,6 +2293,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
         "career": "all_regular",
         "last3": "last3_regular",
         "last5": "last5_regular",
+        "last10": "last10_regular",
     }
     for window_type, window_keys in window_keys_by_type.items():
         pseudo_season = _WINDOW_PSEUDO_SEASON[window_type]
@@ -2569,7 +2572,7 @@ def _attach_window_ranks(
     session,
     rows,
     *,
-    windows: tuple[str, ...] = ("season", "last3", "last5", "alltime"),
+    windows: tuple[str, ...] = ("season", "last3", "last5", "last10", "alltime"),
     rank_group_aware: bool = True,
 ):
     """For each MetricResult row, compute (rank, total) in each named window pool.
@@ -2579,12 +2582,12 @@ def _attach_window_ranks(
     Windows:
     - ``season``: rank within (metric_key, entity_type, season) pool.
     - ``alltime``: rank within (metric_key, entity_type, same season-prefix) pool.
-    - ``last3`` / ``last5``:
+    - ``last3`` / ``last5`` / ``last10``:
         * For player/team/player_franchise rows: looks up the entity's pseudo-season
-          aggregate row (season = ``last3_<kind>`` / ``last5_<kind>``) and ranks
-          that aggregate's value vs the pseudo-season pool.
+          aggregate row (season = ``lastN_<kind>``) and ranks that aggregate's
+          value vs the pseudo-season pool.
         * For game-scope rows: ranks this row's value vs game-scope rows in the
-          last 3 or 5 distinct seasons sharing the same prefix.
+          last 3 / 5 / 10 distinct seasons sharing the same prefix.
 
     ``rank_group_aware`` keeps NULL/non-NULL ``rank_group`` rows in separate pools
     via COALESCE("__all__") matching, mirroring the existing game-metrics path.
@@ -2652,7 +2655,7 @@ def _attach_window_ranks(
         for rid, val in result_map.items():
             out[rid]["alltime"] = val
 
-    last_windows = [w for w in windows if w in ("last3", "last5")]
+    last_windows = [w for w in windows if w in ("last3", "last5", "last10")]
     if not last_windows:
         return out
 
@@ -2687,7 +2690,7 @@ def _attach_window_ranks(
     # the same prefix. Same SQL shape as season/alltime; we just substitute
     # `season IN (last_n)` for the pool join clause.
     for window_name in last_windows:
-        n = 3 if window_name == "last3" else 5
+        n = {"last3": 3, "last5": 5, "last10": 10}[window_name]
         for prefix_char, grp_rows in rows_by_prefix.items():
             last_n = _last_n_seasons(prefix_char, n)
             if not last_n:
@@ -2834,6 +2837,8 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
             "last3_total": None,
             "last5_rank": None,
             "last5_total": None,
+            "last10_rank": None,
+            "last10_total": None,
             # best_ratio drives the final sort against runlog cards whose ratios
             # come from percentile (can be as low as 0.001 for a league-#1).
             # Scale milestone severity into the same competitive range so a
@@ -2842,6 +2847,7 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
             "all_ratio": max(0.001, (1.0 - severity) / 10.0) if is_career_season(row.season) else None,
             "last3_ratio": None,
             "last5_ratio": None,
+            "last10_ratio": None,
             "best_ratio": max(0.001, (1.0 - severity) / 10.0),
             "is_featured": severity >= 0.55,
             "is_hero": severity >= 0.85,
@@ -2958,6 +2964,86 @@ def _finalize_triggered_result(result: dict[str, list[dict]], game_id: str) -> d
     return result
 
 
+_HERO_COOLDOWN_DAYS = 14
+_HERO_COOLDOWN_FLOOR = 0.3
+
+
+def _window_class_for_card(card: dict) -> str:
+    """Story-grouping key. career / last3 / last5 fold into one bucket
+    ("long" — different angles of the same career-ish narrative); concrete-
+    season cards get their own bucket so a "this-season leader" story isn't
+    silenced by an unrelated career-window airing of the same metric family."""
+    metric_key = str(card.get("metric_key") or "")
+    season = str(card.get("season") or "")
+    if metric_key.endswith(("_career", "_last3", "_last5")):
+        return "long"
+    if season.startswith(("all_", "last3_", "last5_")):
+        return "long"
+    return "season"
+
+
+def _hero_cooldown_factor(days_since_last_hero: int | None) -> float:
+    """Linear ramp from 0.3 (just aired today) up to 1.0 at ``_HERO_COOLDOWN_DAYS``.
+    Returns 1.0 if no recent airing. The 0.3 floor is intentional: a card that
+    was hero yesterday should at minimum survive into notable today rather
+    than vanishing — only the hero promotion gets dampened."""
+    if days_since_last_hero is None:
+        return 1.0
+    if days_since_last_hero >= _HERO_COOLDOWN_DAYS:
+        return 1.0
+    if days_since_last_hero <= 0:
+        return _HERO_COOLDOWN_FLOOR
+    span = 1.0 - _HERO_COOLDOWN_FLOOR
+    return _HERO_COOLDOWN_FLOOR + (days_since_last_hero / float(_HERO_COOLDOWN_DAYS)) * span
+
+
+def _recent_hero_lookup(session, *, current_game_date) -> dict[tuple[str, str, str, str], int]:
+    """Scan SocialPost for hero-highlight topics aired in the cooldown window
+    before ``current_game_date``. Returns a map keyed by
+    (entity_type, entity_id, family_base, window_class) → smallest days_since.
+
+    Game-scope topics are skipped: their entity_id is the game itself, so
+    cooldown across games is meaningless (each game's own value is unique)."""
+    from datetime import timedelta
+    from db.models import SocialPost as _SocialPost
+
+    cutoff = current_game_date - timedelta(days=_HERO_COOLDOWN_DAYS)
+    rows = (
+        session.query(_SocialPost.topic, _SocialPost.source_date)
+        .filter(_SocialPost.topic.like("Hero Highlight%"))
+        .filter(_SocialPost.source_date >= cutoff)
+        .filter(_SocialPost.source_date < current_game_date)
+        .all()
+    )
+    out: dict[tuple[str, str, str, str], int] = {}
+    for topic, source_date in rows:
+        if source_date is None:
+            continue
+        parts = [p.strip() for p in (topic or "").split("—")]
+        if len(parts) < 5 or parts[0] != "Hero Highlight":
+            continue
+        scope = parts[2]
+        metric_key = parts[3]
+        entity_id = parts[4]
+        if scope not in ("player", "team"):
+            continue
+        family_base = family_base_key(metric_key)
+        # Reuse the same window-class logic the candidate side uses, on the
+        # post's recorded metric_key (the curator's chosen variant).
+        window_class = "long" if metric_key.endswith(("_career", "_last3", "_last5")) else "season"
+        key = (scope, entity_id, family_base, window_class)
+        try:
+            days_since = (current_game_date - source_date).days
+        except TypeError:
+            continue
+        if days_since < 0:
+            continue
+        existing = out.get(key)
+        if existing is None or days_since < existing:
+            out[key] = days_since
+    return out
+
+
 def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str | None) -> dict:
     """Return player + team metrics that this specific game advanced.
 
@@ -3069,7 +3155,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     rank_map = _attach_window_ranks(
         session,
         entity_rows,
-        windows=("season", "last3", "last5", "alltime"),
+        windows=("season", "last3", "last5", "last10", "alltime"),
     )
 
     metric_name_cache = _batch_metric_names_bilingual(session, {r.metric_key for r in entity_rows})
@@ -3090,11 +3176,13 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
         all_rank, all_total = ranks.get("alltime", (None, None))
         last3_rank, last3_total = ranks.get("last3", (None, None))
         last5_rank, last5_total = ranks.get("last5", (None, None))
+        last10_rank, last10_total = ranks.get("last10", (None, None))
         season_ratio = (season_rank / season_total) if season_total else 1.0
         all_ratio = (all_rank / all_total) if (all_rank is not None and all_total) else None
         last3_ratio = (last3_rank / last3_total) if (last3_rank is not None and last3_total) else None
         last5_ratio = (last5_rank / last5_total) if (last5_rank is not None and last5_total) else None
-        best_ratio = min(x for x in (season_ratio, all_ratio, last3_ratio, last5_ratio) if x is not None)
+        last10_ratio = (last10_rank / last10_total) if (last10_rank is not None and last10_total) else None
+        best_ratio = min(x for x in (season_ratio, all_ratio, last3_ratio, last5_ratio, last10_ratio) if x is not None)
 
         is_hero = (all_ratio is not None and all_ratio <= 0.01) or season_ratio <= 0.01
         is_featured = (
@@ -3135,10 +3223,13 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             "last3_total": last3_total,
             "last5_rank": last5_rank,
             "last5_total": last5_total,
+            "last10_rank": last10_rank,
+            "last10_total": last10_total,
             "ratio": season_ratio,
             "all_ratio": all_ratio,
             "last3_ratio": last3_ratio,
             "last5_ratio": last5_ratio,
+            "last10_ratio": last10_ratio,
             "best_ratio": best_ratio,
             "is_featured": is_featured,
             "is_hero": is_hero,
@@ -3147,6 +3238,7 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
             "all_badge_text": _game_metric_badge_text(all_rank, all_total, "All"),
             "last3_badge_text": _game_metric_badge_text(last3_rank, last3_total, "Last3"),
             "last5_badge_text": _game_metric_badge_text(last5_rank, last5_total, "Last5"),
+            "last10_badge_text": _game_metric_badge_text(last10_rank, last10_total, "Last10"),
         }
         card["source"] = "runlog"
         if r.entity_type == "player":
@@ -3166,6 +3258,32 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
 
     for kind in ("player", "team"):
         result[kind].extend(milestone_result.get(kind) or [])
+
+    # Hero-cooldown: stories that aired as a hero in the past 14 days get
+    # their best_ratio penalized so they're less likely to grab the hero
+    # slot a second time, but a 0.3 floor keeps them strong enough to
+    # survive into notable. Applied here (pre-finalize) so dedup, sort,
+    # and prefilter all run on the decayed ratios.
+    game_row = session.query(Game).filter(Game.game_id == game_id).first()
+    current_date = getattr(game_row, "game_date", None)
+    if current_date is not None:
+        recent = _recent_hero_lookup(session, current_game_date=current_date)
+        if recent:
+            for kind in ("player", "team"):
+                for card in result.get(kind) or []:
+                    metric_key = str(card.get("metric_key") or "")
+                    base = family_base_key(metric_key)
+                    key = (kind, str(card.get("entity_id") or ""), base, _window_class_for_card(card))
+                    days_since = recent.get(key)
+                    if days_since is None:
+                        continue
+                    factor = _hero_cooldown_factor(days_since)
+                    if factor >= 1.0:
+                        continue
+                    orig_ratio = card.get("best_ratio") or 1.0
+                    card["best_ratio"] = orig_ratio / max(factor, 0.05)
+                    card["cooldown_factor"] = factor
+                    card["cooldown_days_since"] = days_since
 
     return _finalize_triggered_result(result, game_id)
 
@@ -3330,6 +3448,8 @@ def _story_candidate_from_game_metric(entry: dict) -> dict:
     last3_total = entry.get("last3_total")
     last5_rank = entry.get("last5_rank")
     last5_total = entry.get("last5_total")
+    last10_rank = entry.get("last10_rank")
+    last10_total = entry.get("last10_total")
     candidate = {
         "metric_key": metric_key,
         "metric_name": entry.get("metric_name"),
@@ -3349,6 +3469,9 @@ def _story_candidate_from_game_metric(entry: dict) -> dict:
         "last5_rank": _story_metric_int(last5_rank),
         "last5_total": _story_metric_int(last5_total),
         "last5_ratio": _story_metric_ratio(last5_rank, last5_total),
+        "last10_rank": _story_metric_int(last10_rank),
+        "last10_total": _story_metric_int(last10_total),
+        "last10_ratio": _story_metric_ratio(last10_rank, last10_total),
         "all_rank": _story_metric_int(all_rank),
         "all_total": _story_metric_int(all_total),
         "all_ratio": _story_metric_ratio(all_rank, all_total),
@@ -3372,6 +3495,8 @@ def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
     last3_total = entry.get("last3_total")
     last5_rank = entry.get("last5_rank")
     last5_total = entry.get("last5_total")
+    last10_rank = entry.get("last10_rank")
+    last10_total = entry.get("last10_total")
     label = entry.get("player_name") if source == "triggered_player" else entry.get("team_abbr")
     candidate = {
         "metric_key": metric_key,
@@ -3393,6 +3518,9 @@ def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
         "last5_rank": _story_metric_int(last5_rank),
         "last5_total": _story_metric_int(last5_total),
         "last5_ratio": _story_metric_ratio(last5_rank, last5_total),
+        "last10_rank": _story_metric_int(last10_rank),
+        "last10_total": _story_metric_int(last10_total),
+        "last10_ratio": _story_metric_ratio(last10_rank, last10_total),
         "all_rank": _story_metric_int(all_rank),
         "all_total": _story_metric_int(all_total),
         "all_ratio": _story_metric_ratio(all_rank, all_total),
@@ -3637,7 +3765,7 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
     rank_map = _attach_window_ranks(
         session,
         entity_rows,
-        windows=("season", "last3", "last5", "alltime"),
+        windows=("season", "last3", "last5", "last10", "alltime"),
     )
 
     metric_name_cache = _batch_metric_names_bilingual(session, {r.metric_key for r in entity_rows})
@@ -3650,6 +3778,7 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
         all_rank, all_total = ranks.get("alltime", (None, None))
         last3_rank, last3_total = ranks.get("last3", (None, None))
         last5_rank, last5_total = ranks.get("last5", (None, None))
+        last10_rank, last10_total = ranks.get("last10", (None, None))
         try:
             ctx = json.loads(r.context_json) if r.context_json else {}
         except Exception:
@@ -3677,6 +3806,8 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
             "last3_total": last3_total,
             "last5_rank": last5_rank,
             "last5_total": last5_total,
+            "last10_rank": last10_rank,
+            "last10_total": last10_total,
             "computed_at": r.computed_at,
             "rank_group": r.rank_group,
         })
@@ -3699,7 +3830,7 @@ def _get_game_metrics_payload(session, game_id: str, game_season: str | None) ->
     return {"season": visible, "season_extra": extra}
 
 
-_CURATED_BADGE_LABELS = ("Season", "All", "Last3", "Last5")
+_CURATED_BADGE_LABELS = ("Season", "All", "Last3", "Last5", "Last10")
 
 
 def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool) -> None:
@@ -3739,6 +3870,8 @@ def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool) -> N
     _apply("last3_total", "last3_total")
     _apply("last5_rank", "last5")
     _apply("last5_total", "last5_total")
+    _apply("last10_rank", "last10")
+    _apply("last10_total", "last10_total")
 
     card["narrative_zh"] = narrative_zh
     card["narrative_en"] = narrative_en
@@ -3764,6 +3897,7 @@ def _apply_curated_entry_to_card(card: dict, entry: dict, *, is_hero: bool) -> N
     )
     card["last3_badge_text"] = _badge(card.get("last3_rank"), card.get("last3_total"), "Last3")
     card["last5_badge_text"] = _badge(card.get("last5_rank"), card.get("last5_total"), "Last5")
+    card["last10_badge_text"] = _badge(card.get("last10_rank"), card.get("last10_total"), "Last10")
 
 
 def _merge_curated_into_cards(
@@ -3993,6 +4127,11 @@ def _prepare_game_metric_cards(
             card.get("last5_total"),
             "Last5",
         )
+        card["last10_badge_text"] = _game_metric_badge_text(
+            card.get("last10_rank"),
+            card.get("last10_total"),
+            "Last10",
+        )
         cards.append(card)
 
     cards.sort(key=lambda card: (card["best_ratio"], card["best_rank"], card["metric_key"], card["entity_id"]))
@@ -4027,11 +4166,15 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         "last5_regular": _t("Last 5 Regular Seasons", "近 5 个常规赛季"),
         "last5_playoffs": _t("Last 5 Playoff Seasons", "近 5 个季后赛季"),
         "last5_playin": _t("Last 5 Play-In Seasons", "近 5 个附加赛季"),
+        "last10_regular": _t("Last 10 Regular Seasons", "近 10 个常规赛季"),
+        "last10_playoffs": _t("Last 10 Playoff Seasons", "近 10 个季后赛季"),
+        "last10_playin": _t("Last 10 Play-In Seasons", "近 10 个附加赛季"),
     }
     _WINDOW_LABELS = {
         "career": _t("Career", "生涯"),
         "last3": _t("Last 3", "近 3 季"),
         "last5": _t("Last 5", "近 5 季"),
+        "last10": _t("Last 10", "近 10 季"),
     }
 
     _RANK_LABELS = {1: "Best", 2: "2nd best", 3: "3rd best"}
@@ -4317,6 +4460,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "career": None,
             "last3": None,
             "last5": None,
+            "last10": None,
         }
         if is_career_season(r.season):
             entry["window_type"] = window_type_from_season(r.season)
@@ -4456,7 +4600,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             season_metrics.append(entry)
 
     # Attach matching window variants to each current-season entry so cards can
-    # show season + career/last5/last3 together.
+    # show season + career/last10/last5/last3 together.
     current_season_type = season_type_for(season)
     matching_window_seasons = {
         window_type: next(
@@ -4484,8 +4628,9 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
         entry["career"] = None
         entry["last3"] = None
         entry["last5"] = None
+        entry["last10"] = None
         window_entries = windows_by_base.get(family_base_key(entry["metric_key"]), {})
-        for window_type in ("career", "last5", "last3"):
+        for window_type in ("career", "last10", "last5", "last3"):
             entry[window_type] = window_entries.get(window_type)
         if entry["career"]:
             entry["career_rank"] = entry["career"]["rank"]

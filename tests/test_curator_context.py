@@ -142,6 +142,43 @@ def test_dedupe_triggered_cards_keeps_one_card_per_window():
     ]
 
 
+def test_hero_cooldown_factor_curve():
+    """Decay is gentle: 0.3 floor on day 0, linear ramp to 1.0 on day 14."""
+    from web.app import _hero_cooldown_factor
+
+    # No prior airing → full strength.
+    assert _hero_cooldown_factor(None) == 1.0
+    # Day 0 / negative → floor.
+    assert _hero_cooldown_factor(0) == 0.3
+    assert _hero_cooldown_factor(-1) == 0.3
+    # Day 14+ → fully restored.
+    assert _hero_cooldown_factor(14) == 1.0
+    assert _hero_cooldown_factor(30) == 1.0
+    # Linear in the middle, half-ish at day 7.
+    f7 = _hero_cooldown_factor(7)
+    assert 0.6 < f7 < 0.7
+    # Monotonic non-decreasing.
+    seq = [_hero_cooldown_factor(d) for d in range(0, 15)]
+    assert seq == sorted(seq)
+
+
+def test_window_class_for_card_long_vs_season():
+    from web.app import _window_class_for_card
+
+    assert _window_class_for_card({"metric_key": "wins_by_10_plus_career", "season": "all_playoffs"}) == "long"
+    assert _window_class_for_card({"metric_key": "wins_by_10_plus_last5", "season": "last5_playoffs"}) == "long"
+    assert _window_class_for_card({"metric_key": "wins_by_10_plus_last3", "season": "last3_playoffs"}) == "long"
+    # Concrete-season card → its own bucket so this-season-leader stories
+    # aren't muted by an unrelated career-window airing.
+    assert _window_class_for_card({"metric_key": "wins_by_10_plus", "season": "42025"}) == "season"
+    # Base metric_key paired with a window season (curator quirk) still
+    # gets classified by the season prefix.
+    assert _window_class_for_card({"metric_key": "season_total_assists", "season": "all_playoffs"}) == "long"
+    # Game-scope card with empty season → season bucket (cooldown won't
+    # match across games anyway since entity_id == game_id changes).
+    assert _window_class_for_card({"metric_key": "game_total_blocks", "season": None}) == "season"
+
+
 def test_dedupe_triggered_cards_collapses_within_same_window():
     """Within one window, multiple events of the same family still collapse
     to a single winner (otherwise an approaching_target + approaching_absolute
