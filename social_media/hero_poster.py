@@ -44,8 +44,29 @@ HERO_POSTER_MODEL_KEY = "hero_poster_model"
 HERO_POSTERS_SUBDIR = "hero_posters"
 HERO_POSTER_DEFAULT_MODEL = "gpt-image-2"
 HERO_POSTER_DEFAULT_SIZE = "1024x1536"
+HERO_POSTER_SQUARE_SIZE = "1024x1024"
+HERO_POSTER_SQUARE_SUFFIX = ".square"
 HERO_POSTER_DEFAULT_QUALITY = "high"
 HERO_POSTER_TOP_N = 10
+
+# Variant-specific text injected into the prompt template. Everything except
+# size + leaderboard-density guidance is shared between the two variants —
+# that's the whole point of a single template + parameter injection.
+_FORMAT_ASPECT_SIZE = {
+    "vertical": "vertical 1024x1536",
+    "square": "square 1024x1024",
+}
+_FORMAT_CLAUSE = {
+    "vertical": "1024x1536 vertical, social-media share safe-zone friendly.",
+    "square": (
+        "1024x1024 square. Leaderboard density rule for the square format: "
+        "pick how many rows fit cleanly — anywhere from 6 to 10 — and stop "
+        "there. DO NOT compress fonts to cram more in, DO NOT skip ranks (no "
+        "holes in the numbering — show 1..N consecutively), DO NOT alter or "
+        "invent any number. The trigger row stays prominent regardless of "
+        "how many rows you ultimately render."
+    ),
+}
 
 # Default prompt template — admin-editable via the Setting row above. Placeholders
 # in {curly_braces} are substituted via str.format with the context dict produced
@@ -58,7 +79,7 @@ HERO_POSTER_TOP_N = 10
 # with different rows. Letting the model interpret the metric (defense vs
 # scoring vs comeback vs milestone) yields more visual variety.
 DEFAULT_HERO_POSTER_PROMPT_TEMPLATE = """\
-Design a vertical 1024x1536 social-media poster about an NBA statistical
+Design a {format_aspect_size} social-media poster about an NBA statistical
 story. You decide the layout, palette, mood, typography, and overall
 composition — match the energy of the metric (a defense story shouldn't
 look like a scoring story; a career milestone shouldn't look like a hot
@@ -94,7 +115,7 @@ NON-NEGOTIABLES
   badge — your call where).
 - "FUNBA.APP" appears as the footer URL.
 - DO NOT include the NBA league logo or any broadcaster watermark.
-- 1024x1536 vertical, social-media share safe-zone friendly.
+- {format_clause}
 """
 
 
@@ -398,6 +419,7 @@ def build_prompt_context(
     card: dict[str, Any],
     game: Game,
     top_n: int = _DEFAULT_TOP_N,
+    variant: str = "vertical",
 ) -> dict[str, Any]:
     """Build the substitution context for the prompt template.
 
@@ -705,6 +727,8 @@ def build_prompt_context(
         "title_line_2": title_line_2,
         "entity_kind": entity_kind_word,
         "trigger_team_player_pool": trigger_team_player_pool,
+        "format_aspect_size": _FORMAT_ASPECT_SIZE.get(variant, _FORMAT_ASPECT_SIZE["vertical"]),
+        "format_clause": _FORMAT_CLAUSE.get(variant, _FORMAT_CLAUSE["vertical"]),
     }
 
 
