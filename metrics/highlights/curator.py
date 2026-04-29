@@ -460,11 +460,13 @@ def curate_game_highlights(
 
 
 def _window_label(metric_key: str | None, season: str | None) -> str:
-    """Compact scope label for the LLM: career | last5 | last3 | season."""
+    """Compact scope label for the LLM: career | last10 | last5 | last3 | season."""
     mk = str(metric_key or "")
     season_token = str(season or "")
     if mk.endswith("_career"):
         return "career"
+    if mk.endswith("_last10"):
+        return "last10"
     if mk.endswith("_last5"):
         return "last5"
     if mk.endswith("_last3"):
@@ -472,6 +474,8 @@ def _window_label(metric_key: str | None, season: str | None) -> str:
     # Base metric — season field distinguishes concrete-season vs career
     if season_token.startswith("all_"):
         return "career"  # physical sibling already has its own description
+    if season_token.startswith("last10_"):
+        return "last10"
     if season_token.startswith("last5_"):
         return "last5"
     if season_token.startswith("last3_"):
@@ -481,11 +485,11 @@ def _window_label(metric_key: str | None, season: str | None) -> str:
 
 def _scope_phase_from_season(season: str | None) -> str | None:
     token = str(season or "")
-    if token.startswith("all_regular") or token.startswith("last3_regular") or token.startswith("last5_regular"):
+    if token.startswith("all_regular") or token.startswith("last3_regular") or token.startswith("last5_regular") or token.startswith("last10_regular"):
         return "regular"
-    if token.startswith("all_playoffs") or token.startswith("last3_playoffs") or token.startswith("last5_playoffs"):
+    if token.startswith("all_playoffs") or token.startswith("last3_playoffs") or token.startswith("last5_playoffs") or token.startswith("last10_playoffs"):
         return "playoffs"
-    if token.startswith("all_playin") or token.startswith("last3_playin") or token.startswith("last5_playin"):
+    if token.startswith("all_playin") or token.startswith("last3_playin") or token.startswith("last5_playin") or token.startswith("last10_playin"):
         return "playin"
     if token.startswith("2"):
         return "regular"
@@ -517,8 +521,8 @@ def _scope_reference_context(
             zh, en = "常规赛历史", "regular-season history"
         else:
             zh, en = "历史", "all-time"
-    elif window in {"last3", "last5"}:
-        count = "3" if window == "last3" else "5"
+    elif window in {"last3", "last5", "last10"}:
+        count = {"last3": "3", "last5": "5", "last10": "10"}[window]
         if phase == "playoffs":
             zh, en = f"过去{count}届季后赛", f"past {count} playoff seasons"
         elif phase == "playin":
@@ -551,7 +555,7 @@ def _enrich_candidates_for_llm(session, cards: list[dict]) -> None:
     """Attach description / description_zh / window label to each card.
 
     Curator's LLM input needs to understand each metric's scope. Virtual
-    siblings (_career/_last5/_last3) reuse the base metric's description,
+    siblings (_career/_last10/_last5/_last3) reuse the base metric's description,
     so we load from the base key when the sibling has no own row.
     """
     from db.models import MetricDefinition as _MD
@@ -651,6 +655,8 @@ def _snapshot_triggered_entry(card: dict, narrative_zh: str, narrative_en: str) 
             "last3_total": card.get("last3_total"),
             "last5": card.get("last5_rank"),
             "last5_total": card.get("last5_total"),
+            "last10": card.get("last10_rank"),
+            "last10_total": card.get("last10_total"),
         },
         "context_label_snapshot": card.get("context_label"),
         "season": card.get("season"),
@@ -816,9 +822,9 @@ def _prefilter_triggered(
     tie_keys: set[tuple] = set()
     for c in cards:
         best_rank = min(
-            r for r in (c.get("rank"), c.get("all_rank"), c.get("last3_rank"), c.get("last5_rank"))
+            r for r in (c.get("rank"), c.get("all_rank"), c.get("last3_rank"), c.get("last5_rank"), c.get("last10_rank"))
             if r is not None
-        ) if any(c.get(k) is not None for k in ("rank", "all_rank", "last3_rank", "last5_rank")) else None
+        ) if any(c.get(k) is not None for k in ("rank", "all_rank", "last3_rank", "last5_rank", "last10_rank")) else None
         if best_rank is not None and best_rank <= 3 and c.get("value_num") is not None and c.get("season") and c.get("entity_type"):
             tie_keys.add((c["metric_key"], c["entity_type"], c["season"], float(c["value_num"])))
 
@@ -839,9 +845,9 @@ def _prefilter_triggered(
     kept: list[dict] = []
     for c in cards:
         best_rank = min(
-            r for r in (c.get("rank"), c.get("all_rank"), c.get("last3_rank"), c.get("last5_rank"))
+            r for r in (c.get("rank"), c.get("all_rank"), c.get("last3_rank"), c.get("last5_rank"), c.get("last10_rank"))
             if r is not None
-        ) if any(c.get(k) is not None for k in ("rank", "all_rank", "last3_rank", "last5_rank")) else None
+        ) if any(c.get(k) is not None for k in ("rank", "all_rank", "last3_rank", "last5_rank", "last10_rank")) else None
         if best_rank is not None and best_rank <= 3 and c.get("value_num") is not None:
             key = (c["metric_key"], c.get("entity_type"), c.get("season"), float(c["value_num"]))
             if tied_counts.get(key, 0) >= tied_drop_threshold:
@@ -851,9 +857,10 @@ def _prefilter_triggered(
     def _tier(card: dict) -> int:
         # Tier by **window scope**, not source:
         #   0: career (historical)
-        #   1: last5 (recent 5 seasons)
-        #   2: last3 (recent 3 seasons)
-        #   3: concrete season / current game (everything else)
+        #   1: last10 (recent 10 seasons)
+        #   2: last5  (recent 5 seasons)
+        #   3: last3  (recent 3 seasons)
+        #   4: concrete season / current game (everything else)
         #
         # Previously runlog and season-milestone were separate tiers, but that
         # pushed genuinely narrative runlog cards (single-game league-best FG%,
@@ -864,11 +871,13 @@ def _prefilter_triggered(
         season = str(card.get("season") or "")
         if metric_key.endswith("_career") or season in ("all_regular", "all_playoffs", "all_playin"):
             return 0
-        if metric_key.endswith("_last5") or season.startswith("last5_"):
+        if metric_key.endswith("_last10") or season.startswith("last10_"):
             return 1
-        if metric_key.endswith("_last3") or season.startswith("last3_"):
+        if metric_key.endswith("_last5") or season.startswith("last5_"):
             return 2
-        return 3
+        if metric_key.endswith("_last3") or season.startswith("last3_"):
+            return 3
+        return 4
 
     kept.sort(key=lambda c: (_tier(c), c.get("best_ratio", 1.0), c.get("rank") or 10**9))
     return kept[:max_candidates]
@@ -908,7 +917,7 @@ def run_curator_for_game(
 
     # Enrich candidates with description + window/season info so the LLM
     # can see what a sibling metric actually means (the DB description of
-    # the base is reused by career/last5/last3 siblings, so the suffix is
+    # the base is reused by career/last10/last5/last3 siblings, so the suffix is
     # the only hint that scope has changed).
     _enrich_candidates_for_llm(session, player_candidates + team_candidates + game_candidates)
 

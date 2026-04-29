@@ -564,9 +564,10 @@ def _crossed_thresholds(prev_rank: int | None, new_rank: int | None, thresholds:
 def _normalize_metric_key_for_season(metric_key: str, season: str) -> str:
     """Map a base metric key to the variant that owns this season's pool.
 
-    e.g. ('wins_by_10_plus', 'all_playoffs')   → 'wins_by_10_plus_career'
-         ('wins_by_10_plus', 'last5_playoffs') → 'wins_by_10_plus_last5'
-         ('wins_by_10_plus', '42025')          → 'wins_by_10_plus' (unchanged)
+    e.g. ('wins_by_10_plus', 'all_playoffs')    → 'wins_by_10_plus_career'
+         ('wins_by_10_plus', 'last10_playoffs') → 'wins_by_10_plus_last10'
+         ('wins_by_10_plus', 'last5_playoffs')  → 'wins_by_10_plus_last5'
+         ('wins_by_10_plus', '42025')           → 'wins_by_10_plus' (unchanged)
 
     No-op when the key is already a variant or the season has no window."""
     if family_base_key(metric_key) != metric_key:

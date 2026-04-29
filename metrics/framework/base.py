@@ -242,7 +242,7 @@ class MetricDefinition(ABC):
     incremental: bool = True       # False → use compute() instead
     supports_career: bool = False  # True → also dispatch career season values
     career: bool = False           # True → this IS the career version (trigger="game" only)
-    window_type: str | None = None # "career" | "last3" | "last5" for managed pseudo-season siblings
+    window_type: str | None = None # "career" | "last3" | "last5" | "last10" for managed pseudo-season siblings
     per_game: bool = True          # DEPRECATED — use trigger="season" instead
 
     # Ranking direction: "desc" (default, higher is better) or "asc" (lower is better)

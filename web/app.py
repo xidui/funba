@@ -2865,6 +2865,7 @@ def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
             "all_badge_text": _game_metric_badge_text(row.new_rank, None, "Career") if is_career_season(row.season) else None,
             "last3_badge_text": None,
             "last5_badge_text": None,
+            "last10_badge_text": None,
         }
         if row.entity_type == "player":
             player = player_map.get(row.entity_id)
@@ -2907,10 +2908,10 @@ def _dedupe_triggered_cards(cards: list[dict], game_id: str) -> list[dict]:
             float(card.get("value_num") or 0.0),
         )
 
-    # Include the season's window (career / last3 / last5 / "season") in the
-    # group key so each window keeps its own card. Folding by family alone
-    # collapsed e.g. Jokic's 25/5/5 milestones across 4 windows into a single
-    # winner — last3/last5 stories never surfaced even after the detector
+    # Include the season's window (career / last10 / last5 / last3 / "season")
+    # in the group key so each window keeps its own card. Folding by family
+    # alone collapsed e.g. Jokic's 25/5/5 milestones across windows into a
+    # single winner — last-N stories never surfaced even after the detector
     # was fixed.
     grouped: dict[tuple[str, str, str, str, str], list[dict]] = defaultdict(list)
     for card in cards:
@@ -2975,7 +2976,7 @@ def _card_window_tier(card: dict) -> int:
 def _finalize_triggered_result(result: dict[str, list[dict]], game_id: str) -> dict[str, list[dict]]:
     for kind in ("player", "team"):
         result[kind] = _dedupe_triggered_cards(result.get(kind) or [], game_id)
-        # Layer 1 sort: career > last5 > last3 > season, then by best_ratio
+        # Layer 1 sort: career > last10 > last5 > last3 > season, then by best_ratio
         # within each tier. Pre-fix this was a flat best_ratio sort, which
         # let dozens of low-ratio this-season cards crowd out the rare
         # career milestones we actually want at the top of the LLM's input.
@@ -3002,15 +3003,16 @@ _HERO_COOLDOWN_FLOOR = 0.3
 
 
 def _window_class_for_card(card: dict) -> str:
-    """Story-grouping key. career / last3 / last5 fold into one bucket
-    ("long" — different angles of the same career-ish narrative); concrete-
-    season cards get their own bucket so a "this-season leader" story isn't
-    silenced by an unrelated career-window airing of the same metric family."""
+    """Story-grouping key. career / last3 / last5 / last10 fold into one
+    bucket ("long" — different angles of the same career-ish narrative);
+    concrete-season cards get their own bucket so a "this-season leader"
+    story isn't silenced by an unrelated career-window airing of the same
+    metric family."""
     metric_key = str(card.get("metric_key") or "")
     season = str(card.get("season") or "")
-    if metric_key.endswith(("_career", "_last3", "_last5")):
+    if metric_key.endswith(("_career", "_last3", "_last5", "_last10")):
         return "long"
-    if season.startswith(("all_", "last3_", "last5_")):
+    if season.startswith(("all_", "last3_", "last5_", "last10_")):
         return "long"
     return "season"
 
@@ -3063,7 +3065,7 @@ def _recent_hero_lookup(session, *, current_game_date) -> dict[tuple[str, str, s
         family_base = family_base_key(metric_key)
         # Reuse the same window-class logic the candidate side uses, on the
         # post's recorded metric_key (the curator's chosen variant).
-        window_class = "long" if metric_key.endswith(("_career", "_last3", "_last5")) else "season"
+        window_class = "long" if metric_key.endswith(("_career", "_last3", "_last5", "_last10")) else "season"
         key = (scope, entity_id, family_base, window_class)
         try:
             days_since = (current_game_date - source_date).days
@@ -4220,6 +4222,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             MetricResultModel.season.like(CAREER_SEASON_PREFIX + "%"),
             MetricResultModel.season.like("last3_%"),
             MetricResultModel.season.like("last5_%"),
+            MetricResultModel.season.like("last10_%"),
         ]
         season_filter = or_(MetricResultModel.season == season, *pseudo_season_filters)
     else:
@@ -4618,6 +4621,7 @@ def _get_metric_results(session, entity_type: str, entity_id: str, season: str |
             "career": None,
             "last3": None,
             "last5": None,
+            "last10": None,
             "sub_key_type": bucket["sub_key_type"],
             "splits": splits,
             "primary_sub_key_info": top["sub_key_info"],
