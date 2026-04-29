@@ -86,6 +86,98 @@ def test_window_label_reads_synthetic_last_season_tokens():
     assert _window_label("wins_by_10_plus", "last3_regular") == "last3"
 
 
+def test_dedupe_triggered_cards_keeps_one_card_per_window():
+    """Pre-fix bug: _dedupe_triggered_cards collapsed every window of the
+    same metric family into one winner, so an entity with milestones in
+    season + career + last3 + last5 ended up as a single candidate. The
+    other windows' stories never reached the LLM."""
+    from web.app import _dedupe_triggered_cards
+
+    cards = [
+        {
+            "metric_key": "wins_by_10_plus",
+            "season": "42025",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.5,
+            "event_type": "approaching_target",
+        },
+        {
+            "metric_key": "wins_by_10_plus_career",
+            "season": "all_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.6,
+            "event_type": "approaching_target",
+        },
+        {
+            "metric_key": "wins_by_10_plus_last3",
+            "season": "last3_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.6,
+            "event_type": "approaching_target",
+        },
+        {
+            "metric_key": "wins_by_10_plus_last5",
+            "season": "last5_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.6,
+            "event_type": "approaching_target",
+        },
+    ]
+
+    result = _dedupe_triggered_cards(cards, game_id="0042500165")
+    assert len(result) == 4
+    assert sorted(c["metric_key"] for c in result) == [
+        "wins_by_10_plus",
+        "wins_by_10_plus_career",
+        "wins_by_10_plus_last3",
+        "wins_by_10_plus_last5",
+    ]
+
+
+def test_dedupe_triggered_cards_collapses_within_same_window():
+    """Within one window, multiple events of the same family still collapse
+    to a single winner (otherwise an approaching_target + approaching_absolute
+    pair from one detection round would both surface as separate cards)."""
+    from web.app import _dedupe_triggered_cards
+
+    cards = [
+        {
+            "metric_key": "wins_by_10_plus_career",
+            "season": "all_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.5,
+            "event_type": "approaching_target",
+            "rank": 7,
+            "value_num": 51,
+        },
+        {
+            "metric_key": "wins_by_10_plus_career",
+            "season": "all_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.7,
+            "event_type": "absolute_threshold",
+            "rank": 7,
+            "value_num": 51,
+        },
+    ]
+    result = _dedupe_triggered_cards(cards, game_id="0042500165")
+    assert len(result) == 1
+    # Higher severity / event_priority wins.
+    assert result[0]["event_type"] == "absolute_threshold"
+
+
 def test_game_llm_input_preserves_scope_reference_fields():
     payload = build_llm_input(
         [

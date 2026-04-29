@@ -298,3 +298,80 @@ def test_absolute_threshold_and_approaching_absolute_events_emit_once():
         for event in g2_events
         if event["event_type"] == "absolute_threshold"
     ] == [("absolute_threshold", "reach_10")]
+
+
+# ---------------------------------------------------------------------------
+# Regression: window-pair walking and per-window key normalization.
+# Pre-fix bug: _metric_season_pairs walked only [game.season, career_season],
+# so milestones for last3/last5 windows never fired even though the matching
+# *_last3 / *_last5 metric variants were computed in MetricResult. Both fixes
+# below must hold simultaneously, otherwise the curator's last-N candidate
+# bucket stays empty.
+# ---------------------------------------------------------------------------
+
+
+def test_metric_season_pairs_walks_all_four_windows():
+    from metrics.framework.milestones import _metric_season_pairs
+
+    metric = SimpleNamespace(
+        key="season_total_assists",
+        scope="player",
+        career=False,
+        supports_career=True,
+        trigger="season",
+    )
+    game = SimpleNamespace(season="42025")  # current playoffs (4-prefix)
+
+    def fake_get_metric(key, session=None):
+        return SimpleNamespace(
+            key=key,
+            scope="player",
+            career=False,
+            supports_career=False,
+            trigger="season",
+        )
+
+    with patch("metrics.framework.milestones.get_metric", side_effect=fake_get_metric):
+        pairs = _metric_season_pairs(None, game, [metric], None)
+
+    seasons = {season for _metric, season in pairs}
+    assert "42025" in seasons
+    assert "all_playoffs" in seasons
+    assert "last3_playoffs" in seasons
+    assert "last5_playoffs" in seasons
+
+
+def test_metric_season_pairs_skips_unsupported_windows():
+    """Game-scope metric (supports_career=False) must NOT be paired with any
+    window season — only its concrete this-season."""
+    from metrics.framework.milestones import _metric_season_pairs
+
+    metric = SimpleNamespace(
+        key="game_total_blocks",
+        scope="game",
+        career=False,
+        supports_career=False,
+        trigger="season",
+    )
+    game = SimpleNamespace(season="42025")
+
+    pairs = _metric_season_pairs(None, game, [metric], None)
+    seasons = {season for _metric, season in pairs}
+    assert seasons == {"42025"}
+
+
+def test_normalize_metric_key_for_season_dispatches_per_window():
+    from metrics.framework.milestones import _normalize_metric_key_for_season
+
+    # Base key + window season → matching variant suffix.
+    assert _normalize_metric_key_for_season("wins_by_10_plus", "all_playoffs") == "wins_by_10_plus_career"
+    assert _normalize_metric_key_for_season("wins_by_10_plus", "all_regular") == "wins_by_10_plus_career"
+    assert _normalize_metric_key_for_season("wins_by_10_plus", "last3_playoffs") == "wins_by_10_plus_last3"
+    assert _normalize_metric_key_for_season("wins_by_10_plus", "last5_regular") == "wins_by_10_plus_last5"
+    # Concrete season has no window — leave unchanged.
+    assert _normalize_metric_key_for_season("wins_by_10_plus", "42025") == "wins_by_10_plus"
+    # Already a variant — never double-suffix.
+    assert _normalize_metric_key_for_season("wins_by_10_plus_career", "all_playoffs") == "wins_by_10_plus_career"
+    # Old buggy code mapped *_last5 + all_playoffs to *_career; ensure we DON'T
+    # mutate a variant key based on a mismatched season.
+    assert _normalize_metric_key_for_season("wins_by_10_plus_last5", "all_playoffs") == "wins_by_10_plus_last5"
