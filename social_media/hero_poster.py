@@ -354,21 +354,43 @@ def build_prompt_context(
     The triggering game is `game`. Top N is the leaderboard size to
     surface to GPT.
     """
-    metric_key = _safe_str(card.get("metric_key") or card.get("ranking_metric_key"))
+    # Pair metric_key with season as a unit. A card may carry two pairs:
+    #   • plain (metric_key, season) — the metric's own computation window
+    #   • (ranking_metric_key, ranking_season) — the broader rank context
+    #     used to frame the headline (e.g. "ranks #16 all-time")
+    # Mixing the two halves (e.g. metric_key=*_last5 + season=all_playoffs)
+    # produces an empty leaderboard because *_last5 has no rows under
+    # all_*. Pick a consistent pair: ranking pair if both are present,
+    # else fall back to the plain pair.
+    ranking_metric_key = _safe_str(card.get("ranking_metric_key"))
+    ranking_season = _safe_str(card.get("ranking_season"))
+    if ranking_metric_key and ranking_season:
+        metric_key = ranking_metric_key
+        season = ranking_season
+        use_ranking_pair = True
+    else:
+        metric_key = _safe_str(card.get("metric_key"))
+        season = _safe_str(card.get("season") or game.season)
+        use_ranking_pair = False
+
     md = (
         session.query(MetricDefinition)
         .filter(MetricDefinition.key == metric_key)
         .first()
     )
-    metric_name = (
-        _safe_str(card.get("metric_name"))
-        or (md.name if md and md.name else metric_key.replace("_", " ").title())
-    )
+    if use_ranking_pair:
+        # When we swapped to the ranking pair, card.metric_name was for
+        # the other variant — using it would mislabel the leaderboard.
+        # Prefer the DB name of the variant we're actually showing.
+        metric_name = (md.name if md and md.name else metric_key.replace("_", " ").title())
+    else:
+        metric_name = (
+            _safe_str(card.get("metric_name"))
+            or (md.name if md and md.name else metric_key.replace("_", " ").title())
+        )
     metric_description = (md.description if md and md.description else "") or ""
     metric_scope = (md.scope if md and md.scope else _safe_str(card.get("scope"), "game"))
     metric_category = (md.category if md and md.category else "general")
-
-    season = _safe_str(card.get("ranking_season") or card.get("season") or game.season)
     stage_word, stage_pill_word = _season_stage(season)
     season_label = f"{_season_label(season)} NBA {stage_word.title()}"
 
