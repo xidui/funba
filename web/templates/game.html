@@ -1878,7 +1878,7 @@
   }
   .gp-lightbox-img {
     max-width: 100%;
-    max-height: calc(100vh - 120px);
+    max-height: calc(100vh - 140px);
     object-fit: contain;
     border-radius: 8px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
@@ -1899,27 +1899,48 @@
     margin-top: 2px;
   }
   .gp-lightbox-link {
+    position: fixed;
+    top: 18px;
+    left: 22px;
+    z-index: 1001;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
+    padding: 9px 16px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.22);
     color: #fff;
     font-family: 'Outfit', sans-serif;
     font-weight: 600;
     font-size: 13px;
+    line-height: 1;
     text-decoration: none;
-    transition: background 0.18s ease, border-color 0.18s ease;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
   }
   .gp-lightbox-link:hover,
   .gp-lightbox-link:focus-visible {
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
     outline: none;
+    transform: translateY(-1px);
   }
   .gp-lightbox-link[hidden] { display: none; }
+  @media (max-width: 540px) {
+    .gp-lightbox-link {
+      top: 14px;
+      left: 14px;
+      font-size: 12px;
+      padding: 8px 13px;
+    }
+    .gp-lightbox-close {
+      top: 14px;
+      right: 14px;
+    }
+  }
   .gp-lightbox-close {
     position: fixed;
     top: 18px;
@@ -2078,13 +2099,13 @@
 </div>
 
 <div class="gp-lightbox" id="gp-lightbox" hidden>
+  <a class="gp-lightbox-link" id="gp-lightbox-link" href="" hidden>
+    {{ t('See full leaderboard ›', '查看完整榜单 ›') }}
+  </a>
   <button type="button" class="gp-lightbox-close" id="gp-lightbox-close" aria-label="{{ t('Close', '关闭') }}">×</button>
   <figure class="gp-lightbox-figure">
     <img class="gp-lightbox-img" id="gp-lightbox-img" src="" alt="">
     <figcaption class="gp-lightbox-caption" id="gp-lightbox-caption"></figcaption>
-    <a class="gp-lightbox-link" id="gp-lightbox-link" href="" hidden>
-      {{ t('See full leaderboard ›', '查看完整榜单 ›') }}
-    </a>
   </figure>
 </div>
 {% endif %}
