@@ -10,9 +10,15 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, aliased
 
 from db.models import Game, MetricMilestone, MetricResult, Player, PlayerGameStats, Team, TeamGameStats
-from metrics.framework.base import career_season_for, career_season_type_code, is_career_season
+from metrics.framework.base import (
+    career_season_for,
+    career_season_type_code,
+    is_career_season,
+    window_season_for,
+    window_type_from_season,
+)
 from metrics.framework.family import family_base_key, family_window_key
-from metrics.framework.runtime import get_all_metrics, get_metric
+from metrics.framework.runtime import _metric_window_types, get_all_metrics, get_metric
 
 logger = logging.getLogger(__name__)
 
@@ -556,8 +562,18 @@ def _crossed_thresholds(prev_rank: int | None, new_rank: int | None, thresholds:
 
 
 def _normalize_metric_key_for_season(metric_key: str, season: str) -> str:
-    if is_career_season(season) and family_base_key(metric_key) == metric_key:
-        return family_window_key(metric_key, "career")
+    """Map a base metric key to the variant that owns this season's pool.
+
+    e.g. ('wins_by_10_plus', 'all_playoffs')   → 'wins_by_10_plus_career'
+         ('wins_by_10_plus', 'last5_playoffs') → 'wins_by_10_plus_last5'
+         ('wins_by_10_plus', '42025')          → 'wins_by_10_plus' (unchanged)
+
+    No-op when the key is already a variant or the season has no window."""
+    if family_base_key(metric_key) != metric_key:
+        return metric_key
+    window_type = window_type_from_season(season)
+    if window_type:
+        return family_window_key(metric_key, window_type)
     return metric_key
 
 
@@ -598,16 +614,27 @@ def _metric_season_pairs(
         season_values = [str(season) for season in seasons if season]
     else:
         season_values = [str(game.season)] if game.season else []
-        career_season = career_season_for(str(game.season or ""))
-        if career_season:
-            season_values.append(career_season)
+        # Walk every window the metric framework knows about — career, last3,
+        # last5 — not just career. Otherwise rank-crossing / approaching-target
+        # milestones in last3/last5 pools never fire (the curator's last-N
+        # candidates would always be empty even when the underlying *_last3 /
+        # *_last5 metric variants are computed).
+        for window_type in ("career", "last3", "last5"):
+            window_season = window_season_for(str(game.season or ""), window_type)
+            if window_season:
+                season_values.append(window_season)
 
     pairs: list[tuple[object, str]] = []
     seen: set[tuple[str, str]] = set()
     for season in season_values:
         for metric in metrics:
             if is_career_season(season):
-                if not (getattr(metric, "career", False) or getattr(metric, "supports_career", False)):
+                # Window season (all_* / last3_* / last5_*). Only include the
+                # metric if it supports this specific window — `supports_career`
+                # is necessary but not sufficient: a metric with trigger='game'
+                # gets only ['career'], no last3/last5 variants.
+                window_type = window_type_from_season(season)
+                if window_type not in _metric_window_types(metric):
                     continue
                 metric_key = _normalize_metric_key_for_season(metric.key, season)
                 metric_for_season = get_metric(metric_key, session=session)
