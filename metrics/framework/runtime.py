@@ -259,7 +259,7 @@ def _metric_window_types(metric: MetricDefinition) -> list[str]:
         return []
     window_types = ["career"]
     if getattr(metric, "trigger", "game") == "season":
-        window_types.extend(["last5", "last3"])
+        window_types.extend(["last10", "last5", "last3"])
     return window_types
 
 
@@ -715,7 +715,7 @@ def _resolve_window_type(
 ) -> str | None:
     if explicit_window_type is not None:
         return explicit_window_type
-    if variant in {"career", "last3", "last5"}:
+    if variant in {"career", "last3", "last5", "last10"}:
         return variant
     key_window = window_type_from_key(key)
     if key_window is not None:

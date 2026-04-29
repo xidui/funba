@@ -2949,10 +2949,43 @@ def _dedupe_triggered_cards(cards: list[dict], game_id: str) -> list[dict]:
     return winners
 
 
+def _card_window_tier(card: dict) -> int:
+    """Window-based priority tier — same scheme curator's _prefilter_triggered
+    uses, lifted up so layer 1 truncation can also be tier-aware. Lower wins.
+
+      0 = career (all_* / *_career)
+      1 = last10 (last10_* / *_last10)
+      2 = last5  (last5_* / *_last5)
+      3 = last3  (last3_* / *_last3)
+      4 = concrete season / single-game / unclassified
+    """
+    metric_key = str(card.get("metric_key") or "")
+    season = str(card.get("season") or "")
+    if metric_key.endswith("_career") or season.startswith("all_"):
+        return 0
+    if metric_key.endswith("_last10") or season.startswith("last10_"):
+        return 1
+    if metric_key.endswith("_last5") or season.startswith("last5_"):
+        return 2
+    if metric_key.endswith("_last3") or season.startswith("last3_"):
+        return 3
+    return 4
+
+
 def _finalize_triggered_result(result: dict[str, list[dict]], game_id: str) -> dict[str, list[dict]]:
     for kind in ("player", "team"):
         result[kind] = _dedupe_triggered_cards(result.get(kind) or [], game_id)
-        result[kind].sort(key=lambda c: (c.get("best_ratio", 1.0), c.get("rank") or 10**9))
+        # Layer 1 sort: career > last5 > last3 > season, then by best_ratio
+        # within each tier. Pre-fix this was a flat best_ratio sort, which
+        # let dozens of low-ratio this-season cards crowd out the rare
+        # career milestones we actually want at the top of the LLM's input.
+        result[kind].sort(
+            key=lambda c: (
+                _card_window_tier(c),
+                c.get("best_ratio", 1.0),
+                c.get("rank") or 10**9,
+            )
+        )
         # Per-game extrema metrics (sub_key_type=game_id) add multiple cards per
         # game (top bench scorers etc.) that can be displaced by milestone cards
         # at the lower end. Headroom bumped from 32 to 60 so prefilter (20 cap)

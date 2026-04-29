@@ -179,6 +179,51 @@ def test_window_class_for_card_long_vs_season():
     assert _window_class_for_card({"metric_key": "game_total_blocks", "season": None}) == "season"
 
 
+def test_finalize_triggered_result_keeps_career_card_under_pressure():
+    """Layer 1 (the 60-card cut) used to flat-sort by best_ratio, which let
+    65 low-ratio this-season cards crowd out a single career milestone with
+    a mediocre ratio. After the tier-aware sort the career card must
+    survive into the top 60 even when this-season cards have lower
+    best_ratio numbers."""
+    from web.app import _finalize_triggered_result
+
+    cards = []
+    for i in range(65):
+        cards.append({
+            "metric_key": f"this_season_metric_{i}",
+            "season": "42025",
+            "entity_type": "player",
+            "entity_id": f"p{i}",
+            "best_ratio": 0.001,  # very strong percentile, would dominate flat sort
+        })
+    cards.append({
+        "metric_key": "career_three_pm_games_career",
+        "season": "all_playoffs",
+        "entity_type": "player",
+        "entity_id": "p_star",
+        "best_ratio": 0.05,  # mediocre ratio but tier-0
+    })
+
+    result = _finalize_triggered_result({"player": cards, "team": []}, game_id="g1")
+    keys = {c["metric_key"] for c in result["player"]}
+    assert "career_three_pm_games_career" in keys
+    # And it should be sorted to the front of the player list.
+    assert result["player"][0]["metric_key"] == "career_three_pm_games_career"
+
+
+def test_card_window_tier_orders_career_first():
+    from web.app import _card_window_tier
+
+    assert _card_window_tier({"metric_key": "x_career", "season": "all_playoffs"}) == 0
+    assert _card_window_tier({"metric_key": "x_last10", "season": "last10_playoffs"}) == 1
+    assert _card_window_tier({"metric_key": "x_last5", "season": "last5_playoffs"}) == 2
+    assert _card_window_tier({"metric_key": "x_last3", "season": "last3_playoffs"}) == 3
+    assert _card_window_tier({"metric_key": "x", "season": "42025"}) == 4
+    assert _card_window_tier({"metric_key": "game_total_blocks", "season": None}) == 4
+    # Base metric_key paired with window season → still pick up tier from season.
+    assert _card_window_tier({"metric_key": "season_total_assists", "season": "all_playoffs"}) == 0
+
+
 def test_dedupe_triggered_cards_collapses_within_same_window():
     """Within one window, multiple events of the same family still collapse
     to a single winner (otherwise an approaching_target + approaching_absolute

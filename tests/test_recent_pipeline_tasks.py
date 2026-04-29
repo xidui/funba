@@ -578,6 +578,9 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
             "all_regular",
             "all_playoffs",
             "all_playin",
+            "last10_regular",
+            "last10_playoffs",
+            "last10_playin",
             "last5_regular",
             "last5_playoffs",
             "last5_playin",
@@ -599,7 +602,7 @@ def test_refresh_current_season_metrics_respects_metric_season_types():
     callback_sig = chord_mock.return_value.call_args.args[0]
     assert callback_sig.kwargs["metric_key"] == "playoff_points"
     assert callback_sig.kwargs["run_id"] == "run-playoffs"
-    assert callback_sig.kwargs["buckets"] == ["all_playoffs", "last5_playoffs", "last3_playoffs"]
+    assert callback_sig.kwargs["buckets"] == ["all_playoffs", "last10_playoffs", "last5_playoffs", "last3_playoffs"]
     assert callback_sig.kwargs["game_ids"] == ["g1"]
 
 

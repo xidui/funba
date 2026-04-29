@@ -2433,7 +2433,7 @@ def register_detail_routes(
         # Career splits live in alltime_splits keyed by `career_type`;
         # current-season splits live in season_splits and are filtered
         # by the season passed to _get_metric_results.
-        is_career = season.startswith(("all_", "last3_", "last5_"))
+        is_career = season.startswith(("all_", "last3_", "last5_", "last10_"))
         sel_season = None if is_career else season
 
         SessionLocal = get_session_local()

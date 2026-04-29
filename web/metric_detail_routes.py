@@ -19,6 +19,8 @@ def _metric_window_label(deps, window_type: str | None, scope: str | None) -> st
         if scope == "team":
             return deps.t()("Franchise History", "队史")
         return deps.t()("Career", "生涯")
+    if window_type == "last10":
+        return deps.t()("Last 10 Seasons", "近 10 季")
     if window_type == "last5":
         return deps.t()("Last 5 Seasons", "近 5 季")
     if window_type == "last3":
@@ -143,7 +145,7 @@ def register_metric_detail_routes(app, deps):
         from metrics.framework.base import CAREER_SEASON, is_career_season
         from metrics.framework.runtime import get_metric as _get_metric
 
-        # Same three labels for every window page (career / last3 / last5);
+        # Same three labels for every window page (career / last3 / last5 / last10);
         # the URL's window suffix already disambiguates which time bucket the
         # value lives in, so the dropdown stays "Regular / Playoffs / Play-In".
         WINDOW_SEASON_LABELS = [
@@ -202,12 +204,12 @@ def register_metric_detail_routes(app, deps):
 
             current_window_type = window_type_from_key(metric_key)
 
-            # Game-scope last3/last5 are virtual windows: rows live under the
-            # base metric key and we filter to the most recent N distinct
+            # Game-scope last3/last5/last10 are virtual windows: rows live under
+            # the base metric key and we filter to the most recent N distinct
             # seasons of the selected season-type at query time. No sibling
             # MetricResult rows get stored.
             is_virtual_game_window = (
-                current_window_type in ("last3", "last5")
+                current_window_type in ("last3", "last5", "last10")
                 and runtime_metric is None
                 and db_metric is not None
                 and db_metric.scope == "game"
@@ -215,7 +217,7 @@ def register_metric_detail_routes(app, deps):
             query_metric_key = base_metric_key if is_virtual_game_window else metric_key
 
             if is_virtual_game_window:
-                window_n = 3 if current_window_type == "last3" else 5
+                window_n = {"last3": 3, "last5": 5, "last10": 10}[current_window_type]
                 base_name_en = getattr(metric_def, "name_en", "") or ""
                 base_name_zh = getattr(metric_def, "name_zh", "") or ""
                 base_desc_en = getattr(metric_def, "description_en", "") or ""
@@ -269,13 +271,13 @@ def register_metric_detail_routes(app, deps):
                     }
                 )
             is_game_scope = db_metric is not None and db_metric.scope == "game"
-            for candidate_window in ("last3", "last5", "career"):
+            for candidate_window in ("last3", "last5", "last10", "career"):
                 candidate_key = family_window_key(base_metric_key, candidate_window)
                 # Game-scope window tabs are virtual — their rows share the
                 # base key, so _has_results_for won't find them. Fall back to
                 # the base's result existence instead. Career is still skipped
                 # for game scope (redundant with the All-<type> selector).
-                if is_game_scope and candidate_window in ("last3", "last5"):
+                if is_game_scope and candidate_window in ("last3", "last5", "last10"):
                     if not base_has_results:
                         continue
                 elif not _has_results_for(candidate_key):
@@ -307,7 +309,7 @@ def register_metric_detail_routes(app, deps):
                 show_all_seasons = True
                 if not all_season_type:
                     all_season_type = "2"
-                window_n = 3 if current_window_type == "last3" else 5
+                window_n = {"last3": 3, "last5": 5, "last10": 10}[current_window_type]
                 type_seasons = sorted(
                     [s for s in season_values if s and len(s) == 5 and s.isdigit() and s[0] == all_season_type],
                     reverse=True,

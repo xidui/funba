@@ -7,7 +7,8 @@ final 5-8.
 Candidate dict shape (subset of _build_game_season_metrics_list output):
     metric_key, metric_name, entity_id, value_num, value_str, context,
     rank, total, all_games_rank, all_games_total,
-    last3_rank, last3_total, last5_rank, last5_total
+    last3_rank, last3_total, last5_rank, last5_total,
+    last10_rank, last10_total
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ def _best_ratio(entry: dict) -> float:
         ("rank", "total"),
         ("last3_rank", "last3_total"),
         ("last5_rank", "last5_total"),
+        ("last10_rank", "last10_total"),
     ):
         r = entry.get(r_key)
         t = entry.get(t_key)
@@ -41,6 +43,7 @@ def _best_rank_total(entry: dict) -> tuple[int | None, int | None]:
         ("rank", "total"),
         ("last3_rank", "last3_total"),
         ("last5_rank", "last5_total"),
+        ("last10_rank", "last10_total"),
     ):
         r = entry.get(r_key)
         t = entry.get(t_key)
@@ -84,6 +87,7 @@ def prefilter_candidates(
             ranks = [
                 e.get("rank"), e.get("all_games_rank"),
                 e.get("last3_rank"), e.get("last5_rank"),
+                e.get("last10_rank"),
             ]
             ranks = [r for r in ranks if r is not None]
             best_rank = min(ranks) if ranks else None
@@ -111,6 +115,7 @@ def prefilter_candidates(
             ranks = [
                 e.get("rank"), e.get("all_games_rank"),
                 e.get("last3_rank"), e.get("last5_rank"),
+                e.get("last10_rank"),
             ]
             ranks = [r for r in ranks if r is not None]
             best_rank = min(ranks) if ranks else None

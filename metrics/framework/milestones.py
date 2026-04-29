@@ -615,11 +615,11 @@ def _metric_season_pairs(
     else:
         season_values = [str(game.season)] if game.season else []
         # Walk every window the metric framework knows about — career, last3,
-        # last5 — not just career. Otherwise rank-crossing / approaching-target
-        # milestones in last3/last5 pools never fire (the curator's last-N
+        # last5, last10 — not just career. Otherwise rank-crossing / approaching-
+        # target milestones in last-N pools never fire (the curator's last-N
         # candidates would always be empty even when the underlying *_last3 /
-        # *_last5 metric variants are computed).
-        for window_type in ("career", "last3", "last5"):
+        # *_last5 / *_last10 metric variants are computed).
+        for window_type in ("career", "last3", "last5", "last10"):
             window_season = window_season_for(str(game.season or ""), window_type)
             if window_season:
                 season_values.append(window_season)
@@ -629,10 +629,10 @@ def _metric_season_pairs(
     for season in season_values:
         for metric in metrics:
             if is_career_season(season):
-                # Window season (all_* / last3_* / last5_*). Only include the
-                # metric if it supports this specific window — `supports_career`
-                # is necessary but not sufficient: a metric with trigger='game'
-                # gets only ['career'], no last3/last5 variants.
+                # Window season (all_* / last3_* / last5_* / last10_*). Only
+                # include the metric if it supports this specific window —
+                # `supports_career` is necessary but not sufficient: a metric
+                # with trigger='game' gets only ['career'], no last-N variants.
                 window_type = window_type_from_season(season)
                 if window_type not in _metric_window_types(metric):
                     continue

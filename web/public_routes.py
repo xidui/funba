@@ -1587,6 +1587,7 @@ def register_public_routes(
             ("rank", "total"),
             ("last3_rank", "last3_total"),
             ("last5_rank", "last5_total"),
+            ("last10_rank", "last10_total"),
         ):
             rank = card.get(rank_key)
             total = card.get(total_key)
@@ -1652,17 +1653,19 @@ def register_public_routes(
         player_candidates = [m for m in ((payload or {}).get("triggered_player_metrics") or []) if m.get("is_curated")]
 
         def _player_sort_key(metric: dict) -> tuple:
-            # career > last5 > last3 > concrete season. Within a window tier,
-            # hero beats notable, then by rank ratio.
+            # career > last10 > last5 > last3 > concrete season. Within a
+            # window tier, hero beats notable, then by rank ratio.
             metric_key = str(metric.get("metric_key") or "")
             if metric_key.endswith("_career"):
                 window_tier = 0
-            elif metric_key.endswith("_last5"):
+            elif metric_key.endswith("_last10"):
                 window_tier = 1
-            elif metric_key.endswith("_last3"):
+            elif metric_key.endswith("_last5"):
                 window_tier = 2
-            else:
+            elif metric_key.endswith("_last3"):
                 window_tier = 3
+            else:
+                window_tier = 4
             return (
                 window_tier,
                 0 if metric.get("is_hero") else 1,

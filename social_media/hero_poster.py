@@ -309,8 +309,8 @@ def _full_player_line(pgs: PlayerGameStats | None) -> str:
 
 def _season_stage(season: str | None) -> tuple[str, str]:
     """Return (stage_word, stage_pill_word) — recognises virtual season keys
-    like all_playoffs / last3_playoffs / all_regular as well as numeric
-    single-season ids (2xxxx, 4xxxx, 5xxxx)."""
+    like all_playoffs / last3_playoffs / last10_playoffs / all_regular as
+    well as numeric single-season ids (2xxxx, 4xxxx, 5xxxx)."""
     raw = str(season or "")
     if raw[:1] == "4" or "_playoffs" in raw:
         return "playoffs", "PLAYOFFS"
@@ -328,6 +328,8 @@ def _season_label(season: str | None) -> str:
         return "Last 3 Seasons"
     if raw.startswith("last5_"):
         return "Last 5 Seasons"
+    if raw.startswith("last10_"):
+        return "Last 10 Seasons"
     if len(raw) == 5 and raw.isdigit():
         year = raw[1:]
         try:
@@ -337,11 +339,12 @@ def _season_label(season: str | None) -> str:
     return raw or "season"
 
 
-_VARIANT_SUFFIXES = ("_career", "_last3", "_last5")
+_VARIANT_SUFFIXES = ("_career", "_last3", "_last5", "_last10")
 _SEASON_PREFIX_TO_SUFFIX = {
     "all_": "_career",
     "last3_": "_last3",
     "last5_": "_last5",
+    "last10_": "_last10",
 }
 
 
@@ -363,7 +366,7 @@ def _has_any_result(session: Session, metric_key: str, season: str) -> bool:
 
 
 def _coerce_metric_key_for_season(session: Session, metric_key: str, season: str) -> str:
-    """Family variants (_career / _last3 / _last5) each carry their own
+    """Family variants (_career / _last3 / _last5 / _last10) each carry their own
     MetricResult rows. The curator may pass the value-source variant
     paired with a ranking-context season that has no rows for that
     variant. Swap the suffix to match the season's family so the
@@ -437,7 +440,7 @@ def build_prompt_context(
         .filter(MetricDefinition.key == metric_key)
         .first()
     )
-    # Variants like _career/_last3/_last5 are auto-registered at runtime and
+    # Variants like _career/_last3/_last5/_last10 are auto-registered at runtime and
     # don't carry their own MetricDefinition rows — fall back to the base
     # metric so the prompt prints a clean name ("Wins By 10+") instead of
     # an ugly title-cased variant key ("Wins By 10 Plus Last5").

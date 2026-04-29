@@ -61,12 +61,13 @@
       {% elif not val_short %}{{ val_raw }}{% endif %}
     </div>
     {% endif %}
-    {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.all_badge_text %}
+    {% if m.season_badge_text or m.last3_badge_text or m.last5_badge_text or m.last10_badge_text or m.all_badge_text %}
     <div class="tem-badges">
       {% if m.all_badge_text %}<span class="rank-chip notable">{{ m.all_badge_text }}</span>{% endif %}
       {% if m.season_badge_text and not m.all_badge_text %}<span class="rank-chip notable">{{ m.season_badge_text }}</span>{% endif %}
-      {% if m.last3_badge_text %}<span class="rank-chip notable">{{ m.last3_badge_text }}</span>{% endif %}
+      {% if m.last10_badge_text %}<span class="rank-chip notable">{{ m.last10_badge_text }}</span>{% endif %}
       {% if m.last5_badge_text %}<span class="rank-chip notable">{{ m.last5_badge_text }}</span>{% endif %}
+      {% if m.last3_badge_text %}<span class="rank-chip notable">{{ m.last3_badge_text }}</span>{% endif %}
     </div>
     {% endif %}
     {% if m.road_abbr and m.home_abbr %}

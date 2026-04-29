@@ -569,7 +569,7 @@ def register_admin_misc_routes(app, deps):
                 {"key": "{trigger_team_abbr}", "desc": "Three-letter team abbr of trigger row"},
                 {"key": "{trigger_value_str}", "desc": "Trigger value as string (e.g. '7 blk')"},
                 {"key": "{trigger_rank}", "desc": "Trigger row's actual rank in the season"},
-                {"key": "{trigger_window}", "desc": "Best ranking window: alltime | season | last5 | last3"},
+                {"key": "{trigger_window}", "desc": "Best ranking window: alltime | season | last10 | last5 | last3"},
                 {"key": "{trigger_full_line}", "desc": "Player's full game line if scope=player (PTS · REB · AST · …)"},
                 {"key": "{trigger_in_topn}", "desc": "Bool — true when trigger is within top N (use in {% if %} blocks)"},
                 {"key": "{trigger_appendix_row}", "desc": "Pre-formatted extra row when trigger is outside top N"},

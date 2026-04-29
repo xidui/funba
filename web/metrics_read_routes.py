@@ -201,7 +201,7 @@ def register_metrics_read_routes(
         FAMILY_VARIANT_CAREER = get_family_variant_career()
         family_base_key = get_family_base_key
 
-        # Window siblings (_career / _last3 / _last5) are virtual — they have
+        # Window siblings (_career / _last3 / _last5 / _last10) are virtual — they have
         # no DB row of their own. Redirect them to the base metric's edit page.
         normalized_key = family_base_key(metric_key)
         if normalized_key != metric_key:

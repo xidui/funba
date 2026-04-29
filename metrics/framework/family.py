@@ -7,10 +7,12 @@ import copy
 CAREER_KEY_SUFFIX = "_career"
 LAST3_KEY_SUFFIX = "_last3"
 LAST5_KEY_SUFFIX = "_last5"
+LAST10_KEY_SUFFIX = "_last10"
 WINDOW_SUFFIXES = {
     "career": CAREER_KEY_SUFFIX,
     "last3": LAST3_KEY_SUFFIX,
     "last5": LAST5_KEY_SUFFIX,
+    "last10": LAST10_KEY_SUFFIX,
 }
 FAMILY_VARIANT_SEASON = "season"
 FAMILY_VARIANT_CAREER = "career"
@@ -49,6 +51,10 @@ def family_last5_key(base_key: str) -> str:
     return family_window_key(base_key, "last5")
 
 
+def family_last10_key(base_key: str) -> str:
+    return family_window_key(base_key, "last10")
+
+
 def is_reserved_window_key(key: str) -> bool:
     return window_type_from_key(key) is not None
 
@@ -68,6 +74,7 @@ def derive_window_name(
             "career": " (Career)",
             "last3": " (Last 3 Seasons)",
             "last5": " (Last 5 Seasons)",
+            "last10": " (Last 10 Seasons)",
         }[window_type]
     base_name = (name or "").strip()
     return f"{base_name}{suffix}" if base_name else suffix.strip()
@@ -83,6 +90,7 @@ def derive_window_description(description: str, window_type: str) -> str:
         "career": "Computed across seasons of the same type (regular season, playoffs, or play-in).",
         "last3": "Computed across the most recent 3 seasons of the same type (regular season, playoffs, or play-in).",
         "last5": "Computed across the most recent 5 seasons of the same type (regular season, playoffs, or play-in).",
+        "last10": "Computed across the most recent 10 seasons of the same type (regular season, playoffs, or play-in).",
     }[window_type]
     return f"{base_description} {suffix}".strip() if base_description else suffix
 
@@ -120,6 +128,13 @@ def derive_window_min_sample(
     if window_type == "last3":
         return max(base_min * 3, base_min)
     if window_type == "last5":
+        return max(base_min * 5, base_min)
+    if window_type == "last10":
+        # Deliberately lenient: cap the multiplier at 5 (same as last5/career).
+        # base_min * 10 would exclude any player who missed a season or only
+        # entered the league mid-window, which defeats the purpose of a "look
+        # back 10 seasons" view. Bias toward inclusion; the 200-row cap and
+        # rank ordering already filter out non-meaningful entries.
         return max(base_min * 5, base_min)
     raise KeyError(f"Unsupported window_type: {window_type!r}")
 

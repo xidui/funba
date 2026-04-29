@@ -15,8 +15,9 @@ WINDOW_SEASONS = {
     "career": ["all_regular", "all_playoffs", "all_playin"],
     "last3": ["last3_regular", "last3_playoffs", "last3_playin"],
     "last5": ["last5_regular", "last5_playoffs", "last5_playin"],
+    "last10": ["last10_regular", "last10_playoffs", "last10_playin"],
 }
-WINDOW_DISPATCH_ORDER = ("career", "last5", "last3")
+WINDOW_DISPATCH_ORDER = ("career", "last10", "last5", "last3")
 CAREER_SEASONS = set(SEASON_TYPE_TO_CAREER.values())
 WINDOW_SEASON_PREFIXES = tuple(
     prefix
@@ -24,6 +25,7 @@ WINDOW_SEASON_PREFIXES = tuple(
         CAREER_SEASON_PREFIX,
         "last3_",
         "last5_",
+        "last10_",
     )
 )
 METRIC_SEASON_TYPE_OPTIONS = ("regular", "playoffs", "playin")
@@ -87,6 +89,8 @@ def window_size_from_season(season: str | None) -> int | None:
         return 3
     if window_type == "last5":
         return 5
+    if window_type == "last10":
+        return 10
     return None
 
 

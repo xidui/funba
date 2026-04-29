@@ -30,7 +30,7 @@ class TestCatalogEligibleWindowTypes(unittest.TestCase):
 
     def test_game_scope_returns_last3_last5(self):
         result = self._eligible("game")
-        self.assertEqual(result, ["last5", "last3"])
+        self.assertEqual(result, ["last10", "last5", "last3"])
 
     def test_game_scope_no_career(self):
         result = self._eligible("game")

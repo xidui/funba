@@ -265,6 +265,7 @@ def _best_rank_context(rank_snapshot: dict) -> tuple[str, str]:
     labels = (
         ("alltime", "All-time"),
         ("season", "Season"),
+        ("last10", "Last 10"),
         ("last5", "Last 5"),
         ("last3", "Last 3"),
     )
@@ -291,6 +292,7 @@ def _best_rank_context(rank_snapshot: dict) -> tuple[str, str]:
     window = {
         "All-time": "alltime",
         "Season": "season",
+        "Last 10": "last10",
         "Last 5": "last5",
         "Last 3": "last3",
     }.get(label, "season")
@@ -324,6 +326,8 @@ def _metric_result_season(metric_key: str, season: str | None) -> str:
     }
     suffix = virtual_suffixes.get(raw)
     if suffix:
+        if metric_key.endswith("_last10"):
+            return f"last10_{suffix}"
         if metric_key.endswith("_last5"):
             return f"last5_{suffix}"
         if metric_key.endswith("_last3"):
@@ -349,7 +353,7 @@ def _recent_seasons(session: Session, season: str | None, window: str) -> list[s
     prefix = _season_type_prefix(season)
     if prefix is None:
         return []
-    limit = 3 if window == "last3" else 5
+    limit = {"last3": 3, "last5": 5, "last10": 10}.get(window, 5)
     rows = (
         session.query(Game.season)
         .filter(Game.season.like(f"{prefix}%"))
@@ -556,7 +560,7 @@ def _metric_link_context(card: "HeroHighlightCard") -> tuple[str, str | None]:
         return card.ranking_metric_key, card.ranking_season
 
     if card.scope == "game":
-        if card.rank_window in {"last3", "last5"}:
+        if card.rank_window in {"last3", "last5", "last10"}:
             season_param = _all_seasons_param(card.ranking_season)
             if season_param:
                 return family_window_key(card.ranking_metric_key, card.rank_window), season_param
@@ -578,9 +582,9 @@ def _top_result_query(session: Session, card: "HeroHighlightCard", window: str):
         query = query.filter(MetricResult.season == season)
     elif window == "alltime" and _season_type_prefix(season):
         query = query.filter(MetricResult.season.like(f"{_season_type_prefix(season)}%"))
-    elif window in {"last3", "last5"} and season.startswith(f"{window}_"):
+    elif window in {"last3", "last5", "last10"} and season.startswith(f"{window}_"):
         query = query.filter(MetricResult.season == season)
-    elif window in {"last3", "last5"}:
+    elif window in {"last3", "last5", "last10"}:
         recent = _recent_seasons(session, season, window)
         if recent:
             query = query.filter(MetricResult.season.in_(recent))

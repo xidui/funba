@@ -797,7 +797,7 @@ def register_admin_content_routes(app, deps):
             preferred_name = None
             # Hero highlights bind a post to one (scope, entity, metric_key) tuple.
             # Match scope + entity so we surface only variants of *this* highlight
-            # (e.g. _career vs _last5 of the same metric family on the same team)
+            # (e.g. _career vs _last10 of the same metric family on the same team)
             # — not unrelated posters that happen to share the game.
             if scope and entity_id:
                 pattern = f"{scope}.*.{entity_id}.prompt.txt"
