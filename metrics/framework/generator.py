@@ -101,7 +101,7 @@ class MetricDefinition(ABC):
     supports_career: bool = True   # auto-creates a career variant. Set False for game-scope and season-scope metrics.
     rank_order: str = "desc"       # "desc" (higher=better) or "asc" (lower=better)
     season_types: tuple[str, ...] = ("regular", "playoffs", "playin")
-    max_results_per_season: int | None = None  # if set, keep only the top N results per season
+    max_results_per_season: int | None = 200  # default cap; set higher/None only with a specific reason
 ```
 
 ### season_types — restrict which season families the metric runs for
@@ -441,12 +441,13 @@ IMPORTANT:
 - Do NOT include register() call — the system handles registration.
 - The class name should be CamelCase of the key.
 - Use raw strings or proper escaping in the code field.
-- For game-scope metrics that produce many rows per game (e.g. one row per team per
-  quarter), the total row count can be enormous across all seasons. Set
-  max_results_per_season to a reasonable cap (e.g. 200) so only the most extreme
-  values are kept. The framework automatically sorts by value_num (respecting
-  rank_order) and trims. Do NOT set it for player/team-scope metrics where each
-  entity should have exactly one result row per season.
+- Default `max_results_per_season = 200` for ALL new metrics regardless of scope.
+  Rationale: ranks past ~200 are rarely interesting to readers, and the cap also
+  protects against row-count explosions on multi-row-per-game metrics. The
+  framework automatically sorts by value_num (respecting rank_order) and trims.
+  Override only with a specific reason (e.g. user explicitly asks for full
+  rankings, or the metric inherently produces fewer than 200 entities so the cap
+  is irrelevant — in which case you can leave it at 200 anyway).
 - CRITICAL: Do NOT compute or store ranking numbers. The system ranks entities automatically by value_num. value_num must always be the RAW metric value, not a rank ordinal. value_str should display the value in human-readable form, never a rank like #1 or #2. When the user asks for a "ranking", store the underlying value and let the system rank.
 - Set `context_label_template` whenever the value is a rate/ratio — see its
   dedicated section above for the rules.
