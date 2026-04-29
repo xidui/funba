@@ -761,6 +761,140 @@ def register_admin_content_routes(app, deps):
         deps.ensure_paperclip_issue_for_post()(post_id)
         return jsonify({"ok": True, "image_id": image_id})
 
+    def admin_content_poster_prompt(post_id: int):
+        """Read the poster prompt(s) saved on disk for this post, so a
+        reviewer can copy the prompt into ChatGPT (or another tool) and
+        upload the resulting image manually. Hero-poster generation writes
+        a `<scope>.<metric_key>.<entity_id>.prompt.txt` next to the PNG it
+        creates, and we surface those here.
+
+        Falls back to listing every prompt under the post's game directory
+        if the exact metric variant we'd expect isn't present (common when
+        the curator picked a different variant than what got rendered)."""
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        SessionLocal = deps.session_local()
+        SocialPost = deps.social_post_model()
+        with SessionLocal() as s:
+            post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+            if not post:
+                return jsonify({"error": "not_found"}), 404
+            topic = post.topic or ""
+
+        topic_parts = [p.strip() for p in topic.split("—")]
+        game_id = scope = metric_key = entity_id = None
+        if len(topic_parts) >= 5 and topic_parts[0] == "Hero Highlight":
+            _, game_id, scope, metric_key, entity_id = topic_parts[:5]
+
+        repo_root = Path(__file__).resolve().parent.parent
+        if not game_id:
+            return jsonify({"ok": True, "prompts": [], "note": "topic does not encode a game id"})
+        poster_dir = repo_root / "media" / "hero_posters" / game_id
+
+        prompts: list[dict] = []
+        if poster_dir.is_dir():
+            preferred = None
+            if scope and metric_key and entity_id:
+                preferred = f"{scope}.{metric_key}.{entity_id}.prompt.txt"
+            for path in sorted(poster_dir.glob("*.prompt.txt")):
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                prompts.append(
+                    {
+                        "filename": path.name,
+                        "is_preferred": (preferred is not None and path.name == preferred),
+                        "content": text,
+                    }
+                )
+
+        return jsonify(
+            {
+                "ok": True,
+                "topic": topic,
+                "game_id": game_id,
+                "scope": scope,
+                "metric_key": metric_key,
+                "entity_id": entity_id,
+                "prompts": prompts,
+            }
+        )
+
+    def admin_content_upload_image(post_id: int):
+        """Multipart upload variant of admin_content_add_image — accepts a
+        browser-uploaded file directly, instead of a server-side path. Used
+        by the Add-Image modal on the post-card UI when no image exists yet."""
+        import os
+        import tempfile
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify({"error": "no_file"}), 400
+        slot = (request.form.get("slot") or "").strip()
+        if not slot:
+            return jsonify({"error": "slot_required"}), 400
+        image_type = (request.form.get("image_type") or "human_replaced").strip() or "human_replaced"
+        note = (request.form.get("note") or "").strip() or None
+        is_enabled = (request.form.get("is_enabled") or "1").strip() not in {"0", "false", "False", ""}
+
+        suffix = Path(upload.filename).suffix.lower() or ".png"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            upload.save(tmp.name)
+            tmp_path = tmp.name
+
+        now = datetime.utcnow()
+        stored_path = None
+        SessionLocal = deps.session_local()
+        SocialPost = deps.social_post_model()
+        SocialPostImage = deps.social_post_image_model()
+        try:
+            with SessionLocal() as s:
+                post = s.query(SocialPost).filter(SocialPost.id == post_id).first()
+                if not post:
+                    return jsonify({"error": "not_found"}), 404
+                existing = s.query(SocialPostImage).filter(SocialPostImage.post_id == post_id, SocialPostImage.slot == slot).first()
+                if existing:
+                    return jsonify({"error": "slot_exists", "slot": slot}), 400
+                try:
+                    stored_path = deps.store_prepared_image()(tmp_path, post_id=post_id, slot=slot)
+                    spec_json = json.dumps(
+                        {
+                            "uploaded_via": "admin_modal",
+                            "original_name": upload.filename,
+                        },
+                        ensure_ascii=False,
+                    )
+                    img = SocialPostImage(
+                        post_id=post_id,
+                        slot=slot,
+                        image_type=image_type,
+                        spec=spec_json,
+                        note=note,
+                        file_path=stored_path,
+                        is_enabled=is_enabled,
+                        error_message=None,
+                        created_at=now,
+                    )
+                    s.add(img)
+                    s.commit()
+                    image_id = img.id
+                except Exception as exc:
+                    s.rollback()
+                    deps.remove_managed_post_image_file()(stored_path, post_id=post_id)
+                    return jsonify({"error": str(exc)}), 400
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        deps.ensure_paperclip_issue_for_post()(post_id)
+        return jsonify({"ok": True, "image_id": image_id})
+
     def admin_content_replace_image(post_id: int, image_id: int):
         denied = deps.require_admin_json()()
         if denied:
@@ -1180,6 +1314,8 @@ def register_admin_content_routes(app, deps):
     app.add_url_rule("/api/admin/content/<int:post_id>/deliveries/<int:delivery_id>/toggle", endpoint="admin_content_toggle_delivery", view_func=admin_content_toggle_delivery, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/images/<int:image_id>/toggle", endpoint="admin_content_toggle_image", view_func=admin_content_toggle_image, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/images", endpoint="admin_content_add_image", view_func=admin_content_add_image, methods=["POST"])
+    app.add_url_rule("/api/admin/content/<int:post_id>/images/upload", endpoint="admin_content_upload_image", view_func=admin_content_upload_image, methods=["POST"])
+    app.add_url_rule("/api/admin/content/<int:post_id>/poster-prompt", endpoint="admin_content_poster_prompt", view_func=admin_content_poster_prompt, methods=["GET"])
     app.add_url_rule("/api/admin/content/<int:post_id>/images/<int:image_id>/replace", endpoint="admin_content_replace_image", view_func=admin_content_replace_image, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/image-review-payload", endpoint="admin_content_image_review_payload", view_func=admin_content_image_review_payload)
     app.add_url_rule("/api/admin/content/<int:post_id>/image-review/apply", endpoint="admin_content_apply_image_review", view_func=admin_content_apply_image_review, methods=["POST"])
@@ -1207,6 +1343,8 @@ def register_admin_content_routes(app, deps):
         admin_content_toggle_delivery=admin_content_toggle_delivery,
         admin_content_toggle_image=admin_content_toggle_image,
         admin_content_add_image=admin_content_add_image,
+        admin_content_upload_image=admin_content_upload_image,
+        admin_content_poster_prompt=admin_content_poster_prompt,
         admin_content_replace_image=admin_content_replace_image,
         admin_content_image_review_payload=admin_content_image_review_payload,
         admin_content_apply_image_review=admin_content_apply_image_review,

@@ -201,6 +201,44 @@
     cursor: pointer; background: none; border: none; line-height: 1;
   }
 
+  /* Add-image modal */
+  .add-image-modal {
+    display: none; position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.7); align-items: flex-start; justify-content: center;
+    padding: 60px 20px; overflow-y: auto;
+  }
+  .add-image-modal.active { display: flex; }
+  .add-image-modal-inner {
+    background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px;
+    width: 100%; max-width: 640px; padding: 22px; position: relative;
+    color: var(--text);
+  }
+  .add-image-modal-inner h3 { margin: 0 0 14px; font-size: 16px; }
+  .add-image-close {
+    position: absolute; top: 10px; right: 14px; color: var(--muted); font-size: 22px;
+    background: none; border: none; cursor: pointer; line-height: 1;
+  }
+  .add-image-close:hover { color: var(--text); }
+  .aim-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+  .aim-row label { width: 70px; color: var(--muted); flex-shrink: 0; }
+  .aim-row input[type=text], .aim-row select {
+    flex: 1; padding: 6px 9px; background: var(--surface-2);
+    border: 1px solid var(--border-2); border-radius: 5px; color: var(--text); font-size: 13px;
+  }
+  .aim-row input[type=file] { flex: 1; font-size: 12px; color: var(--muted); }
+  .aim-prompt-section { margin: 16px 0 12px; border-top: 1px solid var(--border-2); padding-top: 12px; }
+  .aim-prompt-section h4 { margin: 0 0 8px; font-size: 13px; color: var(--text); }
+  .aim-meta { color: var(--muted); font-weight: normal; font-size: 11px; }
+  .aim-error {
+    padding: 8px 10px; background: color-mix(in srgb, var(--loss) 15%, transparent);
+    color: var(--loss); border-radius: 5px; font-size: 12px; margin-bottom: 10px;
+  }
+  .aim-submit {
+    padding: 8px 18px; background: var(--accent); color: #000;
+    border: none; border-radius: 5px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .aim-submit:hover { opacity: 0.9; }
+
   /* Comment thread */
   .comment-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
   .comment-section h4 { font-size: 12px; color: var(--muted-2); margin: 0 0 8px; font-weight: 600; }
@@ -591,6 +629,92 @@ function closeImageLightbox() {
   lb.querySelector('img').src = '';
 }
 
+let _addImageContext = { postId: null };
+function openAddImageModal(postId) {
+  _addImageContext.postId = postId;
+  document.getElementById('aim-slot').value = 'poster';
+  document.getElementById('aim-type').value = 'human_replaced';
+  document.getElementById('aim-note').value = '';
+  document.getElementById('aim-file').value = '';
+  document.getElementById('aim-error').style.display = 'none';
+  document.getElementById('add-image-modal').classList.add('active');
+  loadPosterPrompts(postId);
+}
+function closeAddImageModal() {
+  document.getElementById('add-image-modal').classList.remove('active');
+  _addImageContext.postId = null;
+}
+function _aimEscape(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+async function loadPosterPrompts(postId) {
+  const status = document.getElementById('aim-prompt-status');
+  const list = document.getElementById('aim-prompt-list');
+  status.textContent = '(loading…)';
+  list.innerHTML = '';
+  try {
+    const r = await fetch(`/api/admin/content/${postId}/poster-prompt`);
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'failed');
+    const prompts = data.prompts || [];
+    if (prompts.length === 0) {
+      status.textContent = '(none on disk for this game)';
+      return;
+    }
+    status.textContent = `(${prompts.length} saved · expand to copy)`;
+    list.innerHTML = prompts.map(p => `
+      <details ${p.is_preferred ? 'open' : ''} style="margin-bottom:8px;">
+        <summary style="cursor:pointer;font-size:12px;">${_aimEscape(p.filename)}${p.is_preferred ? ' <span style="color:var(--accent);">(closest match)</span>' : ''}</summary>
+        <div style="position:relative;margin-top:6px;">
+          <button style="position:absolute;top:6px;right:6px;font-size:11px;padding:3px 8px;background:var(--surface-3);color:var(--text);border:1px solid var(--border-2);border-radius:4px;cursor:pointer;" onclick="aimCopyPrompt(this)">Copy</button>
+          <pre style="white-space:pre-wrap;background:var(--surface-2);padding:10px;font-size:11px;max-height:240px;overflow:auto;border-radius:5px;border:1px solid var(--border-2);">${_aimEscape(p.content)}</pre>
+        </div>
+      </details>
+    `).join('');
+  } catch (e) {
+    status.textContent = '(failed to load: ' + (e && e.message || e) + ')';
+  }
+}
+function aimCopyPrompt(btn) {
+  const pre = btn.nextElementSibling;
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    const old = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  }).catch(() => { btn.textContent = 'Copy failed'; });
+}
+async function submitAddImage() {
+  const postId = _addImageContext.postId;
+  if (!postId) return;
+  const fileEl = document.getElementById('aim-file');
+  const errEl = document.getElementById('aim-error');
+  errEl.style.display = 'none';
+  if (!fileEl.files || !fileEl.files[0]) {
+    errEl.textContent = 'Please select a file.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', fileEl.files[0]);
+  fd.append('slot', (document.getElementById('aim-slot').value || 'poster').trim());
+  fd.append('image_type', document.getElementById('aim-type').value || 'human_replaced');
+  fd.append('note', document.getElementById('aim-note').value || '');
+  try {
+    const r = await fetch(`/api/admin/content/${postId}/images/upload`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) {
+      errEl.textContent = data.error || 'upload failed';
+      errEl.style.display = 'block';
+      return;
+    }
+    closeAddImageModal();
+    refreshPostCard(postId, { expanded: true });
+  } catch (e) {
+    errEl.textContent = String(e);
+    errEl.style.display = 'block';
+  }
+}
+
 {% if single_post_view and focused_post_id is defined %}
 window.addEventListener('load', () => {
   syncPaperclip({{ focused_post_id }});
@@ -602,5 +726,37 @@ window.addEventListener('load', () => {
 <div class="img-lightbox" id="img-lightbox" onclick="closeImageLightbox()">
   <button class="img-lightbox-close" onclick="closeImageLightbox()">&times;</button>
   <img src="" alt="Preview">
+</div>
+
+<div class="add-image-modal" id="add-image-modal" onclick="if(event.target.id==='add-image-modal') closeAddImageModal()">
+  <div class="add-image-modal-inner">
+    <button class="add-image-close" onclick="closeAddImageModal()">&times;</button>
+    <h3>Add image</h3>
+    <div class="aim-row">
+      <label>Slot</label>
+      <input id="aim-slot" type="text" value="poster" />
+    </div>
+    <div class="aim-row">
+      <label>Type</label>
+      <select id="aim-type">
+        <option value="human_replaced">human_replaced</option>
+        <option value="ai_generated">ai_generated</option>
+      </select>
+    </div>
+    <div class="aim-row">
+      <label>Note</label>
+      <input id="aim-note" type="text" placeholder="optional" />
+    </div>
+    <div class="aim-row">
+      <label>File</label>
+      <input id="aim-file" type="file" accept="image/png,image/jpeg,image/webp" />
+    </div>
+    <div class="aim-prompt-section">
+      <h4>Saved poster prompts <span class="aim-meta" id="aim-prompt-status">(loading…)</span></h4>
+      <div id="aim-prompt-list"></div>
+    </div>
+    <div class="aim-error" id="aim-error" style="display:none;"></div>
+    <button class="aim-submit" onclick="submitAddImage()">Upload</button>
+  </div>
 </div>
 {% endblock %}
