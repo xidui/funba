@@ -48,6 +48,9 @@ HERO_HIGHLIGHT_AUTO_PUBLISH_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH"
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
 HERO_HIGHLIGHT_STATUS = "in_review"
 HERO_POSTER_SLOT = "poster"
+HERO_POSTER_SQUARE_SLOT = "poster_ig"
+HERO_CARD_PIPELINE_KEY = "hero_card"
+HERO_CARD_INSTAGRAM_PLATFORM = "instagram"
 
 logger = logging.getLogger(__name__)
 
@@ -732,6 +735,18 @@ HERO_HIGHLIGHT_RENDERERS: dict[str, Callable[[HeroHighlightCard], str]] = {
 }
 
 
+def _is_hero_card_instagram_enabled(session: Session) -> bool:
+    """Read the publishing matrix to decide whether to also generate + attach
+    the square IG sibling poster. Defaults to False — IG is opt-in and costs a
+    second gpt-image-2 call per card."""
+    try:
+        from content_pipeline.publishing_registry import is_generate_enabled
+        return is_generate_enabled(session, HERO_CARD_PIPELINE_KEY, HERO_CARD_INSTAGRAM_PLATFORM)
+    except Exception:
+        logger.exception("hero poster attach: failed to read IG matrix flag — assuming off")
+        return False
+
+
 def _find_existing_post(session: Session, topic: str, source_date: date) -> SocialPost | None:
     return (
         session.query(SocialPost)
@@ -745,12 +760,22 @@ def _find_existing_post(session: Session, topic: str, source_date: date) -> Soci
     )
 
 
-def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightCard, *, now: datetime) -> None:
+def _attach_hero_poster(
+    session: Session,
+    post: SocialPost,
+    card: HeroHighlightCard,
+    *,
+    now: datetime,
+    variant: str = "vertical",
+    slot: str = HERO_POSTER_SLOT,
+) -> None:
     """Find a pre-generated poster for this card (created by the curator hook),
     copy it into media/social_posts/{post.id}/, and create a SocialPostImage row.
 
     Silent no-op if no poster file exists. Called inside _create_post_for_card
-    after the post has been flushed to obtain its id.
+    after the post has been flushed to obtain its id. `variant` selects the
+    on-disk source file (vertical = 2:3, square = 1:1 IG sibling); `slot`
+    determines which SocialPostImage slot the row is filed under.
     """
     try:
         from social_media.hero_poster import poster_path_for, read_prompt_sidecar
@@ -768,15 +793,15 @@ def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightC
     game = session.query(Game).filter(Game.game_id == card.game_id).first()
     if game is None:
         return
-    src = poster_path_for(entry, game)
+    src = poster_path_for(entry, game, variant=variant)
     if not src.exists() or src.stat().st_size == 0:
-        logger.info("hero poster attach: no poster file at %s; skipping", src)
+        logger.info("hero poster attach: no %s poster at %s; skipping", variant, src)
         return
 
     try:
-        stored = store_prepared_image(str(src), post_id=int(post.id), slot=HERO_POSTER_SLOT)
+        stored = store_prepared_image(str(src), post_id=int(post.id), slot=slot)
     except Exception:
-        logger.exception("hero poster attach: store_prepared_image failed for post_id=%s", post.id)
+        logger.exception("hero poster attach: store_prepared_image failed for post_id=%s slot=%s", post.id, slot)
         return
 
     # Pull the rendered prompt from its sidecar so the admin Assets page can
@@ -784,6 +809,7 @@ def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightC
     prompt_text = read_prompt_sidecar(src) or ""
     spec = {
         "source": "hero_poster",
+        "variant": variant,
         "metric_key": card.ranking_metric_key or card.metric_key,
         "entity_id": card.entity_id,
         "scope": card.scope,
@@ -796,12 +822,13 @@ def _attach_hero_poster(session: Session, post: SocialPost, card: HeroHighlightC
         "source_poster_path": str(src),
         "prompt": prompt_text,
     }
+    note_suffix = " (IG square)" if variant == "square" else ""
     image_row = SocialPostImage(
         post_id=int(post.id),
-        slot=HERO_POSTER_SLOT,
+        slot=slot,
         image_type="ai_generated",
         spec=json.dumps(spec, ensure_ascii=False),
-        note=f"Hero card poster — {card.metric_name}",
+        note=f"Hero card poster — {card.metric_name}{note_suffix}",
         file_path=str(stored),
         is_enabled=True,
         created_at=now,
@@ -867,6 +894,17 @@ def _create_post_for_card(
 
     # Attach the pre-generated hero poster (if any) to this post's image pool.
     _attach_hero_poster(session, post, card, now=now)
+    # When IG is enabled in the publishing matrix, also attach the square
+    # (1024x1024) sibling so the admin can manually post it to Instagram.
+    if _is_hero_card_instagram_enabled(session):
+        _attach_hero_poster(
+            session,
+            post,
+            card,
+            now=now,
+            variant="square",
+            slot=HERO_POSTER_SQUARE_SLOT,
+        )
 
     for platform in platforms:
         renderer = HERO_HIGHLIGHT_RENDERERS[platform]

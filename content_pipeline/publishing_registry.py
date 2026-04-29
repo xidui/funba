@@ -99,6 +99,7 @@ PIPELINES: tuple[Pipeline, ...] = (
         platforms=(
             PlatformDefault("twitter", "Twitter", generate=True, autopublish=False, notes="X / Twitter — needs human review by default"),
             PlatformDefault("funba", "Funba (home feed)", generate=True, autopublish=True, notes="自家首页瀑布流 — 默认自动发布"),
+            PlatformDefault("instagram", "Instagram", generate=False, autopublish=False, notes="IG — 额外生成方版海报，目前手动发布"),
         ),
     ),
 )

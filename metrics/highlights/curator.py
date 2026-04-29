@@ -976,8 +976,10 @@ def run_curator_for_game(
     if not skip_variants:
         try:
             from social_media.hero_poster import generate_posters_for_curated_game
+            from content_pipeline.publishing_registry import is_generate_enabled
 
-            generate_posters_for_curated_game(session, game)
+            include_square = is_generate_enabled(session, "hero_card", "instagram")
+            generate_posters_for_curated_game(session, game, include_square=include_square)
         except Exception:
             logger.exception("failed to generate hero card posters for %s", game.game_id)
 
