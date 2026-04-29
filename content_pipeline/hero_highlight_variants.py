@@ -872,6 +872,7 @@ def _create_post_for_card(
     # regardless of whether the overall post.status is approved or in_review.
     # That lets Funba's home feed go live even when Twitter sits in review.
     auto_publish_platforms = _auto_publish_platform_set(session=session)
+    auto_approve_set = set(auto_approve_hero_highlight_platforms(session=session))
     auto_publish_deliveries: list[tuple[str, int]] = []
 
     post = SocialPost(
@@ -908,11 +909,17 @@ def _create_post_for_card(
 
     for platform in platforms:
         renderer = HERO_HIGHLIGHT_RENDERERS[platform]
+        # Per-variant approval: a platform that the matrix marks as
+        # auto-approve lands its variant directly in 'approved' (so the
+        # publish guard lets it ship); other platforms wait in 'in_review'
+        # until an admin clicks Approve on that specific variant.
+        variant_status = "approved" if platform in auto_approve_set else HERO_HIGHLIGHT_STATUS
         variant = SocialPostVariant(
             post_id=post.id,
             title=_variant_title(card, platform),
             content_raw=renderer(card),
             audience_hint=f"deterministic hero highlight / {platform}",
+            status=variant_status,
             created_at=now,
             updated_at=now,
         )

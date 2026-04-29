@@ -23,6 +23,8 @@ REAL_BROWSER_UA = (
 _MAX_POST_AGE_HOURS = 24.0
 _SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _TWITTER_PLATFORMS = {"twitter", "x"}
+_TWITTER_IMAGE_SLOT_PRIORITY = ("poster",)
+_TWITTER_MAX_IMAGES = 4
 
 
 def _default_funba_repo_root() -> Path:
@@ -54,6 +56,43 @@ def _http_json(
     except URLError as exc:
         raise RuntimeError(f"{method} {url} failed: {exc}") from exc
     return json.loads(raw) if raw else None
+
+
+def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
+    """Return enabled SocialPostImage local file paths for a post.
+
+    Hero-card posters are stored under slot="poster"; if a post carries one
+    we use it as the tweet's primary attachment. Other slots are appended
+    afterwards in API order. The list is capped at the X media limit.
+    """
+    images = post.get("images") or []
+    paths: list[str] = []
+    seen: set[str] = set()
+
+    def _enabled_with_file(img: dict[str, Any]) -> str | None:
+        if not isinstance(img, dict):
+            return None
+        if not bool(img.get("is_enabled", True)):
+            return None
+        if not bool(img.get("has_file", False)):
+            return None
+        path = str(img.get("file_path") or "").strip()
+        return path or None
+
+    for slot in _TWITTER_IMAGE_SLOT_PRIORITY:
+        for img in images:
+            if not isinstance(img, dict) or img.get("slot") != slot:
+                continue
+            path = _enabled_with_file(img)
+            if path and path not in seen:
+                paths.append(path)
+                seen.add(path)
+    for img in images:
+        path = _enabled_with_file(img)
+        if path and path not in seen:
+            paths.append(path)
+            seen.add(path)
+    return paths[:_TWITTER_MAX_IMAGES]
 
 
 def _find_delivery_bundle(post: dict[str, Any], delivery_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -198,12 +237,22 @@ def _source_date_age_hours(source_date: str | None, *, now_utc: datetime | None 
     return (now - source_dt).total_seconds() / 3600.0
 
 
-def _preflight_publish_guard_error(post: dict[str, Any], delivery: dict[str, Any]) -> str | None:
+def _preflight_publish_guard_error(
+    post: dict[str, Any],
+    variant: dict[str, Any],
+    delivery: dict[str, Any],
+) -> str | None:
     post_status = str(post.get("status") or "").strip().lower()
-    if post_status != "approved":
+    if post_status == "archived":
         return (
             f"Refusing to publish delivery {delivery.get('id')} because post {post.get('id')} "
-            f"is not approved (current status: {post.get('status') or 'unknown'})"
+            f"is archived"
+        )
+    variant_status = str(variant.get("status") or "").strip().lower()
+    if variant_status != "approved":
+        return (
+            f"Refusing to publish delivery {delivery.get('id')} because variant {variant.get('id')} "
+            f"is not approved (current status: {variant.get('status') or 'unknown'})"
         )
     age_hours = _source_date_age_hours(post.get("source_date"))
     if age_hours is not None and age_hours > _MAX_POST_AGE_HOURS:
@@ -252,7 +301,7 @@ def main() -> int:
             print(published_url)
             return 0
         raise RuntimeError(f"Delivery {args.delivery_id} is already published")
-    guard_error = _preflight_publish_guard_error(post, delivery)
+    guard_error = _preflight_publish_guard_error(post, variant, delivery)
     if guard_error:
         if args.submit:
             _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": guard_error})
@@ -263,6 +312,13 @@ def main() -> int:
     content = str(variant.get("content_raw") or "")
     if not content.strip():
         raise RuntimeError(f"Delivery {args.delivery_id} missing content")
+
+    image_paths = _collect_post_image_paths(post)
+    missing_images = [p for p in image_paths if not Path(p).expanduser().is_file()]
+    if missing_images:
+        raise RuntimeError(
+            f"Delivery {args.delivery_id} references missing image files: {missing_images}"
+        )
 
     if args.submit:
         _update_delivery_status(base_url, args.delivery_id, {"status": "publishing"})
@@ -294,6 +350,8 @@ def main() -> int:
             "--artifact-dir",
             str(artifact_dir),
         ]
+        for image_path in image_paths:
+            post_cmd.extend(["--image", str(image_path)])
         if args.review_seconds > 0 and not args.submit:
             post_cmd.extend(["--keep-open-seconds", str(args.review_seconds)])
         if args.submit:

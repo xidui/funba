@@ -195,7 +195,10 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
         destinations = variant.get("destinations") or []
         destination_labels = [f"{d.get('platform')}/{d.get('forum') or '?'}" for d in destinations]
         dest_text = ", ".join(destination_labels) if destination_labels else "none"
-        variant_lines.append(f"- {variant.get('title') or 'Untitled variant'} [{audience}] -> {dest_text}")
+        variant_status = str(variant.get("status") or "in_review").strip() or "in_review"
+        variant_lines.append(
+            f"- {variant.get('title') or 'Untitled variant'} [{audience}] (status: {variant_status}) -> {dest_text}"
+        )
         content_raw = str(variant.get("content_raw") or "")
         has_any_placeholder = "[[IMAGE:" in content_raw
         if enabled_slots and not has_any_placeholder:

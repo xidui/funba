@@ -271,12 +271,11 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
             variant = session.query(SocialPostVariant).one()
             self.assertEqual(variant.post_id, post.id)
-            self.assertIn("Data: Best Single-Game Points = 55", variant.content_raw)
-            self.assertIn("Ranking: #12/5000 all-time", variant.content_raw)
-            self.assertIn(
-                "Top 3:\n1. 2025-26 Second Player - 60\n2. 2025-26 Hero Player - 55\n3. 2025-26 Third Player - 53",
-                variant.content_raw,
-            )
+            self.assertEqual(variant.status, "approved")
+            self.assertIn("Hero Player — Best Single-Game Points: 55", variant.content_raw)
+            self.assertNotIn("Data:", variant.content_raw)
+            self.assertNotIn("Ranking:", variant.content_raw)
+            self.assertNotIn("Top 3:", variant.content_raw)
             self.assertIn("Source: https://funba.app/metrics/best_single_game_pts?season=22025", variant.content_raw)
             self.assertIn("Game: https://funba.app/games/20260422-lal-bos", variant.content_raw)
             self.assertLessEqual(estimated_tweet_length(variant.content_raw), 280)
@@ -320,9 +319,17 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
             post = session.query(SocialPost).one()
             deliveries = session.query(SocialPostDelivery).order_by(SocialPostDelivery.platform.asc()).all()
+            variants_by_platform = {
+                d.platform: session.query(SocialPostVariant).filter(SocialPostVariant.id == d.variant_id).one()
+                for d in deliveries
+            }
             self.assertEqual(post.status, "in_review")
             self.assertEqual(result["auto_publish_delivery_ids"], [])
             self.assertEqual([delivery.platform for delivery in deliveries], ["mastodon", "twitter"])
+            # twitter is in the auto-approve env override → its variant lands approved.
+            # mastodon is not in the override → its variant stays in_review.
+            self.assertEqual(variants_by_platform["twitter"].status, "approved")
+            self.assertEqual(variants_by_platform["mastodon"].status, "in_review")
 
     def test_generate_is_idempotent_for_same_hero_identity(self):
         with self.SessionLocal() as session:
@@ -395,7 +402,8 @@ class TestHeroHighlightVariants(unittest.TestCase):
             generate_hero_highlight_variants_for_game(session, "0022500001", platforms=["twitter"])
 
             variant = session.query(SocialPostVariant).one()
-            self.assertIn("Top 3:\n1. OKC - 75\n2. BOS - 72\n3. CLE - 70", variant.content_raw)
+            self.assertIn("OKC — Wins By 10+: 75", variant.content_raw)
+            self.assertNotIn("Top 3:", variant.content_raw)
             self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_last5?season=last5_playoffs", variant.content_raw)
 
     def test_game_last5_source_link_uses_window_metric_and_season_type(self):
@@ -521,7 +529,8 @@ class TestHeroHighlightVariants(unittest.TestCase):
             variant = session.query(SocialPostVariant).one()
             self.assertTrue(post.topic.startswith("Hero Highlight — 0022500001 — team — wins_by_10_plus_last5"))
             self.assertEqual(json.loads(post.source_metrics), ["wins_by_10_plus_career"])
-            self.assertIn("Top 3:\n1. LAL - 150\n2. SAS - 121\n3. BOS - 120", variant.content_raw)
+            self.assertNotIn("Top 3:", variant.content_raw)
+            self.assertIn("OKC — Wins By 10 Plus Last5: 75 (2026)", variant.content_raw)
             self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_career?season=all_playoffs", variant.content_raw)
 
     def test_platform_config_is_generic_and_normalizes_x_alias(self):
@@ -529,6 +538,16 @@ class TestHeroHighlightVariants(unittest.TestCase):
             enabled_hero_highlight_platforms({"FUNBA_HERO_HIGHLIGHT_PLATFORMS": "x,twitter,unknown"}),
             ["twitter"],
         )
+
+    def test_direct_publish_platforms_includes_twitter_and_funba(self):
+        from content_pipeline.publishing_registry import direct_publish_platforms
+
+        platforms = direct_publish_platforms()
+        self.assertIn("twitter", platforms)
+        self.assertIn("funba", platforms)
+        # Hupu / reddit go through the agent, not direct publish.
+        self.assertNotIn("hupu", platforms)
+        self.assertNotIn("reddit", platforms)
 
 
 if __name__ == "__main__":

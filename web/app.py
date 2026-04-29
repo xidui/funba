@@ -7033,6 +7033,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
                 "title": variant.title,
                 "audience_hint": variant.audience_hint,
                 "content_raw": variant.content_raw,
+                "status": variant.status,
                 "destinations": [
                     {
                         "id": delivery.id,
@@ -7180,6 +7181,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
                     "title": v.title,
                     "content_raw": v.content_raw,
                     "audience_hint": v.audience_hint,
+                    "status": v.status,
                     "deliveries": [_social_post_delivery_view(d) for d in d_by_variant.get(v.id, [])],
                 }
                 for v in pvariants
@@ -7380,6 +7382,96 @@ def _sync_social_post_from_paperclip(post_id: int, *, ensure_issue: bool = True)
                 db_sess.commit()
                 return {"workflow": _paperclip_workflow_view(post), "comments": _social_post_comments(post)}
     return None
+
+
+def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) -> bool:
+    """Enqueue the platform-specific publish wrapper for one delivery.
+
+    Used by per-variant approve flow: when a variant is approved, every enabled
+    delivery on it whose platform is in the direct-publish set is dispatched
+    through this Celery task. Returns True iff the apply_async call succeeded.
+    """
+    raw = (platform or "").strip().lower()
+    normalized = "twitter" if raw == "x" else raw
+    if not normalized:
+        logger.warning("variant approve: refusing to publish delivery=%s without platform", delivery_id)
+        return False
+    try:
+        from tasks.content import publish_social_delivery_task
+
+        publish_social_delivery_task.apply_async(
+            args=(post_id, delivery_id),
+            kwargs={"platform": normalized},
+            retry=False,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "failed to enqueue publish post_id=%s delivery_id=%s platform=%s: %s",
+            post_id,
+            delivery_id,
+            normalized,
+            exc,
+            exc_info=True,
+        )
+        return False
+
+
+def _handoff_variant_status_change(
+    post_id: int,
+    *,
+    variant_id: int,
+    previous_status: str,
+    new_status: str,
+) -> None:
+    """Mirror a variant-level status change into Paperclip + the local comments log.
+
+    The ticket itself is still per-post (a single issue covers all variants),
+    so this just appends a system comment + ensures the issue stays in sync.
+    The action label encodes which variant moved, so the Delivery Publisher
+    agent reading the ticket can scope its work.
+    """
+    if previous_status == new_status:
+        return
+
+    action = f"variant_{variant_id}_status_{new_status}"
+    label_by_status = {
+        "approved": "approved",
+        "in_review": "sent back to review",
+        "ai_review": "sent to AI review",
+        "draft": "marked draft",
+    }
+    verb = label_by_status.get(new_status, f"set status={new_status}")
+    text = f"Variant {variant_id} {verb} from Funba."
+
+    timestamp = None
+    with SessionLocal() as db_sess:
+        post = db_sess.query(SocialPost).filter(SocialPost.id == post_id).first()
+        if post is None:
+            return
+        comments = _social_post_comments(post)
+        timestamp = append_admin_comment(
+            comments,
+            text=text,
+            author=_paperclip_actor_name(),
+            origin="system",
+            event_type="handoff",
+        )
+        _write_social_post_comments(post, comments)
+        db_sess.commit()
+
+    if timestamp is None:
+        _ensure_paperclip_issue_for_post(post_id)
+        return
+    try:
+        _handoff_social_post(
+            post_id,
+            action=action,
+            local_comment_timestamp=timestamp,
+            local_comment_text=text,
+        )
+    except Exception:
+        logger.exception("handoff_variant_status_change failed post_id=%s variant_id=%s", post_id, variant_id)
 
 
 def _season_year(season) -> int | None:
@@ -8339,6 +8431,8 @@ _admin_content_deps = SimpleNamespace(
     append_admin_comment=lambda: append_admin_comment,
     paperclip_actor_name=lambda: _paperclip_actor_name,
     handoff_social_post=lambda: _handoff_social_post,
+    handoff_variant_status_change=lambda: _handoff_variant_status_change,
+    enqueue_publish_delivery=lambda: _enqueue_publish_delivery,
     ensure_paperclip_issue_for_post=lambda: _ensure_paperclip_issue_for_post,
     sync_social_post_from_paperclip=lambda: _sync_social_post_from_paperclip,
     mirror_paperclip_comment=lambda: _mirror_paperclip_comment,

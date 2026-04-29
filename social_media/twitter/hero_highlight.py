@@ -17,6 +17,8 @@ class HeroHighlightCardLike(Protocol):
     top_results: tuple[str, ...]
     metric_url: str
     game_url: str
+    matchup: str
+    entity_label: str | None
 
 
 def estimated_tweet_length(text: str) -> int:
@@ -30,63 +32,47 @@ def estimated_tweet_length(text: str) -> int:
     return total
 
 
+def _clean(value: str) -> str:
+    return " ".join(str(value or "").split())
+
+
 def _truncate(value: str, limit: int) -> str:
-    text = " ".join(str(value or "").split())
+    text = _clean(value)
     return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
 
 
-def _compact_rank_text(value: str) -> str:
-    text = " ".join(str(value or "").split())
-    text = text.replace(" / ", "/")
-    text = text.replace("(", "").replace(")", "")
-    text = text.replace("All-time", "all-time")
-    return text
-
-
 def _compact_metric_value(value: str) -> str:
-    text = " ".join(str(value or "").split())
+    text = _clean(value)
     text = re.sub(r"\s+run$", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\bscored\s+(\d+)\s+pts\b", r"\1 pts", text, flags=re.IGNORECASE)
     return text
 
 
-def _compact_top_result(value: str) -> str:
-    text = " ".join(str(value or "").split())
-    text = re.sub(r"\s+\([A-Z]{2,4}\)(?=\s+-)", "", text)
-    text = re.sub(r"\s+@\s+", "@", text)
-    text = re.sub(r"\bscored\s+(\d+)\s+pts\b", r"\1 pts", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s+run$", "", text, flags=re.IGNORECASE)
-    return text
+def _build_title(card: HeroHighlightCardLike, *, label_limit: int, metric_limit: int) -> str:
+    """One-line headline: '{entity} — {metric}: {value}'.
 
-
-def _truncate_top_result(value: str, limit: int) -> str:
-    text = _compact_top_result(value)
-    if len(text) <= limit:
-        return text
-    prefix, sep, suffix = text.partition(" - ")
-    if not sep:
-        return _truncate(text, limit)
-    reserved = len(sep) + len(suffix)
-    prefix_limit = max(limit - reserved, 8)
-    return f"{_truncate(prefix, prefix_limit)}{sep}{suffix}"
+    Hero poster carries the full ranking + top-3 visually, so the tweet body
+    only needs a single title line — readers scan the image for the data.
+    """
+    label = _truncate(card.entity_label or card.matchup, label_limit)
+    metric_name = _truncate(card.metric_name, metric_limit)
+    value_text = _compact_metric_value(card.value_text)
+    if card.value_time_label:
+        value_text = f"{value_text} ({card.value_time_label})"
+    base = f"{label} — {metric_name}" if label else metric_name
+    if value_text:
+        return f"{base}: {value_text}"
+    return base
 
 
 def _twitter_lines(
     card: HeroHighlightCardLike,
     *,
-    top_limit: int,
+    label_limit: int,
+    metric_limit: int,
     include_game_link: bool = True,
 ) -> list[str]:
-    value_text = _compact_metric_value(card.value_text)
-    if card.value_time_label:
-        value_text = f"{value_text} ({card.value_time_label})"
-    lines = [
-        f"Data: {_truncate(card.metric_name, 36)} = {value_text}",
-        f"Ranking: {_compact_rank_text(card.rank_text)}",
-    ]
-    if card.top_results:
-        lines.extend(["", "Top 3:"])
-        lines.extend(_truncate_top_result(result, top_limit) for result in card.top_results[:3])
+    lines = [_build_title(card, label_limit=label_limit, metric_limit=metric_limit)]
     lines.extend(["", f"Source: {card.metric_url}"])
     if include_game_link:
         lines.append(f"Game: {card.game_url}")
@@ -94,12 +80,25 @@ def _twitter_lines(
 
 
 def render_hero_highlight(card: HeroHighlightCardLike) -> str:
-    for top_limit in (80, 56, 40, 34, 28, 22):
-        candidate = "\n".join(_twitter_lines(card, top_limit=top_limit)).strip()
+    for label_limit, metric_limit in ((48, 60), (32, 48), (24, 36), (20, 28)):
+        candidate = "\n".join(
+            _twitter_lines(card, label_limit=label_limit, metric_limit=metric_limit)
+        ).strip()
         if estimated_tweet_length(candidate) <= TWITTER_POST_LIMIT:
             return candidate
-    for top_limit in (80, 56, 40, 34, 28, 22, 18):
-        candidate = "\n".join(_twitter_lines(card, top_limit=top_limit, include_game_link=False)).strip()
+    for label_limit, metric_limit in ((48, 60), (32, 48), (24, 36), (20, 28)):
+        candidate = "\n".join(
+            _twitter_lines(
+                card,
+                label_limit=label_limit,
+                metric_limit=metric_limit,
+                include_game_link=False,
+            )
+        ).strip()
         if estimated_tweet_length(candidate) <= TWITTER_POST_LIMIT:
             return candidate
-    return "\n".join(_twitter_lines(card, top_limit=18, include_game_link=False)).strip()
+    return "\n".join(
+        _twitter_lines(
+            card, label_limit=20, metric_limit=28, include_game_link=False
+        )
+    ).strip()

@@ -86,7 +86,7 @@ class TestPaperclipBridgeHelpers(unittest.TestCase):
         )
 
         self.assertIn("Funba is the source of truth", description)
-        self.assertIn("雷霆球迷向 [thunder fans] -> hupu/thunder", description)
+        self.assertIn("雷霆球迷向 [thunder fans] (status: in_review) -> hupu/thunder", description)
         self.assertIn('"post_id": 42', description)
         self.assertIn('"source_metrics": [', description)
 

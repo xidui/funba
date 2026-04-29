@@ -3,7 +3,7 @@
 Usage:
     python -m social_media.twitter.post check
     python -m social_media.twitter.post post --content "..."
-    python -m social_media.twitter.post post --content "..." --submit
+    python -m social_media.twitter.post post --content "..." --image hero.png --submit
 """
 from __future__ import annotations
 
@@ -35,9 +35,11 @@ POST_URL_RE = re.compile(
 URL_RE = re.compile(r"https?://\S+")
 DEFAULT_TCO_URL_LENGTH = 23
 DEFAULT_TWEET_LIMIT = 280
+TWITTER_MAX_IMAGES = 4
 _SHORT_SLEEP = 0.1
 _MEDIUM_SLEEP = 0.4
 _LONG_SLEEP = 1.0
+_IMAGE_UPLOAD_SETTLE_SECONDS = 8.0
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -326,6 +328,82 @@ def _wait_for_new_status_url(page: Page, before_urls: set[str], timeout_seconds:
     return None
 
 
+def _resolve_image_paths(values: list[str] | None) -> list[Path]:
+    if not values:
+        return []
+    seen: set[str] = set()
+    resolved: list[Path] = []
+    for raw in values:
+        path = Path(str(raw or "").strip()).expanduser()
+        if not str(path):
+            continue
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"Image not found: {path}")
+        if path.stat().st_size <= 0:
+            raise ValueError(f"Image is empty: {path}")
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(path)
+    if len(resolved) > TWITTER_MAX_IMAGES:
+        raise ValueError(
+            f"X/Twitter accepts at most {TWITTER_MAX_IMAGES} images, got {len(resolved)}"
+        )
+    return resolved
+
+
+def _attach_images(page: Page, images: list[Path]) -> None:
+    """Upload one or more local images to the open composer.
+
+    X composer has a hidden `<input type="file" data-testid="fileInput">`.
+    `set_input_files` accepts a list and uploads them all in one shot, which
+    matches the user clicking the media button and selecting multiple files.
+    The uploads are async — we wait briefly for the preview thumbnails to
+    appear so the Post button has time to enable.
+    """
+    if not images:
+        return
+    selectors = [
+        'input[data-testid="fileInput"]',
+        'input[type="file"][data-testid="fileInput"]',
+        'input[type="file"]',
+    ]
+    str_paths = [str(p) for p in images]
+    last_error: Exception | None = None
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            locator.wait_for(state="attached", timeout=5000)
+            locator.set_input_files(str_paths, timeout=15000)
+            break
+        except Exception as exc:
+            last_error = exc
+            continue
+    else:
+        raise RuntimeError(
+            f"X/Twitter file input not found for image upload: {last_error}"
+        )
+
+    # Wait for the upload to finish — X disables the Post button while media
+    # is still processing. We poll for an attachments preview, then fall back
+    # to a fixed settle window if the selector lookup fails.
+    deadline = time.time() + _IMAGE_UPLOAD_SETTLE_SECONDS
+    preview_selectors = [
+        '[data-testid="attachments"] img',
+        '[data-testid="attachments"] video',
+        '[aria-label*="Remove media" i]',
+    ]
+    while time.time() < deadline:
+        for selector in preview_selectors:
+            try:
+                if page.query_selector(selector):
+                    return
+            except Exception:
+                continue
+        time.sleep(_SHORT_SLEEP)
+
+
 def _click_post(page: Page) -> str | None:
     before_urls = _extract_status_urls_from_page_state(page)
     clicked = False
@@ -384,6 +462,11 @@ def cmd_post(args: argparse.Namespace) -> None:
     headed = bool(getattr(args, "headed", False)) or keep_open_seconds > 0
     tweet_limit = max(int(getattr(args, "tweet_limit", DEFAULT_TWEET_LIMIT) or DEFAULT_TWEET_LIMIT), 1)
     estimated_length = _estimated_tweet_length(content)
+    try:
+        image_paths = _resolve_image_paths(getattr(args, "image", None))
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
     stage = "starting"
     context = None
     page = None
@@ -394,6 +477,7 @@ def cmd_post(args: argparse.Namespace) -> None:
     }
 
     print(f"Estimated X length: {estimated_length}/{tweet_limit}")
+    print(f"Images: {len(image_paths)}")
     print(f"Submit: {'YES' if submit else 'NO (draft only)'}")
     print(f"Artifacts: {artifact_dir}")
     print()
@@ -405,6 +489,7 @@ def cmd_post(args: argparse.Namespace) -> None:
             "submit": submit,
             "estimated_length": estimated_length,
             "tweet_limit": tweet_limit,
+            "image_paths": [str(p) for p in image_paths],
             "created_at": datetime.utcnow().isoformat() + "Z",
         },
     )
@@ -459,6 +544,12 @@ def cmd_post(args: argparse.Namespace) -> None:
                 time.sleep(_MEDIUM_SLEEP)
                 _safe_page_screenshot(page, artifact_dir / "filled.png")
                 print("Draft prepared.")
+
+                if image_paths:
+                    stage = "attach_images"
+                    _attach_images(page, image_paths)
+                    _safe_page_screenshot(page, artifact_dir / "attached.png")
+                    print(f"Attached {len(image_paths)} image(s).")
 
                 if not submit:
                     _write_json_artifact(
@@ -539,6 +630,15 @@ def main() -> None:
     p_post.add_argument("--post-id", type=int, dest="post_id", help="SocialPost ID for artifact labeling")
     p_post.add_argument("--artifact-dir", help="Directory for debug screenshots/logs/artifacts")
     p_post.add_argument("--tweet-limit", type=int, default=DEFAULT_TWEET_LIMIT)
+    p_post.add_argument(
+        "--image",
+        action="append",
+        default=None,
+        help=(
+            "Local image path to attach to the post; pass multiple times for "
+            f"up to {TWITTER_MAX_IMAGES} images."
+        ),
+    )
     p_post.add_argument(
         "--keep-open-seconds",
         type=float,

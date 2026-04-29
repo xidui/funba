@@ -764,7 +764,12 @@ class SocialPost(Base):
 
 
 class SocialPostVariant(Base):
-    """Audience-specific content variant of a SocialPost."""
+    """Audience-specific content variant of a SocialPost.
+
+    `status` is the unit of approval: each platform's copy (twitter, hupu …)
+    is approved independently. `SocialPost.status` keeps 'archived' as the
+    only meaningful state; all other approval decisions live here.
+    """
     __tablename__ = 'SocialPostVariant'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -772,11 +777,13 @@ class SocialPostVariant(Base):
     title = Column(String(255), nullable=False)
     content_raw = Column(Text, nullable=False)         # content with placeholders
     audience_hint = Column(String(128), nullable=True) # e.g. "thunder fans", "general nba"
+    status = Column(String(16), nullable=False, default='in_review')  # draft|ai_review|in_review|approved
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
         Index('ix_SocialPostVariant_post_id', 'post_id'),
+        Index('ix_SocialPostVariant_status', 'status'),
     )
 
 

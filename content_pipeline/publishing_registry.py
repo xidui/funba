@@ -38,6 +38,17 @@ GENERATE_ACTION = "generate"
 AUTOPUBLISH_ACTION = "autopublish"
 _VALID_ACTIONS = (GENERATE_ACTION, AUTOPUBLISH_ACTION)
 
+# Platforms whose publish wrapper is fully self-contained (script-level
+# preflight + retry + status writeback) and don't need Paperclip's Delivery
+# Publisher agent in the loop. When admin approves a variant carrying any of
+# these platforms, the system enqueues publish_social_delivery_task directly.
+_DIRECT_PUBLISH_PLATFORMS = frozenset({"twitter", "funba"})
+
+
+def direct_publish_platforms() -> frozenset[str]:
+    """Return the set of platforms eligible for direct script-driven publish."""
+    return _DIRECT_PUBLISH_PLATFORMS
+
 
 @dataclass(frozen=True)
 class PlatformDefault:

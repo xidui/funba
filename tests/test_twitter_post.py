@@ -12,12 +12,14 @@ if str(REPO_ROOT) not in sys.path:
 
 
 from social_media.twitter.post import (  # noqa: E402
+    TWITTER_MAX_IMAGES,
     _cookie_for_playwright,
     _create_context,
     _estimated_tweet_length,
     _extract_status_url_from_text,
     _extract_status_urls_from_page_state,
     _normalize_status_url,
+    _resolve_image_paths,
 )
 
 
@@ -135,6 +137,43 @@ class TestTwitterPostHelpers(unittest.TestCase):
         ):
             _create_context(pw, headless=True)
         self.assertTrue(pw.chromium.headless)
+
+
+class TestResolveImagePaths(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _write(self, name: str, payload: bytes = b"png-bytes") -> Path:
+        path = Path(self.tmpdir.name) / name
+        path.write_bytes(payload)
+        return path
+
+    def test_returns_empty_for_no_images(self):
+        self.assertEqual(_resolve_image_paths(None), [])
+        self.assertEqual(_resolve_image_paths([]), [])
+
+    def test_deduplicates_resolved_paths(self):
+        path = self._write("hero.png")
+        resolved = _resolve_image_paths([str(path), str(path)])
+        self.assertEqual([p.name for p in resolved], ["hero.png"])
+
+    def test_rejects_missing_file(self):
+        missing = Path(self.tmpdir.name) / "ghost.png"
+        with self.assertRaises(FileNotFoundError):
+            _resolve_image_paths([str(missing)])
+
+    def test_rejects_empty_file(self):
+        empty = self._write("empty.png", payload=b"")
+        with self.assertRaises(ValueError):
+            _resolve_image_paths([str(empty)])
+
+    def test_rejects_too_many_images(self):
+        paths = [str(self._write(f"hero{i}.png")) for i in range(TWITTER_MAX_IMAGES + 1)]
+        with self.assertRaises(ValueError):
+            _resolve_image_paths(paths)
 
 
 if __name__ == "__main__":

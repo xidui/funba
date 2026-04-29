@@ -498,6 +498,26 @@ function saveVariant(postId, vid) {
   });
 }
 
+function setVariantStatus(postId, vid, status) {
+  fetch(`/api/admin/content/${postId}/variants/${vid}/status`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: status}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      alert('Failed to update variant: ' + data.error);
+      return;
+    }
+    if (location.pathname.startsWith('/admin/content/')) {
+      location.reload();
+    } else {
+      syncPaperclip(postId);
+    }
+  })
+  .catch(err => alert('Network error updating variant: ' + err));
+}
+
 function renderComments(postId, comments) {
   const container = document.getElementById('comments-' + postId);
   container.innerHTML = (comments || []).map((comment) => {

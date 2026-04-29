@@ -205,6 +205,7 @@ def register_admin_content_routes(app, deps):
                             "title": v.title,
                             "content_raw": v.content_raw,
                             "audience_hint": v.audience_hint,
+                            "status": v.status,
                             "deliveries": [deps.social_post_delivery_view()(d) for d in d_by_variant.get(v.id, [])],
                         }
                         for v in variants
@@ -572,6 +573,70 @@ def register_admin_content_routes(app, deps):
             s.commit()
         deps.ensure_paperclip_issue_for_post()(post_id)
         return jsonify({"ok": True})
+
+    def admin_content_variant_status(post_id: int, variant_id: int):
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        data = request.get_json(force=True) or {}
+        new_status = (data.get("status") or "").strip()
+        if new_status not in ("draft", "ai_review", "in_review", "approved"):
+            return jsonify({"error": "invalid status"}), 400
+        SessionLocal = deps.session_local()
+        SocialPostVariant = deps.social_post_variant_model()
+        SocialPostDelivery = deps.social_post_delivery_model()
+        previous_status = None
+        platforms_for_publish: list[tuple[int, str]] = []
+        with SessionLocal() as s:
+            v = (
+                s.query(SocialPostVariant)
+                .filter(SocialPostVariant.id == variant_id, SocialPostVariant.post_id == post_id)
+                .first()
+            )
+            if not v:
+                return jsonify({"error": "not_found"}), 404
+            previous_status = v.status
+            if previous_status == new_status:
+                return jsonify({"ok": True, "variant_id": variant_id, "status": new_status, "noop": True})
+            v.status = new_status
+            v.updated_at = datetime.utcnow()
+            if new_status == "approved":
+                deliveries = (
+                    s.query(SocialPostDelivery)
+                    .filter(
+                        SocialPostDelivery.variant_id == variant_id,
+                        SocialPostDelivery.is_enabled == True,  # noqa: E712
+                        SocialPostDelivery.status.in_(("pending", "failed")),
+                    )
+                    .all()
+                )
+                platforms_for_publish = [(int(d.id), str(d.platform or "").lower()) for d in deliveries]
+            s.commit()
+
+        published_delivery_ids: list[int] = []
+        if new_status == "approved" and platforms_for_publish:
+            from content_pipeline.publishing_registry import direct_publish_platforms
+
+            direct_set = direct_publish_platforms()
+            for delivery_id, platform in platforms_for_publish:
+                if platform in direct_set:
+                    if deps.enqueue_publish_delivery()(post_id, delivery_id, platform=platform):
+                        published_delivery_ids.append(delivery_id)
+
+        deps.handoff_variant_status_change()(
+            post_id,
+            variant_id=variant_id,
+            previous_status=previous_status,
+            new_status=new_status,
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "variant_id": variant_id,
+                "status": new_status,
+                "auto_publish_delivery_ids": published_delivery_ids,
+            }
+        )
 
     def admin_content_add_destination(post_id: int, variant_id: int):
         denied = deps.require_admin_json()()
@@ -1372,6 +1437,7 @@ def register_admin_content_routes(app, deps):
     app.add_url_rule("/api/admin/content/daily-analysis/trigger", endpoint="admin_content_trigger_daily_analysis", view_func=admin_content_trigger_daily_analysis, methods=["POST"])
     app.add_url_rule("/api/admin/games/<game_id>/content-analysis/trigger", endpoint="admin_game_trigger_content_analysis", view_func=admin_game_trigger_content_analysis, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/variants/<int:variant_id>/update", endpoint="admin_content_variant_update", view_func=admin_content_variant_update, methods=["POST"])
+    app.add_url_rule("/api/admin/content/<int:post_id>/variants/<int:variant_id>/status", endpoint="admin_content_variant_status", view_func=admin_content_variant_status, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/variants/<int:variant_id>/destinations", endpoint="admin_content_add_destination", view_func=admin_content_add_destination, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/deliveries/<int:delivery_id>/toggle", endpoint="admin_content_toggle_delivery", view_func=admin_content_toggle_delivery, methods=["POST"])
     app.add_url_rule("/api/admin/content/<int:post_id>/images/<int:image_id>/toggle", endpoint="admin_content_toggle_image", view_func=admin_content_toggle_image, methods=["POST"])
@@ -1401,6 +1467,7 @@ def register_admin_content_routes(app, deps):
         admin_content_trigger_daily_analysis=admin_content_trigger_daily_analysis,
         admin_game_trigger_content_analysis=admin_game_trigger_content_analysis,
         admin_content_variant_update=admin_content_variant_update,
+        admin_content_variant_status=admin_content_variant_status,
         admin_content_add_destination=admin_content_add_destination,
         admin_content_toggle_delivery=admin_content_toggle_delivery,
         admin_content_toggle_image=admin_content_toggle_image,

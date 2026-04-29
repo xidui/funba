@@ -84,10 +84,31 @@ class TestPublishAgeGuards(unittest.TestCase):
     @patch("scripts.funba_twitter_publish._source_date_age_hours", return_value=1.85)
     def test_twitter_preflight_allows_fresh_publish(self, _age_mock):
         error = twitter_publish._preflight_publish_guard_error(
-            {"id": 275, "status": "approved", "source_date": "2026-04-22"},
+            {"id": 275, "status": "in_review", "source_date": "2026-04-22"},
+            {"id": 901, "status": "approved"},
             {"id": 648},
         )
         self.assertIsNone(error)
+
+    @patch("scripts.funba_twitter_publish._source_date_age_hours", return_value=1.85)
+    def test_twitter_preflight_blocks_unapproved_variant(self, _age_mock):
+        error = twitter_publish._preflight_publish_guard_error(
+            {"id": 275, "status": "in_review", "source_date": "2026-04-22"},
+            {"id": 901, "status": "in_review"},
+            {"id": 648},
+        )
+        self.assertIsNotNone(error)
+        self.assertIn("not approved", error)
+
+    @patch("scripts.funba_twitter_publish._source_date_age_hours", return_value=1.85)
+    def test_twitter_preflight_blocks_archived_post(self, _age_mock):
+        error = twitter_publish._preflight_publish_guard_error(
+            {"id": 275, "status": "archived", "source_date": "2026-04-22"},
+            {"id": 901, "status": "approved"},
+            {"id": 648},
+        )
+        self.assertIsNotNone(error)
+        self.assertIn("archived", error)
 
     @patch("tasks.content.subprocess.run")
     def test_publish_social_delivery_task_uses_twitter_submit_script(self, run_mock):

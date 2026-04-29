@@ -71,6 +71,15 @@
         {% if v.deliveries %}
           · primary publish target
         {% endif %}
+        · <span class="post-badge {{ v.status or 'in_review' }}" id="vstatus-{{ v.id }}">{{ (v.status or 'in_review').replace('_', ' ') }}</span>
+      </div>
+
+      <div class="v-approve" style="display:flex;gap:6px;margin:6px 0 8px;" onclick="event.stopPropagation()">
+        {% if v.status != 'approved' %}
+          <button class="act-btn save" onclick="event.stopPropagation(); setVariantStatus({{ p.id }}, {{ v.id }}, 'approved')">Approve & publish</button>
+        {% else %}
+          <button class="act-btn" onclick="event.stopPropagation(); setVariantStatus({{ p.id }}, {{ v.id }}, 'in_review')">Send back to review</button>
+        {% endif %}
       </div>
 
       <div class="v-content" id="vc-display-{{ v.id }}">{{ v.content_raw }}</div>
