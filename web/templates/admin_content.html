@@ -656,21 +656,41 @@ async function loadPosterPrompts(postId) {
     const r = await fetch(`/api/admin/content/${postId}/poster-prompt`);
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'failed');
+    const live = data.live_prompt;
+    const liveErr = data.live_prompt_error;
     const prompts = data.prompts || [];
-    if (prompts.length === 0) {
-      status.textContent = '(none on disk for this game)';
+    const promptBlock = (content) => `
+      <div style="position:relative;margin-top:6px;">
+        <button style="position:absolute;top:6px;right:6px;font-size:11px;padding:3px 8px;background:var(--surface-3);color:var(--text);border:1px solid var(--border-2);border-radius:4px;cursor:pointer;" onclick="aimCopyPrompt(this)">Copy</button>
+        <pre style="white-space:pre-wrap;background:var(--surface-2);padding:10px;font-size:11px;max-height:240px;overflow:auto;border-radius:5px;border:1px solid var(--border-2);">${_aimEscape(content)}</pre>
+      </div>
+    `;
+    let html = '';
+    if (live) {
+      html += `
+        <div style="margin-bottom:10px;border:1px solid var(--accent);border-radius:6px;padding:8px;background:color-mix(in srgb, var(--accent) 6%, transparent);">
+          <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:4px;">Live prompt (current code · copy this)</div>
+          ${promptBlock(live)}
+        </div>
+      `;
+    } else if (liveErr) {
+      html += `<div style="margin-bottom:10px;font-size:12px;color:var(--loss);">Live prompt unavailable: ${_aimEscape(liveErr)}</div>`;
+    }
+    if (prompts.length > 0) {
+      html += `<div style="font-size:11px;color:var(--muted);margin:10px 0 4px;">Previously rendered (saved next to the poster PNG):</div>`;
+      html += prompts.map(p => `
+        <details style="margin-bottom:8px;">
+          <summary style="cursor:pointer;font-size:12px;">${_aimEscape(p.filename)}${p.is_preferred ? ' <span style="color:var(--accent);">(matches metric)</span>' : ''}</summary>
+          ${promptBlock(p.content)}
+        </details>
+      `).join('');
+    }
+    if (!html) {
+      status.textContent = '(no prompt available)';
       return;
     }
-    status.textContent = `(${prompts.length} saved · expand to copy)`;
-    list.innerHTML = prompts.map(p => `
-      <details ${p.is_preferred ? 'open' : ''} style="margin-bottom:8px;">
-        <summary style="cursor:pointer;font-size:12px;">${_aimEscape(p.filename)}${p.is_preferred ? ' <span style="color:var(--accent);">(closest match)</span>' : ''}</summary>
-        <div style="position:relative;margin-top:6px;">
-          <button style="position:absolute;top:6px;right:6px;font-size:11px;padding:3px 8px;background:var(--surface-3);color:var(--text);border:1px solid var(--border-2);border-radius:4px;cursor:pointer;" onclick="aimCopyPrompt(this)">Copy</button>
-          <pre style="white-space:pre-wrap;background:var(--surface-2);padding:10px;font-size:11px;max-height:240px;overflow:auto;border-radius:5px;border:1px solid var(--border-2);">${_aimEscape(p.content)}</pre>
-        </div>
-      </details>
-    `).join('');
+    status.textContent = live ? '(live build ready)' : `(${prompts.length} saved · expand to copy)`;
+    list.innerHTML = html;
   } catch (e) {
     status.textContent = '(failed to load: ' + (e && e.message || e) + ')';
   }

@@ -337,6 +337,58 @@ def _season_label(season: str | None) -> str:
     return raw or "season"
 
 
+_VARIANT_SUFFIXES = ("_career", "_last3", "_last5")
+_SEASON_PREFIX_TO_SUFFIX = {
+    "all_": "_career",
+    "last3_": "_last3",
+    "last5_": "_last5",
+}
+
+
+def _strip_variant_suffix(metric_key: str) -> str:
+    for suffix in _VARIANT_SUFFIXES:
+        if metric_key.endswith(suffix):
+            return metric_key[: -len(suffix)]
+    return metric_key
+
+
+def _has_any_result(session: Session, metric_key: str, season: str) -> bool:
+    return (
+        session.query(MetricResult.metric_key)
+        .filter(MetricResult.metric_key == metric_key, MetricResult.season == season)
+        .limit(1)
+        .first()
+        is not None
+    )
+
+
+def _coerce_metric_key_for_season(session: Session, metric_key: str, season: str) -> str:
+    """Family variants (_career / _last3 / _last5) each carry their own
+    MetricResult rows. The curator may pass the value-source variant
+    paired with a ranking-context season that has no rows for that
+    variant. Swap the suffix to match the season's family so the
+    leaderboard query reads from the right pool.
+
+    Returns the original metric_key if it already has rows, or if no
+    sensible swap exists."""
+    if not metric_key or not season:
+        return metric_key
+    if _has_any_result(session, metric_key, season):
+        return metric_key
+    target_suffix = ""
+    for prefix, suffix in _SEASON_PREFIX_TO_SUFFIX.items():
+        if season.startswith(prefix):
+            target_suffix = suffix
+            break
+    base = _strip_variant_suffix(metric_key)
+    candidate = (base + target_suffix) if target_suffix else base
+    if candidate == metric_key:
+        return metric_key
+    if _has_any_result(session, candidate, season):
+        return candidate
+    return metric_key
+
+
 def build_prompt_context(
     session: Session,
     *,
@@ -373,11 +425,30 @@ def build_prompt_context(
         season = _safe_str(card.get("season") or game.season)
         use_ranking_pair = False
 
+    # Defense in depth: if the resulting (metric_key, season) pair has no
+    # MetricResult rows at all, the curator likely picked the value-source
+    # variant (e.g. *_last5) but framed the rank context against a different
+    # window (e.g. all_playoffs). Try to swap the metric_key suffix to match
+    # the season family so the leaderboard query has data to read.
+    metric_key = _coerce_metric_key_for_season(session, metric_key, season)
+
     md = (
         session.query(MetricDefinition)
         .filter(MetricDefinition.key == metric_key)
         .first()
     )
+    # Variants like _career/_last3/_last5 are auto-registered at runtime and
+    # don't carry their own MetricDefinition rows — fall back to the base
+    # metric so the prompt prints a clean name ("Wins By 10+") instead of
+    # an ugly title-cased variant key ("Wins By 10 Plus Last5").
+    if md is None:
+        base_key = _strip_variant_suffix(metric_key)
+        if base_key != metric_key:
+            md = (
+                session.query(MetricDefinition)
+                .filter(MetricDefinition.key == base_key)
+                .first()
+            )
     if use_ranking_pair:
         # When we swapped to the ranking pair, card.metric_name was for
         # the other variant — using it would mislabel the leaderboard.
@@ -385,7 +456,7 @@ def build_prompt_context(
         metric_name = (md.name if md and md.name else metric_key.replace("_", " ").title())
     else:
         metric_name = (
-            _safe_str(card.get("metric_name"))
+            _safe_str(card.get("metric_name") or card.get("metric_name_snapshot"))
             or (md.name if md and md.name else metric_key.replace("_", " ").title())
         )
     metric_description = (md.description if md and md.description else "") or ""

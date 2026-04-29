@@ -819,6 +819,57 @@ def register_admin_content_routes(app, deps):
                     }
                 )
 
+        # Build the prompt fresh from the curator's stored card with the
+        # current code. Saved .prompt.txt files reflect whatever build was
+        # in place when the poster was generated — out of date as soon as
+        # the prompt template or context logic changes. The live prompt
+        # is the one a reviewer should actually copy into ChatGPT.
+        live_prompt = None
+        live_prompt_error = None
+        if scope and metric_key and entity_id and game_id:
+            try:
+                from db.models import Game
+                from social_media.hero_poster import (
+                    build_prompt_context,
+                    get_hero_poster_prompt_template,
+                    render_prompt,
+                )
+
+                SessionLocal2 = deps.session_local()
+                with SessionLocal2() as live_s:
+                    game = live_s.query(Game).filter(Game.game_id == game_id).first()
+                    if game is None:
+                        live_prompt_error = "game not found"
+                    else:
+                        scope_attr = {
+                            "game": "highlights_curated_json",
+                            "player": "highlights_curated_player_json",
+                            "team": "highlights_curated_team_json",
+                        }.get(scope)
+                        blob = getattr(game, scope_attr, None) if scope_attr else None
+                        card = None
+                        if blob:
+                            try:
+                                parsed = json.loads(blob)
+                            except Exception:
+                                parsed = {}
+                            for entry in (parsed.get("hero") or []) + (parsed.get("notable") or []):
+                                if (
+                                    isinstance(entry, dict)
+                                    and entry.get("metric_key") == metric_key
+                                    and str(entry.get("entity_id") or "") == entity_id
+                                ):
+                                    card = dict(entry)
+                                    card.setdefault("scope", scope)
+                                    break
+                        if card is None:
+                            live_prompt_error = "card not found in curated highlights"
+                        else:
+                            ctx = build_prompt_context(live_s, card=card, game=game)
+                            live_prompt = render_prompt(get_hero_poster_prompt_template(live_s), ctx)
+            except Exception as exc:
+                live_prompt_error = str(exc)
+
         return jsonify(
             {
                 "ok": True,
@@ -827,6 +878,8 @@ def register_admin_content_routes(app, deps):
                 "scope": scope,
                 "metric_key": metric_key,
                 "entity_id": entity_id,
+                "live_prompt": live_prompt,
+                "live_prompt_error": live_prompt_error,
                 "prompts": prompts,
             }
         )
