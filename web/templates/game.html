@@ -1708,6 +1708,190 @@
       max-height: 70vh;
     }
   }
+
+  /* ── Game posters strip ────────────────────────────────────────── */
+  .gp-card { padding: 22px 24px 24px; }
+
+  .gp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .gp-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--heading);
+    letter-spacing: -0.01em;
+  }
+  .gp-count {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .gp-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+  }
+
+  .gp-item {
+    appearance: none;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    gap: 10px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: zoom-in;
+    color: inherit;
+    font: inherit;
+  }
+
+  .gp-thumb-wrap {
+    position: relative;
+    display: block;
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-2);
+    box-shadow:
+      0 0 0 1px var(--border-2),
+      0 6px 18px rgba(0, 0, 0, 0.32);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .gp-thumb-wrap::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 4px;
+    background: var(--gp-accent, var(--accent));
+    opacity: 0.92;
+  }
+  .gp-item:hover .gp-thumb-wrap,
+  .gp-item:focus-visible .gp-thumb-wrap {
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 0 1px var(--gp-accent, var(--accent)),
+      0 12px 28px rgba(0, 0, 0, 0.45);
+  }
+  .gp-item:focus-visible { outline: none; }
+
+  .gp-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .gp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 2px;
+  }
+  .gp-caption {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--heading);
+    line-height: 1.3;
+  }
+  .gp-sub-caption {
+    font-size: 11.5px;
+    color: var(--muted-2);
+    letter-spacing: 0.02em;
+  }
+
+  @media (max-width: 540px) {
+    .gp-card { padding: 20px 0 20px; }
+    .gp-head { padding: 0 18px; }
+    .gp-strip {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      gap: 12px;
+      padding: 4px 18px 6px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .gp-strip::-webkit-scrollbar { display: none; }
+    .gp-item {
+      flex: 0 0 60%;
+      max-width: 220px;
+      scroll-snap-align: start;
+    }
+  }
+
+  /* ── Lightbox ──────────────────────────────────────────────────── */
+  .gp-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.88);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    cursor: zoom-out;
+  }
+  .gp-lightbox[hidden] { display: none; }
+  .gp-lightbox-figure {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: min(720px, 100%);
+    max-height: 100%;
+    cursor: auto;
+  }
+  .gp-lightbox-img {
+    max-width: 100%;
+    max-height: calc(100vh - 120px);
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .gp-lightbox-caption {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    color: #fff;
+    font-size: 14px;
+    text-align: center;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  }
+  .gp-lightbox-caption .gp-lb-sub {
+    display: block;
+    font-weight: 500;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 2px;
+  }
+  .gp-lightbox-close {
+    position: fixed;
+    top: 18px;
+    right: 22px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gp-lightbox-close:hover { background: rgba(255, 255, 255, 0.2); }
+
+  body.gp-lock { overflow: hidden; }
 </style>
 
 {% set current_status = game_status or 'completed' %}
@@ -1800,6 +1984,50 @@
     <div class="mc-lead-badge" id="mc-lead-badge"></div>
   </div>
   {% endif %}
+</div>
+{% endif %}
+
+{% if game_posters %}
+<!-- ── Game posters: AI hero cards generated for this matchup ─────── -->
+<div class="card gp-card">
+  <div class="gp-head">
+    <div class="gp-title">{{ t('Game posters', '本场海报') }}</div>
+    <div class="gp-count">{{ game_posters|length }}</div>
+  </div>
+  <div class="gp-strip" data-role="game-poster-strip">
+    {% for poster in game_posters %}
+    <button
+      type="button"
+      class="gp-item"
+      style="--gp-accent: {{ poster.accent_color }};"
+      data-full-url="{{ poster.full_url }}"
+      data-caption="{{ poster.caption }}"
+      data-sub-caption="{{ poster.sub_caption }}">
+      <span class="gp-thumb-wrap">
+        <img
+          class="gp-thumb"
+          src="{{ poster.thumb_url }}"
+          alt="{{ poster.caption }}{% if poster.sub_caption %} — {{ poster.sub_caption }}{% endif %}"
+          loading="lazy"
+          decoding="async">
+      </span>
+      <span class="gp-meta">
+        <span class="gp-caption">{{ poster.caption }}</span>
+        {% if poster.sub_caption %}
+        <span class="gp-sub-caption">{{ poster.sub_caption }}</span>
+        {% endif %}
+      </span>
+    </button>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="gp-lightbox" id="gp-lightbox" hidden>
+  <button type="button" class="gp-lightbox-close" id="gp-lightbox-close" aria-label="{{ t('Close', '关闭') }}">×</button>
+  <figure class="gp-lightbox-figure">
+    <img class="gp-lightbox-img" id="gp-lightbox-img" src="" alt="">
+    <figcaption class="gp-lightbox-caption" id="gp-lightbox-caption"></figcaption>
+  </figure>
 </div>
 {% endif %}
 
@@ -3694,6 +3922,60 @@
       wrap.innerHTML = renderPeriodTable(periods);
     });
   };
+})();
+</script>
+
+<script>
+(function () {
+  const strip = document.querySelector('[data-role="game-poster-strip"]');
+  const lightbox = document.getElementById('gp-lightbox');
+  if (!strip || !lightbox) return;
+
+  const lbImg = document.getElementById('gp-lightbox-img');
+  const lbCap = document.getElementById('gp-lightbox-caption');
+  const lbClose = document.getElementById('gp-lightbox-close');
+
+  function open(item) {
+    const url = item.dataset.fullUrl;
+    const cap = item.dataset.caption || '';
+    const sub = item.dataset.subCaption || '';
+    if (!url) return;
+    lbImg.src = url;
+    lbImg.alt = cap + (sub ? ' — ' + sub : '');
+    lbCap.innerHTML = '';
+    if (cap) {
+      const main = document.createElement('span');
+      main.textContent = cap;
+      lbCap.appendChild(main);
+    }
+    if (sub) {
+      const subEl = document.createElement('span');
+      subEl.className = 'gp-lb-sub';
+      subEl.textContent = sub;
+      lbCap.appendChild(subEl);
+    }
+    lightbox.hidden = false;
+    document.body.classList.add('gp-lock');
+  }
+
+  function close() {
+    lightbox.hidden = true;
+    lbImg.removeAttribute('src');
+    document.body.classList.remove('gp-lock');
+  }
+
+  strip.addEventListener('click', function (e) {
+    const item = e.target.closest('.gp-item');
+    if (item) open(item);
+  });
+
+  lightbox.addEventListener('click', function (e) {
+    if (e.target === lightbox) close();
+  });
+  lbClose.addEventListener('click', close);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !lightbox.hidden) close();
+  });
 })();
 </script>
 
