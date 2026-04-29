@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from types import SimpleNamespace
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -61,6 +62,7 @@ _JS_API_URL_RE = re.compile(r"(?P<prefix>['\"`])(?P<url>/api(?:/[^'\"`\s<>)]*)?)
 _JS_SERVICE_WORKER_RE = re.compile(r"(?P<prefix>\bserviceWorker\.register\(\s*['\"`])(?P<url>/(?!/)[^'\"`\s]*)")
 _JS_WS_HOST_API_RE = re.compile(r"(?P<prefix>\$\{(?:window\.)?location\.host\})(?P<url>/api/)")
 _BROWSER_ROUTER_RE = re.compile(r"(?P<prefix>\b(?:jsxDEV|jsx|jsxs)\(\s*BrowserRouter\s*,\s*\{\s*)(?P<next>children\s*:)")
+_BASENAME_INJECTION_MARKER = "window.__PAPERCLIP_BASENAME__"
 
 
 def _is_mounted_url(mount_prefix: str, url: str) -> bool:
@@ -207,6 +209,17 @@ def _rewrite_body(entry_url: str, mount_prefix: str, content: bytes, encoding: s
     text = _JS_WS_HOST_API_RE.sub(replace_host_api, text)
     if root_mount:
         text = _BROWSER_ROUTER_RE.sub(add_browser_router_basename, text)
+        if _BASENAME_INJECTION_MARKER not in text:
+            basename_script = f"<script>{_BASENAME_INJECTION_MARKER}={json.dumps(mount_prefix)};</script>"
+            text, replacements = re.subn(
+                r"</head>",
+                f"    {basename_script}\n  </head>",
+                text,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            if replacements == 0 and "<html" in text.lower():
+                text = f"{basename_script}\n{text}"
 
     return text.encode(charset, errors="replace")
 

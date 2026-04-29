@@ -139,11 +139,14 @@ def test_admin_tickets_rewrites_root_relative_html_links_and_redirects():
     app = _make_app(tickets_url="https://paperclip.test/FUN/issues")
     upstream = _upstream_response(
         (
+            b"<html><head>"
             b'<script type="module">import x from "/@react-refresh";</script>'
+            b"</head><body>"
             b'<a href="/FUN/issues/FUN-209">next</a>'
             b'<a href="https://paperclip.test/FUN/issues/FUN-211">absolute</a>'
             b'<a href="https://external.test/path">external</a>'
             b'<script src="/assets/app.js"></script>'
+            b"</body></html>"
         ),
         headers={
             "Content-Type": "text/html; charset=utf-8",
@@ -162,6 +165,7 @@ def test_admin_tickets_rewrites_root_relative_html_links_and_redirects():
     assert 'href="https://external.test/path"' in body
     assert 'from "/admin/tickets/@react-refresh"' in body
     assert 'src="/admin/tickets/assets/app.js"' in body
+    assert 'window.__PAPERCLIP_BASENAME__="/admin/tickets"' in body
     assert response.headers["Location"] == "/admin/tickets/FUN/issues/FUN-210"
     assert "Set-Cookie" not in response.headers
 
