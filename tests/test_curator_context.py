@@ -89,8 +89,8 @@ def test_window_label_reads_synthetic_last_season_tokens():
 def test_dedupe_triggered_cards_keeps_one_card_per_window():
     """Pre-fix bug: _dedupe_triggered_cards collapsed every window of the
     same metric family into one winner, so an entity with milestones in
-    season + career + last3 + last5 ended up as a single candidate. The
-    other windows' stories never reached the LLM."""
+    season + career + last3 + last5 + last10 ended up as a single candidate.
+    The other windows' stories never reached the LLM."""
     from web.app import _dedupe_triggered_cards
 
     cards = [
@@ -130,13 +130,23 @@ def test_dedupe_triggered_cards_keeps_one_card_per_window():
             "severity": 0.6,
             "event_type": "approaching_target",
         },
+        {
+            "metric_key": "wins_by_10_plus_last10",
+            "season": "last10_playoffs",
+            "entity_type": "team",
+            "entity_id": "DEN",
+            "source": "milestone",
+            "severity": 0.6,
+            "event_type": "approaching_target",
+        },
     ]
 
     result = _dedupe_triggered_cards(cards, game_id="0042500165")
-    assert len(result) == 4
+    assert len(result) == 5
     assert sorted(c["metric_key"] for c in result) == [
         "wins_by_10_plus",
         "wins_by_10_plus_career",
+        "wins_by_10_plus_last10",
         "wins_by_10_plus_last3",
         "wins_by_10_plus_last5",
     ]
@@ -166,6 +176,7 @@ def test_window_class_for_card_long_vs_season():
     from web.app import _window_class_for_card
 
     assert _window_class_for_card({"metric_key": "wins_by_10_plus_career", "season": "all_playoffs"}) == "long"
+    assert _window_class_for_card({"metric_key": "wins_by_10_plus_last10", "season": "last10_playoffs"}) == "long"
     assert _window_class_for_card({"metric_key": "wins_by_10_plus_last5", "season": "last5_playoffs"}) == "long"
     assert _window_class_for_card({"metric_key": "wins_by_10_plus_last3", "season": "last3_playoffs"}) == "long"
     # Concrete-season card → its own bucket so this-season-leader stories

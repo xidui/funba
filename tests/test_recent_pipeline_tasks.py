@@ -873,7 +873,7 @@ def test_cmd_season_metrics_with_explicit_season_enqueues_matching_career_bucket
         "tasks.metrics.enqueue_season_metric_refresh",
         return_value={
             "seasons": ["22025"],
-            "career_buckets": ["all_regular", "last5_regular", "last3_regular"],
+            "career_buckets": ["all_regular", "last10_regular", "last5_regular", "last3_regular"],
             "metrics": 1,
             "enqueued": 1,
             "callbacks": 1,
