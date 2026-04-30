@@ -21,6 +21,7 @@ from social_media.twitter.post import (  # noqa: E402
     _normalize_status_url,
     _resolve_image_paths,
 )
+from scripts.funba_twitter_publish import _collect_post_image_paths  # noqa: E402
 
 
 class _FakePage:
@@ -174,6 +175,22 @@ class TestResolveImagePaths(unittest.TestCase):
         paths = [str(self._write(f"hero{i}.png")) for i in range(TWITTER_MAX_IMAGES + 1)]
         with self.assertRaises(ValueError):
             _resolve_image_paths(paths)
+
+
+class TestFunbaTwitterPublishWrapper(unittest.TestCase):
+    def test_collect_post_image_paths_prefers_poster_and_skips_instagram_square(self):
+        post = {
+            "images": [
+                {"slot": "poster_ig", "has_file": True, "is_enabled": True, "file_path": "/tmp/square.png"},
+                {"slot": "poster", "has_file": True, "is_enabled": True, "file_path": "/tmp/poster.png"},
+                {"slot": "img1", "has_file": True, "is_enabled": True, "file_path": "/tmp/detail.png"},
+            ]
+        }
+
+        self.assertEqual(
+            _collect_post_image_paths(post),
+            ["/tmp/poster.png", "/tmp/detail.png"],
+        )
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ _MAX_POST_AGE_HOURS = 24.0
 _SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _TWITTER_PLATFORMS = {"twitter", "x"}
 _TWITTER_IMAGE_SLOT_PRIORITY = ("poster",)
+_TWITTER_EXCLUDED_IMAGE_SLOTS = {"poster_ig", "instagram"}
 _TWITTER_MAX_IMAGES = 4
 
 
@@ -63,7 +64,8 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
 
     Hero-card posters are stored under slot="poster"; if a post carries one
     we use it as the tweet's primary attachment. Other slots are appended
-    afterwards in API order. The list is capped at the X media limit.
+    afterwards in API order, except Instagram-only square assets. The list is
+    capped at the X media limit.
     """
     images = post.get("images") or []
     paths: list[str] = []
@@ -88,6 +90,8 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
                 paths.append(path)
                 seen.add(path)
     for img in images:
+        if isinstance(img, dict) and str(img.get("slot") or "") in _TWITTER_EXCLUDED_IMAGE_SLOTS:
+            continue
         path = _enabled_with_file(img)
         if path and path not in seen:
             paths.append(path)
