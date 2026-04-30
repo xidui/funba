@@ -11,6 +11,7 @@ URL_RE = re.compile(r"https?://\S+")
 
 class HeroHighlightCardLike(Protocol):
     metric_name: str
+    narrative_en: str | None
     value_text: str
     value_time_label: str | None
     rank_text: str
@@ -65,6 +66,13 @@ def _build_title(card: HeroHighlightCardLike, *, label_limit: int, metric_limit:
     return base
 
 
+def _headline(card: HeroHighlightCardLike, *, label_limit: int, metric_limit: int) -> str:
+    narrative = _clean(getattr(card, "narrative_en", None) or "")
+    if narrative:
+        return _truncate(narrative, label_limit + metric_limit)
+    return _build_title(card, label_limit=label_limit, metric_limit=metric_limit)
+
+
 def _twitter_lines(
     card: HeroHighlightCardLike,
     *,
@@ -72,7 +80,7 @@ def _twitter_lines(
     metric_limit: int,
     include_game_link: bool = True,
 ) -> list[str]:
-    lines = [_build_title(card, label_limit=label_limit, metric_limit=metric_limit)]
+    lines = [_headline(card, label_limit=label_limit, metric_limit=metric_limit)]
     lines.extend(["", f"Source: {card.metric_url}"])
     if include_game_link:
         lines.append(f"Game: {card.game_url}")

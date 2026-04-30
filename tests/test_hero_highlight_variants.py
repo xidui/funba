@@ -272,7 +272,8 @@ class TestHeroHighlightVariants(unittest.TestCase):
             variant = session.query(SocialPostVariant).one()
             self.assertEqual(variant.post_id, post.id)
             self.assertEqual(variant.status, "approved")
-            self.assertIn("Hero Player — Best Single-Game Points: 55", variant.content_raw)
+            self.assertIn("Hero Player scored 55, best this season", variant.title)
+            self.assertIn("Hero Player scored 55, best this season", variant.content_raw)
             self.assertNotIn("Data:", variant.content_raw)
             self.assertNotIn("Ranking:", variant.content_raw)
             self.assertNotIn("Top 3:", variant.content_raw)
@@ -402,7 +403,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
             generate_hero_highlight_variants_for_game(session, "0022500001", platforms=["twitter"])
 
             variant = session.query(SocialPostVariant).one()
-            self.assertIn("OKC — Wins By 10+: 75", variant.content_raw)
+            self.assertIn("OKC reached 75 playoff wins by 10+, moving to 8th all-time.", variant.content_raw)
             self.assertNotIn("Top 3:", variant.content_raw)
             self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_last5?season=last5_playoffs", variant.content_raw)
 
@@ -530,7 +531,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertTrue(post.topic.startswith("Hero Highlight — 0022500001 — team — wins_by_10_plus_last5"))
             self.assertEqual(json.loads(post.source_metrics), ["wins_by_10_plus_career"])
             self.assertNotIn("Top 3:", variant.content_raw)
-            self.assertIn("OKC — Wins By 10 Plus Last5: 75 (2026)", variant.content_raw)
+            self.assertIn("OKC reached 75 playoff wins by 10+, moving to 8th all-time.", variant.content_raw)
             self.assertIn("Source: https://funba.app/metrics/wins_by_10_plus_career?season=all_playoffs", variant.content_raw)
 
     def test_platform_config_is_generic_and_normalizes_x_alias(self):

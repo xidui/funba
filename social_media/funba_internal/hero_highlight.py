@@ -15,6 +15,7 @@ POSTER_SLOT_TAG = "[[IMAGE:slot=poster]]"
 
 class HeroHighlightCardLike(Protocol):
     metric_name: str
+    narrative_en: str | None
     value_text: str
     value_time_label: str | None
     metric_url: str
@@ -27,7 +28,11 @@ def _clean(value: str) -> str:
     return " ".join(str(value or "").split())
 
 
-def render_hero_highlight(card: HeroHighlightCardLike) -> str:
+def _title_text(card: HeroHighlightCardLike) -> str:
+    narrative = _clean(getattr(card, "narrative_en", None) or "")
+    if narrative:
+        return narrative
+
     value_text = _clean(card.value_text)
     if card.value_time_label:
         value_text = f"{value_text} ({card.value_time_label})"
@@ -37,6 +42,10 @@ def render_hero_highlight(card: HeroHighlightCardLike) -> str:
     title = f"{headline_left} — {metric_name}" if headline_left else metric_name
     if value_text:
         title = f"{title}: {value_text}"
+    return title
 
+
+def render_hero_highlight(card: HeroHighlightCardLike) -> str:
+    title = _title_text(card)
     lines = [POSTER_SLOT_TAG, "", title, "", f"Source: {card.metric_url}", f"Game: {card.game_url}"]
     return "\n".join(lines).strip()

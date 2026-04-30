@@ -726,8 +726,11 @@ def _stable_topic(card: HeroHighlightCard) -> str:
 
 
 def _variant_title(card: HeroHighlightCard, platform: str) -> str:
-    label = card.entity_label or card.matchup
-    return _truncate(f"{card.matchup}: {label} {card.metric_name} ({platform})", 255)
+    label = " ".join(str(card.narrative_en or "").split())
+    if not label:
+        subject = card.entity_label or card.matchup
+        label = f"{subject} {card.metric_name}" if subject else card.metric_name
+    return _truncate(f"{card.matchup}: {label} ({platform})", 255)
 
 
 HERO_HIGHLIGHT_RENDERERS: dict[str, Callable[[HeroHighlightCard], str]] = {
@@ -760,6 +763,22 @@ def _find_existing_post(session: Session, topic: str, source_date: date) -> Soci
         .order_by(SocialPost.id.asc())
         .first()
     )
+
+
+def _existing_hero_post_ids_for_game(session: Session, game: Game) -> list[int]:
+    source_date = game.game_date or date.today()
+    topic_prefix = f"Hero Highlight — {game.game_id} —%"
+    rows = (
+        session.query(SocialPost.id)
+        .filter(
+            SocialPost.topic.like(topic_prefix),
+            SocialPost.source_date == source_date,
+            SocialPost.status != "archived",
+        )
+        .order_by(SocialPost.id.asc())
+        .all()
+    )
+    return [int(row[0]) for row in rows]
 
 
 def _attach_hero_poster(
@@ -1017,11 +1036,13 @@ def generate_hero_highlight_variants_for_game(
     if game is None:
         return {"ok": False, "game_id": game_id, "error": "game_not_found"}
     if getattr(game, "variants_generated_at", None) is not None:
+        existing_post_ids = _existing_hero_post_ids_for_game(session, game)
         session.rollback()
         return {
             "ok": True,
             "game_id": game_id,
             "platforms": selected_platforms,
+            "post_ids": existing_post_ids,
             "created_post_ids": [],
             "skipped": "variants_already_generated",
         }
