@@ -16,3 +16,18 @@ def test_health_endpoint_is_lightweight_and_public():
     resp = app.test_client().get("/api/health", environ_overrides={"REMOTE_ADDR": "8.8.8.8"})
     assert resp.status_code == 200
     assert resp.get_json() == {"ok": True, "service": "funba"}
+
+
+def test_search_referrer_deep_page_throttle_is_early_and_switchable(monkeypatch):
+    app, _, _ = _make_app()
+    app.config["TESTING"] = False
+    monkeypatch.setenv("FUNBA_SEARCH_DEEP_THROTTLE", "1")
+
+    resp = app.test_client().get(
+        "/metrics/player_total_pts_vs_opponent?entity=2544&season=22025",
+        headers={"Referer": "https://www.google.com/"},
+        environ_overrides={"REMOTE_ADDR": "8.8.8.8"},
+    )
+
+    assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == "300"

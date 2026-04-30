@@ -139,6 +139,26 @@ _GAME_METRICS_CACHE_TTL_SECONDS = int(os.getenv("FUNBA_GAME_METRICS_CACHE_TTL_SE
 _GAME_METRICS_CACHE_REDIS_URL = os.getenv("FUNBA_GAME_METRICS_CACHE_REDIS_URL") or os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 _game_metrics_cache_client = None
 _game_metrics_cache_unavailable_until = 0.0
+_SEARCH_DEEP_THROTTLE_ENV = "FUNBA_SEARCH_DEEP_THROTTLE"
+_SEARCH_DEEP_THROTTLE_STATUS_ENV = "FUNBA_SEARCH_DEEP_THROTTLE_STATUS"
+_SEARCH_REFERRER_HOSTS = (
+    "google.",
+    "bing.",
+    "duckduckgo.",
+    "search.yahoo.",
+    "baidu.",
+    "yandex.",
+)
+_SEARCH_THROTTLED_PATH_PREFIXES = (
+    "/metrics/",
+    "/cn/metrics/",
+    "/players/",
+    "/cn/players/",
+    "/teams/",
+    "/cn/teams/",
+    "/games/",
+    "/cn/games/",
+)
 
 
 def _make_draft_key(user_id: str, key: str) -> str:
@@ -414,6 +434,46 @@ def _real_ip() -> str:
     )
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _search_deep_throttle_status_code() -> int:
+    raw = os.getenv(_SEARCH_DEEP_THROTTLE_STATUS_ENV, "429").strip()
+    try:
+        status = int(raw)
+    except ValueError:
+        return 429
+    return status if 400 <= status <= 599 else 429
+
+
+def _is_search_referrer(referrer: str | None) -> bool:
+    value = (referrer or "").strip()
+    if not value:
+        return False
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return any(token in host for token in _SEARCH_REFERRER_HOSTS)
+
+
+def _should_throttle_search_deep_page() -> bool:
+    if app.config.get("TESTING") or not _env_flag(_SEARCH_DEEP_THROTTLE_ENV):
+        return False
+    if request.method != "GET":
+        return False
+    path = request.path or "/"
+    if path.startswith("/static/") or path in {"/", "/cn", "/robots.txt", "/api/health"}:
+        return False
+    if not _is_search_referrer(request.referrer):
+        return False
+    return path.startswith(_SEARCH_THROTTLED_PATH_PREFIXES)
+
+
 limiter = Limiter(
     _real_ip,
     app=app,
@@ -426,6 +486,17 @@ limiter = Limiter(
 def set_request_language():
     path = request.path or "/"
     g.lang = "zh" if path == "/cn" or path.startswith("/cn/") else "en"
+
+
+@app.before_request
+def _throttle_search_deep_pages():
+    if not _should_throttle_search_deep_page():
+        return
+    status = _search_deep_throttle_status_code()
+    response = make_response("Too Many Requests", status)
+    response.headers["Retry-After"] = "300"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.before_request

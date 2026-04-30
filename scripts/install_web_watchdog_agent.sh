@@ -23,6 +23,8 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
 fi
 
 LOG_DIR="${FUNBA_LOG_DIR:-$REPO_ROOT/logs}"
+WATCHDOG_TIMEOUT_SECONDS="${FUNBA_WEB_WATCHDOG_TIMEOUT_SECONDS:-10}"
+WATCHDOG_TERM_GRACE_SECONDS="${FUNBA_WEB_WATCHDOG_TERM_GRACE_SECONDS:-8}"
 PLIST_DEST="$HOME/Library/LaunchAgents/app.funba.web-watchdog.plist"
 LABEL="app.funba.web-watchdog"
 
@@ -55,6 +57,10 @@ cat > "$PLIST_DEST" <<PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>FUNBA_WEB_WATCHDOG_TIMEOUT_SECONDS</key>
+    <string>$WATCHDOG_TIMEOUT_SECONDS</string>
+    <key>FUNBA_WEB_WATCHDOG_TERM_GRACE_SECONDS</key>
+    <string>$WATCHDOG_TERM_GRACE_SECONDS</string>
   </dict>
 </dict>
 </plist>
