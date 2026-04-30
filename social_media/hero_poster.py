@@ -620,13 +620,29 @@ def build_prompt_context(
             trigger_team_full = tm.full_name or ""
             trigger_team_abbr = tm.abbr or ""
     else:
-        # game scope — pick the home or road team perspective
+        # game scope — pick the protagonist team. Prefer the curator-provided
+        # team_id (resolved from MetricDefinition.protagonist + context),
+        # which lets metrics like *_in_a_loss anchor on the losing team.
+        # When the caller passes a minimal card (e.g. admin regen), look up
+        # the protagonist from the metric definition + result. Final fallback
+        # is the winner.
         home, _ = _team_label(session, str(game.home_team_id or ""))
         road, _ = _team_label(session, str(game.road_team_id or ""))
-        winner = session.query(Team).filter(Team.team_id == game.wining_team_id).first() if game.wining_team_id else None
-        if winner:
-            trigger_team_full = winner.full_name or ""
-            trigger_team_abbr = winner.abbr or ""
+        protagonist_tid = _safe_str(card.get("team_id"))
+        if not protagonist_tid and metric_key:
+            from metrics.highlights.protagonist import lookup_team_id as _lookup_protagonist
+            protagonist_tid = _lookup_protagonist(
+                session, metric_key, str(game.game_id), season, game
+            ) or ""
+        protagonist_team = (
+            session.query(Team).filter(Team.team_id == protagonist_tid).first()
+            if protagonist_tid else None
+        )
+        if not protagonist_team and game.wining_team_id:
+            protagonist_team = session.query(Team).filter(Team.team_id == game.wining_team_id).first()
+        if protagonist_team:
+            trigger_team_full = protagonist_team.full_name or ""
+            trigger_team_abbr = protagonist_team.abbr or ""
         # Always overwrite for game scope — the early-init trigger_label
         # is the raw game_id from card.entity_id, which is meaningless to
         # GPT. We need "ROAD @ HOME, date" so the model has a real label.
@@ -680,8 +696,11 @@ def build_prompt_context(
     elif metric_scope == "team" and trigger_entity_id:
         trigger_team_id_for_pool = trigger_entity_id.split(":")[1] if ":" in trigger_entity_id else trigger_entity_id
     else:
-        # game scope: prefer the winner if known, else the home team.
-        if game.wining_team_id:
+        # game scope: reuse the protagonist team_id resolved earlier for the
+        # visual block. Falls back to the winner, then the home team.
+        if protagonist_tid:
+            trigger_team_id_for_pool = protagonist_tid
+        elif game.wining_team_id:
             trigger_team_id_for_pool = str(game.wining_team_id)
         elif game.home_team_id:
             trigger_team_id_for_pool = str(game.home_team_id)

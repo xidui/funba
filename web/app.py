@@ -3877,6 +3877,17 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
     metric_name_cache = _batch_metric_names_bilingual(session, {r.metric_key for r in entity_rows})
     db_templates = _load_context_label_templates(session, {family_base_key(r.metric_key) for r in entity_rows})
 
+    from metrics.highlights.protagonist import resolve_team_id as _resolve_protagonist_team_id
+
+    metric_keys = {r.metric_key for r in entity_rows}
+    protagonist_map: dict[str, str | None] = {}
+    if metric_keys:
+        for k, p in session.query(
+            MetricDefinitionModel.key, MetricDefinitionModel.protagonist
+        ).filter(MetricDefinitionModel.key.in_(metric_keys)).all():
+            protagonist_map[k] = p
+    game_row = session.query(Game).filter(Game.game_id == str(game_id)).first()
+
     season_metrics: list[dict] = []
     for r in entity_rows:
         ranks = rank_map.get(r.id, {})
@@ -3894,6 +3905,10 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
             context_label = ctx.get("note")
         name_pair = metric_name_cache.get(r.metric_key, (r.metric_key.replace("_", " ").title(), None))
         name_en, name_zh = name_pair if isinstance(name_pair, tuple) else (name_pair, None)
+        protagonist = protagonist_map.get(r.metric_key)
+        team_id = _resolve_protagonist_team_id(
+            protagonist, ctx if isinstance(ctx, dict) else {}, game_row
+        )
         season_metrics.append({
             "metric_key": r.metric_key,
             "metric_name": name_en,
@@ -3904,6 +3919,7 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
             "value_str": r.value_str,
             "context": ctx if isinstance(ctx, dict) else {},
             "context_label": context_label,
+            "team_id": team_id,
             "rank": season_rank,
             "total": season_total,
             "all_games_rank": all_rank,

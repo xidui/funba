@@ -542,6 +542,12 @@ class MetricDefinition(Base):
     sub_key_label = Column(String(64), nullable=True)         # English header, e.g. "Opponent"
     sub_key_label_zh = Column(String(64), nullable=True)      # Chinese header, e.g. "对手球队"
     sub_key_rank_scope = Column(String(16), nullable=True)    # 'entity' | 'global' | None
+    # For game-scope metrics: which team is the visual/narrative protagonist?
+    # Values: 'context_team_id' | 'winner' | 'loser' | 'home' | 'road' | None.
+    # NULL falls back to context_json.team_id when present, else the winning
+    # team. Hero posters and other downstream consumers anchor team colors,
+    # roster whitelists, etc. on whichever team this resolves to.
+    protagonist = Column(String(16), nullable=True)
     # When True, the player page fills missing sub_keys (e.g. opponents
     # the player faced but didn't produce any of the measured thing against)
     # with is_placeholder=True zero entries so all opponents show up.
