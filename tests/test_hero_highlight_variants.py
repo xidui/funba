@@ -29,6 +29,7 @@ from db.models import (
     Player,
     SocialPost,
     SocialPostDelivery,
+    SocialPostImage,
     SocialPostVariant,
     Team,
 )
@@ -332,6 +333,54 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(delivery.status, "failed")
             self.assertIn("missing image slot(s): poster", delivery.error_message)
             enqueue_mock.assert_not_called()
+
+    def test_twitter_missing_poster_guard_allows_instagram_square_fallback(self):
+        with self.SessionLocal() as session:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            session.add(
+                SocialPostImage(
+                    post_id=123,
+                    slot="poster_ig",
+                    image_type="ai_generated",
+                    file_path=str(Path(__file__)),
+                    is_enabled=True,
+                    created_at=now,
+                )
+            )
+            session.commit()
+
+            missing = hero_variants._missing_required_image_slots_for_post(
+                session,
+                123,
+                "[[IMAGE:slot=poster]]",
+                platform="twitter",
+            )
+
+            self.assertEqual(missing, [])
+
+    def test_instagram_missing_square_guard_does_not_fallback_to_twitter_poster(self):
+        with self.SessionLocal() as session:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            session.add(
+                SocialPostImage(
+                    post_id=123,
+                    slot="poster",
+                    image_type="ai_generated",
+                    file_path=str(Path(__file__)),
+                    is_enabled=True,
+                    created_at=now,
+                )
+            )
+            session.commit()
+
+            missing = hero_variants._missing_required_image_slots_for_post(
+                session,
+                123,
+                "[[IMAGE:slot=poster_ig]]",
+                platform="instagram",
+            )
+
+            self.assertEqual(missing, ["poster_ig"])
 
     def test_mixed_platform_post_still_requires_review(self):
         with self.SessionLocal() as session:

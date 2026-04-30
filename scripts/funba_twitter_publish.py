@@ -23,7 +23,8 @@ REAL_BROWSER_UA = (
 _MAX_POST_AGE_HOURS = 24.0
 _SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _TWITTER_PLATFORMS = {"twitter", "x"}
-_TWITTER_IMAGE_SLOT_PRIORITY = ("poster",)
+_TWITTER_PRIMARY_IMAGE_SLOT = "poster"
+_TWITTER_POSTER_FALLBACK_SLOT = "poster_ig"
 _TWITTER_EXCLUDED_IMAGE_SLOTS = {"poster_ig", "instagram"}
 _TWITTER_MAX_IMAGES = 4
 _IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:([^\]]*)\]\]", re.IGNORECASE)
@@ -82,7 +83,8 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
         path = str(img.get("file_path") or "").strip()
         return path or None
 
-    for slot in _TWITTER_IMAGE_SLOT_PRIORITY:
+    has_primary = False
+    for slot in (_TWITTER_PRIMARY_IMAGE_SLOT,):
         for img in images:
             if not isinstance(img, dict) or img.get("slot") != slot:
                 continue
@@ -90,6 +92,18 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
             if path and path not in seen:
                 paths.append(path)
                 seen.add(path)
+                has_primary = True
+
+    if not has_primary:
+        for img in images:
+            if not isinstance(img, dict) or img.get("slot") != _TWITTER_POSTER_FALLBACK_SLOT:
+                continue
+            path = _enabled_with_file(img)
+            if path and path not in seen:
+                paths.append(path)
+                seen.add(path)
+                break
+
     for img in images:
         if isinstance(img, dict) and str(img.get("slot") or "") in _TWITTER_EXCLUDED_IMAGE_SLOTS:
             continue
@@ -131,7 +145,14 @@ def _enabled_image_slots(post: dict[str, Any]) -> set[str]:
 
 def _missing_required_image_slots(content: str, post: dict[str, Any]) -> list[str]:
     available = _enabled_image_slots(post)
-    return [slot for slot in _required_image_slots(content) if slot not in available]
+    missing: list[str] = []
+    for slot in _required_image_slots(content):
+        if slot in available:
+            continue
+        if slot == _TWITTER_PRIMARY_IMAGE_SLOT and _TWITTER_POSTER_FALLBACK_SLOT in available:
+            continue
+        missing.append(slot)
+    return missing
 
 
 def _find_delivery_bundle(post: dict[str, Any], delivery_id: int) -> tuple[dict[str, Any], dict[str, Any]]:

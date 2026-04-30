@@ -108,13 +108,19 @@ class TestPublishAgeGuards(unittest.TestCase):
         )
         self.assertIsNone(error)
 
-    def test_twitter_missing_required_image_slot_blocks_publish(self):
+    def test_twitter_required_poster_can_fallback_to_instagram_square(self):
         content = "[[IMAGE:slot=poster]]\n\nHero copy"
         post = {
             "images": [
                 {"slot": "poster_ig", "has_file": True, "is_enabled": True, "file_path": "/tmp/square.png"},
             ],
         }
+
+        self.assertEqual(twitter_publish._missing_required_image_slots(content, post), [])
+
+    def test_twitter_missing_required_image_slot_blocks_without_fallback(self):
+        content = "[[IMAGE:slot=poster]]\n\nHero copy"
+        post = {"images": []}
 
         self.assertEqual(twitter_publish._missing_required_image_slots(content, post), ["poster"])
 

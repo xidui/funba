@@ -201,6 +201,19 @@ class TestFunbaTwitterPublishWrapper(unittest.TestCase):
             ["/tmp/poster.png", "/tmp/detail.png"],
         )
 
+    def test_collect_post_image_paths_falls_back_to_instagram_square(self):
+        post = {
+            "images": [
+                {"slot": "poster_ig", "has_file": True, "is_enabled": True, "file_path": "/tmp/square.png"},
+                {"slot": "img1", "has_file": True, "is_enabled": True, "file_path": "/tmp/detail.png"},
+            ]
+        }
+
+        self.assertEqual(
+            _collect_post_image_paths(post),
+            ["/tmp/square.png", "/tmp/detail.png"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

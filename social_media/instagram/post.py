@@ -37,7 +37,8 @@ POST_URL_RE = re.compile(
 )
 INSTAGRAM_MAX_IMAGES = 10
 INSTAGRAM_CAPTION_LIMIT = 2200
-_IMAGE_SLOT_PRIORITY = ("poster_ig", "instagram", "poster", "img1", "img2", "img3")
+_IMAGE_SLOT_PRIORITY = ("poster_ig", "instagram", "img1", "img2", "img3")
+_EXCLUDED_FALLBACK_IMAGE_SLOTS = {"poster"}
 _IMAGE_PLACEHOLDER_RE = re.compile(r"^\s*\[\[IMAGE:(.+?)\]\]\s*$")
 _TAGS_PLACEHOLDER_RE = re.compile(r"^\s*\[\[TAGS:(.+?)\]\]\s*$")
 _SHORT_SLEEP = 0.15
@@ -263,6 +264,8 @@ def _paths_by_priority(rows: list[tuple[str, str]]) -> list[str]:
         for path in by_slot.get(slot, []):
             append_path(path)
     for _slot, path in rows:
+        if _slot in _EXCLUDED_FALLBACK_IMAGE_SLOTS:
+            continue
         append_path(path)
     return paths
 
@@ -300,7 +303,7 @@ def _prepare_placeholder_images(
             temp_paths.append(tmp.name)
             resolved_images.append(tmp.name)
 
-    if not resolved_images and pool_rows:
+    if not placeholder_specs and not resolved_images and pool_rows:
         resolved_images.extend(_paths_by_priority(pool_rows))
 
     return resolved_images[:INSTAGRAM_MAX_IMAGES], temp_paths

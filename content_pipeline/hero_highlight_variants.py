@@ -755,9 +755,30 @@ def _available_image_slots_for_post(session: Session, post_id: int) -> set[str]:
     return slots
 
 
-def _missing_required_image_slots_for_post(session: Session, post_id: int, content: str) -> list[str]:
+def _slot_satisfied_for_platform(slot: str, available: set[str], *, platform: str | None = None) -> bool:
+    if slot in available:
+        return True
+    # X/Twitter can use the square IG hero poster when the vertical poster is
+    # missing. The reverse is intentionally not true because Instagram crops
+    # the vertical Twitter poster.
+    if platform in {"twitter", "x"} and slot == HERO_POSTER_SLOT:
+        return HERO_POSTER_SQUARE_SLOT in available
+    return False
+
+
+def _missing_required_image_slots_for_post(
+    session: Session,
+    post_id: int,
+    content: str,
+    *,
+    platform: str | None = None,
+) -> list[str]:
     available = _available_image_slots_for_post(session, post_id)
-    return [slot for slot in _required_image_slots(content) if slot not in available]
+    return [
+        slot
+        for slot in _required_image_slots(content)
+        if not _slot_satisfied_for_platform(slot, available, platform=platform)
+    ]
 
 
 def _stable_topic(card: HeroHighlightCard) -> str:
@@ -974,7 +995,12 @@ def _create_post_for_card(
         missing_image_slots: list[str] = []
         auto_publish_error: str | None = None
         if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
-            missing_image_slots = _missing_required_image_slots_for_post(session, int(post.id), content_raw)
+            missing_image_slots = _missing_required_image_slots_for_post(
+                session,
+                int(post.id),
+                content_raw,
+                platform=platform,
+            )
             if missing_image_slots:
                 auto_publish_error = (
                     "Auto-publish skipped: missing image slot(s): "

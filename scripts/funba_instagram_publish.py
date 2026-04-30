@@ -32,7 +32,8 @@ REAL_BROWSER_UA = (
 _MAX_POST_AGE_HOURS = 24.0
 _SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _INSTAGRAM_PLATFORMS = {"instagram", "ig"}
-_INSTAGRAM_IMAGE_SLOT_PRIORITY = ("poster_ig", "instagram", "poster", "img1", "img2", "img3")
+_INSTAGRAM_IMAGE_SLOT_PRIORITY = ("poster_ig", "instagram", "img1", "img2", "img3")
+_INSTAGRAM_EXCLUDED_IMAGE_SLOTS = {"poster"}
 _INSTAGRAM_MAX_IMAGES = 10
 _IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:([^\]]*)\]\]", re.IGNORECASE)
 
@@ -262,6 +263,8 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
                 seen.add(path)
                 paths.append(path)
     for img in images:
+        if isinstance(img, dict) and str(img.get("slot") or "") in _INSTAGRAM_EXCLUDED_IMAGE_SLOTS:
+            continue
         path = enabled_path(img)
         if path and path not in seen:
             seen.add(path)

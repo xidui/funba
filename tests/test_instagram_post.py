@@ -61,7 +61,7 @@ class TestInstagramPostHelpers(unittest.TestCase):
         )
         self.assertEqual(caption, "First line\nSecond line\n\n#NBA #Funba")
 
-    def test_paths_by_priority_prefers_square_instagram_poster(self):
+    def test_paths_by_priority_prefers_square_instagram_poster_without_twitter_fallback(self):
         paths = _paths_by_priority(
             [
                 ("poster", "/tmp/poster.png"),
@@ -69,7 +69,7 @@ class TestInstagramPostHelpers(unittest.TestCase):
                 ("poster_ig", "/tmp/poster_ig.png"),
             ]
         )
-        self.assertEqual(paths, ["/tmp/poster_ig.png", "/tmp/poster.png", "/tmp/img1.png"])
+        self.assertEqual(paths, ["/tmp/poster_ig.png", "/tmp/img1.png"])
 
     def test_normalize_post_url_accepts_absolute_url(self):
         self.assertEqual(
