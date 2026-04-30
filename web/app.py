@@ -5857,6 +5857,7 @@ _BOT_SIGNATURES = (
 _CURL_USER_AGENT_SIGNATURES = ("curl/",)
 _CURL_ALLOWED_IPS_ENV = "FUNBA_CURL_ALLOWED_IPS"
 _ANALYTICS_EXCLUDE_IPS_ENV = "FUNBA_ANALYTICS_EXCLUDE_IPS"
+_DYNAMIC_CRAWLER_BLOCK_ENV = "FUNBA_DYNAMIC_CRAWLER_BLOCK"
 _AI_READER_UA_SIGNATURES = ("chatgpt-user", "oai-searchbot")
 _AI_CODING_UA_SIGNATURES = ("claude-code", "codex", "anthropic")
 _ANALYTICS_EXCLUDE_UA_SIGNATURES = _AI_CODING_UA_SIGNATURES + _AI_READER_UA_SIGNATURES
@@ -6423,25 +6424,25 @@ def _request_crawler_decision() -> dict[str, object]:
             decision = {
                 "is_crawler": True,
                 "crawler_name": dynamic_crawler_name,
-                "should_block": False,
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
             }
         elif not app.config.get("TESTING") and _is_proxied_scraper_ua():
             decision = {
                 "is_crawler": True,
                 "crawler_name": "proxied-scraper",
-                "should_block": False,
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
             }
         elif not app.config.get("TESTING") and _is_stale_ua_scraper():
             decision = {
                 "is_crawler": True,
                 "crawler_name": "stale-ua-scraper",
-                "should_block": False,
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
             }
         elif not app.config.get("TESTING") and _is_datacenter_scraper_ua():
             decision = {
                 "is_crawler": True,
                 "crawler_name": "datacenter-scraper",
-                "should_block": False,
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
             }
         elif not app.config.get("TESTING") and _is_bot():
             decision = {

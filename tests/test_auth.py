@@ -480,6 +480,62 @@ class TestCrawlerTracking(unittest.TestCase):
         self.assertTrue(captured[0]["is_crawler"])
         self.assertEqual(captured[0]["crawler_name"], "auth-spray-bot")
 
+    def test_dynamic_cookie_churn_scraper_is_blocked_and_recorded(self):
+        captured = []
+
+        class FakePageView:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        original_testing = self.app.config["TESTING"]
+        self.app.config["TESTING"] = False
+        try:
+            with self.app.test_request_context(
+                "/metrics/longest_losing_streak",
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+                    )
+                },
+                environ_base={"REMOTE_ADDR": "8.8.8.8"},
+            ):
+                with patch("web.app.PageView", FakePageView), \
+                     patch("web.app.SessionLocal", return_value=self._session_ctx()), \
+                     patch("web.app._recent_repeat_crawler_ip", return_value=False), \
+                     patch("web.app._dynamic_pageview_crawler_name", return_value="network-cookie-churn-scraper"):
+                    response = self.web_app._block_bots()
+        finally:
+            self.app.config["TESTING"] = original_testing
+
+        self.assertEqual(response, ("Forbidden", 403))
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0]["is_crawler"])
+        self.assertEqual(captured[0]["crawler_name"], "network-cookie-churn-scraper")
+
+    def test_dynamic_cookie_churn_scraper_blocking_can_be_disabled(self):
+        original_testing = self.app.config["TESTING"]
+        self.app.config["TESTING"] = False
+        try:
+            with patch.dict("os.environ", {"FUNBA_DYNAMIC_CRAWLER_BLOCK": "0"}, clear=False):
+                with self.app.test_request_context(
+                    "/metrics/longest_losing_streak",
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+                        )
+                    },
+                    environ_base={"REMOTE_ADDR": "8.8.8.8"},
+                ):
+                    with patch("web.app._recent_repeat_crawler_ip", return_value=False), \
+                         patch("web.app._dynamic_pageview_crawler_name", return_value="network-cookie-churn-scraper"):
+                        response = self.web_app._block_bots()
+        finally:
+            self.app.config["TESTING"] = original_testing
+
+        self.assertIsNone(response)
+
     def test_human_page_views_remain_non_crawler(self):
         captured = []
 
