@@ -515,6 +515,29 @@ def build_prompt_context(
     trigger_entity_id = _safe_str(card.get("entity_id"))
     trigger_game_id = str(game.game_id)
 
+    # Trigger value fallback: minimal cards (e.g. admin asset regen) only
+    # carry metric_key/scope/entity_id. Without a value_snapshot the rank
+    # fallback below can't compute a rank and the prompt is rendered with
+    # "?" for the trigger value. Read MetricResult once to fill both gaps.
+    trigger_value_num: Any = card.get("value_snapshot")
+    trigger_value_str = _safe_str(card.get("value_str_snapshot") or card.get("value_text"))
+    if trigger_entity_id and (trigger_value_num is None or not trigger_value_str):
+        fallback_row = (
+            session.query(MetricResult.value_num, MetricResult.value_str)
+            .filter(
+                MetricResult.metric_key == metric_key,
+                MetricResult.season == season,
+                MetricResult.entity_id == trigger_entity_id,
+            )
+            .first()
+        )
+        if fallback_row is not None:
+            if trigger_value_num is None:
+                trigger_value_num = fallback_row.value_num
+            if not trigger_value_str:
+                trigger_value_str = _safe_str(fallback_row.value_str)
+    trigger_value_str_display = trigger_value_str or "?"
+
     # Locate the trigger row inside the top-N. Two-pass match: first try
     # entity_id + game_id (single-game metrics where the same player has
     # multiple top rows); fall back to entity_id alone (season aggregates
@@ -577,7 +600,6 @@ def build_prompt_context(
     # If trigger isn't in top N, query its actual rank.
     trigger_appendix_row = ""
     if not trigger_in_topn and trigger_entity_id:
-        trigger_value_num = card.get("value_snapshot")
         if isinstance(trigger_value_num, (int, float)):
             better = (
                 session.query(MetricResult)
@@ -601,8 +623,12 @@ def build_prompt_context(
     trigger_full_line = ""
     if metric_scope == "player" and trigger_entity_id:
         name, p = _player_label(session, trigger_entity_id)
-        if not trigger_label:
-            trigger_label = name
+        # The early init falls back to the raw player_id when the card
+        # carries no label — admin asset regen always lands here. Replace
+        # the bare id with the looked-up name so prompts say "James Harden"
+        # instead of "201935".
+        if not trigger_label or trigger_label == trigger_entity_id:
+            trigger_label = name or trigger_entity_id
         team = _team_for_player_in_game(session, trigger_entity_id, str(game.game_id))
         if team:
             trigger_team_full = team.full_name or ""
@@ -659,7 +685,7 @@ def build_prompt_context(
                 None,
                 None,
                 None,
-                _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+                trigger_value_str_display,
             )
         else:
             trigger_appendix_row = _format_top_row(
@@ -668,7 +694,7 @@ def build_prompt_context(
                 trigger_team_abbr or None,
                 None,
                 None,
-                _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+                trigger_value_str_display,
             )
 
     # Game line + scoreline
@@ -734,7 +760,7 @@ def build_prompt_context(
         "trigger_label": trigger_label,
         "trigger_team_full": trigger_team_full or trigger_team_abbr or "the team",
         "trigger_team_abbr": trigger_team_abbr,
-        "trigger_value_str": _safe_str(card.get("value_str_snapshot") or card.get("value_text"), "?"),
+        "trigger_value_str": trigger_value_str_display,
         "trigger_rank": trigger_rank or 0,
         "trigger_window": _safe_str(card.get("rank_window"), "season"),
         "trigger_full_line": trigger_full_line,
