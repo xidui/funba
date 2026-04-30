@@ -13,6 +13,7 @@ import os
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Callable
 from urllib.parse import quote, urlencode
 
@@ -54,6 +55,7 @@ HERO_CARD_PIPELINE_KEY = "hero_card"
 HERO_CARD_INSTAGRAM_PLATFORM = "instagram"
 
 logger = logging.getLogger(__name__)
+_IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:([^\]]*)\]\]", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -720,6 +722,44 @@ def _truncate(value: str, limit: int) -> str:
     return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
 
 
+def _required_image_slots(content: str) -> list[str]:
+    slots: list[str] = []
+    for marker_body in _IMAGE_PLACEHOLDER_RE.findall(content or ""):
+        for part in marker_body.split(";"):
+            key, sep, value = part.partition("=")
+            if sep and key.strip().lower() == "slot":
+                slot = value.strip()
+                if slot and slot not in slots:
+                    slots.append(slot)
+    return slots
+
+
+def _available_image_slots_for_post(session: Session, post_id: int) -> set[str]:
+    slots: set[str] = set()
+    rows = (
+        session.query(SocialPostImage.slot, SocialPostImage.file_path)
+        .filter(
+            SocialPostImage.post_id == post_id,
+            SocialPostImage.is_enabled.is_(True),
+            SocialPostImage.file_path.isnot(None),
+        )
+        .all()
+    )
+    for slot, file_path in rows:
+        path_text = str(file_path or "").strip()
+        if not slot or not path_text:
+            continue
+        if not Path(path_text).expanduser().is_file():
+            continue
+        slots.add(str(slot))
+    return slots
+
+
+def _missing_required_image_slots_for_post(session: Session, post_id: int, content: str) -> list[str]:
+    available = _available_image_slots_for_post(session, post_id)
+    return [slot for slot in _required_image_slots(content) if slot not in available]
+
+
 def _stable_topic(card: HeroHighlightCard) -> str:
     identity = card.entity_id or "game"
     return f"{HERO_HIGHLIGHT_TOPIC_PREFIX} — {card.game_id} — {card.scope} — {card.metric_key} — {identity}"
@@ -930,15 +970,29 @@ def _create_post_for_card(
 
     for platform in platforms:
         renderer = HERO_HIGHLIGHT_RENDERERS[platform]
+        content_raw = renderer(card)
+        missing_image_slots: list[str] = []
+        auto_publish_error: str | None = None
+        if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
+            missing_image_slots = _missing_required_image_slots_for_post(session, int(post.id), content_raw)
+            if missing_image_slots:
+                auto_publish_error = (
+                    "Auto-publish skipped: missing image slot(s): "
+                    + ", ".join(missing_image_slots)
+                )
         # Per-variant approval: a platform that the matrix marks as
         # auto-approve lands its variant directly in 'approved' (so the
         # publish guard lets it ship); other platforms wait in 'in_review'
         # until an admin clicks Approve on that specific variant.
-        variant_status = "approved" if platform in auto_approve_set else HERO_HIGHLIGHT_STATUS
+        variant_status = (
+            "approved"
+            if platform in auto_approve_set and auto_publish_error is None
+            else HERO_HIGHLIGHT_STATUS
+        )
         variant = SocialPostVariant(
             post_id=post.id,
             title=_variant_title(card, platform),
-            content_raw=renderer(card),
+            content_raw=content_raw,
             audience_hint=f"deterministic hero highlight / {platform}",
             status=variant_status,
             created_at=now,
@@ -957,9 +1011,10 @@ def _create_post_for_card(
             platform=platform,
             forum=None,
             is_enabled=True,
-            status="published" if is_funba_auto_publish else "pending",
-            content_final=renderer(card) if is_funba_auto_publish else None,
+            status="published" if is_funba_auto_publish else ("failed" if auto_publish_error else "pending"),
+            content_final=content_raw if is_funba_auto_publish else None,
             published_at=now if is_funba_auto_publish else None,
+            error_message=auto_publish_error,
             created_at=now,
             updated_at=now,
         )
@@ -967,7 +1022,11 @@ def _create_post_for_card(
         session.flush()
         # Only enqueue background publishing for platforms with external APIs
         # (Twitter etc). Funba is published the moment the row hits the DB.
-        if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
+        if (
+            platform in auto_publish_platforms
+            and platform != FUNBA_INTERNAL_PLATFORM
+            and auto_publish_error is None
+        ):
             auto_publish_deliveries.append((platform, int(delivery.id)))
 
     # If funba_internal auto-published, mirror this post into NewsArticle so it

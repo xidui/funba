@@ -293,6 +293,9 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self._seed_game(session)
 
             with patch.dict(os.environ, {"FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH": "1"}), patch(
+                "content_pipeline.hero_highlight_variants._missing_required_image_slots_for_post",
+                return_value=[],
+            ), patch(
                 "content_pipeline.hero_highlight_variants._enqueue_hero_highlight_auto_publish",
                 return_value=True,
             ) as enqueue_mock:
@@ -307,6 +310,28 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(post.status, "approved")
             self.assertEqual(result["auto_publish_delivery_ids"], [delivery.id])
             enqueue_mock.assert_called_once_with(post.id, delivery.id, platform="twitter")
+
+    def test_auto_publish_skips_delivery_when_required_poster_is_missing(self):
+        with self.SessionLocal() as session:
+            self._seed_game(session)
+
+            with patch.dict(os.environ, {"FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH": "1"}), patch(
+                "content_pipeline.hero_highlight_variants._enqueue_hero_highlight_auto_publish",
+                return_value=True,
+            ) as enqueue_mock:
+                result = generate_hero_highlight_variants_for_game(
+                    session,
+                    "0022500001",
+                    platforms=["twitter"],
+                )
+
+            variant = session.query(SocialPostVariant).one()
+            delivery = session.query(SocialPostDelivery).one()
+            self.assertEqual(result["auto_publish_delivery_ids"], [])
+            self.assertEqual(variant.status, "in_review")
+            self.assertEqual(delivery.status, "failed")
+            self.assertIn("missing image slot(s): poster", delivery.error_message)
+            enqueue_mock.assert_not_called()
 
     def test_mixed_platform_post_still_requires_review(self):
         with self.SessionLocal() as session:

@@ -9,6 +9,7 @@ pair has no rows.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -86,3 +87,34 @@ def test_coerce_returns_original_when_no_swap_works():
     # Original returned unchanged — caller's leaderboard query will be empty,
     # which is the honest signal that nothing fits.
     assert out == "wins_by_10_plus_last5"
+
+
+def test_generate_image_retries_moderation_block_with_safety_prompt(tmp_path):
+    from social_media.hero_poster import _generate_image_with_safety_retry
+
+    class FakeModerationError(Exception):
+        body = {"error": {"code": "moderation_blocked", "message": "blocked by safety system"}}
+
+    calls = []
+
+    def fake_generate_image(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise FakeModerationError("moderation_blocked")
+        return Path(kwargs["output_path"])
+
+    with patch("social_media.funba_imagegen.generate_image", side_effect=fake_generate_image):
+        out, prompt_used = _generate_image_with_safety_retry(
+            prompt="Metric: steals\n- Render real, recognizable team logos and player likenesses where they\n  apply (the data is real, the people are real).",
+            output_path=tmp_path / "poster.png",
+            model="gpt-image-2",
+            size="1024x1536",
+            quality="high",
+            output_format="png",
+            background="opaque",
+        )
+
+    assert out == tmp_path / "poster.png"
+    assert len(calls) == 2
+    assert "defensive takeaways" in prompt_used
+    assert "Avoid realistic faces" in prompt_used

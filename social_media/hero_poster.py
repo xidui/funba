@@ -822,6 +822,78 @@ def _wait_for_poster_completion(target: Path, *, timeout_seconds: float = 300.0,
     return False
 
 
+def _is_image_moderation_block(exc: Exception) -> bool:
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            code = str(err.get("code") or "").lower()
+            message = str(err.get("message") or "").lower()
+            if code == "moderation_blocked" or "safety system" in message:
+                return True
+    text = str(exc).lower()
+    return "moderation_blocked" in text or "safety system" in text
+
+
+def _safety_fallback_prompt(prompt: str) -> str:
+    safe = re.sub(r"\bsteals\b", "defensive takeaways", prompt or "", flags=re.IGNORECASE)
+    safe = re.sub(r"\bsteal\b", "defensive takeaway", safe, flags=re.IGNORECASE)
+    safe = safe.replace(
+        "- Render real, recognizable team logos and player likenesses where they\n"
+        "  apply (the data is real, the people are real).",
+        "- Use real team colors, jerseys, court lines, scoreboard numerals, and clean\n"
+        "  basketball data graphics. Avoid realistic faces or physical contact scenes.",
+    )
+    return (
+        safe.rstrip()
+        + "\n\nSAFETY-SAFE FALLBACK\n"
+        "This is only an NBA box-score/statistics poster. Keep it abstract,\n"
+        "non-contact, non-confrontational, family-friendly, and purely about on-court\n"
+        "data. If any basketball term could be misread outside sports context, render\n"
+        "it as numbers, court geometry, team colors, silhouettes, and text."
+    )
+
+
+def _generate_image_with_safety_retry(
+    *,
+    prompt: str,
+    output_path: Path,
+    model: str,
+    size: str,
+    quality: str,
+    output_format: str,
+    background: str,
+) -> tuple[Path, str]:
+    from social_media.funba_imagegen import generate_image
+
+    try:
+        out = generate_image(
+            prompt=prompt,
+            output_path=output_path,
+            model=model,
+            size=size,
+            quality=quality,
+            output_format=output_format,
+            background=background,
+        )
+        return Path(out), prompt
+    except Exception as exc:
+        if not _is_image_moderation_block(exc):
+            raise
+        logger.warning("hero_poster: image moderation blocked %s; retrying with safety fallback", output_path)
+        fallback_prompt = _safety_fallback_prompt(prompt)
+        out = generate_image(
+            prompt=fallback_prompt,
+            output_path=output_path,
+            model=model,
+            size=size,
+            quality=quality,
+            output_format=output_format,
+            background=background,
+        )
+        return Path(out), fallback_prompt
+
+
 def generate_hero_poster(
     session: Session,
     *,
@@ -878,11 +950,8 @@ def generate_hero_poster(
 
     chosen_model = model or get_hero_poster_model(session)
 
-    # Late import to keep module importable without OpenAI client at startup.
-    from social_media.funba_imagegen import generate_image
-
     try:
-        out = generate_image(
+        out, prompt_used = _generate_image_with_safety_retry(
             prompt=prompt,
             output_path=target,
             model=chosen_model,
@@ -904,7 +973,7 @@ def generate_hero_poster(
 
     # Persist the rendered prompt next to the PNG so the admin Assets page
     # (and any future re-renders) can recover what we asked the model for.
-    _write_prompt_sidecar(target, prompt)
+    _write_prompt_sidecar(target, prompt_used)
 
     from social_media.thumbnail import make_thumbnail
     make_thumbnail(target)
@@ -1178,10 +1247,8 @@ def generate_posters_for_curated_game(
                 return target
             return None
 
-        from social_media.funba_imagegen import generate_image
-
         try:
-            out = generate_image(
+            out, prompt_used = _generate_image_with_safety_retry(
                 prompt=prompt,
                 output_path=target,
                 model=chosen_model,
@@ -1191,7 +1258,7 @@ def generate_posters_for_curated_game(
                 background="opaque",
             )
             if out:
-                _write_prompt_sidecar(target, prompt)
+                _write_prompt_sidecar(target, prompt_used)
                 from social_media.thumbnail import make_thumbnail
                 make_thumbnail(target)
             return Path(out) if out else None
