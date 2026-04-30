@@ -983,6 +983,15 @@ def run_curator_for_game(
         except Exception:
             logger.exception("failed to generate hero card posters for %s", game.game_id)
 
+        # Image generation can take several minutes. Close the read transaction
+        # before creating variants so publishing-matrix edits made during that
+        # window are visible under MySQL REPEATABLE READ.
+        try:
+            session.commit()
+        except Exception:
+            logger.exception("failed to refresh DB transaction before variant generation for %s", game.game_id)
+            session.rollback()
+
         try:
             from content_pipeline.hero_highlight_variants import generate_hero_highlight_variants_for_game
 
