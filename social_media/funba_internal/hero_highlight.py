@@ -1,13 +1,12 @@
 """Funba home-feed variant for hero card social posts.
 
-Compared to the Twitter variant, this one is image-dominant: the rendered
-poster (slot="poster") carries most of the message, so the body text is
-short — title, value + ranking, top 3 list, deep links. Public template
-splices [[IMAGE:slot=poster]] into the rendered card.
+Image-dominant: the rendered poster (slot="poster") carries the value,
+ranking and top leaderboard visually, so the body text is just a single
+title line + Source / Game deep links. Public template splices
+[[IMAGE:slot=poster]] into the rendered card.
 """
 from __future__ import annotations
 
-import re
 from typing import Protocol
 
 
@@ -18,8 +17,6 @@ class HeroHighlightCardLike(Protocol):
     metric_name: str
     value_text: str
     value_time_label: str | None
-    rank_text: str
-    top_results: tuple[str, ...]
     metric_url: str
     game_url: str
     matchup: str
@@ -30,27 +27,16 @@ def _clean(value: str) -> str:
     return " ".join(str(value or "").split())
 
 
-def _compact_top_result(value: str) -> str:
-    text = _clean(value)
-    text = re.sub(r"\s+\([A-Z]{2,4}\)(?=\s+-)", "", text)
-    text = re.sub(r"\s+@\s+", " @ ", text)
-    return text
-
-
 def render_hero_highlight(card: HeroHighlightCardLike) -> str:
     value_text = _clean(card.value_text)
     if card.value_time_label:
         value_text = f"{value_text} ({card.value_time_label})"
 
-    lines: list[str] = [POSTER_SLOT_TAG, ""]
-    headline_left = card.entity_label or card.matchup
-    lines.append(f"{_clean(headline_left)} — {_clean(card.metric_name)}")
-    lines.append(f"{value_text} · {_clean(card.rank_text)}")
+    headline_left = _clean(card.entity_label or card.matchup)
+    metric_name = _clean(card.metric_name)
+    title = f"{headline_left} — {metric_name}" if headline_left else metric_name
+    if value_text:
+        title = f"{title}: {value_text}"
 
-    if card.top_results:
-        lines.extend(["", "Top 3:"])
-        lines.extend(_compact_top_result(result) for result in card.top_results[:3])
-
-    lines.extend(["", f"Game: {card.game_url}"])
-    lines.append(f"Source: {card.metric_url}")
+    lines = [POSTER_SLOT_TAG, "", title, "", f"Source: {card.metric_url}", f"Game: {card.game_url}"]
     return "\n".join(lines).strip()
