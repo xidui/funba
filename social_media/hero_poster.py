@@ -854,124 +854,6 @@ def _safety_fallback_prompt(prompt: str) -> str:
     )
 
 
-def _parse_image_size(size: str) -> tuple[int, int]:
-    match = re.match(r"^\s*(\d+)\s*x\s*(\d+)\s*$", str(size or ""))
-    if not match:
-        return (1024, 1024)
-    return int(match.group(1)), int(match.group(2))
-
-
-def _prompt_line(prompt: str, prefix: str) -> str:
-    for line in (prompt or "").splitlines():
-        if line.startswith(prefix):
-            return line[len(prefix):].strip()
-    return ""
-
-
-def _font(size: int, *, bold: bool = False):
-    from PIL import ImageFont
-
-    candidates = [
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/Library/Fonts/Arial Bold.ttf" if bold else "/Library/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Helvetica Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Helvetica.ttf",
-    ]
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(candidate, size=size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
-
-
-def _wrap_text(draw, text: str, font, max_width: int, *, max_lines: int = 4) -> list[str]:
-    words = str(text or "").split()
-    lines: list[str] = []
-    current: list[str] = []
-    for word in words:
-        candidate = " ".join([*current, word]).strip()
-        if not candidate:
-            continue
-        width = draw.textbbox((0, 0), candidate, font=font)[2]
-        if width <= max_width or not current:
-            current.append(word)
-            continue
-        lines.append(" ".join(current))
-        current = [word]
-        if len(lines) >= max_lines:
-            break
-    if current and len(lines) < max_lines:
-        lines.append(" ".join(current))
-    if len(lines) == max_lines and len(words) > sum(len(line.split()) for line in lines):
-        lines[-1] = lines[-1].rstrip(" .") + "..."
-    return lines
-
-
-def _draw_wrapped(draw, xy: tuple[int, int], text: str, font, fill, max_width: int, *, line_gap: int = 10, max_lines: int = 4) -> int:
-    x, y = xy
-    for line in _wrap_text(draw, text, font, max_width, max_lines=max_lines):
-        draw.text((x, y), line, font=font, fill=fill)
-        y += (draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1]) + line_gap
-    return y
-
-
-def _write_local_fallback_poster(target: Path, prompt: str, *, size: str) -> Path:
-    from PIL import Image, ImageDraw
-
-    width, height = _parse_image_size(size)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.new("RGB", (width, height), "#101820")
-    draw = ImageDraw.Draw(image)
-
-    accent = "#f04f3a"
-    gold = "#f4c95d"
-    white = "#f7f4ec"
-    muted = "#a8b3bd"
-
-    margin = max(54, width // 15)
-    draw.rectangle((0, 0, width, max(18, height // 72)), fill=accent)
-    draw.rectangle((margin, margin, width - margin, height - margin), outline="#2f3a43", width=max(3, width // 220))
-
-    metric = _prompt_line(prompt, "Metric:") or "Hero Highlight"
-    season = _prompt_line(prompt, "Season frame:")
-    game = _prompt_line(prompt, "Tonight's game:")
-    trigger = _prompt_line(prompt, "Trigger:")
-
-    title_font = _font(max(58, width // 12), bold=True)
-    label_font = _font(max(22, width // 44), bold=True)
-    body_font = _font(max(30, width // 31), bold=True)
-    small_font = _font(max(22, width // 44))
-    footer_font = _font(max(24, width // 42), bold=True)
-
-    y = margin + max(42, height // 34)
-    draw.text((margin, y), "FUNBA", font=label_font, fill=gold)
-    y += max(60, height // 18)
-    y = _draw_wrapped(draw, (margin, y), metric.upper(), title_font, white, width - margin * 2, line_gap=14, max_lines=3)
-    y += max(36, height // 34)
-    if trigger:
-        y = _draw_wrapped(draw, (margin, y), trigger, body_font, white, width - margin * 2, line_gap=12, max_lines=5)
-        y += max(28, height // 42)
-    if game:
-        y = _draw_wrapped(draw, (margin, y), game, small_font, muted, width - margin * 2, line_gap=8, max_lines=3)
-        y += max(18, height // 58)
-    if season:
-        y = _draw_wrapped(draw, (margin, y), season, small_font, muted, width - margin * 2, line_gap=8, max_lines=2)
-
-    court_y = height - margin - max(190, height // 6)
-    draw.rounded_rectangle((margin, court_y, width - margin, height - margin - 58), radius=24, outline="#384753", width=max(3, width // 260))
-    draw.arc((width // 2 - 150, court_y + 32, width // 2 + 150, court_y + 332), 180, 360, fill="#384753", width=max(3, width // 260))
-    draw.line((margin, court_y + 72, width - margin, court_y + 72), fill="#384753", width=max(2, width // 320))
-
-    footer_y = height - margin - 38
-    draw.text((margin, footer_y), "FUNBA.APP", font=footer_font, fill=gold)
-    fallback_text = "DATA POSTER FALLBACK"
-    text_width = draw.textbbox((0, 0), fallback_text, font=small_font)[2]
-    draw.text((width - margin - text_width, footer_y + 2), fallback_text, font=small_font, fill=muted)
-
-    image.save(target, format="PNG")
-    return target
-
-
 def _generate_image_with_safety_retry(
     *,
     prompt: str,
@@ -997,25 +879,19 @@ def _generate_image_with_safety_retry(
         return Path(out), prompt
     except Exception as exc:
         if not _is_image_moderation_block(exc):
-            logger.exception("hero_poster: image generation failed for %s; using local fallback", output_path)
-            fallback_prompt = prompt
-            return _write_local_fallback_poster(output_path, fallback_prompt, size=size), fallback_prompt
+            raise
         logger.warning("hero_poster: image moderation blocked %s; retrying with safety fallback", output_path)
         fallback_prompt = _safety_fallback_prompt(prompt)
-        try:
-            out = generate_image(
-                prompt=fallback_prompt,
-                output_path=output_path,
-                model=model,
-                size=size,
-                quality=quality,
-                output_format=output_format,
-                background=background,
-            )
-            return Path(out), fallback_prompt
-        except Exception:
-            logger.exception("hero_poster: safety fallback image generation failed for %s; using local fallback", output_path)
-            return _write_local_fallback_poster(output_path, fallback_prompt, size=size), fallback_prompt
+        out = generate_image(
+            prompt=fallback_prompt,
+            output_path=output_path,
+            model=model,
+            size=size,
+            quality=quality,
+            output_format=output_format,
+            background=background,
+        )
+        return Path(out), fallback_prompt
 
 
 def generate_hero_poster(

@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 def test_strip_variant_suffix_handles_all_three_windows():
     from social_media.hero_poster import _strip_variant_suffix
@@ -120,7 +122,7 @@ def test_generate_image_retries_moderation_block_with_safety_prompt(tmp_path):
     assert "Avoid realistic faces" in prompt_used
 
 
-def test_generate_image_writes_local_fallback_when_api_retries_fail(tmp_path):
+def test_generate_image_raises_when_api_retries_fail(tmp_path):
     from social_media.hero_poster import _generate_image_with_safety_retry
 
     class FakeModerationError(Exception):
@@ -131,17 +133,15 @@ def test_generate_image_writes_local_fallback_when_api_retries_fail(tmp_path):
 
     target = tmp_path / "poster.png"
     with patch("social_media.funba_imagegen.generate_image", side_effect=fake_generate_image):
-        out, prompt_used = _generate_image_with_safety_retry(
-            prompt="Metric: steals\nSeason frame: Playoffs\nTonight's game: HOU @ LAL\nTrigger: LeBron reached 500",
-            output_path=target,
-            model="gpt-image-2",
-            size="1024x1024",
-            quality="high",
-            output_format="png",
-            background="opaque",
-        )
+        with pytest.raises(FakeModerationError):
+            _generate_image_with_safety_retry(
+                prompt="Metric: steals\nSeason frame: Playoffs\nTonight's game: HOU @ LAL\nTrigger: LeBron reached 500",
+                output_path=target,
+                model="gpt-image-2",
+                size="1024x1024",
+                quality="high",
+                output_format="png",
+                background="opaque",
+            )
 
-    assert out == target
-    assert target.exists()
-    assert target.stat().st_size > 0
-    assert "defensive takeaways" in prompt_used
+    assert not target.exists()
