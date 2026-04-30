@@ -6842,7 +6842,17 @@ def _social_post_image_url(post_id: int, img) -> str | None:
     if not file_path:
         return None
     filename = os.path.basename(str(file_path).strip()) or f"{getattr(img, 'slot', 'image')}.png"
-    return f"/media/social_posts/{post_id}/{filename}"
+    url = f"/media/social_posts/{post_id}/{filename}"
+    # Cache-buster: media is served with Cache-Control: max-age=3600, so a
+    # replaced/regenerated file at the same URL would otherwise stay stale in
+    # the browser. mtime changes on every overwrite, so the query string flips
+    # exactly when the bytes change.
+    try:
+        mtime = int(os.path.getmtime(str(file_path)))
+        url = f"{url}?v={mtime}"
+    except OSError:
+        pass
+    return url
 
 
 def _validate_prepared_image_specs(raw_images: list[dict]) -> list[dict[str, object]]:

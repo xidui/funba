@@ -829,6 +829,15 @@ def register_admin_misc_routes(app, deps):
                 fname = basename(str(img.file_path))
                 url = f"/media/social_posts/{int(img.post_id)}/{fname}"
                 fpath = _Path(str(img.file_path))
+                # Cache-buster keyed off mtime: media is served with a 1-hour
+                # browser cache, so a replaced/regenerated file at the same
+                # URL would otherwise stay stale until the cache expires.
+                try:
+                    mtime = int(fpath.stat().st_mtime) if fpath.exists() else None
+                except OSError:
+                    mtime = None
+                if mtime is not None:
+                    url = f"{url}?v={mtime}"
                 if fpath.exists():
                     size_kb = round(fpath.stat().st_size / 1024)
                 # Thumbnail variant lives at the same dir with .thumb.webp
@@ -836,6 +845,11 @@ def register_admin_misc_routes(app, deps):
                 thumb_path = fpath.with_suffix(".thumb.webp")
                 if thumb_path.exists():
                     thumbnail_url = f"/media/social_posts/{int(img.post_id)}/{thumb_path.name}"
+                    try:
+                        thumb_mtime = int(thumb_path.stat().st_mtime)
+                        thumbnail_url = f"{thumbnail_url}?v={thumb_mtime}"
+                    except OSError:
+                        pass
                 else:
                     thumbnail_url = url
             except Exception:
@@ -1090,6 +1104,13 @@ def register_admin_misc_routes(app, deps):
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 upload.save(str(dst))
+                # Refresh the .thumb.webp sibling so the post card / list
+                # views reflect the new image without browser-cache hacks.
+                try:
+                    from social_media.thumbnail import make_thumbnail
+                    make_thumbnail(dst)
+                except Exception:
+                    deps.logger().exception("asset replace: thumbnail refresh failed for %s", dst)
                 # Mark this row as human-replaced so future audits can tell.
                 img.image_type = "human_replaced"
                 img.review_decision = "keep"
