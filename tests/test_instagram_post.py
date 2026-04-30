@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ from social_media.instagram.post import (  # noqa: E402
     _paths_by_priority,
     _render_plain_text_line,
     _resolve_image_paths,
+    _wait_for_post_result,
 )
 from social_media.instagram.hero_highlight import render_hero_highlight  # noqa: E402
 
@@ -121,6 +123,31 @@ class TestInstagramPostHelpers(unittest.TestCase):
             _extract_post_url_from_page_state(page, username="xidui64"),
             "https://www.instagram.com/xidui64/p/DXvMVjUG0K3",
         )
+
+    def test_wait_for_post_result_accepts_changed_latest_profile_post_after_timeout(self):
+        previous = "https://www.instagram.com/xidui64/p/DXvMVjUG0K3"
+        current = "https://www.instagram.com/xidui64/p/DXvNs6Km4Rv"
+        with patch("social_media.instagram.post._latest_profile_post_url", return_value=current):
+            self.assertEqual(
+                _wait_for_post_result(
+                    _FakePage(url="https://www.instagram.com/"),
+                    username="xidui64",
+                    timeout_seconds=0,
+                    previous_latest_url=previous,
+                ),
+                current,
+            )
+
+    def test_wait_for_post_result_rejects_unchanged_latest_profile_post_after_timeout(self):
+        previous = "https://www.instagram.com/xidui64/p/DXvMVjUG0K3"
+        with patch("social_media.instagram.post._latest_profile_post_url", return_value=previous):
+            with self.assertRaisesRegex(RuntimeError, "may not have completed"):
+                _wait_for_post_result(
+                    _FakePage(url="https://www.instagram.com/"),
+                    username="xidui64",
+                    timeout_seconds=0,
+                    previous_latest_url=previous,
+                )
 
     def test_hero_highlight_renderer_uses_square_poster_slot(self):
         class Card:

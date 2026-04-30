@@ -589,6 +589,7 @@ def _wait_for_post_result(
     *,
     username: str | None = None,
     timeout_seconds: float = _POST_RESULT_TIMEOUT_SECONDS,
+    previous_latest_url: str | None = None,
 ) -> str | None:
     deadline = time.time() + timeout_seconds
     saw_success = False
@@ -611,14 +612,18 @@ def _wait_for_post_result(
 
         time.sleep(_MEDIUM_SLEEP)
 
+    profile_url = _latest_profile_post_url(page, username)
+    if profile_url and profile_url != previous_latest_url:
+        return profile_url
     if saw_success:
-        return _latest_profile_post_url(page, username)
+        return profile_url
     raise RuntimeError("Instagram share may not have completed before timeout")
 
 
 def _click_share(page: Page, *, username: str | None = None) -> str | None:
+    previous_latest_url = _latest_profile_post_url(page, username)
     _click_button_by_text(page, ["Share"], timeout_seconds=15.0)
-    return _wait_for_post_result(page, username=username)
+    return _wait_for_post_result(page, username=username, previous_latest_url=previous_latest_url)
 
 
 def _pause_before_exit() -> None:
