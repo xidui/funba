@@ -33,6 +33,7 @@ POST_URL_RE = re.compile(
     re.IGNORECASE,
 )
 URL_RE = re.compile(r"https?://\S+")
+IMAGE_PLACEHOLDER_RE = re.compile(r"^\s*\[\[IMAGE:[^\]]+\]\]\s*$")
 DEFAULT_TCO_URL_LENGTH = 23
 DEFAULT_TWEET_LIMIT = 280
 TWITTER_MAX_IMAGES = 4
@@ -78,6 +79,7 @@ def _cookie_for_playwright(cookie: dict[str, Any]) -> dict[str, Any]:
 
 def _estimated_tweet_length(text: str, *, url_length: int = DEFAULT_TCO_URL_LENGTH) -> int:
     """Approximate X text length by replacing URLs with the t.co length."""
+    text = _tweet_text_for_twitter(text)
     total = 0
     pos = 0
     for match in URL_RE.finditer(str(text or "")):
@@ -86,6 +88,16 @@ def _estimated_tweet_length(text: str, *, url_length: int = DEFAULT_TCO_URL_LENG
         pos = match.end()
     total += len(text[pos:])
     return total
+
+
+def _tweet_text_for_twitter(content: str) -> str:
+    """Return publishable tweet text, excluding internal image placeholders."""
+    lines = [
+        line.rstrip()
+        for line in str(content or "").splitlines()
+        if not IMAGE_PLACEHOLDER_RE.match(line)
+    ]
+    return "\n".join(lines).strip()
 
 
 def _slugify_artifact_part(value: str | None) -> str:
@@ -454,7 +466,8 @@ def cmd_check(args: argparse.Namespace) -> None:
 
 
 def cmd_post(args: argparse.Namespace) -> None:
-    content = str(args.content or "")
+    raw_content = str(args.content or "")
+    content = _tweet_text_for_twitter(raw_content)
     submit = bool(args.submit)
     post_id = getattr(args, "post_id", None)
     artifact_dir = _resolve_artifact_dir(getattr(args, "artifact_dir", None), post_id=post_id)
@@ -487,6 +500,8 @@ def cmd_post(args: argparse.Namespace) -> None:
         {
             "post_id": post_id,
             "submit": submit,
+            "raw_content": raw_content,
+            "tweet_text": content,
             "estimated_length": estimated_length,
             "tweet_limit": tweet_limit,
             "image_paths": [str(p) for p in image_paths],

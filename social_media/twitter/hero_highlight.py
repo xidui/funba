@@ -7,6 +7,8 @@ from typing import Protocol
 TWITTER_TCO_URL_LENGTH = 23
 TWITTER_POST_LIMIT = 280
 URL_RE = re.compile(r"https?://\S+")
+IMAGE_PLACEHOLDER_RE = re.compile(r"^\s*\[\[IMAGE:[^\]]+\]\]\s*$")
+POSTER_SLOT_TAG = "[[IMAGE:slot=poster]]"
 
 
 class HeroHighlightCardLike(Protocol):
@@ -25,6 +27,9 @@ class HeroHighlightCardLike(Protocol):
 def estimated_tweet_length(text: str) -> int:
     total = 0
     pos = 0
+    text = "\n".join(
+        line for line in str(text or "").splitlines() if not IMAGE_PLACEHOLDER_RE.match(line)
+    ).strip()
     for match in URL_RE.finditer(str(text or "")):
         total += len(text[pos : match.start()])
         total += TWITTER_TCO_URL_LENGTH
@@ -80,7 +85,7 @@ def _twitter_lines(
     metric_limit: int,
     include_game_link: bool = True,
 ) -> list[str]:
-    lines = [_headline(card, label_limit=label_limit, metric_limit=metric_limit)]
+    lines = [POSTER_SLOT_TAG, "", _headline(card, label_limit=label_limit, metric_limit=metric_limit)]
     lines.extend(["", f"Source: {card.metric_url}"])
     if include_game_link:
         lines.append(f"Game: {card.game_url}")

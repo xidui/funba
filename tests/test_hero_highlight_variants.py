@@ -273,6 +273,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(variant.post_id, post.id)
             self.assertEqual(variant.status, "approved")
             self.assertIn("Hero Player scored 55, best this season", variant.title)
+            self.assertIn("[[IMAGE:slot=poster]]", variant.content_raw)
             self.assertIn("Hero Player scored 55, best this season", variant.content_raw)
             self.assertNotIn("Data:", variant.content_raw)
             self.assertNotIn("Ranking:", variant.content_raw)

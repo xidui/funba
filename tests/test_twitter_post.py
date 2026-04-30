@@ -20,6 +20,7 @@ from social_media.twitter.post import (  # noqa: E402
     _extract_status_urls_from_page_state,
     _normalize_status_url,
     _resolve_image_paths,
+    _tweet_text_for_twitter,
 )
 from scripts.funba_twitter_publish import _collect_post_image_paths  # noqa: E402
 
@@ -64,6 +65,14 @@ class _FakePlaywright:
 class TestTwitterPostHelpers(unittest.TestCase):
     def test_estimated_tweet_length_counts_urls_as_tco_length(self):
         text = "Source: https://funba.app/metrics/max_scoring_run?season=all_4"
+        self.assertEqual(_estimated_tweet_length(text), len("Source: ") + 23)
+
+    def test_tweet_text_for_twitter_strips_image_placeholders(self):
+        content = "[[IMAGE:slot=poster]]\n\nLine one\n[[IMAGE:slot=img1]]\nLine two"
+        self.assertEqual(_tweet_text_for_twitter(content), "Line one\nLine two")
+
+    def test_estimated_tweet_length_ignores_image_placeholders(self):
+        text = "[[IMAGE:slot=poster]]\nSource: https://funba.app/metrics/max_scoring_run"
         self.assertEqual(_estimated_tweet_length(text), len("Source: ") + 23)
 
     def test_cookie_for_playwright_prefers_domain_path_over_url(self):
