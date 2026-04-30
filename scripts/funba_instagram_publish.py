@@ -34,6 +34,7 @@ _SOURCE_DATE_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 _INSTAGRAM_PLATFORMS = {"instagram", "ig"}
 _INSTAGRAM_IMAGE_SLOT_PRIORITY = ("poster_ig", "instagram", "poster", "img1", "img2", "img3")
 _INSTAGRAM_MAX_IMAGES = 10
+_IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:([^\]]*)\]\]", re.IGNORECASE)
 
 
 def _default_funba_repo_root() -> Path:
@@ -268,6 +269,40 @@ def _collect_post_image_paths(post: dict[str, Any]) -> list[str]:
     return paths[:_INSTAGRAM_MAX_IMAGES]
 
 
+def _required_image_slots(content: str) -> list[str]:
+    slots: list[str] = []
+    for marker_body in _IMAGE_PLACEHOLDER_RE.findall(content or ""):
+        for part in marker_body.split(";"):
+            key, sep, value = part.partition("=")
+            if sep and key.strip().lower() == "slot":
+                slot = value.strip()
+                if slot and slot not in slots:
+                    slots.append(slot)
+    return slots
+
+
+def _enabled_image_slots(post: dict[str, Any]) -> set[str]:
+    slots: set[str] = set()
+    for img in post.get("images") or []:
+        if not isinstance(img, dict):
+            continue
+        if not bool(img.get("is_enabled", True)):
+            continue
+        if not bool(img.get("has_file", False)):
+            continue
+        if not str(img.get("file_path") or "").strip():
+            continue
+        slot = str(img.get("slot") or "").strip()
+        if slot:
+            slots.add(slot)
+    return slots
+
+
+def _missing_required_image_slots(content: str, post: dict[str, Any]) -> list[str]:
+    available = _enabled_image_slots(post)
+    return [slot for slot in _required_image_slots(content) if slot not in available]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish one Funba Instagram delivery with a fixed timeout.")
     parser.add_argument("--post-id", type=int, required=True)
@@ -318,6 +353,17 @@ def main() -> int:
         raise RuntimeError(f"Delivery {args.delivery_id} missing Instagram caption content")
     if len(caption) > INSTAGRAM_CAPTION_LIMIT:
         err = f"Instagram caption too long: {len(caption)}/{INSTAGRAM_CAPTION_LIMIT}"
+        if args.submit:
+            _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": err})
+        print(err)
+        return 1
+
+    missing_required_slots = _missing_required_image_slots(content, post)
+    if missing_required_slots:
+        err = (
+            f"Instagram delivery {args.delivery_id} content references missing image slot(s): "
+            f"{', '.join(missing_required_slots)}"
+        )
         if args.submit:
             _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": err})
         print(err)

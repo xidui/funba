@@ -108,6 +108,46 @@ class TestPublishAgeGuards(unittest.TestCase):
         )
         self.assertIsNone(error)
 
+    def test_twitter_missing_required_image_slot_blocks_publish(self):
+        content = "[[IMAGE:slot=poster]]\n\nHero copy"
+        post = {
+            "images": [
+                {"slot": "poster_ig", "has_file": True, "is_enabled": True, "file_path": "/tmp/square.png"},
+            ],
+        }
+
+        self.assertEqual(twitter_publish._missing_required_image_slots(content, post), ["poster"])
+
+    def test_twitter_required_image_slot_passes_when_enabled(self):
+        content = "[[IMAGE:slot=poster]]\n\nHero copy"
+        post = {
+            "images": [
+                {"slot": "poster", "has_file": True, "is_enabled": True, "file_path": "/tmp/poster.png"},
+            ],
+        }
+
+        self.assertEqual(twitter_publish._missing_required_image_slots(content, post), [])
+
+    def test_instagram_missing_required_image_slot_blocks_fallback_image(self):
+        content = "[[IMAGE:slot=poster_ig; type=poster]]\n\nHero copy"
+        post = {
+            "images": [
+                {"slot": "poster", "has_file": True, "is_enabled": True, "file_path": "/tmp/poster.png"},
+            ],
+        }
+
+        self.assertEqual(instagram_publish._missing_required_image_slots(content, post), ["poster_ig"])
+
+    def test_instagram_required_image_slot_passes_when_enabled(self):
+        content = "[[IMAGE:slot=poster_ig; type=poster]]\n\nHero copy"
+        post = {
+            "images": [
+                {"slot": "poster_ig", "has_file": True, "is_enabled": True, "file_path": "/tmp/poster_ig.png"},
+            ],
+        }
+
+        self.assertEqual(instagram_publish._missing_required_image_slots(content, post), [])
+
     @patch("scripts.funba_twitter_publish._source_date_age_hours", return_value=1.85)
     def test_twitter_preflight_blocks_unapproved_variant(self, _age_mock):
         error = twitter_publish._preflight_publish_guard_error(
