@@ -7392,7 +7392,7 @@ def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) 
     through this Celery task. Returns True iff the apply_async call succeeded.
     """
     raw = (platform or "").strip().lower()
-    normalized = "twitter" if raw == "x" else raw
+    normalized = "twitter" if raw == "x" else "instagram" if raw == "ig" else raw
     if not normalized:
         logger.warning("variant approve: refusing to publish delivery=%s without platform", delivery_id)
         return False

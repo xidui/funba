@@ -31,6 +31,7 @@ from db.models import (
 )
 from metrics.framework.family import family_career_key, family_window_key, window_type_from_key
 from social_media.funba_internal.hero_highlight import render_hero_highlight as render_funba_hero_highlight
+from social_media.instagram.hero_highlight import render_hero_highlight as render_instagram_hero_highlight
 from social_media.twitter.hero_highlight import render_hero_highlight as render_twitter_hero_highlight
 
 PUBLIC_BASE_URL = "https://funba.app"
@@ -731,6 +732,7 @@ def _variant_title(card: HeroHighlightCard, platform: str) -> str:
 
 HERO_HIGHLIGHT_RENDERERS: dict[str, Callable[[HeroHighlightCard], str]] = {
     "twitter": render_twitter_hero_highlight,
+    HERO_CARD_INSTAGRAM_PLATFORM: render_instagram_hero_highlight,
     FUNBA_INTERNAL_PLATFORM: render_funba_hero_highlight,
 }
 

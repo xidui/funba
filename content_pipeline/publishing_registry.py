@@ -42,7 +42,7 @@ _VALID_ACTIONS = (GENERATE_ACTION, AUTOPUBLISH_ACTION)
 # preflight + retry + status writeback) and don't need Paperclip's Delivery
 # Publisher agent in the loop. When admin approves a variant carrying any of
 # these platforms, the system enqueues publish_social_delivery_task directly.
-_DIRECT_PUBLISH_PLATFORMS = frozenset({"twitter", "funba"})
+_DIRECT_PUBLISH_PLATFORMS = frozenset({"twitter", "instagram", "funba"})
 
 
 def direct_publish_platforms() -> frozenset[str]:
@@ -110,7 +110,7 @@ PIPELINES: tuple[Pipeline, ...] = (
         platforms=(
             PlatformDefault("twitter", "Twitter", generate=True, autopublish=False, notes="X / Twitter — needs human review by default"),
             PlatformDefault("funba", "Funba (home feed)", generate=True, autopublish=True, notes="自家首页瀑布流 — 默认自动发布"),
-            PlatformDefault("instagram", "Instagram", generate=False, autopublish=False, notes="IG — 额外生成方版海报，目前手动发布"),
+            PlatformDefault("instagram", "Instagram", generate=False, autopublish=False, notes="IG — 额外生成方版海报，可脚本发布，默认手动审核"),
         ),
     ),
 )

@@ -28,6 +28,8 @@ backups/
 .hupu_cookies.json
 social_media/hupu/.hupu_browser_data/
 social_media/hupu/.hupu_cookies.json
+social_media/instagram/.instagram_session_meta.json
+social_media/instagram/.instagram_storage_state.json
 social_media/reddit/.reddit_browser_data/
 social_media/reddit/.reddit_cookies.json
 social_media/reddit/.reddit_session_meta.json

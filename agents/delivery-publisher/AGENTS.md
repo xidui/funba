@@ -63,6 +63,15 @@ For Xiaohongshu deliveries:
 - if the body is too long for the current Xiaohongshu graph-note flow or the post has no enabled images, mark the delivery `failed` with the wrapper's concrete error so the post goes back for revision
 - published URL is best-effort; success without a detected public URL can still be written back as `published`
 
+## Instagram Rules
+
+For Instagram deliveries:
+
+- use `python3 scripts/funba_instagram_publish.py --post-id <post_id> --delivery-id <delivery_id> --submit --timeout-seconds 180`
+- this wrapper reads Instagram credentials from environment or local `SECRETS.md`, runs `social_media.instagram.post check`, performs the publish with retries, and writes status back to Funba
+- Instagram posts require at least one enabled image; the wrapper/publisher prioritize `poster_ig`, then `instagram`, then `poster`
+- published URL is best-effort; success without a detected public URL can still be written back as `published`
+
 ## Reddit Rules
 
 For Reddit deliveries:

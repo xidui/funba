@@ -544,6 +544,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
         platforms = direct_publish_platforms()
         self.assertIn("twitter", platforms)
+        self.assertIn("instagram", platforms)
         self.assertIn("funba", platforms)
         # Hupu / reddit go through the agent, not direct publish.
         self.assertNotIn("hupu", platforms)

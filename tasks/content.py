@@ -12,8 +12,9 @@ from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
-_PUBLISH_PLATFORM_ALIASES = {"x": "twitter"}
+_PUBLISH_PLATFORM_ALIASES = {"x": "twitter", "ig": "instagram"}
 _PUBLISHER_SCRIPTS = {
+    "instagram": "funba_instagram_publish.py",
     "twitter": "funba_twitter_publish.py",
 }
 
