@@ -150,7 +150,15 @@
         {% for img in p.images %}
         <div class="image-pool-item{% if not img.is_enabled %} disabled{% endif %}" id="img-{{ img.id }}" data-enabled="{{ 1 if img.is_enabled else 0 }}">
           {% if img.url %}
-          <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy" onclick="event.stopPropagation(); openImageLightbox('{{ img.url }}')">
+            {% if img.image_type in ('ai_generated', 'human_replaced') %}
+            <a href="{{ url_for('admin_asset_detail', image_id=img.id) }}"
+               onclick="event.stopPropagation();"
+               title="Open in AI Assets — see prompt, replace, regenerate">
+              <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy">
+            </a>
+            {% else %}
+            <img src="{{ img.url }}" alt="{{ img.note or img.slot }}" loading="lazy" onclick="event.stopPropagation(); openImageLightbox('{{ img.url }}')">
+            {% endif %}
           {% else %}
           <div class="img-placeholder-err">Failed</div>
           {% endif %}
