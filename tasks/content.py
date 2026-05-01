@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import logging
 import os
 from pathlib import Path
@@ -33,6 +35,24 @@ def _env_int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+@contextmanager
+def _social_throttle_lock(name: str, *, timeout_seconds: float = 1.0):
+    lock_path = _project_root() / "logs" / "social_publish" / f".{name}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_path.open("a", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise TimeoutError(f"social publish throttle lock busy: {lock_path}") from exc
+        try:
+            yield lock_path
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock_file.close()
 
 
 def _trim_task_output(output: str, limit: int = 1200) -> str:
@@ -287,6 +307,49 @@ def publish_social_delivery_task(
             normalized_platform,
         )
     return result
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.dispatch_throttled_social_publish",
+    queue="ingest",
+    max_retries=0,
+)
+def dispatch_throttled_social_publish_task(self, platform: str = "twitter") -> dict:
+    """Reserve and enqueue at most one approved pending delivery for a platform."""
+    normalized_platform = _normalize_publish_platform(platform)
+    if normalized_platform not in {"twitter", "instagram"}:
+        return {
+            "ok": False,
+            "platform": normalized_platform,
+            "error": "unsupported_throttled_platform",
+        }
+
+    from sqlalchemy.orm import Session
+
+    from content_pipeline.social_publish_throttle import dispatch_next_social_delivery
+    from db.models import engine
+
+    def _enqueue(post_id: int, delivery_id: int) -> None:
+        publish_social_delivery_task.apply_async(
+            args=(post_id, delivery_id),
+            kwargs={"platform": normalized_platform},
+            retry=False,
+        )
+
+    try:
+        with _social_throttle_lock(normalized_platform):
+            with Session(engine) as session:
+                result = dispatch_next_social_delivery(
+                    session,
+                    platform=normalized_platform,
+                    enqueue_publish=_enqueue,
+                )
+                session.commit()
+                return result
+    except TimeoutError as exc:
+        logger.info("social publish throttle skipped; %s", exc)
+        return {"ok": True, "platform": normalized_platform, "status": "lock_busy"}
 
 
 @shared_task(

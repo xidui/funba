@@ -52,6 +52,7 @@ app.conf.update(
         "tasks.content.ensure_recent_content_analysis_for_season": {"queue": "ingest"},
         "tasks.content.curate_then_analyze_for_season": {"queue": "ingest"},
         "tasks.content.publish_social_delivery": {"queue": "ingest"},
+        "tasks.content.dispatch_throttled_social_publish": {"queue": "ingest"},
         "tasks.ingest.scrape_nba_news": {"queue": "news"},
         "tasks.ingest.scrape_news_source": {"queue": "news"},
         "tasks.ingest.refresh_news_scores": {"queue": "news"},
@@ -82,6 +83,16 @@ app.conf.update(
         "ensure-recent-content-analysis": {
             "task": "tasks.content.ensure_recent_content_analysis",
             "schedule": 600,
+        },
+        "dispatch-throttled-twitter-publish": {
+            "task": "tasks.content.dispatch_throttled_social_publish",
+            "schedule": 300,
+            "kwargs": {"platform": "twitter"},
+        },
+        "dispatch-throttled-instagram-publish": {
+            "task": "tasks.content.dispatch_throttled_social_publish",
+            "schedule": 300,
+            "kwargs": {"platform": "instagram"},
         },
         "sync-schedule-window": {
             "task": "tasks.ingest.sync_schedule_window",

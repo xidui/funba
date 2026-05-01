@@ -610,7 +610,14 @@ def register_admin_content_routes(app, deps):
                     )
                     .all()
                 )
-                platforms_for_publish = [(int(d.id), str(d.platform or "").lower()) for d in deliveries]
+                platforms_for_publish = []
+                for d in deliveries:
+                    platform = str(d.platform or "").lower()
+                    if platform in {"twitter", "instagram", "x", "ig"} and d.status == "failed":
+                        d.status = "pending"
+                        d.error_message = None
+                        d.updated_at = datetime.utcnow()
+                    platforms_for_publish.append((int(d.id), platform))
             s.commit()
 
         published_delivery_ids: list[int] = []

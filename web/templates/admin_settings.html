@@ -378,6 +378,19 @@
     <div id="publishing-matrix-status" class="runtime-flag-status" role="status"></div>
   </div>
 
+  <!-- Social Publish Throttle -->
+  <div class="card">
+    <h2 style="margin-bottom:6px;">Social Publish Throttle</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.55;">
+      Admin approval adds a delivery to the publish pool. The throttle publishes at most one eligible delivery per platform
+      when the interval and daily caps allow it.
+    </div>
+    <div id="social-throttle-panel" style="display:flex;flex-direction:column;gap:14px;">
+      <div style="color:var(--muted);font-size:13px;">Loading...</div>
+    </div>
+    <div id="social-throttle-status" class="runtime-flag-status" role="status"></div>
+  </div>
+
   <!-- Metric Pipeline Flags -->
   <div class="card">
     <h2 style="margin-bottom:14px;">Metric Pipeline Flags</h2>
@@ -1010,6 +1023,144 @@
     }
 
     loadMatrix();
+  })();
+
+  /* ── Social Publish Throttle ─────────────────────────────────────── */
+  (function () {
+    const panel = document.getElementById('social-throttle-panel');
+    const status = document.getElementById('social-throttle-status');
+    if (!panel) return;
+    let clearTimer = null;
+
+    function setStatus(message, type) {
+      status.textContent = message || '';
+      status.className = 'runtime-flag-status' + (type ? ' ' + type : '');
+      if (clearTimer) window.clearTimeout(clearTimer);
+      if (type === 'success' && message) {
+        clearTimer = window.setTimeout(() => { status.textContent = ''; status.className = 'runtime-flag-status'; }, 2000);
+      }
+    }
+
+    function esc(value) {
+      const div = document.createElement('div');
+      div.textContent = String(value || '');
+      return div.innerHTML;
+    }
+
+    function labelFor(platform) {
+      if (platform === 'twitter') return 'Twitter / X';
+      if (platform === 'instagram') return 'Instagram';
+      return platform;
+    }
+
+    function render(platforms) {
+      if (!platforms || !platforms.length) {
+        panel.innerHTML = '<div style="color:var(--muted);font-size:13px;">No throttled platforms configured.</div>';
+        return;
+      }
+      panel.innerHTML = platforms.map((item) => {
+        const cfg = item.config || {};
+        const platform = item.platform;
+        const last = item.last_activity_at ? new Date(item.last_activity_at).toLocaleString() : 'none';
+        return `
+          <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface-2);" data-social-throttle-platform="${esc(platform)}">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+              <div>
+                <div style="font-weight:700;color:var(--text);">${esc(labelFor(platform))}</div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">
+                  Pending approved: ${Number(item.pending_approved || 0).toLocaleString()} · Today published/reserved:
+                  ${Number(item.published_or_reserved_today || 0).toLocaleString()} · Last activity: ${esc(last)}
+                </div>
+              </div>
+              <label class="runtime-flag-switch" style="margin:0;">
+                <input type="checkbox" data-field="enabled" ${cfg.enabled ? 'checked' : ''}>
+                <span>${cfg.enabled ? 'On' : 'Off'}</span>
+              </label>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+              <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;">
+                Min interval minutes
+                <input type="number" min="0" max="1440" step="1" data-field="min_interval_minutes" value="${Number(cfg.min_interval_minutes || 0)}"
+                       style="height:34px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+              </label>
+              <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;">
+                Max posts / day
+                <input type="number" min="0" max="50" step="1" data-field="max_posts_per_day" value="${Number(cfg.max_posts_per_day || 0)}"
+                       style="height:34px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+              </label>
+              <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;">
+                Max posts / game / day
+                <input type="number" min="0" max="20" step="1" data-field="max_posts_per_game_per_day" value="${Number(cfg.max_posts_per_game_per_day || 0)}"
+                       style="height:34px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+              </label>
+              <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;">
+                Max pending age hours
+                <input type="number" min="0" max="336" step="1" data-field="max_pending_age_hours" value="${Number(cfg.max_pending_age_hours || 0)}"
+                       style="height:34px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+              </label>
+            </div>
+            <div style="margin-top:10px;">
+              <button class="llm-settings-save" data-action="save-social-throttle">Save ${esc(labelFor(platform))}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      panel.querySelectorAll('[data-action="save-social-throttle"]').forEach((button) => {
+        button.addEventListener('click', () => savePlatform(button.closest('[data-social-throttle-platform]')));
+      });
+      panel.querySelectorAll('input[data-field="enabled"]').forEach((input) => {
+        input.addEventListener('change', () => {
+          const span = input.closest('.runtime-flag-switch').querySelector('span');
+          span.textContent = input.checked ? 'On' : 'Off';
+        });
+      });
+    }
+
+    function payloadFor(card) {
+      const body = {platform: card.dataset.socialThrottlePlatform};
+      card.querySelectorAll('[data-field]').forEach((input) => {
+        const field = input.dataset.field;
+        body[field] = input.type === 'checkbox' ? input.checked : Number(input.value || 0);
+      });
+      return body;
+    }
+
+    async function loadThrottle() {
+      setStatus('Loading...', '');
+      try {
+        const res = await fetch('/api/admin/social-throttle');
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to load.');
+        render(data.platforms || []);
+        setStatus('', '');
+      } catch (err) {
+        setStatus(err.message || 'Failed to load.', 'error');
+      }
+    }
+
+    async function savePlatform(card) {
+      if (!card) return;
+      card.querySelectorAll('input,button').forEach((el) => { el.disabled = true; });
+      setStatus('');
+      try {
+        const res = await fetch('/api/admin/social-throttle', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payloadFor(card)),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'Failed to save.');
+        await loadThrottle();
+        setStatus('Saved', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Failed to save.', 'error');
+      } finally {
+        card.querySelectorAll('input,button').forEach((el) => { el.disabled = false; });
+      }
+    }
+
+    loadThrottle();
   })();
 
   /* ── Pipeline Flags ─────────────────────────────────────────────── */

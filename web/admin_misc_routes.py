@@ -1260,6 +1260,44 @@ def register_admin_misc_routes(app, deps):
             return jsonify({"ok": False, "error": str(exc)}), 500
         return jsonify({"ok": True, **result})
 
+    def api_admin_social_throttle():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from content_pipeline.social_publish_throttle import THROTTLED_PLATFORMS, social_throttle_status
+
+        SessionLocal = deps.session_local()
+        with SessionLocal() as session:
+            platforms = [social_throttle_status(session, platform) for platform in THROTTLED_PLATFORMS]
+        return jsonify({"ok": True, "platforms": platforms})
+
+    def api_admin_update_social_throttle():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from content_pipeline.social_publish_throttle import (
+            normalize_throttled_platform,
+            social_throttle_status,
+            update_social_throttle_config,
+        )
+
+        body = request.get_json(force=True) or {}
+        platform = normalize_throttled_platform(body.get("platform"))
+        if not platform:
+            return jsonify({"ok": False, "error": "unsupported platform"}), 400
+        SessionLocal = deps.session_local()
+        try:
+            with SessionLocal() as session:
+                update_social_throttle_config(session, platform, body)
+                session.commit()
+                status = social_throttle_status(session, platform)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            deps.logger().exception("social throttle update failed")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "platform": status})
+
     def api_admin_runtime_flags():
         denied = deps.require_admin_json()()
         if denied:
@@ -1669,6 +1707,8 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/admin/hero-poster-regenerate", endpoint="api_admin_hero_poster_regenerate", view_func=api_admin_hero_poster_regenerate, methods=["POST"])
     app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_publishing_matrix", view_func=api_admin_publishing_matrix)
     app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_update_publishing_matrix", view_func=api_admin_update_publishing_matrix, methods=["POST"])
+    app.add_url_rule("/api/admin/social-throttle", endpoint="api_admin_social_throttle", view_func=api_admin_social_throttle)
+    app.add_url_rule("/api/admin/social-throttle", endpoint="api_admin_update_social_throttle", view_func=api_admin_update_social_throttle, methods=["POST"])
     app.add_url_rule("/admin/assets", endpoint="admin_assets", view_func=admin_assets)
     app.add_url_rule("/admin/assets/<int:image_id>", endpoint="admin_asset_detail", view_func=admin_asset_detail)
     app.add_url_rule("/api/admin/assets", endpoint="api_admin_assets_list", view_func=api_admin_assets_list)
@@ -1708,6 +1748,8 @@ def register_admin_misc_routes(app, deps):
         api_admin_hero_poster_regenerate=api_admin_hero_poster_regenerate,
         api_admin_publishing_matrix=api_admin_publishing_matrix,
         api_admin_update_publishing_matrix=api_admin_update_publishing_matrix,
+        api_admin_social_throttle=api_admin_social_throttle,
+        api_admin_update_social_throttle=api_admin_update_social_throttle,
         admin_assets=admin_assets,
         admin_asset_detail=admin_asset_detail,
         api_admin_assets_list=api_admin_assets_list,

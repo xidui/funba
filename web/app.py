@@ -7417,7 +7417,14 @@ def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) 
         logger.warning("variant approve: refusing to publish delivery=%s without platform", delivery_id)
         return False
     try:
-        from tasks.content import publish_social_delivery_task
+        from tasks.content import dispatch_throttled_social_publish_task, publish_social_delivery_task
+
+        if normalized in {"twitter", "instagram"}:
+            dispatch_throttled_social_publish_task.apply_async(
+                kwargs={"platform": normalized},
+                retry=False,
+            )
+            return True
 
         publish_social_delivery_task.apply_async(
             args=(post_id, delivery_id),

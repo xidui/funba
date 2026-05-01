@@ -1077,7 +1077,14 @@ def _enqueue_hero_highlight_auto_publish(post_id: int, delivery_id: int, *, plat
         logger.warning("hero highlight auto-publish unknown platform=%s delivery_id=%s", platform, delivery_id)
         return False
     try:
-        from tasks.content import publish_social_delivery_task
+        from tasks.content import dispatch_throttled_social_publish_task, publish_social_delivery_task
+
+        if normalized in {"twitter", "instagram"}:
+            dispatch_throttled_social_publish_task.apply_async(
+                kwargs={"platform": normalized},
+                retry=False,
+            )
+            return True
 
         publish_social_delivery_task.apply_async(
             args=(post_id, delivery_id),
