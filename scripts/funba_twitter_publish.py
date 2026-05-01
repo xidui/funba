@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, time as dt_time, timedelta, timezone
+import fcntl
 import json
+import os
 import re
 import subprocess
 import sys
@@ -196,6 +199,43 @@ def _attempt_artifact_dir(
 def _write_text_artifact(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(content or ""), encoding="utf-8")
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _twitter_publish_lock_path(funba_repo_root: Path) -> Path:
+    return funba_repo_root / "logs" / "twitter_publish" / ".twitter_publish.lock"
+
+
+@contextmanager
+def _twitter_publish_lock(funba_repo_root: Path, *, timeout_seconds: float):
+    """Serialize X/Twitter browser composers for one local worker host."""
+    lock_path = _twitter_publish_lock_path(funba_repo_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_path.open("a", encoding="utf-8")
+    deadline = time.monotonic() + max(float(timeout_seconds), 0.0)
+    try:
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for X/Twitter publish lock after {timeout_seconds:g}s: {lock_path}"
+                    ) from exc
+                time.sleep(1.0)
+        try:
+            yield lock_path
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock_file.close()
 
 
 def _decorate_error(summary: str, *, artifact_dir: Path, wrapper_log_path: Path | None = None) -> str:
@@ -401,109 +441,119 @@ def main() -> int:
     artifact_dir = None
     wrapper_log_path = None
 
-    for attempt in range(1, max_attempts + 1):
-        artifact_dir = _attempt_artifact_dir(
-            funba_repo_root,
-            post_id=args.post_id,
-            delivery_id=args.delivery_id,
-            attempt=attempt,
-        )
-        wrapper_log_path = artifact_dir / "wrapper_output.log"
-        post_cmd = [
-            str(funba_python),
-            "-u",
-            "-m",
-            "social_media.twitter.post",
-            "post",
-            "--content",
-            content,
-            "--post-id",
-            str(args.post_id),
-            "--artifact-dir",
-            str(artifact_dir),
-        ]
-        for image_path in image_paths:
-            post_cmd.extend(["--image", str(image_path)])
-        if args.review_seconds > 0 and not args.submit:
-            post_cmd.extend(["--keep-open-seconds", str(args.review_seconds)])
+    try:
+        lock_timeout_seconds = _env_float("FUNBA_TWITTER_PUBLISH_LOCK_TIMEOUT_SECONDS", 600.0)
+        with _twitter_publish_lock(funba_repo_root, timeout_seconds=lock_timeout_seconds) as lock_path:
+            print(f"Acquired X/Twitter publish lock: {lock_path}")
+            for attempt in range(1, max_attempts + 1):
+                artifact_dir = _attempt_artifact_dir(
+                    funba_repo_root,
+                    post_id=args.post_id,
+                    delivery_id=args.delivery_id,
+                    attempt=attempt,
+                )
+                wrapper_log_path = artifact_dir / "wrapper_output.log"
+                post_cmd = [
+                    str(funba_python),
+                    "-u",
+                    "-m",
+                    "social_media.twitter.post",
+                    "post",
+                    "--content",
+                    content,
+                    "--post-id",
+                    str(args.post_id),
+                    "--artifact-dir",
+                    str(artifact_dir),
+                ]
+                for image_path in image_paths:
+                    post_cmd.extend(["--image", str(image_path)])
+                if args.review_seconds > 0 and not args.submit:
+                    post_cmd.extend(["--keep-open-seconds", str(args.review_seconds)])
+                if args.submit:
+                    post_cmd.append("--submit")
+
+                try:
+                    effective_timeout = int(args.timeout_seconds)
+                    if not args.submit and args.review_seconds > 0:
+                        effective_timeout = max(effective_timeout, int(args.review_seconds) + 30)
+                    post_proc = subprocess.run(
+                        post_cmd,
+                        cwd=str(funba_repo_root),
+                        capture_output=True,
+                        text=True,
+                        timeout=effective_timeout,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
+                    _write_text_artifact(wrapper_log_path, output)
+                    err = f"X/Twitter publish timed out after >{args.timeout_seconds}s"
+                    attempt_errors.append(err)
+                    retryable = attempt < max_attempts and _is_retryable_twitter_publish_failure(output, timed_out=True)
+                    if retryable:
+                        print(
+                            f"Retryable X/Twitter timeout on attempt {attempt}/{max_attempts}: "
+                            f"{_decorate_error(err, artifact_dir=artifact_dir, wrapper_log_path=wrapper_log_path)}"
+                        )
+                        if retry_delay_seconds > 0:
+                            time.sleep(retry_delay_seconds)
+                        continue
+                    final_err = _decorate_error(
+                        _final_attempt_error(attempt_errors),
+                        artifact_dir=artifact_dir,
+                        wrapper_log_path=wrapper_log_path,
+                    )
+                    if args.submit:
+                        _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": final_err})
+                    print(final_err)
+                    if exc.stdout:
+                        print(exc.stdout)
+                    if exc.stderr:
+                        print(exc.stderr, file=sys.stderr)
+                    return 1
+
+                output = (post_proc.stdout or "") + ("\n" + post_proc.stderr if post_proc.stderr else "")
+                _write_text_artifact(wrapper_log_path, output)
+                if post_proc.returncode != 0:
+                    err = _trim_output(output)
+                    attempt_errors.append(err)
+                    retryable = attempt < max_attempts and _is_retryable_twitter_publish_failure(output)
+                    if retryable:
+                        print(
+                            f"Retryable X/Twitter publish failure on attempt {attempt}/{max_attempts}: "
+                            f"{_decorate_error(err, artifact_dir=artifact_dir, wrapper_log_path=wrapper_log_path)}"
+                        )
+                        if retry_delay_seconds > 0:
+                            time.sleep(retry_delay_seconds)
+                        continue
+                    final_err = _decorate_error(
+                        _final_attempt_error(attempt_errors),
+                        artifact_dir=artifact_dir,
+                        wrapper_log_path=wrapper_log_path,
+                    )
+                    if args.submit:
+                        _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": final_err})
+                    print(final_err)
+                    return 1
+
+                if not args.submit:
+                    print("[DRY RUN] X/Twitter draft prepared.")
+                    print(f"Artifacts: {artifact_dir}")
+                    return 0
+
+                published_url = _extract_published_url(output)
+                payload: dict[str, Any] = {"status": "published"}
+                if published_url:
+                    payload["published_url"] = published_url
+                _update_delivery_status(base_url, args.delivery_id, payload)
+                print(published_url or "published")
+                return 0
+    except TimeoutError as exc:
+        final_err = _trim_output(str(exc))
         if args.submit:
-            post_cmd.append("--submit")
-
-        try:
-            effective_timeout = int(args.timeout_seconds)
-            if not args.submit and args.review_seconds > 0:
-                effective_timeout = max(effective_timeout, int(args.review_seconds) + 30)
-            post_proc = subprocess.run(
-                post_cmd,
-                cwd=str(funba_repo_root),
-                capture_output=True,
-                text=True,
-                timeout=effective_timeout,
-            )
-        except subprocess.TimeoutExpired as exc:
-            output = (exc.stdout or "") + ("\n" + exc.stderr if exc.stderr else "")
-            _write_text_artifact(wrapper_log_path, output)
-            err = f"X/Twitter publish timed out after >{args.timeout_seconds}s"
-            attempt_errors.append(err)
-            retryable = attempt < max_attempts and _is_retryable_twitter_publish_failure(output, timed_out=True)
-            if retryable:
-                print(
-                    f"Retryable X/Twitter timeout on attempt {attempt}/{max_attempts}: "
-                    f"{_decorate_error(err, artifact_dir=artifact_dir, wrapper_log_path=wrapper_log_path)}"
-                )
-                if retry_delay_seconds > 0:
-                    time.sleep(retry_delay_seconds)
-                continue
-            final_err = _decorate_error(
-                _final_attempt_error(attempt_errors),
-                artifact_dir=artifact_dir,
-                wrapper_log_path=wrapper_log_path,
-            )
-            if args.submit:
-                _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": final_err})
-            print(final_err)
-            if exc.stdout:
-                print(exc.stdout)
-            if exc.stderr:
-                print(exc.stderr, file=sys.stderr)
-            return 1
-
-        output = (post_proc.stdout or "") + ("\n" + post_proc.stderr if post_proc.stderr else "")
-        _write_text_artifact(wrapper_log_path, output)
-        if post_proc.returncode != 0:
-            err = _trim_output(output)
-            attempt_errors.append(err)
-            retryable = attempt < max_attempts and _is_retryable_twitter_publish_failure(output)
-            if retryable:
-                print(
-                    f"Retryable X/Twitter publish failure on attempt {attempt}/{max_attempts}: "
-                    f"{_decorate_error(err, artifact_dir=artifact_dir, wrapper_log_path=wrapper_log_path)}"
-                )
-                if retry_delay_seconds > 0:
-                    time.sleep(retry_delay_seconds)
-                continue
-            final_err = _decorate_error(
-                _final_attempt_error(attempt_errors),
-                artifact_dir=artifact_dir,
-                wrapper_log_path=wrapper_log_path,
-            )
-            if args.submit:
-                _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": final_err})
-            print(final_err)
-            return 1
-
-        if not args.submit:
-            print("[DRY RUN] X/Twitter draft prepared.")
-            print(f"Artifacts: {artifact_dir}")
-            return 0
-
-        published_url = _extract_published_url(output)
-        payload: dict[str, Any] = {"status": "published"}
-        if published_url:
-            payload["published_url"] = published_url
-        _update_delivery_status(base_url, args.delivery_id, payload)
-        print(published_url or "published")
-        return 0
+            _update_delivery_status(base_url, args.delivery_id, {"status": "failed", "error_message": final_err})
+        print(final_err)
+        return 1
 
     if artifact_dir is None:
         artifact_dir = funba_repo_root / "logs" / "twitter_publish"

@@ -36,6 +36,7 @@ URL_RE = re.compile(r"https?://\S+")
 IMAGE_PLACEHOLDER_RE = re.compile(r"^\s*\[\[IMAGE:[^\]]+\]\]\s*$")
 DEFAULT_TCO_URL_LENGTH = 23
 DEFAULT_TWEET_LIMIT = 280
+DEFAULT_COMPOSER_READY_TIMEOUT_SECONDS = 45.0
 TWITTER_MAX_IMAGES = 4
 _SHORT_SLEEP = 0.1
 _MEDIUM_SLEEP = 0.4
@@ -48,6 +49,13 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _cookie_for_playwright(cookie: dict[str, Any]) -> dict[str, Any]:
@@ -214,23 +222,13 @@ def _create_context(pw, *, headless: bool | None = None) -> BrowserContext:
     return context
 
 
-def _set_composer_text(page: Page, content: str) -> str | None:
+def _set_composer_text(page: Page, content: str, *, timeout_seconds: float | None = None) -> str | None:
     selectors = [
         '[data-testid="tweetTextarea_0"]',
         '[aria-label*="Post text" i][contenteditable="true"]',
         '[aria-label*="Tweet text" i][contenteditable="true"]',
         'div[role="textbox"][contenteditable="true"]',
     ]
-    for selector in selectors:
-        try:
-            locator = page.locator(selector).first
-            locator.wait_for(state="visible", timeout=3000)
-            locator.click(timeout=3000)
-            locator.fill(content, timeout=5000)
-            return selector
-        except Exception:
-            continue
-
     script = """
 ({selectors, value}) => {
   const dispatch = (el) => {
@@ -263,12 +261,29 @@ def _set_composer_text(page: Page, content: str) -> str | None:
   return null;
 }
 """
-    try:
-        selector = page.evaluate(script, {"selectors": selectors, "value": content})
-        if selector:
-            return str(selector)
-    except Exception:
-        pass
+    wait_seconds = (
+        DEFAULT_COMPOSER_READY_TIMEOUT_SECONDS
+        if timeout_seconds is None
+        else max(float(timeout_seconds), 1.0)
+    )
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        for selector in selectors:
+            try:
+                locator = page.locator(selector).first
+                locator.wait_for(state="visible", timeout=1000)
+                locator.click(timeout=1000)
+                locator.fill(content, timeout=5000)
+                return selector
+            except Exception:
+                continue
+        try:
+            selector = page.evaluate(script, {"selectors": selectors, "value": content})
+            if selector:
+                return str(selector)
+        except Exception:
+            pass
+        time.sleep(_MEDIUM_SLEEP)
     return None
 
 
@@ -329,11 +344,60 @@ def _extract_status_urls_from_page_state(page: Page) -> set[str]:
     return urls
 
 
-def _wait_for_new_status_url(page: Page, before_urls: set[str], timeout_seconds: float = 20.0) -> str | None:
+def _normalize_handle(value: str | None) -> str | None:
+    cleaned = str(value or "").strip().lstrip("@")
+    return cleaned.lower() or None
+
+
+def _status_url_matches_handle(url: str, expected_handle: str | None) -> bool:
+    normalized = _normalize_status_url(url)
+    handle = _normalize_handle(expected_handle)
+    if not normalized or not handle:
+        return True
+    match = re.match(r"https://x\.com/([^/]+)/status/\d+", normalized, flags=re.IGNORECASE)
+    return bool(match and match.group(1).lower() == handle)
+
+
+def _composer_textbox_visible(page: Page) -> bool:
+    selectors = [
+        '[data-testid="tweetTextarea_0"]',
+        '[aria-label*="Post text" i][contenteditable="true"]',
+        '[aria-label*="Tweet text" i][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+    ]
+    for selector in selectors:
+        try:
+            if page.locator(selector).first.is_visible(timeout=250):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _wait_for_composer_to_close(page: Page, timeout_seconds: float = 20.0) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if not _composer_textbox_visible(page):
+            return True
+        time.sleep(_SHORT_SLEEP)
+    return False
+
+
+def _wait_for_new_status_url(
+    page: Page,
+    before_urls: set[str],
+    timeout_seconds: float = 20.0,
+    *,
+    expected_handle: str | None = None,
+) -> str | None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         urls = _extract_status_urls_from_page_state(page)
-        new_urls = [url for url in sorted(urls) if url not in before_urls]
+        new_urls = [
+            url
+            for url in sorted(urls)
+            if url not in before_urls and _status_url_matches_handle(url, expected_handle)
+        ]
         if new_urls:
             return new_urls[0]
         time.sleep(_SHORT_SLEEP)
@@ -416,7 +480,7 @@ def _attach_images(page: Page, images: list[Path]) -> None:
         time.sleep(_SHORT_SLEEP)
 
 
-def _click_post(page: Page) -> str | None:
+def _click_post(page: Page, *, expected_handle: str | None = None) -> str | None:
     before_urls = _extract_status_urls_from_page_state(page)
     clicked = False
     button_selectors = [
@@ -446,7 +510,12 @@ def _click_post(page: Page) -> str | None:
     if not clicked:
         raise RuntimeError("X/Twitter Post button not found or disabled")
 
-    final_url = _wait_for_new_status_url(page, before_urls)
+    composer_closed = _wait_for_composer_to_close(page)
+    final_url = _wait_for_new_status_url(page, before_urls, expected_handle=expected_handle)
+    if final_url and not _status_url_matches_handle(final_url, expected_handle):
+        final_url = None
+    if not composer_closed and not final_url:
+        raise RuntimeError("X/Twitter post submission was not confirmed; composer remained open")
     return final_url
 
 
@@ -553,7 +622,11 @@ def cmd_post(args: argparse.Namespace) -> None:
                     raise RuntimeError("Not logged in. X/Twitter redirected to login.")
 
                 stage = "fill_compose"
-                selector = _set_composer_text(page, content)
+                composer_timeout = _env_float(
+                    "FUNBA_TWITTER_COMPOSER_READY_TIMEOUT_SECONDS",
+                    DEFAULT_COMPOSER_READY_TIMEOUT_SECONDS,
+                )
+                selector = _set_composer_text(page, content, timeout_seconds=composer_timeout)
                 if not selector:
                     raise RuntimeError("X/Twitter composer text box not found")
                 time.sleep(_MEDIUM_SLEEP)
@@ -592,7 +665,8 @@ def cmd_post(args: argparse.Namespace) -> None:
                     return
 
                 stage = "submit"
-                final_url = _click_post(page)
+                expected_handle = os.getenv("FUNBA_TWITTER_ACCOUNT_HANDLE", "FUNBA_APP")
+                final_url = _click_post(page, expected_handle=expected_handle)
                 time.sleep(_LONG_SLEEP)
                 _safe_page_screenshot(page, artifact_dir / "submitted.png")
                 _write_json_artifact(

@@ -20,6 +20,7 @@ from social_media.twitter.post import (  # noqa: E402
     _extract_status_urls_from_page_state,
     _normalize_status_url,
     _resolve_image_paths,
+    _status_url_matches_handle,
     _tweet_text_for_twitter,
 )
 from scripts.funba_twitter_publish import _collect_post_image_paths  # noqa: E402
@@ -122,6 +123,22 @@ class TestTwitterPostHelpers(unittest.TestCase):
         self.assertEqual(
             _extract_status_urls_from_page_state(page),
             {"https://x.com/funba_app/status/1915000000000000000"},
+        )
+
+    def test_status_url_matches_expected_handle_case_insensitive(self):
+        self.assertTrue(
+            _status_url_matches_handle(
+                "https://x.com/FUNBA_APP/status/1915000000000000000/analytics",
+                "funba_app",
+            )
+        )
+
+    def test_status_url_rejects_other_feed_handles(self):
+        self.assertFalse(
+            _status_url_matches_handle(
+                "https://x.com/FanaticElon/status/1915000000000000000",
+                "FUNBA_APP",
+            )
         )
 
     def test_create_context_defaults_to_headless(self):
