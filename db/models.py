@@ -548,6 +548,12 @@ class MetricDefinition(Base):
     # team. Hero posters and other downstream consumers anchor team colors,
     # roster whitelists, etc. on whichever team this resolves to.
     protagonist = Column(String(16), nullable=True)
+    # Story-pipeline editorial fields (consumed by _build_story_candidates).
+    # story_score_bonus: ranking weight added to candidate score.
+    # story_cluster: advisory tag on candidates; LLM uses it to spot two
+    # similar angles, but the pipeline no longer hard-dedupes on it.
+    story_score_bonus = Column(Integer, nullable=False, default=0)
+    story_cluster = Column(String(64), nullable=True)
     # When True, the player page fills missing sub_keys (e.g. opponents
     # the player faced but didn't produce any of the measured thing against)
     # with is_placeholder=True zero entries so all opponents show up.

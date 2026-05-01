@@ -112,6 +112,7 @@ def register_admin_misc_routes(app, deps):
         runs_page_size = 25
         recent_page_size = 25
         perf_page_size = 20
+        story_page_size = 30
 
         SessionLocal = deps.session_local()
         Game = deps.game_model()
@@ -310,6 +311,26 @@ def register_admin_misc_routes(app, deps):
                     perf_total_pages=panel["perf_total_pages"],
                     perf_has_prev=panel["perf_has_prev"],
                     perf_has_next=panel["perf_has_next"],
+                    admin_page_url=deps.admin_page_url(),
+                    admin_fragment_url=deps.admin_fragment_url(),
+                )
+
+            if section == "story-tuning":
+                panel = deps.load_admin_story_tuning_panel()(
+                    session,
+                    story_page=deps.admin_page_arg()("story_page"),
+                    story_page_size=story_page_size,
+                    story_q=request.args.get("story_q"),
+                )
+                return deps.render_template()(
+                    "_admin_story_tuning.html",
+                    story_items=panel["story_items"],
+                    story_page=panel["story_page"],
+                    story_total_pages=panel["story_total_pages"],
+                    story_total=panel["story_total"],
+                    story_has_prev=panel["story_has_prev"],
+                    story_has_next=panel["story_has_next"],
+                    story_q=panel["story_q"],
                     admin_page_url=deps.admin_page_url(),
                     admin_fragment_url=deps.admin_fragment_url(),
                 )
@@ -1582,6 +1603,47 @@ def register_admin_misc_routes(app, deps):
             },
         )
 
+    def api_admin_metric_story_tuning(metric_key):
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        SessionLocal = deps.session_local()
+        MD = deps.metric_definition_model()
+        with SessionLocal() as session:
+            row = session.query(MD).filter(MD.key == metric_key).first()
+            if not row:
+                return jsonify({"error": "metric not found"}), 404
+            if "story_score_bonus" in payload:
+                try:
+                    bonus = int(payload["story_score_bonus"])
+                except (TypeError, ValueError):
+                    return jsonify({"error": "story_score_bonus must be int"}), 400
+                if bonus < 0 or bonus > 100:
+                    return jsonify({"error": "story_score_bonus out of range [0, 100]"}), 400
+                row.story_score_bonus = bonus
+            if "story_cluster" in payload:
+                cluster = payload["story_cluster"]
+                if cluster is not None:
+                    cluster = str(cluster).strip() or None
+                    if cluster and len(cluster) > 64:
+                        return jsonify({"error": "story_cluster max length 64"}), 400
+                row.story_cluster = cluster
+            session.commit()
+            updated = {
+                "key": row.key,
+                "story_cluster": row.story_cluster,
+                "story_score_bonus": row.story_score_bonus,
+            }
+        deps.clear_story_metric_meta_cache()()
+        return jsonify({"ok": True, "metric": updated})
+
+    app.add_url_rule(
+        "/api/admin/metrics/<metric_key>/story-tuning",
+        endpoint="api_admin_metric_story_tuning",
+        view_func=api_admin_metric_story_tuning,
+        methods=["POST"],
+    )
     app.add_url_rule("/admin/users", endpoint="admin_users", view_func=admin_users)
     app.add_url_rule("/api/data/games", endpoint="api_data_games", view_func=api_data_games)
     app.add_url_rule("/api/data/games/<game_id>/boxscore", endpoint="api_data_boxscore", view_func=api_data_boxscore)

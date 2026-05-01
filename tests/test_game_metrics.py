@@ -14,7 +14,7 @@ from datetime import datetime
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -115,6 +115,7 @@ def _import_helper():
     else:
         sys.modules.pop("content_pipeline.game_analysis_issues", None)
 
+    import web.app as _web_app_module
     return (
         _apply_game_metric_tiers,
         _build_story_candidates,
@@ -124,6 +125,7 @@ def _import_helper():
         _game_metrics_payload_to_cache_json,
         _prepare_game_metric_cards,
         _season_type_prefix,
+        _web_app_module,
     )
 
 
@@ -136,6 +138,7 @@ def _import_helper():
     _game_metrics_payload_to_cache_json,
     _prepare_game_metric_cards,
     _season_type_prefix,
+    _WEB_APP_MODULE,
 ) = _import_helper()
 
 
@@ -364,8 +367,32 @@ class TestGameMetricCardSelection(unittest.TestCase):
         self.assertTrue(all(card["is_featured"] for card in visible))
 
 
+_STORY_META_FIXTURES: dict[str, tuple[str, int]] = {
+    "top_scorer": ("scoring_peak", 30),
+    "highest_score_by_player_in_a_game": ("scoring_peak", 10),
+    "ten_plus_point_games": ("routine_threshold", 0),
+    "games_started": ("availability", 0),
+}
+
+
+def _fake_story_metric_meta(metric_key: str) -> tuple[str | None, int]:
+    return _STORY_META_FIXTURES.get(metric_key, (None, 0))
+
+
 class TestStoryCandidates(unittest.TestCase):
-    def test_story_candidates_prefers_top_scorer_as_lead_and_season_record_as_support(self):
+    def setUp(self) -> None:
+        # Patch on the captured module ref, not by string path: pytest may
+        # re-import web.app under different stubs, so sys.modules['web.app']
+        # at setUp time is not necessarily the module our helpers came from.
+        self._patch = patch.object(_WEB_APP_MODULE, "_story_metric_meta", side_effect=_fake_story_metric_meta)
+        self._patch.start()
+        self.addCleanup(self._patch.stop)
+
+    def test_story_candidates_ranks_top_scorer_first_and_keeps_same_cluster_peer(self):
+        # Both top_scorer and highest_score_by_player_in_a_game share the
+        # scoring_peak cluster; the new design lets both reach the LLM and
+        # decide whether to dedupe, so both should appear in lead_candidates,
+        # ordered by story_score (top_scorer's bonus + game_metric source win).
         payload = _build_story_candidates(
             {
                 "season": [
@@ -407,16 +434,21 @@ class TestStoryCandidates(unittest.TestCase):
             ],
             [],
         )
-        self.assertEqual(payload["lead_candidates"][0]["metric_key"], "top_scorer")
-        self.assertEqual(payload["support_candidates"][0]["metric_key"], "highest_score_by_player_in_a_game")
+        lead_keys = [c["metric_key"] for c in payload["lead_candidates"]]
+        self.assertEqual(lead_keys[0], "top_scorer")
+        self.assertIn("highest_score_by_player_in_a_game", lead_keys)
+        self.assertEqual(payload["lead_candidates"][0]["cluster"], "scoring_peak")
 
-    def test_story_candidates_suppresses_routine_metrics(self):
+    def test_story_candidates_suppresses_low_sample_routine_thresholds(self):
+        # value_num<=1 on a *_games / *_streak metric from triggered source
+        # is flagged "low_sample_routine" — it's the user just barely crossing
+        # the threshold and not a story.
         payload = _build_story_candidates(
             {"season": [], "season_extra": []},
             [
                 {
-                    "metric_key": "games_started",
-                    "metric_name": "Games Started",
+                    "metric_key": "ten_plus_point_games",
+                    "metric_name": "10+ point games",
                     "entity_type": "player",
                     "entity_id": "123",
                     "season": "22025",
@@ -436,7 +468,8 @@ class TestStoryCandidates(unittest.TestCase):
         )
         self.assertEqual(payload["lead_candidates"], [])
         self.assertEqual(payload["support_candidates"], [])
-        self.assertEqual(payload["suppressed_candidates"][0]["metric_key"], "games_started")
+        self.assertEqual(payload["suppressed_candidates"][0]["metric_key"], "ten_plus_point_games")
+        self.assertEqual(payload["suppressed_candidates"][0]["suppression_reason"], "low_sample_routine")
 
 
 class TestGameMetricsCacheJson(unittest.TestCase):

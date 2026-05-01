@@ -3183,13 +3183,6 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     if not runs:
         return _finalize_triggered_result(milestone_result, game_id)
 
-    runs = [
-        r for r in runs
-        if _story_metric_role(str(r.metric_key or ""), f"triggered_{r.entity_type}") != "suppress"
-    ]
-    if not runs:
-        return _finalize_triggered_result(milestone_result, game_id)
-
     trigger_keys = {(r.metric_key, r.entity_type, r.entity_id, r.season) for r in runs}
     metric_keys = {k[0] for k in trigger_keys}
 
@@ -3394,69 +3387,28 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
     return _finalize_triggered_result(result, game_id)
 
 
-_STORY_METRIC_OVERRIDES: dict[str, dict[str, object]] = {
-    "top_scorer": {"role": "lead_ok", "cluster": "scoring_peak", "score_bonus": 30},
-    "highest_score_by_player_in_a_game": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 8},
-    "highest_monthly_points": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 6},
-    "first_ten_games_total_points": {"role": "support_only", "cluster": "scoring_peak", "score_bonus": 6},
-    "bench_high_score": {"role": "lead_ok", "cluster": "bench_scoring", "score_bonus": 16},
-    "most_team_threes_made": {"role": "lead_ok", "cluster": "team_shooting", "score_bonus": 18},
-    "team_threes_made_ranking": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 10},
-    "game_total_three_pointers": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 8},
-    "most_threes_made_in_a_loss": {"role": "support_only", "cluster": "team_shooting", "score_bonus": 8},
-    "game_margin": {"role": "lead_ok", "cluster": "game_control", "score_bonus": 14},
-    "largest_margin_of_victory": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
-    "largest_in_game_lead": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
-    "largest_winning_team_lead": {"role": "support_only", "cluster": "game_control", "score_bonus": 8},
-    "dominant_run_window": {"role": "lead_ok", "cluster": "game_control", "score_bonus": 16},
-    "multi_20pt_game": {"role": "support_only", "cluster": "scoring_depth", "score_bonus": 8},
-    "games_started": {"role": "suppress", "cluster": "availability"},
-    "total_games_played_team": {"role": "suppress", "cluster": "availability"},
-    "longest_1plus_3pm_streak": {"role": "suppress", "cluster": "routine"},
-    "max_consecutive_double_digit_games": {"role": "suppress", "cluster": "routine"},
-    "ten_plus_point_games": {"role": "suppress", "cluster": "routine"},
-    "fifteen_plus_point_games": {"role": "suppress", "cluster": "routine"},
-    "twenty_plus_point_games": {"role": "suppress", "cluster": "routine"},
-    "zero_turnover_games": {"role": "suppress", "cluster": "routine"},
-    "five_plus_assist_games": {"role": "suppress", "cluster": "routine"},
-    "ten_plus_rebound_games": {"role": "suppress", "cluster": "routine"},
-}
+@lru_cache(maxsize=2048)
+def _story_metric_meta(metric_key: str) -> tuple[str | None, int]:
+    """Return (story_cluster, story_score_bonus) from MetricDefinition.
+    Cached for the process lifetime; admin save flow must call
+    `_story_metric_meta.cache_clear()` after editing these columns."""
+    from db.models import MetricDefinition as _MD
+    with SessionLocal() as session:
+        row = session.query(_MD.story_cluster, _MD.story_score_bonus).filter(_MD.key == metric_key).first()
+    if row is None:
+        return (None, 0)
+    return (row[0], int(row[1] or 0))
 
 
-def _story_metric_override(metric_key: str) -> dict[str, object]:
-    return dict(_STORY_METRIC_OVERRIDES.get(metric_key, {}))
-
-
-def _story_metric_cluster(metric_key: str, source: str) -> str:
-    override = _story_metric_override(metric_key)
-    if override.get("cluster"):
-        return str(override["cluster"])
-    if metric_key.startswith("game_") or source == "game_metric":
-        return "game_shape"
-    if "three" in metric_key or "threes" in metric_key:
-        return "shooting"
-    if "assist" in metric_key or metric_key.endswith("_ast"):
-        return "playmaking"
-    if "block" in metric_key or metric_key.endswith("_blk") or "rebound" in metric_key or metric_key.endswith("_reb"):
-        return "interior"
-    if "score" in metric_key or "point" in metric_key or "scoring" in metric_key:
-        return "scoring"
-    return "general"
-
-
-def _story_metric_role(metric_key: str, source: str) -> str:
-    override = _story_metric_override(metric_key)
-    role = override.get("role")
-    if role:
-        return str(role)
-    if source == "game_metric":
-        return "lead_ok"
-    return "support_ok"
+def _story_metric_cluster(metric_key: str) -> str:
+    cluster, _ = _story_metric_meta(metric_key)
+    # NULL → metric is its own cluster of one (no shared dedup)
+    return cluster or metric_key
 
 
 def _story_metric_bonus(metric_key: str) -> int:
-    override = _story_metric_override(metric_key)
-    return int(override.get("score_bonus", 0) or 0)
+    _, bonus = _story_metric_meta(metric_key)
+    return bonus
 
 
 def _story_metric_int(value) -> int | None:
@@ -3486,9 +3438,6 @@ def _story_metric_ratio(rank, total) -> float | None:
 
 
 def _story_metric_suppression_reason(metric_key: str, source: str, value_num) -> str | None:
-    role = _story_metric_role(metric_key, source)
-    if role == "suppress":
-        return "routine_metric"
     numeric_value = _story_metric_float(value_num)
     if source != "game_metric" and numeric_value is not None and numeric_value <= 1:
         if metric_key.endswith("_games") or metric_key.endswith("_streak"):
@@ -3537,9 +3486,6 @@ def _story_metric_score(candidate: dict) -> int:
         elif all_ratio <= 0.25:
             score += 4
 
-    if candidate["role"] == "support_only":
-        score -= 8
-
     score += _story_metric_bonus(candidate["metric_key"])
     return score
 
@@ -3584,8 +3530,7 @@ def _story_candidate_from_game_metric(entry: dict) -> dict:
         "is_featured": bool(entry.get("is_featured")),
         "is_hero": bool(entry.get("is_hero")),
     }
-    candidate["cluster"] = _story_metric_cluster(metric_key, candidate["source"])
-    candidate["role"] = _story_metric_role(metric_key, candidate["source"])
+    candidate["cluster"] = _story_metric_cluster(metric_key)
     candidate["suppression_reason"] = _story_metric_suppression_reason(metric_key, candidate["source"], candidate["value_num"])
     candidate["story_score"] = _story_metric_score(candidate)
     return candidate
@@ -3633,8 +3578,7 @@ def _story_candidate_from_triggered(entry: dict, source: str) -> dict:
         "is_featured": bool(entry.get("is_featured")),
         "is_hero": bool(entry.get("is_hero")),
     }
-    candidate["cluster"] = _story_metric_cluster(metric_key, source)
-    candidate["role"] = _story_metric_role(metric_key, source)
+    candidate["cluster"] = _story_metric_cluster(metric_key)
     candidate["suppression_reason"] = _story_metric_suppression_reason(metric_key, source, candidate["value_num"])
     candidate["story_score"] = _story_metric_score(candidate)
     return candidate
@@ -3676,35 +3620,13 @@ def _build_story_candidates(
         )
     )
 
-    lead_candidates: list[dict] = []
-    support_candidates: list[dict] = []
-    seen_lead_clusters: set[str] = set()
-    seen_support_pairs: set[tuple[str, str | None]] = set()
-
-    for candidate in deduped:
-        cluster = candidate["cluster"]
-        pair = (candidate["metric_key"], candidate.get("entity_id"))
-        if candidate["role"] == "support_only":
-            continue
-        if cluster in seen_lead_clusters:
-            suppressed.append({**candidate, "suppression_reason": "duplicate_cluster"})
-            continue
-        lead_candidates.append(candidate)
-        seen_lead_clusters.add(cluster)
-        seen_support_pairs.add(pair)
-        if len(lead_candidates) == 3:
-            break
-
-    for candidate in deduped:
-        pair = (candidate["metric_key"], candidate.get("entity_id"))
-        if pair in seen_support_pairs:
-            continue
-        if candidate["role"] == "suppress":
-            continue
-        support_candidates.append(candidate)
-        seen_support_pairs.add(pair)
-        if len(support_candidates) == 6:
-            break
+    # No hard cluster dedup: pass top candidates straight to the LLM and let
+    # it decide whether two same-cluster entries (e.g. largest_in_game_lead +
+    # largest_margin_of_victory in a 40-0 game) are both worth headlining or
+    # one should be demoted. cluster is still attached as advisory metadata.
+    lead_candidates = deduped[:8]
+    lead_pairs = {(c["metric_key"], c.get("entity_id")) for c in lead_candidates}
+    support_candidates = [c for c in deduped[8:] if (c["metric_key"], c.get("entity_id")) not in lead_pairs][:8]
 
     suppressed.sort(
         key=lambda c: (
@@ -8502,6 +8424,51 @@ def _load_admin_metric_perf_panel(session, *, perf_page: int, perf_page_size: in
     }
 
 
+def _load_admin_story_tuning_panel(session, *, story_page: int, story_page_size: int, story_q: str | None = None) -> dict:
+    """Paginated list of MetricDefinition rows for editing story_score_bonus
+    and story_cluster. Filters to status='published'; optional substring match
+    on key / name_zh / name."""
+    base_q = (
+        session.query(MetricDefinitionModel)
+        .filter(MetricDefinitionModel.status == "published")
+    )
+    q = (story_q or "").strip()
+    if q:
+        like = f"%{q}%"
+        base_q = base_q.filter(
+            or_(
+                MetricDefinitionModel.key.like(like),
+                MetricDefinitionModel.name_zh.like(like),
+                MetricDefinitionModel.name.like(like),
+                MetricDefinitionModel.story_cluster.like(like),
+            )
+        )
+    base_q = base_q.order_by(MetricDefinitionModel.story_score_bonus.desc(), MetricDefinitionModel.key.asc())
+    total = base_q.count()
+    total_pages = max(1, (total + story_page_size - 1) // story_page_size)
+    story_page = min(story_page, total_pages)
+    rows = base_q.offset((story_page - 1) * story_page_size).limit(story_page_size).all()
+    items = [
+        {
+            "key": r.key,
+            "name": r.name,
+            "name_zh": r.name_zh,
+            "scope": r.scope,
+            "category": r.category,
+            "story_cluster": r.story_cluster,
+            "story_score_bonus": r.story_score_bonus,
+        }
+        for r in rows
+    ]
+    return {
+        "story_items": items,
+        "story_page": story_page,
+        "story_total_pages": total_pages,
+        "story_total": total,
+        "story_has_prev": story_page > 1,
+        "story_has_next": story_page < total_pages,
+        "story_q": q,
+    }
 
 
 _admin_content_deps = SimpleNamespace(
@@ -8609,6 +8576,9 @@ _admin_misc_views = register_admin_misc_routes(
         load_admin_compute_runs_panel=lambda: _load_admin_compute_runs_panel,
         load_admin_recent_runs_panel=lambda: _load_admin_recent_runs_panel,
         load_admin_metric_perf_panel=lambda: _load_admin_metric_perf_panel,
+        load_admin_story_tuning_panel=lambda: _load_admin_story_tuning_panel,
+        metric_definition_model=lambda: MetricDefinitionModel,
+        clear_story_metric_meta_cache=lambda: _story_metric_meta.cache_clear,
         human_page_view_filter=lambda: _human_page_view_filter,
         admin_cache=lambda: _admin_cache,
         admin_cache_ttl=lambda: _ADMIN_CACHE_TTL,

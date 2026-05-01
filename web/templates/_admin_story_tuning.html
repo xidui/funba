@@ -1,0 +1,88 @@
+<div id="story-tuning-card" class="card">
+  <h2>Story tuning <span style="color:var(--muted);font-size:13px;font-weight:normal;">({{ story_total }} published metrics)</span></h2>
+  <div style="margin-bottom:10px;color:var(--muted);font-size:12px;line-height:1.6;">
+    <strong>story_score_bonus</strong> 0–100：post 候选排序加权（30=必上头条，14=重，5=默认陪衬，0=不进 lead）。<br>
+    <strong>story_cluster</strong>：advisory tag 给 LLM 看相似性，不再硬去重。空值=该 metric 自成一簇。
+  </div>
+  <form method="get" action="{{ url_for('admin_pipeline') }}" style="display:flex;gap:8px;margin-bottom:10px;">
+    <input type="hidden" name="story_page" value="1">
+    <input type="text" name="story_q" value="{{ story_q or '' }}" placeholder="search key / 中文名 / cluster..." style="flex:1;padding:6px 8px;background:var(--surface);border:1px solid var(--muted);color:var(--text);border-radius:4px;">
+    <button type="submit" class="btn">Search</button>
+    {% if story_q %}<a href="{{ url_for('admin_pipeline') }}" class="btn" style="background:transparent;border:1px solid var(--muted);">Clear</a>{% endif %}
+  </form>
+  {% if story_items %}
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th class="hide-mobile">中文名</th>
+        <th class="hide-mobile">scope</th>
+        <th class="hide-mobile">category</th>
+        <th>cluster</th>
+        <th>bonus</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in story_items %}
+      <tr class="recent-row js-story-row" data-key="{{ r.key }}">
+        <td class="mono"><a href="{{ url_for('metric_detail', metric_key=r.key) }}" target="_blank">{{ r.key }}</a></td>
+        <td class="hide-mobile">{{ r.name_zh or r.name }}</td>
+        <td class="hide-mobile">{{ r.scope }}</td>
+        <td class="hide-mobile">{{ r.category or '—' }}</td>
+        <td><input type="text" class="js-story-cluster" value="{{ r.story_cluster or '' }}" maxlength="64" style="width:140px;padding:4px 6px;background:var(--surface);border:1px solid var(--muted);color:var(--text);border-radius:3px;font-family:var(--mono);font-size:12px;"></td>
+        <td><input type="number" class="js-story-bonus" value="{{ r.story_score_bonus }}" min="0" max="100" step="1" style="width:60px;padding:4px 6px;background:var(--surface);border:1px solid var(--muted);color:var(--text);border-radius:3px;"></td>
+        <td>
+          <button type="button" class="btn js-story-save" style="padding:4px 10px;font-size:12px;">Save</button>
+          <span class="js-story-status" style="margin-left:6px;font-size:12px;color:var(--muted);"></span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if story_has_prev or story_has_next %}
+  <div class="pager">
+    <span>Page {{ story_page }} / {{ story_total_pages }}</span>
+    <div class="pager-links">
+      <a class="pager-link js-admin-pager {{ 'disabled' if not story_has_prev }}" data-target-card="story-tuning-card" data-fragment-url="{{ admin_fragment_url('story-tuning', 'story_page', story_page - 1) }}" href="{{ admin_page_url('story_page', story_page - 1) }}">Prev</a>
+      <a class="pager-link js-admin-pager {{ 'disabled' if not story_has_next }}" data-target-card="story-tuning-card" data-fragment-url="{{ admin_fragment_url('story-tuning', 'story_page', story_page + 1) }}" href="{{ admin_page_url('story_page', story_page + 1) }}">Next</a>
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">No metrics match {% if story_q %}"{{ story_q }}"{% endif %}.</div>
+  {% endif %}
+</div>
+<script>
+  (function () {
+    document.querySelectorAll('#story-tuning-card .js-story-save').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const row = btn.closest('.js-story-row');
+        const key = row.dataset.key;
+        const cluster = row.querySelector('.js-story-cluster').value.trim();
+        const bonus = parseInt(row.querySelector('.js-story-bonus').value, 10);
+        const status = row.querySelector('.js-story-status');
+        status.textContent = 'saving…';
+        status.style.color = 'var(--muted)';
+        try {
+          const resp = await fetch('/api/admin/metrics/' + encodeURIComponent(key) + '/story-tuning', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify({story_cluster: cluster || null, story_score_bonus: bonus}),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'save failed');
+          status.textContent = '✓ saved';
+          status.style.color = 'var(--win)';
+          setTimeout(function () { status.textContent = ''; }, 2000);
+        } catch (e) {
+          status.textContent = '✗ ' + e.message;
+          status.style.color = 'var(--loss)';
+        }
+      });
+    });
+  })();
+</script>
