@@ -19,14 +19,22 @@ def _make_app_module():
     fake_user_cls.__name__ = "User"
 
     fake_models = types.ModuleType("db.models")
+
+    def _fake_model_attr(name):
+        model = MagicMock()
+        model.__name__ = name
+        setattr(fake_models, name, model)
+        return model
+
     for name in (
         "Award", "Feedback", "Game", "GameContentAnalysisIssuePost", "GameLineScore", "GamePlayByPlay",
-        "MagicToken", "MetricComputeRun", "MetricDefinition", "MetricPerfLog", "MetricResult",
+        "MagicToken", "MetricComputeRun", "MetricDefinition", "MetricMilestone", "MetricPerfLog", "MetricResult",
         "MetricRunLog", "PageView", "Player", "PlayerGameStats", "PlayerSalary", "ShotRecord",
         "SocialPost", "SocialPostDelivery", "SocialPostImage", "SocialPostVariant", "Team",
         "TeamGameStats",
     ):
-        setattr(fake_models, name, MagicMock())
+        _fake_model_attr(name)
+    fake_models.__getattr__ = _fake_model_attr
     fake_models.User = fake_user_cls
     fake_models.engine = fake_engine
     sys.modules["db.models"] = fake_models

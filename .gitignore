@@ -41,9 +41,14 @@ social_media/xiaohongshu/.xiaohongshu_cookies.json
 social_media/xiaohongshu/.xiaohongshu_session_meta.json
 .tmp_audit/
 .tmp_qa/
+.tmp_capture_audit/
+.tmp_imagegen_test/
+.tmp_mobile_audit/
 .tmp_awards_models.sqlite
 test-results/
 .DS_Store
+._*
+celerybeat-schedule*
 
 # Local browser/export artifacts
 Cookies
@@ -56,7 +61,15 @@ agents/shared/artifacts/
 agents/content-analyst/artifacts/
 agents/content-analyst/assets/
 agents/content-analyst/context/
+agents/content-reviewer/artifacts/
 agents/content-reviewer/*-review-pass.md
 agents/content-reviewer/context/
+agents/delivery-publisher/context/
 agents/delivery-publisher/*.log
 agents/delivery-publisher/*.json
+
+# Generated content handoff assets
+assets/content/
+
+# Local agent/client config
+.claude/

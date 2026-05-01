@@ -110,6 +110,28 @@ def _parse_minutes(value):
         return 0, 0
 
 
+def _player_seconds(rows):
+    total = 0
+    for row in rows:
+        minutes, seconds = _parse_minutes(row.get("MIN"))
+        total += minutes * 60 + seconds
+    return total
+
+
+def _period_player_seconds_limit(period):
+    # One period should contain roughly 10 player-periods: 5 players per team.
+    # Older NBA API games sometimes ignore StartPeriod/EndPeriod and return
+    # full-game totals for every requested period, which would poison Q1-Q11.
+    period_seconds = 12 * 60 if int(period or 0) <= 4 else 5 * 60
+    return (period_seconds + 60) * 10
+
+
+def _rows_look_like_single_period(rows, period):
+    if not rows:
+        return False
+    return _player_seconds(rows) <= _period_player_seconds_limit(period)
+
+
 def _normalize_team_stats(team):
     stats = team.get('statistics') or {}
     return {
@@ -268,6 +290,13 @@ def fetch_period_stats(game_id, period):
                 if stats.get('minutes', '0:00') == '0:00':
                     continue
                 rows.append(_normalize_player_stats(player, team_id, game_id))
+        if not _rows_look_like_single_period(rows, period):
+            logger.warning(
+                "Period %s for %s looks like full-game totals; skipping period stats.",
+                period,
+                game_id,
+            )
+            return None
         return rows
     except Exception as e:
         logger.error(f"Failed to fetch period {period} for {game_id}: {e}")

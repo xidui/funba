@@ -21,6 +21,8 @@ def _install_stubs():
     fake_stats = types.ModuleType("nba_api.stats")
     fake_endpoints = types.ModuleType("nba_api.stats.endpoints")
     fake_boxscore = types.ModuleType("nba_api.stats.endpoints.boxscoretraditionalv3")
+    fake_library = types.ModuleType("nba_api.stats.library")
+    fake_http = types.ModuleType("nba_api.stats.library.http")
 
     class _FakeBoxScoreTraditionalV3:
         def __init__(self, *args, **kwargs):
@@ -31,13 +33,18 @@ def _install_stubs():
 
     fake_boxscore.BoxScoreTraditionalV3 = _FakeBoxScoreTraditionalV3
     fake_endpoints.boxscoretraditionalv3 = fake_boxscore
+    fake_http.STATS_HEADERS = {}
+    fake_library.http = fake_http
     fake_stats.endpoints = fake_endpoints
+    fake_stats.library = fake_library
     fake_nba_api.stats = fake_stats
 
     sys.modules["nba_api"] = fake_nba_api
     sys.modules["nba_api.stats"] = fake_stats
     sys.modules["nba_api.stats.endpoints"] = fake_endpoints
     sys.modules["nba_api.stats.endpoints.boxscoretraditionalv3"] = fake_boxscore
+    sys.modules["nba_api.stats.library"] = fake_library
+    sys.modules["nba_api.stats.library.http"] = fake_http
 
     fake_tenacity = types.ModuleType("tenacity")
 
@@ -272,6 +279,26 @@ class TestCreatePlayerGameStats(unittest.TestCase):
         self.assertEqual(created_player.player_id, "p2")
         self.assertTrue(created_player.is_active)
         self.assertEqual(created_stats.player_id, "p2")
+
+
+class TestPeriodStatsSanity(unittest.TestCase):
+    def setUp(self):
+        self.module = _load_module()
+
+    def test_accepts_regulation_period_minutes(self):
+        rows = [{"MIN": "12:00"} for _ in range(10)]
+
+        self.assertTrue(self.module._rows_look_like_single_period(rows, 1))
+
+    def test_accepts_overtime_period_minutes(self):
+        rows = [{"MIN": "5:00"} for _ in range(10)]
+
+        self.assertTrue(self.module._rows_look_like_single_period(rows, 5))
+
+    def test_rejects_full_game_totals_for_a_period(self):
+        rows = [{"MIN": "48:00"} for _ in range(10)]
+
+        self.assertFalse(self.module._rows_look_like_single_period(rows, 1))
 
 
 class TestIsGameDetailBackFilled(unittest.TestCase):
