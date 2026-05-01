@@ -1,7 +1,7 @@
 """DB-backed social publish throttles.
 
 Admin approval moves a delivery into the publishable pool.  This module decides
-whether one Twitter delivery may be reserved for publishing right now.
+whether one external social delivery may be reserved for publishing right now.
 """
 from __future__ import annotations
 
@@ -18,6 +18,12 @@ from db.models import Setting, SocialPost, SocialPostDelivery, SocialPostVariant
 
 THROTTLED_PLATFORMS = ("twitter", "instagram")
 PLATFORM_ALIASES = {"x": "twitter", "ig": "instagram"}
+PAUSED_DELIVERY_MODE = "paused"
+QUEUED_DELIVERY_MODE = "queued"
+DIRECT_DELIVERY_MODE = "direct"
+SOCIAL_DELIVERY_MODES = (PAUSED_DELIVERY_MODE, QUEUED_DELIVERY_MODE, DIRECT_DELIVERY_MODE)
+DEFAULT_SOCIAL_DELIVERY_MODE = QUEUED_DELIVERY_MODE
+TWITTER_DELIVERY_MODE_KEY = "social.twitter.delivery.mode"
 TWITTER_THROTTLE_ENABLED_KEY = "social.twitter.throttle.enabled"
 TWITTER_THROTTLE_MIN_INTERVAL_KEY = "social.twitter.throttle.min_min"
 TWITTER_THROTTLE_MAX_PER_DAY_KEY = "social.twitter.throttle.daily_max"
@@ -29,11 +35,16 @@ THROTTLE_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 @dataclass(frozen=True)
 class SocialThrottleConfig:
-    enabled: bool = True
+    delivery_mode: str = DEFAULT_SOCIAL_DELIVERY_MODE
     min_interval_minutes: int = 60
     max_posts_per_day: int = 3
     max_posts_per_game_per_day: int = 1
     max_pending_age_hours: int = 24
+
+    @property
+    def enabled(self) -> bool:
+        """Backward-compatible alias for old callers and tests."""
+        return self.delivery_mode != PAUSED_DELIVERY_MODE
 
 
 TwitterThrottleConfig = SocialThrottleConfig
@@ -53,6 +64,10 @@ def _platform_db_values(platform: str) -> tuple[str, ...]:
 
 def _setting_key(platform: str, suffix: str) -> str:
     return f"social.{platform}.throttle.{suffix}"
+
+
+def _delivery_mode_key(platform: str) -> str:
+    return f"social.{platform}.delivery.mode"
 
 
 def _setting_value(session: Session, key: str) -> str | None:
@@ -79,13 +94,37 @@ def _parse_int(value: str | int | None, default: int, *, minimum: int, maximum: 
     return max(minimum, min(maximum, parsed))
 
 
+def _parse_delivery_mode(value: str | None, default: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in SOCIAL_DELIVERY_MODES:
+        return raw
+    return default
+
+
+def _read_delivery_mode(session: Session, platform: str, default: str) -> str:
+    mode = _parse_delivery_mode(_setting_value(session, _delivery_mode_key(platform)), "")
+    if mode:
+        return mode
+
+    legacy_enabled = _setting_value(session, _setting_key(platform, "enabled"))
+    if legacy_enabled is not None:
+        return QUEUED_DELIVERY_MODE if _parse_bool(legacy_enabled, True) else PAUSED_DELIVERY_MODE
+    return default
+
+
+def _config_payload(config: SocialThrottleConfig) -> dict:
+    payload = asdict(config)
+    payload["enabled"] = config.enabled
+    return payload
+
+
 def get_social_throttle_config(session: Session, platform: str) -> SocialThrottleConfig:
     normalized = normalize_throttled_platform(platform)
     if normalized is None:
         raise ValueError(f"unsupported throttled platform: {platform}")
     defaults = SocialThrottleConfig()
     return SocialThrottleConfig(
-        enabled=_parse_bool(_setting_value(session, _setting_key(normalized, "enabled")), defaults.enabled),
+        delivery_mode=_read_delivery_mode(session, normalized, defaults.delivery_mode),
         min_interval_minutes=_parse_int(
             _setting_value(session, _setting_key(normalized, "min_min")),
             defaults.min_interval_minutes,
@@ -132,8 +171,18 @@ def update_social_throttle_config(session: Session, platform: str, payload: dict
     if normalized is None:
         raise ValueError(f"unsupported throttled platform: {platform}")
     current = get_social_throttle_config(session, normalized)
+    if "delivery_mode" in payload or "mode" in payload:
+        delivery_mode = _parse_delivery_mode(payload.get("delivery_mode") or payload.get("mode"), current.delivery_mode)
+    elif "enabled" in payload:
+        delivery_mode = (
+            QUEUED_DELIVERY_MODE
+            if _parse_bool(payload.get("enabled"), current.enabled)
+            else PAUSED_DELIVERY_MODE
+        )
+    else:
+        delivery_mode = current.delivery_mode
     values = {
-        "enabled": _parse_bool(payload.get("enabled"), current.enabled),
+        "delivery_mode": delivery_mode,
         "min_interval_minutes": _parse_int(
             payload.get("min_interval_minutes"),
             current.min_interval_minutes,
@@ -159,7 +208,9 @@ def update_social_throttle_config(session: Session, platform: str, payload: dict
             maximum=24 * 14,
         ),
     }
-    _write_setting(session, _setting_key(normalized, "enabled"), "true" if values["enabled"] else "false")
+    _write_setting(session, _delivery_mode_key(normalized), values["delivery_mode"])
+    # Keep the old boolean in sync for compatibility with a rollback or stale client.
+    _write_setting(session, _setting_key(normalized, "enabled"), "false" if values["delivery_mode"] == PAUSED_DELIVERY_MODE else "true")
     _write_setting(session, _setting_key(normalized, "min_min"), str(values["min_interval_minutes"]))
     _write_setting(session, _setting_key(normalized, "daily_max"), str(values["max_posts_per_day"]))
     _write_setting(session, _setting_key(normalized, "game_daily_max"), str(values["max_posts_per_game_per_day"]))
@@ -302,13 +353,21 @@ def social_throttle_status(session: Session, platform: str, *, now_utc: datetime
         .count()
     )
     latest_activity_at = _latest_social_activity_at(session, normalized)
+    next_eligible_at = None
+    if (
+        latest_activity_at is not None
+        and config.delivery_mode == QUEUED_DELIVERY_MODE
+        and config.min_interval_minutes > 0
+    ):
+        next_eligible_at = latest_activity_at + timedelta(minutes=config.min_interval_minutes)
     return {
         "platform": normalized,
-        "config": asdict(config),
+        "config": _config_payload(config),
         "local_day": local_day.isoformat(),
         "published_or_reserved_today": len(activity_rows),
         "pending_approved": int(pending_count),
         "last_activity_at": latest_activity_at.isoformat() if latest_activity_at else None,
+        "next_eligible_at": next_eligible_at.isoformat() if next_eligible_at else None,
     }
 
 
@@ -331,11 +390,14 @@ def dispatch_next_social_delivery(
     config = get_social_throttle_config(session, normalized)
     start_utc, end_utc, local_day = _local_day_bounds_utc(now)
 
-    if not config.enabled:
-        return {"ok": True, "platform": normalized, "status": "disabled", "config": asdict(config)}
+    if config.delivery_mode == PAUSED_DELIVERY_MODE:
+        return {"ok": True, "platform": normalized, "status": "paused", "config": _config_payload(config)}
+
+    if config.delivery_mode == DIRECT_DELIVERY_MODE:
+        return {"ok": True, "platform": normalized, "status": "direct_mode", "config": _config_payload(config)}
 
     if config.max_posts_per_day <= 0:
-        return {"ok": True, "platform": normalized, "status": "daily_cap_zero", "config": asdict(config)}
+        return {"ok": True, "platform": normalized, "status": "daily_cap_zero", "config": _config_payload(config)}
 
     latest_activity_at = _latest_social_activity_at(session, normalized)
     if latest_activity_at is not None and config.min_interval_minutes > 0:
@@ -347,7 +409,7 @@ def dispatch_next_social_delivery(
                 "status": "waiting_interval",
                 "last_activity_at": latest_activity_at.isoformat(),
                 "next_allowed_at": next_allowed.isoformat(),
-                "config": asdict(config),
+                "config": _config_payload(config),
             }
 
     activity_rows = _today_activity_rows(session, normalized, start_utc, end_utc)
@@ -358,7 +420,7 @@ def dispatch_next_social_delivery(
             "status": "daily_cap_reached",
             "local_day": local_day.isoformat(),
             "published_or_reserved_today": len(activity_rows),
-            "config": asdict(config),
+            "config": _config_payload(config),
         }
 
     per_game_counts: dict[str, int] = {}
@@ -398,7 +460,7 @@ def dispatch_next_social_delivery(
             (enqueue_publish or _default_enqueue)(int(post.id), int(delivery.id))
         except Exception:
             delivery.status = "pending"
-            delivery.error_message = "Twitter throttle failed to enqueue publisher"
+            delivery.error_message = "Social delivery queue failed to enqueue publisher"
             delivery.updated_at = now
             session.flush()
             raise
@@ -411,7 +473,7 @@ def dispatch_next_social_delivery(
             "delivery_id": int(delivery.id),
             "local_day": local_day.isoformat(),
             "published_or_reserved_today": len(activity_rows) + 1,
-            "config": asdict(config),
+            "config": _config_payload(config),
         }
 
     return {
@@ -422,7 +484,7 @@ def dispatch_next_social_delivery(
         "skipped_game_cap_delivery_ids": skipped_game_cap,
         "local_day": local_day.isoformat(),
         "published_or_reserved_today": len(activity_rows),
-        "config": asdict(config),
+        "config": _config_payload(config),
     }
 
 

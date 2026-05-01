@@ -7408,8 +7408,9 @@ def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) 
     """Enqueue the platform-specific publish wrapper for one delivery.
 
     Used by per-variant approve flow: when a variant is approved, every enabled
-    delivery on it whose platform is in the direct-publish set is dispatched
-    through this Celery task. Returns True iff the apply_async call succeeded.
+    delivery on it whose platform is in the direct-publish set is handed to the
+    platform's configured delivery mode. Returns True iff the handoff succeeded
+    or the platform is intentionally paused.
     """
     raw = (platform or "").strip().lower()
     normalized = "twitter" if raw == "x" else "instagram" if raw == "ig" else raw
@@ -7420,10 +7421,34 @@ def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) 
         from tasks.content import dispatch_throttled_social_publish_task, publish_social_delivery_task
 
         if normalized in {"twitter", "instagram"}:
-            dispatch_throttled_social_publish_task.apply_async(
-                kwargs={"platform": normalized},
-                retry=False,
+            from content_pipeline.social_publish_throttle import (
+                DIRECT_DELIVERY_MODE,
+                PAUSED_DELIVERY_MODE,
+                get_social_throttle_config,
             )
+
+            with SessionLocal() as db_sess:
+                delivery_mode = get_social_throttle_config(db_sess, normalized).delivery_mode
+
+            if delivery_mode == PAUSED_DELIVERY_MODE:
+                logger.info(
+                    "social delivery paused platform=%s post_id=%s delivery_id=%s",
+                    normalized,
+                    post_id,
+                    delivery_id,
+                )
+                return True
+            if delivery_mode == DIRECT_DELIVERY_MODE:
+                publish_social_delivery_task.apply_async(
+                    args=(post_id, delivery_id),
+                    kwargs={"platform": normalized},
+                    retry=False,
+                )
+            else:
+                dispatch_throttled_social_publish_task.apply_async(
+                    kwargs={"platform": normalized},
+                    retry=False,
+                )
             return True
 
         publish_social_delivery_task.apply_async(

@@ -14,6 +14,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from content_pipeline.social_publish_throttle import (  # noqa: E402
+    DIRECT_DELIVERY_MODE,
+    PAUSED_DELIVERY_MODE,
+    QUEUED_DELIVERY_MODE,
     dispatch_next_social_delivery,
     get_social_throttle_config,
     update_social_throttle_config,
@@ -92,7 +95,7 @@ class TestSocialPublishThrottle(unittest.TestCase):
                 session,
                 "instagram",
                 {
-                    "enabled": False,
+                    "delivery_mode": "paused",
                     "min_interval_minutes": 90,
                     "max_posts_per_day": 2,
                     "max_posts_per_game_per_day": 1,
@@ -101,13 +104,70 @@ class TestSocialPublishThrottle(unittest.TestCase):
             )
             session.commit()
 
+            self.assertEqual(cfg.delivery_mode, PAUSED_DELIVERY_MODE)
             self.assertFalse(cfg.enabled)
             stored = get_social_throttle_config(session, "ig")
+            self.assertEqual(stored.delivery_mode, PAUSED_DELIVERY_MODE)
             self.assertFalse(stored.enabled)
             self.assertEqual(stored.min_interval_minutes, 90)
             self.assertEqual(stored.max_posts_per_day, 2)
             self.assertEqual(stored.max_pending_age_hours, 36)
+            self.assertEqual(session.get(Setting, "social.instagram.delivery.mode").value, "paused")
             self.assertIsNotNone(session.get(Setting, "social.instagram.throttle.daily_max"))
+
+    def test_legacy_enabled_false_maps_to_paused_mode(self):
+        with self.SessionLocal() as session:
+            session.add(Setting(key="social.twitter.throttle.enabled", value="false", updated_at=self.now))
+            session.commit()
+
+            cfg = get_social_throttle_config(session, "twitter")
+
+            self.assertEqual(cfg.delivery_mode, PAUSED_DELIVERY_MODE)
+            self.assertFalse(cfg.enabled)
+
+    def test_legacy_enabled_payload_true_maps_to_queued_mode(self):
+        with self.SessionLocal() as session:
+            cfg = update_social_throttle_config(session, "twitter", {"enabled": True})
+            session.commit()
+
+            self.assertEqual(cfg.delivery_mode, QUEUED_DELIVERY_MODE)
+            self.assertTrue(cfg.enabled)
+            self.assertEqual(session.get(Setting, "social.twitter.delivery.mode").value, "queued")
+
+    def test_paused_mode_leaves_pending_delivery_unqueued(self):
+        with self.SessionLocal() as session:
+            update_social_throttle_config(session, "twitter", {"delivery_mode": "paused"})
+            delivery = self._delivery(session, platform="twitter")
+            enqueued: list[int] = []
+
+            result = dispatch_next_social_delivery(
+                session,
+                platform="twitter",
+                now_utc=self.now,
+                enqueue_publish=lambda _post_id, delivery_id: enqueued.append(delivery_id),
+            )
+
+            self.assertEqual(result["status"], "paused")
+            self.assertEqual(delivery.status, "pending")
+            self.assertEqual(enqueued, [])
+
+    def test_direct_mode_leaves_dispatcher_idle(self):
+        with self.SessionLocal() as session:
+            update_social_throttle_config(session, "instagram", {"delivery_mode": "direct"})
+            delivery = self._delivery(session, platform="instagram")
+            enqueued: list[int] = []
+
+            result = dispatch_next_social_delivery(
+                session,
+                platform="instagram",
+                now_utc=self.now,
+                enqueue_publish=lambda _post_id, delivery_id: enqueued.append(delivery_id),
+            )
+
+            self.assertEqual(result["status"], "direct_mode")
+            self.assertEqual(delivery.status, "pending")
+            self.assertEqual(enqueued, [])
+            self.assertEqual(result["config"]["delivery_mode"], DIRECT_DELIVERY_MODE)
 
     def test_dispatch_reserves_one_delivery_and_enqueues_publisher(self):
         with self.SessionLocal() as session:

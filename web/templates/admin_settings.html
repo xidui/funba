@@ -363,14 +363,12 @@
     <div id="feature-access-status" class="llm-settings-status" role="status"></div>
   </div>
 
-  <!-- Pipeline Publishing matrix -->
+  <!-- Publishing control -->
   <div class="card">
-    <h2 style="margin-bottom:6px;">Pipeline Publishing</h2>
+    <h2 style="margin-bottom:6px;">Publishing Control</h2>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.55;">
-      Per-pipeline-per-platform configuration. <b>Generate</b> = create a variant for that platform when the pipeline runs.
-      <b>Auto-publish</b> = publish without human review. For platforms with external APIs (Twitter, Hupu, …) auto-publish kicks
-      off the publisher script on creation. For Funba (home feed) auto-publish marks the delivery <code>published</code> and the
-      post appears on the home waterfall immediately.
+      Flow: generate a platform variant, then either wait for admin approval or auto-approve it. Approved external deliveries
+      move into the delivery queue below. Funba home feed is internal, so auto-approved items appear immediately.
     </div>
     <div id="publishing-matrix" style="display:flex;flex-direction:column;gap:18px;">
       <div style="color:var(--muted);font-size:13px;">Loading…</div>
@@ -378,12 +376,12 @@
     <div id="publishing-matrix-status" class="runtime-flag-status" role="status"></div>
   </div>
 
-  <!-- Social Publish Throttle -->
+  <!-- External Delivery Queue -->
   <div class="card">
-    <h2 style="margin-bottom:6px;">Social Publish Throttle</h2>
+    <h2 style="margin-bottom:6px;">External Delivery Queue</h2>
     <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.55;">
-      Admin approval adds a delivery to the publish pool. The throttle publishes at most one eligible delivery per platform
-      when the interval and daily caps allow it.
+      Applies after manual approval or auto-approval. <b>Paused</b> keeps approved posts pending, <b>Queued</b> spaces them out
+      using the limits below, and <b>Direct</b> restores approve-and-send behavior for that platform.
     </div>
     <div id="social-throttle-panel" style="display:flex;flex-direction:column;gap:14px;">
       <div style="color:var(--muted);font-size:13px;">Loading...</div>
@@ -952,7 +950,7 @@
             <td style="padding:6px 10px;border-top:1px solid var(--border);text-align:center;">
               <label class="runtime-flag-switch" style="margin:0;">
                 <input type="checkbox" data-pipeline="${esc(p.key)}" data-platform="${esc(pl.key)}" data-action="autopublish" ${pl.autopublish ? 'checked' : ''}>
-                <span>${pl.autopublish ? 'On' : 'Off'}</span>
+                <span>${pl.autopublish ? 'Auto-approve' : 'Manual'}</span>
               </label>
             </td>
           </tr>`).join('');
@@ -965,7 +963,7 @@
                 <tr style="text-align:left;">
                   <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;">Platform</th>
                   <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;text-align:center;width:100px;">Generate</th>
-                  <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;text-align:center;width:120px;">Auto-publish</th>
+                  <th style="padding:4px 10px;font-size:11px;color:var(--muted);font-weight:600;text-align:center;width:135px;">Review policy</th>
                 </tr>
               </thead>
               <tbody>${rows}</tbody>
@@ -1011,11 +1009,15 @@
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'save failed');
-        label.textContent = input.checked ? 'On' : 'Off';
+        label.textContent = input.dataset.action === 'autopublish'
+          ? (input.checked ? 'Auto-approve' : 'Manual')
+          : (input.checked ? 'On' : 'Off');
         setStatus('Saved', 'success');
       } catch (e) {
         input.checked = !input.checked;
-        label.textContent = input.checked ? 'On' : 'Off';
+        label.textContent = input.dataset.action === 'autopublish'
+          ? (input.checked ? 'Auto-approve' : 'Manual')
+          : (input.checked ? 'On' : 'Off');
         setStatus('Save failed: ' + e.message, 'error');
       } finally {
         input.disabled = false;
@@ -1053,15 +1055,25 @@
       return platform;
     }
 
+    function modeLabel(mode) {
+      if (mode === 'paused') return 'Paused';
+      if (mode === 'direct') return 'Direct';
+      return 'Queued';
+    }
+
     function render(platforms) {
       if (!platforms || !platforms.length) {
-        panel.innerHTML = '<div style="color:var(--muted);font-size:13px;">No throttled platforms configured.</div>';
+        panel.innerHTML = '<div style="color:var(--muted);font-size:13px;">No external delivery platforms configured.</div>';
         return;
       }
       panel.innerHTML = platforms.map((item) => {
         const cfg = item.config || {};
         const platform = item.platform;
         const last = item.last_activity_at ? new Date(item.last_activity_at).toLocaleString() : 'none';
+        const mode = cfg.delivery_mode || (cfg.enabled === false ? 'paused' : 'queued');
+        const next = mode === 'queued'
+          ? (item.next_eligible_at ? new Date(item.next_eligible_at).toLocaleString() : 'now')
+          : 'n/a';
         return `
           <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface-2);" data-social-throttle-platform="${esc(platform)}">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -1069,13 +1081,20 @@
                 <div style="font-weight:700;color:var(--text);">${esc(labelFor(platform))}</div>
                 <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">
                   Pending approved: ${Number(item.pending_approved || 0).toLocaleString()} · Today published/reserved:
-                  ${Number(item.published_or_reserved_today || 0).toLocaleString()} · Last activity: ${esc(last)}
+                  ${Number(item.published_or_reserved_today || 0).toLocaleString()} · Last activity: ${esc(last)} · Next queued slot: ${esc(next)}
                 </div>
               </div>
-              <label class="runtime-flag-switch" style="margin:0;">
-                <input type="checkbox" data-field="enabled" ${cfg.enabled ? 'checked' : ''}>
-                <span>${cfg.enabled ? 'On' : 'Off'}</span>
+              <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;min-width:160px;">
+                Delivery mode
+                <select data-field="delivery_mode" class="llm-settings-select" style="min-width:160px;height:34px;">
+                  <option value="paused" ${mode === 'paused' ? 'selected' : ''}>Paused</option>
+                  <option value="queued" ${mode === 'queued' ? 'selected' : ''}>Queued</option>
+                  <option value="direct" ${mode === 'direct' ? 'selected' : ''}>Direct</option>
+                </select>
               </label>
+            </div>
+            <div style="font-size:11.5px;color:var(--muted);margin:-4px 0 10px;">
+              Current mode: ${esc(modeLabel(mode))}
             </div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
               <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;">
@@ -1109,19 +1128,17 @@
       panel.querySelectorAll('[data-action="save-social-throttle"]').forEach((button) => {
         button.addEventListener('click', () => savePlatform(button.closest('[data-social-throttle-platform]')));
       });
-      panel.querySelectorAll('input[data-field="enabled"]').forEach((input) => {
-        input.addEventListener('change', () => {
-          const span = input.closest('.runtime-flag-switch').querySelector('span');
-          span.textContent = input.checked ? 'On' : 'Off';
-        });
-      });
     }
 
     function payloadFor(card) {
       const body = {platform: card.dataset.socialThrottlePlatform};
-      card.querySelectorAll('[data-field]').forEach((input) => {
-        const field = input.dataset.field;
-        body[field] = input.type === 'checkbox' ? input.checked : Number(input.value || 0);
+      card.querySelectorAll('[data-field]').forEach((el) => {
+        const field = el.dataset.field;
+        if (field === 'delivery_mode') {
+          body[field] = el.value;
+        } else {
+          body[field] = el.type === 'checkbox' ? el.checked : Number(el.value || 0);
+        }
       });
       return body;
     }
@@ -1141,7 +1158,7 @@
 
     async function savePlatform(card) {
       if (!card) return;
-      card.querySelectorAll('input,button').forEach((el) => { el.disabled = true; });
+      card.querySelectorAll('input,select,button').forEach((el) => { el.disabled = true; });
       setStatus('');
       try {
         const res = await fetch('/api/admin/social-throttle', {
@@ -1156,7 +1173,7 @@
       } catch (err) {
         setStatus(err.message || 'Failed to save.', 'error');
       } finally {
-        card.querySelectorAll('input,button').forEach((el) => { el.disabled = false; });
+        card.querySelectorAll('input,select,button').forEach((el) => { el.disabled = false; });
       }
     }
 

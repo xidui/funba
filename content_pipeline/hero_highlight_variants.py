@@ -1080,10 +1080,35 @@ def _enqueue_hero_highlight_auto_publish(post_id: int, delivery_id: int, *, plat
         from tasks.content import dispatch_throttled_social_publish_task, publish_social_delivery_task
 
         if normalized in {"twitter", "instagram"}:
-            dispatch_throttled_social_publish_task.apply_async(
-                kwargs={"platform": normalized},
-                retry=False,
+            from content_pipeline.social_publish_throttle import (
+                DIRECT_DELIVERY_MODE,
+                PAUSED_DELIVERY_MODE,
+                get_social_throttle_config,
             )
+            from db.models import engine
+
+            with Session(engine) as scope_session:
+                delivery_mode = get_social_throttle_config(scope_session, normalized).delivery_mode
+
+            if delivery_mode == PAUSED_DELIVERY_MODE:
+                logger.info(
+                    "hero highlight social delivery paused platform=%s post_id=%s delivery_id=%s",
+                    normalized,
+                    post_id,
+                    delivery_id,
+                )
+                return True
+            if delivery_mode == DIRECT_DELIVERY_MODE:
+                publish_social_delivery_task.apply_async(
+                    args=(post_id, delivery_id),
+                    kwargs={"platform": normalized},
+                    retry=False,
+                )
+            else:
+                dispatch_throttled_social_publish_task.apply_async(
+                    kwargs={"platform": normalized},
+                    retry=False,
+                )
             return True
 
         publish_social_delivery_task.apply_async(
