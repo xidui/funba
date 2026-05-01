@@ -68,6 +68,34 @@ def _team_career_metric_description(base_description: str | None, *, zh: bool = 
     return f"{text} Computed across each franchise's seasons of the selected type.".strip()
 
 
+def _metric_dataset_description(metric_def, *, zh: bool = False) -> str:
+    """Return a Google Dataset-compatible description for metric pages."""
+    name = str(getattr(metric_def, "name", "") or getattr(metric_def, "name_en", "") or "NBA metric").strip()
+    description = str(getattr(metric_def, "description", "") or "").strip()
+    if zh:
+        fallback = (
+            f"{name} 是 FUNBA 的 NBA 指标数据集，包含球员、球队、比赛和赛季维度的排行榜、"
+            "历史结果和可筛选数据。"
+        )
+        suffix = "在 FUNBA 查看该 NBA 指标的数据集、排行榜、历史结果、赛季筛选和球员/球队详细对比。"
+    else:
+        fallback = (
+            f"{name} is a FUNBA NBA metric dataset with rankings, leaderboards, "
+            "historical results, and filterable player, team, game, or season data."
+        )
+        suffix = (
+            f"Explore NBA rankings, leaderboards, historical results, and filterable "
+            f"player, team, game, or season data for {name} on FUNBA."
+        )
+
+    if not description:
+        return fallback[:5000]
+    if len(description) >= 50:
+        return description[:5000]
+    separator = "" if description.endswith((".", "。", "!", "！", "?", "？")) else "."
+    return f"{description}{separator} {suffix}"[:5000]
+
+
 def register_metric_detail_routes(app, deps):
     def _resolve_entity_labels(session, rows):
         player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
@@ -826,9 +854,11 @@ def register_metric_detail_routes(app, deps):
             display_season_label = deps.season_label()(selected_season)
         current_metric_season_label = deps.season_label()(current_metric_season) if current_metric_season else None
         is_player_scope = metric_def.scope in ("player", "player_franchise")
+        metric_dataset_description = _metric_dataset_description(metric_def, zh=deps.is_zh())
         return deps.render_template()(
             "metric_detail.html",
             metric_def=metric_def,
+            metric_dataset_description=metric_dataset_description,
             result_rows=result_rows,
             show_rank_group=show_rank_group,
             is_player_scope=is_player_scope,
