@@ -266,18 +266,49 @@ def _metric_names(session: Session, metric_keys: set[str]) -> dict[str, tuple[st
     return {str(key): (name or str(key).replace("_", " ").title(), name_zh) for key, name, name_zh in rows}
 
 
-def _best_rank_context(rank_snapshot: dict) -> tuple[str, str]:
-    options = []
-    labels = (
-        ("alltime", "All-time"),
-        ("season", "Season"),
-        ("last10", "Last 10"),
-        ("last5", "Last 5"),
-        ("last3", "Last 3"),
+_RANK_WINDOW_LABELS = {
+    "alltime": "All-time",
+    "season": "Season",
+    "last10": "Last 10",
+    "last5": "Last 5",
+    "last3": "Last 3",
+}
+
+
+def _rank_text_for_window(rank_snapshot: dict, window: str) -> str | None:
+    """Format the rank_text for a specific window, using the rank/total
+    fields the curator already snapshotted. Returns None if the requested
+    window has no rank in the snapshot — caller decides the fallback."""
+    rank = rank_snapshot.get(window)
+    total = (
+        rank_snapshot.get("season_total") if window == "season"
+        else rank_snapshot.get(f"{window}_total")
     )
-    for key, label in labels:
-        rank = rank_snapshot.get(key)
-        total = rank_snapshot.get(f"{key}_total") if key != "season" else rank_snapshot.get("season_total")
+    if rank is None:
+        return None
+    try:
+        rank_int = int(rank)
+    except (TypeError, ValueError):
+        return None
+    try:
+        total_int = int(total) if total is not None else None
+    except (TypeError, ValueError):
+        total_int = None
+    label = _RANK_WINDOW_LABELS.get(window, "Season")
+    return f"#{rank_int} / {total_int} ({label})" if total_int else f"#{rank_int} ({label})"
+
+
+def _best_rank_context(rank_snapshot: dict) -> tuple[str, str]:
+    """Pick the most-impressive window for legacy curated entries that
+    lack an explicit `rank_window` field. Smallest rank/total ratio wins,
+    with rank as the tiebreaker."""
+    options = []
+    for window, label in _RANK_WINDOW_LABELS.items():
+        rank = rank_snapshot.get(window)
+        total = (
+            rank_snapshot.get("season_total") if window == "season"
+            else rank_snapshot.get(f"{window}_total")
+        )
         if rank is None:
             continue
         try:
@@ -289,22 +320,32 @@ def _best_rank_context(rank_snapshot: dict) -> tuple[str, str]:
         except (TypeError, ValueError):
             total_int = None
         ratio = (rank_int / total_int) if total_int else None
-        options.append((ratio if ratio is not None else 999.0, rank_int, total_int, label))
+        options.append((ratio if ratio is not None else 999.0, rank_int, total_int, window, label))
 
     if not options:
         return "season", "Ranking: unavailable"
 
-    _ratio, rank, total, label = sorted(options, key=lambda item: (item[0], item[1]))[0]
-    window = {
-        "All-time": "alltime",
-        "Season": "season",
-        "Last 10": "last10",
-        "Last 5": "last5",
-        "Last 3": "last3",
-    }.get(label, "season")
+    _ratio, rank, total, window, label = sorted(options, key=lambda item: (item[0], item[1]))[0]
     if total:
         return window, f"#{rank} / {total} ({label})"
     return window, f"#{rank} ({label})"
+
+
+def _resolve_rank_context(entry: dict) -> tuple[str, str]:
+    """Honor the curator's explicit `rank_window` field when present, falling
+    back to ratio-based inference for legacy entries that predate it.
+    `rank_text` is always derived from the chosen window so the displayed
+    rank line agrees with whatever drives the leaderboard scope downstream."""
+    snapshot = entry.get("rank_snapshot") or {}
+    explicit = entry.get("rank_window")
+    if isinstance(explicit, str) and explicit in _RANK_WINDOW_LABELS:
+        text = _rank_text_for_window(snapshot, explicit)
+        if text is not None:
+            return explicit, text
+        # Explicit window with no rank in snapshot — degrade to "unavailable"
+        # rather than silently swap to a different window via _best_rank_context.
+        return explicit, "Ranking: unavailable"
+    return _best_rank_context(snapshot)
 
 
 def _metric_rank_order(session: Session, metric_key: str) -> str:
@@ -681,7 +722,7 @@ def collect_hero_highlight_cards(session: Session, game: Game) -> list[HeroHighl
         if scope == "team" and not entity_label and entry.get("entity_id"):
             entity_label = teams.get(str(entry.get("entity_id")))
         season = entry.get("season") or game.season
-        rank_window, rank_text = _best_rank_context(entry.get("rank_snapshot") or {})
+        rank_window, rank_text = _resolve_rank_context(entry)
         ranking_metric_key, ranking_season = _resolve_ranking_metric_context(session, metric_key, season, entry)
         card = HeroHighlightCard(
             game_id=game.game_id,

@@ -413,6 +413,167 @@ def _coerce_metric_key_for_season(session: Session, metric_key: str, season: str
     return metric_key
 
 
+_RANK_WINDOWS = ("season", "alltime", "last3", "last5", "last10")
+_LASTN_WINDOW_SIZE = {"last3": 3, "last5": 5, "last10": 10}
+
+# Sibling metric suffixes / season tokens that deterministically encode the
+# leaderboard window. Mirrors `_window_label` in metrics/highlights/curator.py
+# so we can derive the window without needing the curator to hand it to us.
+_METRIC_KEY_WINDOW_SUFFIX = {
+    "_career": "alltime",
+    "_last3": "last3",
+    "_last5": "last5",
+    "_last10": "last10",
+}
+_SEASON_TOKEN_WINDOW_PREFIX = {
+    "all_": "alltime",
+    "last3_": "last3",
+    "last5_": "last5",
+    "last10_": "last10",
+}
+
+# Narrative-text fallback regexes — used only for legacy curated entries
+# generated before curator started emitting an explicit `rank_window` field.
+_ALLTIME_NARRATIVE_RE = re.compile(
+    # `regular[- ]season` matches both "regular season history" and the
+    # hyphenated "regular-season history" — curator's scope_reference_en
+    # uses the hyphenated form so most LLM output will too.
+    r"(playoff history|regular[- ]season history|play-in history|in nba history|in history\b|all[- ]time)",
+    re.IGNORECASE,
+)
+_ALLTIME_NARRATIVE_ZH = ("季后赛史", "季后赛历史", "常规赛史", "常规赛历史", "NBA史", "NBA历史", "史第", "史上")
+_LASTN_NARRATIVE_RE = re.compile(
+    r"\b(?:last|past)\s+(\d+)\s+(?:season|postseason|play-?off|regular)",
+    re.IGNORECASE,
+)
+
+
+def _season_type_prefix(season: str | None) -> str | None:
+    """First character of a 5-digit season key (1/2/4/5 = preseason/regular/
+    playoffs/play-in). Returns None for virtual season tokens like
+    'all_playoffs' / 'last5_regular'."""
+    raw = str(season or "")
+    return raw[:1] if raw[:1] in {"1", "2", "4", "5"} else None
+
+
+def _window_from_metric_key(metric_key: str | None, season: str | None) -> str | None:
+    """Deterministic window from metric_key suffix or season token. Mirrors
+    `_window_label` in metrics/highlights/curator.py. Returns None for base
+    metrics with a single-season key — the LLM frames those freely."""
+    mk = str(metric_key or "")
+    for suffix, window in _METRIC_KEY_WINDOW_SUFFIX.items():
+        if mk.endswith(suffix):
+            return window
+    season_token = str(season or "")
+    for prefix, window in _SEASON_TOKEN_WINDOW_PREFIX.items():
+        if season_token.startswith(prefix):
+            return window
+    return None
+
+
+def _window_from_narrative(narr_en: str, narr_zh: str) -> str | None:
+    """Last-resort window inference for legacy curated entries that predate
+    the curator's explicit `rank_window` field. Returns None when nothing
+    matches so the caller can fall through to a default rather than guess."""
+    if _ALLTIME_NARRATIVE_RE.search(narr_en) or any(s in narr_zh for s in _ALLTIME_NARRATIVE_ZH):
+        return "alltime"
+    m = _LASTN_NARRATIVE_RE.search(narr_en)
+    if m and m.group(1) in {"3", "5", "10"}:
+        return f"last{m.group(1)}"
+    return None
+
+
+def _pick_rank_window(card: dict[str, Any]) -> str:
+    """Resolve the leaderboard window for one card.
+
+    Three layers, deterministic-first:
+      1. Explicit `rank_window` field — set by the curator when generating
+         the entry. This is the source of truth for new content.
+      2. Sibling metric_key suffix / season token (e.g. `*_career`,
+         `last3_*`) — deterministic for variant metrics where the window
+         is encoded in the key itself.
+      3. Narrative regex — covers legacy entries that predate (1) and have
+         no explicit field (e.g. yesterday's posts in production).
+
+    Defaults to "season" — matches the legacy single-season behavior for
+    minimal admin-preview cards and base metrics whose narrative never
+    names a wider window.
+    """
+    explicit = _safe_str(card.get("rank_window"))
+    if explicit in _RANK_WINDOWS:
+        return explicit
+    structural = _window_from_metric_key(card.get("metric_key"), card.get("season"))
+    if structural is not None:
+        return structural
+    narrative = _window_from_narrative(
+        str(card.get("narrative_en") or ""),
+        str(card.get("narrative_zh") or ""),
+    )
+    if narrative is not None:
+        return narrative
+    return "season"
+
+
+def _recent_seasons_for_window(session: Session, season: str | None, window: str) -> list[str]:
+    """Most recent N season keys of the same stage as `season`. Mirrors
+    `_recent_seasons` in content_pipeline/hero_highlight_variants.py."""
+    prefix = _season_type_prefix(season)
+    if prefix is None:
+        return [str(season)] if season else []
+    limit = _LASTN_WINDOW_SIZE.get(window, 5)
+    rows = (
+        session.query(Game.season)
+        .filter(Game.season.like(f"{prefix}%"))
+        .distinct()
+        .order_by(Game.season.desc())
+        .limit(limit)
+        .all()
+    )
+    return [str(row[0]) for row in rows if row[0]]
+
+
+def _apply_window_season_filter(
+    query, *, window: str, season: str | None, recent_seasons: list[str]
+):
+    """Apply the right MetricResult.season filter for the chosen window:
+      - alltime  → season LIKE '<stage_prefix>%'
+      - last3/5/10 → season IN (recent_seasons)
+      - season (or unrecognized) → season == season
+    """
+    if window == "alltime":
+        prefix = _season_type_prefix(season)
+        if prefix:
+            return query.filter(MetricResult.season.like(f"{prefix}%"))
+    elif window in _LASTN_WINDOW_SIZE and recent_seasons:
+        return query.filter(MetricResult.season.in_(recent_seasons))
+    if season:
+        return query.filter(MetricResult.season == season)
+    return query
+
+
+def _window_season_label(window: str, season: str | None) -> str:
+    """Human label for the leaderboard scope shown in the poster header.
+    Pre-fix this said "2025-26 NBA Playoffs" for every poster regardless of
+    the actual leaderboard pool — even when the headline read "playoff
+    history". Now tracks the chosen window."""
+    stage_word, _ = _season_stage(season)
+    stage_title = stage_word.title()
+    if window == "alltime":
+        return f"All-Time NBA {stage_title}"
+    if window in _LASTN_WINDOW_SIZE:
+        return f"Last {_LASTN_WINDOW_SIZE[window]} NBA {stage_title}"
+    return f"{_season_label(season)} NBA {stage_title}"
+
+
+def _window_title_line_2(window: str, season: str | None, top_n: int, stage_pill_word: str) -> str:
+    """Second header line ("scope · TOP N") matched to the window."""
+    if window == "alltime":
+        return f"ALL-TIME NBA {stage_pill_word} · TOP {top_n}"
+    if window in _LASTN_WINDOW_SIZE:
+        return f"LAST {_LASTN_WINDOW_SIZE[window]} NBA {stage_pill_word} · TOP {top_n}"
+    return f"{_season_label(season).upper()} NBA {stage_pill_word} · TOP {top_n}"
+
+
 def build_prompt_context(
     session: Session,
     *,
@@ -488,7 +649,18 @@ def build_prompt_context(
     metric_scope = (md.scope if md and md.scope else _safe_str(card.get("scope"), "game"))
     metric_category = (md.category if md and md.category else "general")
     stage_word, stage_pill_word = _season_stage(season)
-    season_label = f"{_season_label(season)} NBA {stage_word.title()}"
+
+    # The leaderboard pool follows the window the headline is framed in
+    # (e.g. "5th-worst in playoff history" → all-time pool). Without this,
+    # an alltime-triggered card pulled rows from the trigger's single
+    # season and contradicted its own headline.
+    window = _pick_rank_window(card)
+    recent_seasons = (
+        _recent_seasons_for_window(session, season, window)
+        if window in _LASTN_WINDOW_SIZE
+        else []
+    )
+    season_label = _window_season_label(window, season)
 
     # ---- top N ----
     rank_order = "desc"
@@ -500,13 +672,15 @@ def build_prompt_context(
     except Exception:
         pass
     order_col = MetricResult.value_num.asc() if rank_order == "asc" else MetricResult.value_num.desc()
+    leaderboard_query = session.query(MetricResult).filter(
+        MetricResult.metric_key == metric_key,
+        MetricResult.value_num.isnot(None),
+    )
+    leaderboard_query = _apply_window_season_filter(
+        leaderboard_query, window=window, season=season, recent_seasons=recent_seasons
+    )
     rows: Iterable[MetricResult] = (
-        session.query(MetricResult)
-        .filter(
-            MetricResult.metric_key == metric_key,
-            MetricResult.season == season,
-            MetricResult.value_num.isnot(None),
-        )
+        leaderboard_query
         .order_by(order_col, MetricResult.entity_id.asc())
         .limit(top_n)
         .all()
@@ -597,24 +771,22 @@ def build_prompt_context(
             line += "    ← TRIGGERED TONIGHT"
         top_lines.append(line)
 
-    # If trigger isn't in top N, query its actual rank.
+    # If trigger isn't in top N, query its actual rank in the same pool the
+    # leaderboard above was drawn from.
     trigger_appendix_row = ""
     if not trigger_in_topn and trigger_entity_id:
         if isinstance(trigger_value_num, (int, float)):
-            better = (
-                session.query(MetricResult)
-                .filter(
-                    MetricResult.metric_key == metric_key,
-                    MetricResult.season == season,
-                    MetricResult.value_num.isnot(None),
-                    MetricResult.value_num
-                    > trigger_value_num
-                    if rank_order == "desc"
-                    else MetricResult.value_num < trigger_value_num,
-                )
-                .count()
+            better_q = session.query(MetricResult).filter(
+                MetricResult.metric_key == metric_key,
+                MetricResult.value_num.isnot(None),
+                MetricResult.value_num > trigger_value_num
+                if rank_order == "desc"
+                else MetricResult.value_num < trigger_value_num,
             )
-            trigger_rank = better + 1
+            better_q = _apply_window_season_filter(
+                better_q, window=window, season=season, recent_seasons=recent_seasons
+            )
+            trigger_rank = better_q.count() + 1
 
     # Trigger row labels
     trigger_label = _safe_str(card.get("entity_label") or card.get("player_name") or card.get("team_abbr") or trigger_entity_id)
@@ -738,7 +910,7 @@ def build_prompt_context(
         game_date_str = game.game_date.strftime("%b %-d, %Y") if hasattr(game.game_date, "strftime") else str(game.game_date)
 
     title_line_1 = metric_name.upper()
-    title_line_2 = f"{_season_label(season).upper()} NBA {stage_pill_word} · TOP {top_n}"
+    title_line_2 = _window_title_line_2(window, season, top_n, stage_pill_word)
 
     # entity_kind: for player metrics this is "player"; for team/game it's "team".
     if metric_scope == "player":
@@ -762,7 +934,7 @@ def build_prompt_context(
         "trigger_team_abbr": trigger_team_abbr,
         "trigger_value_str": trigger_value_str_display,
         "trigger_rank": trigger_rank or 0,
-        "trigger_window": _safe_str(card.get("rank_window"), "season"),
+        "trigger_window": window,
         "trigger_full_line": trigger_full_line,
         "trigger_in_topn": trigger_in_topn,
         "trigger_appendix_row": trigger_appendix_row,
