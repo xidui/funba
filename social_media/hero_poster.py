@@ -565,6 +565,29 @@ def _window_season_label(window: str, season: str | None) -> str:
     return f"{_season_label(season)} NBA {stage_title}"
 
 
+_TEAM_ALLTIME_SUBSTITUTIONS = (
+    # English: "(Career)" → "(All-Time)". Match case-insensitively but
+    # preserve the parenthesized form. Order matters — process longer/Chinese
+    # forms first so "(职业生涯)" is caught before bare "(生涯)".
+    (re.compile(r"\(\s*Career\s*\)", re.IGNORECASE), "(All-Time)"),
+    (re.compile(r"（\s*职业生涯\s*）"), "（队史）"),
+    (re.compile(r"（\s*生涯\s*）"), "（队史）"),
+)
+
+
+def _retitle_team_alltime(name: str, scope: str | None) -> str:
+    """Swap "(Career)" / "（生涯）" → "(All-Time)" / "（队史）" on team-scope
+    metric names. Teams don't have a "career", so the legacy auto-derived
+    suffix reads awkwardly on a poster header. Player metrics keep "Career"
+    (the natural word for a player's all-time totals)."""
+    if (scope or "").strip().lower() != "team":
+        return name
+    out = name or ""
+    for pattern, repl in _TEAM_ALLTIME_SUBSTITUTIONS:
+        out = pattern.sub(repl, out)
+    return out
+
+
 def _window_title_line_2(window: str, season: str | None, top_n: int, stage_pill_word: str) -> str:
     """Second header line ("scope · TOP N") matched to the window."""
     if window == "alltime":
@@ -648,6 +671,11 @@ def build_prompt_context(
     metric_description = (md.description if md and md.description else "") or ""
     metric_scope = (md.scope if md and md.scope else _safe_str(card.get("scope"), "game"))
     metric_category = (md.category if md and md.category else "general")
+    # Team metrics whose stored display name still says "(Career)" / "（生涯）"
+    # read awkwardly on a poster — teams don't have a "career". Re-label to
+    # "(All-Time)" / "（队史）" at render time so the image header is natural,
+    # without renaming the underlying metric_key (URL stays stable).
+    metric_name = _retitle_team_alltime(metric_name, metric_scope)
     stage_word, stage_pill_word = _season_stage(season)
 
     # The leaderboard pool follows the window the headline is framed in

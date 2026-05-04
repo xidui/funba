@@ -213,6 +213,34 @@ def test_apply_window_season_filter_routes_each_window():
         assert query.filter.call_count == 1
 
 
+def test_retitle_team_alltime_swaps_career_for_team_scope():
+    """Team metrics whose DB display name still says "(Career)" / "（生涯）"
+    read awkwardly on a poster — teams don't have a career. The render-time
+    swap normalizes to "(All-Time)" / "（队史）" without touching the underlying
+    metric_key, so URLs stay stable."""
+    from social_media.hero_poster import _retitle_team_alltime
+
+    # Team scope: swap.
+    assert _retitle_team_alltime("Wins By 10+ (Career)", "team") == "Wins By 10+ (All-Time)"
+    assert _retitle_team_alltime("某某指标（生涯）", "team") == "某某指标（队史）"
+    assert _retitle_team_alltime("某某指标（职业生涯）", "team") == "某某指标（队史）"
+    # Case insensitive on the English form.
+    assert _retitle_team_alltime("Foo (career)", "team") == "Foo (All-Time)"
+
+    # Player scope: keep "Career" — players legitimately have careers.
+    assert _retitle_team_alltime("Highest Score in a Game (Career)", "player") == "Highest Score in a Game (Career)"
+    assert _retitle_team_alltime("某某指标（生涯）", "player") == "某某指标（生涯）"
+
+    # Game scope: also leaves the name unchanged.
+    assert _retitle_team_alltime("Some Metric (Career)", "game") == "Some Metric (Career)"
+
+    # Names that already use "(All-Time)" / "（队史）" are no-ops.
+    assert _retitle_team_alltime("Wins By 10+ (All-Time)", "team") == "Wins By 10+ (All-Time)"
+
+    # Names without any career marker are passthrough.
+    assert _retitle_team_alltime("Plain Metric Name", "team") == "Plain Metric Name"
+
+
 def test_pick_rank_window_matches_hyphenated_regular_season_history():
     """Curator's scope_reference_en uses the hyphenated form
     `regular-season history`, so the legacy narrative-fallback regex must
