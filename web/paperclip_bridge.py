@@ -45,6 +45,27 @@ class PaperclipBridgeError(RuntimeError):
     pass
 
 
+REVIEW_PROFILE_PATHS = {
+    "default": "agents/content-reviewer/profiles/default.md",
+    "game_analysis": "agents/content-reviewer/profiles/game_analysis.md",
+    "metric_deep_dive": "agents/content-reviewer/profiles/metric_deep_dive.md",
+    "hero_highlight": "agents/content-reviewer/profiles/hero_highlight.md",
+}
+
+
+def review_profile_for_post(post: Mapping[str, Any]) -> str:
+    explicit = str(post.get("review_profile") or "").strip()
+    if explicit in REVIEW_PROFILE_PATHS:
+        return explicit
+    pipeline_type = str(post.get("pipeline_type") or "").strip()
+    if pipeline_type in REVIEW_PROFILE_PATHS:
+        return pipeline_type
+    topic = str(post.get("topic") or "").strip()
+    if topic.startswith("Hero Highlight"):
+        return "hero_highlight"
+    return "default"
+
+
 def load_paperclip_bridge_config(environ: Mapping[str, str] | None = None) -> PaperclipBridgeConfig | None:
     env = environ or os.environ
     api_url = (env.get("PAPERCLIP_API_URL") or "http://127.0.0.1:3100").strip()
@@ -186,8 +207,16 @@ def build_post_issue_title(post: Mapping[str, Any]) -> str:
 def build_post_issue_description(post: Mapping[str, Any]) -> str:
     variants = post.get("variants") or []
     images = post.get("images") or []
+    review_profile = review_profile_for_post(post)
+    review_profile_path = REVIEW_PROFILE_PATHS[review_profile]
+    pipeline_type = str(post.get("pipeline_type") or "").strip() or "unknown"
     enabled_images = [img for img in images if img.get("is_enabled")]
     enabled_slots = [str(img.get("slot") or "").strip() for img in enabled_images if str(img.get("slot") or "").strip()]
+    destination_platforms = {
+        str(destination.get("platform") or "").strip().lower()
+        for variant in variants
+        for destination in (variant.get("destinations") or [])
+    }
     variant_lines = []
     placeholder_warnings = []
     for variant in variants:
@@ -212,6 +241,9 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
         "topic": post.get("topic"),
         "status": post.get("status"),
         "priority": post.get("priority"),
+        "pipeline_type": pipeline_type,
+        "review_profile": review_profile,
+        "review_profile_path": review_profile_path,
         "source_metrics": post.get("source_metrics") or [],
         "source_game_ids": post.get("source_game_ids") or [],
     }
@@ -221,31 +253,57 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
     variant_block = "\n".join(variant_lines) if variant_lines else "- none yet"
     desc = (
         "Funba is the source of truth for this post. Review and publishing signals come from the Funba admin content UI.\n\n"
+        f"Review profile: `{review_profile}`\n"
+        f"Reviewer playbook: `{review_profile_path}`\n"
+        f"Pipeline type: `{pipeline_type}`\n\n"
         "Variants:\n"
         f"{variant_block}\n\n"
     )
-    if image_count > 0:
+    if review_profile == "hero_highlight":
+        expected_slots = ["poster"]
+        if "instagram" in destination_platforms or "ig" in destination_platforms:
+            expected_slots.append("poster_ig")
+        missing_expected_slots = [slot for slot in expected_slots if slot not in set(enabled_slots)]
         desc += (
-            f"Image pool: {enabled_count}/{image_count} enabled\n\n"
+            "## Hero Highlight Review Rules\n\n"
+            "This is a short deterministic hero-card post, not a long-form article. Review the poster and copy against the encoded game, trigger entity, metric value, and rank context before moving it forward.\n"
+            f"Use `GET /api/admin/content/{post.get('id') or '<ID>'}/image-review-payload?include_disabled=1` to inspect `poster` and, when Instagram is enabled, `poster_ig`.\n"
+            f"Expected hero image slots: {', '.join(expected_slots)}\n"
         )
-        desc += (
-            "## Image Placeholder Rules\n\n"
-            "Target image pool size for normal social posts is 10+ images so reviewers and publishers can choose the strongest set.\n"
-            "Content Analyst must place slot-based placeholders like `[[IMAGE:slot=img1]]` directly inside `content_raw` where the image should appear.\n"
-            "Do not assume the image pool alone is enough. If placeholders are missing, the images can be unused and the published post may go out as text-only.\n"
-        )
+        if image_count > 0:
+            desc += f"Image pool: {enabled_count}/{image_count} enabled\n"
         if enabled_slots:
-            desc += f"Enabled slots: {', '.join(enabled_slots)}\n\n"
-        if image_count < 10:
-            desc += f"Current warnings:\n- Image pool is only {image_count} item(s); target is at least 10.\n"
+            desc += f"Enabled slots: {', '.join(enabled_slots)}\n"
+        if missing_expected_slots or placeholder_warnings:
+            desc += "\nCurrent warnings:\n"
+            for slot in missing_expected_slots:
+                desc += f"- Expected hero image slot `{slot}` is not enabled.\n"
             if placeholder_warnings:
-                desc += "\n".join(placeholder_warnings) + "\n\n"
-            else:
-                desc += "\n"
-        if placeholder_warnings:
-            if image_count >= 10:
-                desc += "Current warnings:\n"
-                desc += "\n".join(placeholder_warnings) + "\n\n"
+                desc += "\n".join(placeholder_warnings) + "\n"
+        desc += "\n"
+    if image_count > 0:
+        if review_profile != "hero_highlight":
+            desc += (
+                f"Image pool: {enabled_count}/{image_count} enabled\n\n"
+            )
+            desc += (
+                "## Image Placeholder Rules\n\n"
+                "Target image pool size for normal social posts is 10+ images so reviewers and publishers can choose the strongest set.\n"
+                "Content Analyst must place slot-based placeholders like `[[IMAGE:slot=img1]]` directly inside `content_raw` where the image should appear.\n"
+                "Do not assume the image pool alone is enough. If placeholders are missing, the images can be unused and the published post may go out as text-only.\n"
+            )
+            if enabled_slots:
+                desc += f"Enabled slots: {', '.join(enabled_slots)}\n\n"
+            if image_count < 10:
+                desc += f"Current warnings:\n- Image pool is only {image_count} item(s); target is at least 10.\n"
+                if placeholder_warnings:
+                    desc += "\n".join(placeholder_warnings) + "\n\n"
+                else:
+                    desc += "\n"
+            if placeholder_warnings:
+                if image_count >= 10:
+                    desc += "Current warnings:\n"
+                    desc += "\n".join(placeholder_warnings) + "\n\n"
     desc += (
         "## Publishing with images\n\n"
         "When publishing to external platforms, pass `--post-id <post_id>` to the platform-specific CLI or publisher so it can read enabled images from the DB pool.\n"

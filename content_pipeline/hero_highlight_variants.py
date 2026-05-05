@@ -1,9 +1,10 @@
 """Deterministic social variants for curated game hero highlights.
 
-This pipeline intentionally does not involve Paperclip or LLM drafting.  It
-turns the already-curated hero card snapshots into short deterministic social
-posts.  Platforms that are explicitly marked safe can be auto-approved and
-queued for publish; other platforms still wait for human review.
+This pipeline intentionally does not involve LLM drafting. It turns the
+already-curated hero card snapshots into short deterministic social posts.
+New posts enter Paperclip/Funba AI review first; after that gate passes, the
+Hero Card publishing matrix decides which platforms can auto-publish and which
+ones still wait for human review.
 """
 from __future__ import annotations
 
@@ -39,20 +40,25 @@ PUBLIC_BASE_URL = "https://funba.app"
 FUNBA_INTERNAL_PLATFORM = "funba"
 DEFAULT_HERO_HIGHLIGHT_PLATFORMS = ("twitter", FUNBA_INTERNAL_PLATFORM)
 HERO_HIGHLIGHT_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_PLATFORMS"
-# Funba's home feed auto-approves + auto-publishes (no external API to push
-# to). Twitter requires human review before any external posting — generate
-# the variant, but leave the post in_review so an admin can edit + publish.
+# Backward-compatible env names. Creation no longer skips AI review; these
+# values are only honored by legacy helper callers.
 DEFAULT_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS = (FUNBA_INTERNAL_PLATFORM,)
 HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_APPROVE_PLATFORMS"
 DEFAULT_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS = (FUNBA_INTERNAL_PLATFORM,)
 HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH_PLATFORMS"
 HERO_HIGHLIGHT_AUTO_PUBLISH_ENV = "FUNBA_HERO_HIGHLIGHT_AUTO_PUBLISH"
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
-HERO_HIGHLIGHT_STATUS = "in_review"
+HERO_HIGHLIGHT_STATUS = "ai_review"
 HERO_POSTER_SLOT = "poster"
 HERO_POSTER_SQUARE_SLOT = "poster_ig"
 HERO_CARD_PIPELINE_KEY = "hero_card"
 HERO_CARD_INSTAGRAM_PLATFORM = "instagram"
+PAPERCLIP_HERO_REVIEW_ENV_KEYS = (
+    "PAPERCLIP_CONTENT_REVIEWER_AGENT_ID",
+    "PAPERCLIP_API_KEY",
+    "PAPERCLIP_COMPANY_ID",
+    "PAPERCLIP_FUNBA_PROJECT_ID",
+)
 
 logger = logging.getLogger(__name__)
 _IMAGE_PLACEHOLDER_RE = re.compile(r"\[\[IMAGE:([^\]]*)\]\]", re.IGNORECASE)
@@ -220,9 +226,6 @@ def _post_status_for_platforms(
     *,
     session: Session | None = None,
 ) -> str:
-    auto_approve = set(auto_approve_hero_highlight_platforms(environ, session=session))
-    if platforms and all(platform in auto_approve for platform in platforms):
-        return "approved"
     return HERO_HIGHLIGHT_STATUS
 
 
@@ -994,12 +997,9 @@ def _create_post_for_card(
             # isn't visible. Re-raise so the caller knows.
             raise
         return HeroHighlightPostResult(post_id=int(survivor.id), created=False)
-    # Auto-publish runs per-platform from the matrix: any platform with its
-    # autopublish toggle on auto-publishes the moment the row is written,
-    # regardless of whether the overall post.status is approved or in_review.
-    # That lets Funba's home feed go live even when Twitter sits in review.
-    auto_publish_platforms = _auto_publish_platform_set(session=session)
-    auto_approve_set = set(auto_approve_hero_highlight_platforms(session=session))
+    # Hero cards always enter the AI review gate first. The publishing matrix
+    # is applied after AI review passes: auto-publish platforms move straight to
+    # approved/published, while manual platforms stay in_review for a human.
     auto_publish_deliveries: list[tuple[str, int]] = []
 
     post = SocialPost(
@@ -1037,77 +1037,31 @@ def _create_post_for_card(
     for platform in platforms:
         renderer = HERO_HIGHLIGHT_RENDERERS[platform]
         content_raw = renderer(card)
-        missing_image_slots: list[str] = []
-        auto_publish_error: str | None = None
-        if platform in auto_publish_platforms and platform != FUNBA_INTERNAL_PLATFORM:
-            missing_image_slots = _missing_required_image_slots_for_post(
-                session,
-                int(post.id),
-                content_raw,
-                platform=platform,
-            )
-            if missing_image_slots:
-                auto_publish_error = (
-                    "Auto-publish skipped: missing image slot(s): "
-                    + ", ".join(missing_image_slots)
-                )
-        # Per-variant approval: a platform that the matrix marks as
-        # auto-approve lands its variant directly in 'approved' (so the
-        # publish guard lets it ship); other platforms wait in 'in_review'
-        # until an admin clicks Approve on that specific variant.
-        variant_status = (
-            "approved"
-            if platform in auto_approve_set and auto_publish_error is None
-            else HERO_HIGHLIGHT_STATUS
-        )
         variant = SocialPostVariant(
             post_id=post.id,
             title=_variant_title(card, platform),
             content_raw=content_raw,
             audience_hint=f"deterministic hero highlight / {platform}",
-            status=variant_status,
+            status=HERO_HIGHLIGHT_STATUS,
             created_at=now,
             updated_at=now,
         )
         session.add(variant)
         session.flush()
-        # Funba's own platform "publishes" by simply having a SocialPostDelivery
-        # row visible to the home feed; there's no external API to push to,
-        # so we mark it published immediately when auto-publish is enabled.
-        is_funba_auto_publish = (
-            platform == FUNBA_INTERNAL_PLATFORM and platform in auto_publish_platforms
-        )
         delivery = SocialPostDelivery(
             variant_id=variant.id,
             platform=platform,
             forum=None,
             is_enabled=True,
-            status="published" if is_funba_auto_publish else ("failed" if auto_publish_error else "pending"),
-            content_final=content_raw if is_funba_auto_publish else None,
-            published_at=now if is_funba_auto_publish else None,
-            error_message=auto_publish_error,
+            status="pending",
+            content_final=None,
+            published_at=None,
+            error_message=None,
             created_at=now,
             updated_at=now,
         )
         session.add(delivery)
         session.flush()
-        # Only enqueue background publishing for platforms with external APIs
-        # (Twitter etc). Funba is published the moment the row hits the DB.
-        if (
-            platform in auto_publish_platforms
-            and platform != FUNBA_INTERNAL_PLATFORM
-            and auto_publish_error is None
-        ):
-            auto_publish_deliveries.append((platform, int(delivery.id)))
-
-    # If funba_internal auto-published, mirror this post into NewsArticle so it
-    # surfaces on the news detail page (and clusters / tagging / scoring).
-    if FUNBA_INTERNAL_PLATFORM in auto_publish_platforms:
-        try:
-            from db.news_internal import mirror_published_social_post
-            mirror_published_social_post(session, post)
-        except Exception:
-            logger.exception("hero highlight: mirror_published_social_post failed post_id=%s", post.id)
 
     return HeroHighlightPostResult(
         post_id=int(post.id),
@@ -1174,6 +1128,32 @@ def _enqueue_hero_highlight_auto_publish(post_id: int, delivery_id: int, *, plat
         return False
 
 
+def _paperclip_content_review_configured(environ: dict[str, str] | None = None) -> bool:
+    env = environ if environ is not None else os.environ
+    return bool(env.get("PAPERCLIP_CONTENT_REVIEWER_AGENT_ID")) and any(
+        env.get(key) for key in PAPERCLIP_HERO_REVIEW_ENV_KEYS[1:]
+    )
+
+
+def _ensure_paperclip_issues_for_created_posts(post_ids: list[int]) -> list[int]:
+    if not post_ids or not _paperclip_content_review_configured():
+        return []
+    try:
+        from web.app import _ensure_paperclip_issue_for_post
+    except Exception:
+        logger.exception("failed to import Paperclip bridge for hero highlight posts")
+        return []
+
+    ensured: list[int] = []
+    for post_id in post_ids:
+        try:
+            _ensure_paperclip_issue_for_post(post_id)
+            ensured.append(int(post_id))
+        except Exception:
+            logger.exception("failed to ensure Paperclip issue for hero highlight post_id=%s", post_id)
+    return ensured
+
+
 def generate_hero_highlight_variants_for_game(
     session: Session,
     game_id: str,
@@ -1220,6 +1200,9 @@ def generate_hero_highlight_variants_for_game(
     game.variants_generated_at = _dt.now(_tz.utc)
     session.commit()
 
+    paperclip_issue_post_ids = _ensure_paperclip_issues_for_created_posts(
+        [result.post_id for result in post_results if result.created]
+    )
     auto_publish_enqueued: list[int] = []
     auto_publish_enqueue_failed: list[int] = []
     for result in post_results:
@@ -1236,6 +1219,7 @@ def generate_hero_highlight_variants_for_game(
         "hero_count": len(cards),
         "post_ids": [result.post_id for result in post_results],
         "created_post_ids": [result.post_id for result in post_results if result.created],
+        "paperclip_issue_post_ids": paperclip_issue_post_ids,
         "auto_publish_delivery_ids": auto_publish_enqueued,
         "auto_publish_enqueue_failed_delivery_ids": auto_publish_enqueue_failed,
     }

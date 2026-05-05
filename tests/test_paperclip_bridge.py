@@ -14,6 +14,7 @@ from web.paperclip_bridge import (  # noqa: E402
     build_post_issue_description,
     desired_issue_state_for_post,
     merge_paperclip_comments,
+    review_profile_for_post,
 )
 
 
@@ -121,6 +122,39 @@ class TestPaperclipBridgeHelpers(unittest.TestCase):
         self.assertIn("Enabled slots: img1, img2", description)
         self.assertIn("Image pool is only 2 item(s); target is at least 10", description)
         self.assertIn("no `[[IMAGE:slot=...]]` placeholder", description)
+
+    def test_build_post_issue_description_uses_hero_profile(self):
+        post = {
+            "id": 481,
+            "source_date": "2026-05-04",
+            "topic": "Hero Highlight — 0042500231 — game — stocks — 0042500231:1641705",
+            "status": "ai_review",
+            "priority": 25,
+            "pipeline_type": "hero_highlight",
+            "source_metrics": ["stocks"],
+            "source_game_ids": ["0042500231"],
+            "images": [
+                {"slot": "poster", "is_enabled": True},
+            ],
+            "variants": [
+                {
+                    "title": "Victor Wembanyama's 12 stocks",
+                    "audience_hint": "deterministic hero highlight / funba",
+                    "content_raw": "[[IMAGE:slot=poster]]\nVictor Wembanyama had 12 stocks.",
+                    "destinations": [{"platform": "funba", "forum": None}],
+                }
+            ],
+        }
+        description = build_post_issue_description(post)
+
+        self.assertEqual(review_profile_for_post(post), "hero_highlight")
+        self.assertIn("Review profile: `hero_highlight`", description)
+        self.assertIn("Reviewer playbook: `agents/content-reviewer/profiles/hero_highlight.md`", description)
+        self.assertIn("Hero Highlight Review Rules", description)
+        self.assertIn("Expected hero image slots: poster", description)
+        self.assertIn('"review_profile": "hero_highlight"', description)
+        self.assertNotIn("Target image pool size for normal social posts is 10+ images", description)
+        self.assertNotIn("Image pool is only 1 item(s); target is at least 10", description)
 
     def test_merge_paperclip_comments_appends_only_new_remote_comments(self):
         comments = []

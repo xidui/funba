@@ -7090,12 +7090,28 @@ def _load_social_post_bundle(db_sess, post_id: int):
         .order_by(SocialPostImage.id)
         .all()
     )
+    game_analysis_post_ids: set[int] = set()
+    try:
+        linked = (
+            db_sess.query(GameContentAnalysisIssuePost.post_id)
+            .filter(GameContentAnalysisIssuePost.post_id == post_id)
+            .first()
+        )
+        if linked and linked[0] is not None:
+            game_analysis_post_ids.add(int(linked[0]))
+    except Exception:
+        game_analysis_post_ids = set()
+    pipeline_type, pipeline_label = _social_post_pipeline_type(post, game_analysis_post_ids)
+    review_profile = pipeline_type if pipeline_type in {"game_analysis", "metric_deep_dive", "hero_highlight"} else "default"
     snapshot = {
         "id": post.id,
         "topic": post.topic,
         "source_date": post.source_date.isoformat() if post.source_date else None,
         "status": post.status,
         "priority": post.priority,
+        "pipeline_type": pipeline_type,
+        "pipeline_label": pipeline_label,
+        "review_profile": review_profile,
         "source_metrics": source_metrics,
         "source_game_ids": source_game_ids,
         "variants": [
@@ -7310,9 +7326,22 @@ def _ensure_paperclip_issue_for_post(post_id: int) -> None:
                 issue = client.update_issue(post.paperclip_issue_id, payload)
             else:
                 issue = client.create_issue(payload)
+            had_issue = bool(post.paperclip_issue_id)
+            previous_agent_id = post.paperclip_assignee_agent_id
             warning_text = "\n".join(desired_state.warnings) if desired_state.warnings else None
             _apply_paperclip_issue_fields(post, issue, sync_error=warning_text)
+            issue_id = post.paperclip_issue_id
             db_sess.commit()
+        if issue_id and desired_state.assignee_agent_id and (not had_issue or previous_agent_id != desired_state.assignee_agent_id):
+            try:
+                client.wake_agent(
+                    desired_state.assignee_agent_id,
+                    reason="ensure_social_post_issue",
+                    payload={"issueId": issue_id},
+                    force_fresh_session=True,
+                )
+            except Exception as wake_exc:
+                logger.warning("wake_agent failed while ensuring SocialPost %s: %s", post_id, wake_exc)
     except PaperclipBridgeError as exc:
         logger.warning("Failed to ensure Paperclip issue for SocialPost %s: %s", post_id, exc)
         with SessionLocal() as db_sess:
@@ -7456,6 +7485,53 @@ def _sync_social_post_from_paperclip(post_id: int, *, ensure_issue: bool = True)
     return None
 
 
+def _publish_funba_internal_delivery(post_id: int, delivery_id: int) -> bool:
+    now = datetime.utcnow()
+    try:
+        from db.news_internal import mirror_published_social_post
+
+        with SessionLocal() as db_sess:
+            row = (
+                db_sess.query(SocialPostDelivery, SocialPostVariant, SocialPost)
+                .join(SocialPostVariant, SocialPostVariant.id == SocialPostDelivery.variant_id)
+                .join(SocialPost, SocialPost.id == SocialPostVariant.post_id)
+                .filter(
+                    SocialPost.id == post_id,
+                    SocialPostDelivery.id == delivery_id,
+                    SocialPostDelivery.platform == "funba",
+                )
+                .first()
+            )
+            if row is None:
+                logger.warning("funba publish: delivery not found post_id=%s delivery_id=%s", post_id, delivery_id)
+                return False
+            delivery, variant, post = row
+            if not bool(getattr(delivery, "is_enabled", True)):
+                logger.info("funba publish: delivery disabled post_id=%s delivery_id=%s", post_id, delivery_id)
+                return False
+            if str(getattr(post, "status", "") or "").strip().lower() == "archived":
+                logger.info("funba publish: refusing archived post_id=%s delivery_id=%s", post_id, delivery_id)
+                return False
+            if delivery.status != "published":
+                delivery.status = "published"
+                delivery.content_final = variant.content_raw
+                delivery.published_at = now
+                delivery.error_message = None
+                delivery.updated_at = now
+            mirror_published_social_post(db_sess, post)
+            db_sess.commit()
+            return True
+    except Exception as exc:
+        logger.warning(
+            "failed to publish funba delivery post_id=%s delivery_id=%s: %s",
+            post_id,
+            delivery_id,
+            exc,
+            exc_info=True,
+        )
+        return False
+
+
 def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) -> bool:
     """Enqueue the platform-specific publish wrapper for one delivery.
 
@@ -7469,6 +7545,8 @@ def _enqueue_publish_delivery(post_id: int, delivery_id: int, *, platform: str) 
     if not normalized:
         logger.warning("variant approve: refusing to publish delivery=%s without platform", delivery_id)
         return False
+    if normalized == "funba":
+        return _publish_funba_internal_delivery(post_id, delivery_id)
     try:
         from tasks.content import dispatch_throttled_social_publish_task, publish_social_delivery_task
 

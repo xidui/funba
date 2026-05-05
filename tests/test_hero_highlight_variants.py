@@ -249,7 +249,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
         )
         session.commit()
 
-    def test_generate_creates_auto_approved_post_with_pending_delivery(self):
+    def test_generate_creates_ai_review_post_with_pending_delivery(self):
         with self.SessionLocal() as session:
             self._seed_game(session)
 
@@ -263,7 +263,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(result["hero_count"], 1)
 
             post = session.query(SocialPost).one()
-            self.assertEqual(post.status, "approved")
+            self.assertEqual(post.status, "ai_review")
             self.assertEqual(json.loads(post.source_metrics), ["best_single_game_pts"])
             self.assertEqual(json.loads(post.source_game_ids), ["0022500001"])
             self.assertTrue(post.topic.startswith("Hero Highlight — 0022500001 — player"))
@@ -272,7 +272,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
             variant = session.query(SocialPostVariant).one()
             self.assertEqual(variant.post_id, post.id)
-            self.assertEqual(variant.status, "approved")
+            self.assertEqual(variant.status, "ai_review")
             self.assertIn("Hero Player scored 55, best this season", variant.title)
             self.assertIn("[[IMAGE:slot=poster]]", variant.content_raw)
             self.assertIn("Hero Player scored 55, best this season", variant.content_raw)
@@ -289,7 +289,7 @@ class TestHeroHighlightVariants(unittest.TestCase):
             self.assertEqual(delivery.status, "pending")
             self.assertTrue(delivery.is_enabled)
 
-    def test_auto_publish_enqueue_runs_after_commit_when_enabled(self):
+    def test_auto_publish_is_deferred_until_ai_review_passes(self):
         with self.SessionLocal() as session:
             self._seed_game(session)
 
@@ -308,11 +308,12 @@ class TestHeroHighlightVariants(unittest.TestCase):
 
             post = session.query(SocialPost).one()
             delivery = session.query(SocialPostDelivery).one()
-            self.assertEqual(post.status, "approved")
-            self.assertEqual(result["auto_publish_delivery_ids"], [delivery.id])
-            enqueue_mock.assert_called_once_with(post.id, delivery.id, platform="twitter")
+            self.assertEqual(post.status, "ai_review")
+            self.assertEqual(delivery.status, "pending")
+            self.assertEqual(result["auto_publish_delivery_ids"], [])
+            enqueue_mock.assert_not_called()
 
-    def test_auto_publish_skips_delivery_when_required_poster_is_missing(self):
+    def test_missing_poster_is_reviewed_in_ai_gate_not_failed_at_creation(self):
         with self.SessionLocal() as session:
             self._seed_game(session)
 
@@ -329,9 +330,9 @@ class TestHeroHighlightVariants(unittest.TestCase):
             variant = session.query(SocialPostVariant).one()
             delivery = session.query(SocialPostDelivery).one()
             self.assertEqual(result["auto_publish_delivery_ids"], [])
-            self.assertEqual(variant.status, "in_review")
-            self.assertEqual(delivery.status, "failed")
-            self.assertIn("missing image slot(s): poster", delivery.error_message)
+            self.assertEqual(variant.status, "ai_review")
+            self.assertEqual(delivery.status, "pending")
+            self.assertIsNone(delivery.error_message)
             enqueue_mock.assert_not_called()
 
     def test_twitter_missing_poster_guard_allows_instagram_square_fallback(self):
@@ -399,13 +400,11 @@ class TestHeroHighlightVariants(unittest.TestCase):
                 d.platform: session.query(SocialPostVariant).filter(SocialPostVariant.id == d.variant_id).one()
                 for d in deliveries
             }
-            self.assertEqual(post.status, "in_review")
+            self.assertEqual(post.status, "ai_review")
             self.assertEqual(result["auto_publish_delivery_ids"], [])
             self.assertEqual([delivery.platform for delivery in deliveries], ["mastodon", "twitter"])
-            # twitter is in the auto-approve env override → its variant lands approved.
-            # mastodon is not in the override → its variant stays in_review.
-            self.assertEqual(variants_by_platform["twitter"].status, "approved")
-            self.assertEqual(variants_by_platform["mastodon"].status, "in_review")
+            self.assertEqual(variants_by_platform["twitter"].status, "ai_review")
+            self.assertEqual(variants_by_platform["mastodon"].status, "ai_review")
 
     def test_generate_is_idempotent_for_same_hero_identity(self):
         with self.SessionLocal() as session:

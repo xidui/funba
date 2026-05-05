@@ -7,6 +7,7 @@ When working on a project, read the project's `AGENTS.md` from the working direc
 - `API.md` from the project root
 - `agents/content-analyst/AGENTS.md`
 - `agents/social-media/README.md`, then the relevant platform writing playbook(s) for the variants you are reviewing
+- the review profile named in the Paperclip issue, under `agents/content-reviewer/profiles/`
 
 Read the Content Analyst instructions before editing anything. They define conventions that the reviewer must preserve, including image placeholder usage, destination assumptions, metric-link patterns, and other content-pipeline contracts. If you change content without understanding those conventions, you can break downstream delivery.
 
@@ -33,6 +34,17 @@ You do not:
 - originate entirely new daily content batches from scratch unless the issue explicitly requires salvage
 - publish externally
 - replace the human final approval step
+
+## Review Profiles
+
+Every Funba content issue should declare a `Review profile` and `Reviewer playbook` in the issue description. Read that profile before editing or approving the post. Profile-specific rules override the generic checklist here when the content unit is not a normal long-form social article.
+
+Current profiles:
+
+- `hero_highlight`: deterministic short Hero Card posts. These are poster-first social cards, not long articles. Do not apply the 10+ image-pool expectation.
+- `game_analysis`: normal game-analysis posts. Use the full long-form checklist.
+- `metric_deep_dive`: normal metric-analysis posts. Use the full long-form checklist with extra attention to metric definition and season/ranking scope.
+- `default`: fallback for manually created or uncategorized posts.
 
 ## Core Principle
 
@@ -65,7 +77,8 @@ For each issue:
    - specifically look for the analyst's `Story Signals` note when reviewing game-analysis posts
 2. Read `agents/content-analyst/AGENTS.md` to refresh the analyst-side conventions.
 3. Inspect the post's enabled delivery platforms, then read `agents/social-media/writing-principles.md` together with the corresponding platform writing playbook(s) from `agents/social-media/`.
-4. Fetch the linked Funba post detail:
+4. Read the issue's declared review profile from `agents/content-reviewer/profiles/`.
+5. Fetch the linked Funba post detail:
    - `/api/admin/content/{post_id}`
 
 Do not skip step 2. The reviewer must understand the analyst conventions before editing the draft.

@@ -13,7 +13,7 @@ def validate_hupu_title(title: str | None) -> str | None:
     length = len(title)
     if length < _HUPU_TITLE_MIN or length > _HUPU_TITLE_MAX:
         return (
-            f"Hupu title length must be {_HUPU_TITLE_MIN}-{_HUPU_TITLE_MAX}; "
+            f"Hupu title length must be {_HUPU_TITLE_MIN}-{_HUPU_TITLE_MAX} characters; "
             f"current: {length}"
         )
     return None

@@ -37,6 +37,77 @@ def _hero_highlight_clause(SocialPost):
     return SocialPost.topic.like(f"{HERO_HIGHLIGHT_TOPIC_PREFIX}%")
 
 
+def _is_hero_highlight_topic(topic: str | None) -> bool:
+    return str(topic or "").startswith(HERO_HIGHLIGHT_TOPIC_PREFIX)
+
+
+def _normalize_delivery_platform(platform: str | None) -> str:
+    raw = str(platform or "").strip().lower()
+    if raw == "x":
+        return "twitter"
+    if raw == "ig":
+        return "instagram"
+    return raw
+
+
+def _advance_hero_variants_after_ai_review(
+    session,
+    post,
+    SocialPostVariant,
+    SocialPostDelivery,
+) -> list[tuple[int, str]]:
+    """Apply Hero Card publishing-matrix decisions after AI review passes.
+
+    Hero cards are generated into `ai_review` so the Paperclip reviewer can
+    catch poster/team/stat mistakes. Once that gate passes, variants whose
+    enabled destinations are all configured for hero-card autopublish can skip
+    human review; every other variant stays in review.
+    """
+    if not _is_hero_highlight_topic(getattr(post, "topic", None)):
+        return []
+
+    from content_pipeline.publishing_registry import autopublish_platforms
+
+    now = datetime.utcnow()
+    auto_publish_set = {_normalize_delivery_platform(p) for p in autopublish_platforms(session, "hero_card")}
+    variants = (
+        session.query(SocialPostVariant)
+        .filter(SocialPostVariant.post_id == post.id)
+        .order_by(SocialPostVariant.id)
+        .all()
+    )
+    platforms_for_publish: list[tuple[int, str]] = []
+    for variant in variants:
+        deliveries = (
+            session.query(SocialPostDelivery)
+            .filter(
+                SocialPostDelivery.variant_id == variant.id,
+                SocialPostDelivery.is_enabled == True,  # noqa: E712
+            )
+            .order_by(SocialPostDelivery.id)
+            .all()
+        )
+        enabled_platforms = {_normalize_delivery_platform(delivery.platform) for delivery in deliveries}
+        enabled_platforms.discard("")
+        if enabled_platforms and enabled_platforms.issubset(auto_publish_set):
+            variant.status = "approved"
+            for delivery in deliveries:
+                platform = _normalize_delivery_platform(delivery.platform)
+                if delivery.status == "failed":
+                    delivery.status = "pending"
+                    delivery.error_message = None
+                    delivery.updated_at = now
+                if delivery.status == "pending":
+                    platforms_for_publish.append((int(delivery.id), platform))
+        else:
+            variant.status = "in_review"
+        variant.updated_at = now
+
+    post.status = "approved" if variants and all(v.status == "approved" for v in variants) else "in_review"
+    post.updated_at = now
+    return platforms_for_publish
+
+
 def _game_analysis_post_id_query(session, GameContentAnalysisIssuePost):
     return session.query(GameContentAnalysisIssuePost.post_id)
 
@@ -224,8 +295,11 @@ def register_admin_content_routes(app, deps):
         handoff_comment_timestamp = None
         topic_changed = False
         priority_changed = False
+        platforms_for_publish: list[tuple[int, str]] = []
         SessionLocal = deps.session_local()
         SocialPost = deps.social_post_model()
+        SocialPostVariant = deps.social_post_variant_model()
+        SocialPostDelivery = deps.social_post_delivery_model()
         with SessionLocal() as s:
             p = s.query(SocialPost).filter(SocialPost.id == post_id).first()
             if not p:
@@ -248,6 +322,12 @@ def register_admin_content_routes(app, deps):
                 validation_errors = deps.post_ai_review_validation_errors()(s, post_id)
                 if validation_errors:
                     return jsonify({"error": "ai_review_validation_failed", "details": validation_errors}), 400
+                platforms_for_publish = _advance_hero_variants_after_ai_review(
+                    s,
+                    p,
+                    SocialPostVariant,
+                    SocialPostDelivery,
+                )
             if p.status != previous_status:
                 if p.status == "ai_review":
                     handoff_action = "send_to_ai_review"
@@ -288,7 +368,16 @@ def register_admin_content_routes(app, deps):
         elif topic_changed or priority_changed:
             deps.ensure_paperclip_issue_for_post()(post_id)
         sync_result = deps.sync_social_post_from_paperclip()(post_id, ensure_issue=False)
-        return jsonify({"ok": True, **(sync_result or {})})
+        published_delivery_ids: list[int] = []
+        if platforms_for_publish:
+            from content_pipeline.publishing_registry import direct_publish_platforms
+
+            direct_set = direct_publish_platforms()
+            for delivery_id, platform in platforms_for_publish:
+                if platform in direct_set:
+                    if deps.enqueue_publish_delivery()(post_id, delivery_id, platform=platform):
+                        published_delivery_ids.append(delivery_id)
+        return jsonify({"ok": True, "auto_publish_delivery_ids": published_delivery_ids, **(sync_result or {})})
 
     def admin_content_comment(post_id: int):
         denied = deps.require_admin_json()()
