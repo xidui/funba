@@ -2780,6 +2780,49 @@ def _attach_window_ranks(
     return out
 
 
+def _attach_pool_size(session, cards: list[dict]) -> None:
+    """Set ``card['pool_size']`` to the leaderboard pool size for each card's
+    (metric_key, season) pair.
+
+    "Pool size" = number of MetricResult rows the hero poster's leaderboard
+    query would draw from for that candidate. The curator uses this to avoid
+    nominating sparse-pool metrics (e.g. ten_plus_block_games where this
+    season only one player has qualified) as hero — those produce posters
+    with mostly empty leaderboard rows.
+
+    Mutates cards in place. No-ops cards missing metric_key/season.
+    """
+    if not cards:
+        return
+    pairs = sorted({
+        (c.get("metric_key"), c.get("season"))
+        for c in cards
+        if c.get("metric_key") and c.get("season")
+    })
+    if not pairs:
+        return
+    pool_size_map: dict[tuple[str, str], int] = {}
+    rows = (
+        session.query(
+            MetricResultModel.metric_key,
+            MetricResultModel.season,
+            func.count(MetricResultModel.id),
+        )
+        .filter(
+            tuple_(MetricResultModel.metric_key, MetricResultModel.season).in_(pairs),
+            MetricResultModel.value_num.isnot(None),
+        )
+        .group_by(MetricResultModel.metric_key, MetricResultModel.season)
+        .all()
+    )
+    for mk, season, n in rows:
+        pool_size_map[(str(mk), str(season))] = int(n or 0)
+    for c in cards:
+        key = (c.get("metric_key"), c.get("season"))
+        if key in pool_size_map:
+            c["pool_size"] = pool_size_map[key]
+
+
 def _milestone_cards_for_game(session, game_id: str) -> dict[str, list[dict]]:
     import json as _json
     from metrics.framework.base import is_career_season
@@ -3384,6 +3427,12 @@ def _get_game_triggered_entity_metrics(session, game_id: str, game_season: str |
                     card["cooldown_factor"] = factor
                     card["cooldown_days_since"] = days_since
 
+    # Pool size signals (used by curator to skip sparse-pool metrics that
+    # would render with empty leaderboard rows). Done after milestone merge
+    # so milestone cards are covered too.
+    for kind in ("player", "team"):
+        _attach_pool_size(session, result.get(kind) or [])
+
     return _finalize_triggered_result(result, game_id)
 
 
@@ -3855,6 +3904,7 @@ def _build_game_raw_metric_candidates(session, game_id: str, game_season: str | 
             "computed_at": r.computed_at,
             "rank_group": r.rank_group,
         })
+    _attach_pool_size(session, season_metrics)
     return season_metrics
 
 

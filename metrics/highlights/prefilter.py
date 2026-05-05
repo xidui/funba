@@ -159,6 +159,7 @@ def build_llm_input(entries: Iterable[dict]) -> list[dict]:
             "season_total": e.get("total"),
             "alltime_rank": e.get("all_games_rank"),
             "alltime_total": e.get("all_games_total"),
+            "pool_size": e.get("pool_size"),
             "context": e.get("context") or {},
             "context_label": e.get("context_label"),
         })

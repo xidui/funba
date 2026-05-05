@@ -60,11 +60,14 @@ _FORMAT_CLAUSE = {
     "vertical": "1024x1536 vertical, social-media share safe-zone friendly.",
     "square": (
         "1024x1024 square. Leaderboard density rule for the square format: "
-        "pick how many rows fit cleanly — anywhere from 6 to 10 — and stop "
-        "there. DO NOT compress fonts to cram more in, DO NOT skip ranks (no "
-        "holes in the numbering — show 1..N consecutively), DO NOT alter or "
-        "invent any number. The trigger row stays prominent regardless of "
-        "how many rows you ultimately render."
+        "render EXACTLY the rows listed under LEADERBOARD above — no more, "
+        "no less. If only 1 row is listed, render only that 1 row; do NOT "
+        "pad with empty numbered slots to fill space. If 7 are listed, "
+        "render those 7. Use the empty space for art/typography instead of "
+        "blank rows. DO NOT compress fonts to cram more in, DO NOT skip "
+        "ranks (no holes in the numbering — show 1..N consecutively), DO "
+        "NOT alter or invent any number. The trigger row stays prominent "
+        "regardless of how many rows you ultimately render."
     ),
 }
 
@@ -90,7 +93,7 @@ Metric: {metric_name}
 {% if metric_description %}What it measures: {metric_description}
 {% endif %}Season frame: {season_label}
 Tonight's game: {game_score_line} on {game_date} ({game_stage})
-Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trigger_in_topn %}, appears in the top {top_n} below{% else %}, sits outside the top {top_n}{% endif %})
+Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trigger_in_topn %}, appears in the top {top_n} below{% endif %}{% if not trigger_in_topn %}, sits outside the top {top_n}{% endif %})
 {% if trigger_full_line %}Trigger's full game line: {trigger_full_line}
 {% endif %}{% if trigger_team_full %}Anchor the visual identity to {trigger_team_full}'s real-world colors.
 {% endif %}{% if trigger_team_player_pool %}Roster constraint — any player likeness you choose to render MUST be from this list (the actual players who logged minutes in this game). DO NOT draw anyone outside it, even famous historical figures associated with the franchise. The list is a whitelist, not a target — you are not expected to fit everyone in. Typical compositions feature 1–3 likenesses (often just the trigger player alone, sometimes a teammate or opponent for context). Pick whoever serves the story; the trigger player stays central. Roster: {trigger_team_player_pool}
@@ -717,12 +720,55 @@ def build_prompt_context(
     trigger_entity_id = _safe_str(card.get("entity_id"))
     trigger_game_id = str(game.game_id)
 
+    # Sparse-pool fallback: threshold-style metrics (e.g. ten_plus_block_games)
+    # have season pools so thin (often 1–3 qualifiers) that the leaderboard
+    # would render with mostly empty rows. Retry against the metric's _career
+    # sibling — those pools aggregate all seasons of the same type and almost
+    # always carry enough rows to fill a respectable leaderboard. Only swaps
+    # the leaderboard pool; the trigger entity / metric concept stays the same.
+    sibling_swap_made = False
+    SPARSE_LEADERBOARD_THRESHOLD = 5
+    if (
+        len(rows) < SPARSE_LEADERBOARD_THRESHOLD
+        and not metric_key.endswith(_VARIANT_SUFFIXES)
+    ):
+        season_prefix = _season_type_prefix(season)
+        sibling_season = {"2": "all_regular", "4": "all_playoffs", "5": "all_playin"}.get(season_prefix or "")
+        sibling_key = metric_key + "_career"
+        if sibling_season and _has_any_result(session, sibling_key, sibling_season):
+            sibling_rows = (
+                session.query(MetricResult)
+                .filter(
+                    MetricResult.metric_key == sibling_key,
+                    MetricResult.season == sibling_season,
+                    MetricResult.value_num.isnot(None),
+                )
+                .order_by(order_col, MetricResult.entity_id.asc())
+                .limit(top_n)
+                .all()
+            )
+            if len(sibling_rows) > len(rows):
+                metric_key = sibling_key
+                season = sibling_season
+                window = "alltime"
+                recent_seasons = []
+                season_label = _window_season_label(window, season)
+                rows = sibling_rows
+                sibling_swap_made = True
+
     # Trigger value fallback: minimal cards (e.g. admin asset regen) only
     # carry metric_key/scope/entity_id. Without a value_snapshot the rank
     # fallback below can't compute a rank and the prompt is rendered with
     # "?" for the trigger value. Read MetricResult once to fill both gaps.
-    trigger_value_num: Any = card.get("value_snapshot")
-    trigger_value_str = _safe_str(card.get("value_str_snapshot") or card.get("value_text"))
+    # When we swapped pools above, ignore the card's snapshot (which was set
+    # for the original season pool) and re-fetch from the swapped pool so
+    # the header value matches the leaderboard row's value.
+    if sibling_swap_made:
+        trigger_value_num: Any = None
+        trigger_value_str = ""
+    else:
+        trigger_value_num = card.get("value_snapshot")
+        trigger_value_str = _safe_str(card.get("value_str_snapshot") or card.get("value_text"))
     if trigger_entity_id and (trigger_value_num is None or not trigger_value_str):
         fallback_row = (
             session.query(MetricResult.value_num, MetricResult.value_str)
