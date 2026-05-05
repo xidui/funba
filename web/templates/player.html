@@ -1968,6 +1968,15 @@
   [id^="section-"] {
     scroll-margin-top: 120px;
   }
+
+  /* Disable scroll anchoring on the player page. The sticky `.player-hero`
+     collapses ~200px when it picks up `.is-stuck`; with anchoring on, the
+     browser would rewind the scroll position to keep the visible content
+     pinned, which can push the hero sentinel back into view, un-stick the
+     hero, re-anchor, and ping-pong — visible as a flicker around the
+     threshold. Letting scroll position stay where it is keeps the hero
+     stuck cleanly. */
+  body { overflow-anchor: none; }
 </style>
 
 <!-- ── Unified sticky player hero (identity + section nav) ─────────── -->
