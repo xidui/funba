@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from itertools import groupby as _groupby
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -367,6 +367,94 @@ def _supplement_missing_live_games(
         existing_game_ids.add(game_id)
 
     return supplemented
+
+
+def _playoff_series_key(game) -> tuple[str, str] | None:
+    season = str(getattr(game, "season", "") or "")
+    game_id = str(getattr(game, "game_id", "") or "")
+    if not season.startswith("4"):
+        return None
+    if len(game_id) < 10 or not game_id[:10].isdigit():
+        return None
+    if game_id[7] not in "1234":
+        return None
+    return season, game_id[:9]
+
+
+def _playoff_game_number(game) -> int:
+    game_id = str(getattr(game, "game_id", "") or "")
+    if len(game_id) >= 10 and game_id[9].isdigit():
+        return int(game_id[9])
+    return 99
+
+
+def _game_date_sort_value(game) -> date:
+    value = _coerce_game_date(getattr(game, "game_date", None))
+    if isinstance(value, datetime):
+        return value.date()
+    return value if isinstance(value, date) else date.max
+
+
+def _is_unplayed_playoff_placeholder(game, live_snapshot: dict | None = None) -> bool:
+    if str(getattr(game, "wining_team_id", "") or ""):
+        return False
+
+    status = str(getattr(game, "game_status", "") or "").strip().lower()
+    live_status = str((live_snapshot or {}).get("status") or "").strip().lower()
+    if status in {GAME_STATUS_LIVE, "in progress"} or live_status == GAME_STATUS_LIVE:
+        return False
+
+    home_score = getattr(game, "home_team_score", None)
+    road_score = getattr(game, "road_team_score", None)
+    return home_score in (None, 0) and road_score in (None, 0)
+
+
+def _filter_unneeded_playoff_series_placeholders(
+    games: list,
+    *,
+    live_map: dict[str, dict] | None = None,
+) -> list:
+    """Drop scheduled playoff games made impossible by a completed series.
+
+    ScheduleLeagueV2 includes conditional best-of-seven games. Once a team
+    reaches four wins, later unplayed placeholders in the same modern playoff
+    series are not real games and should not appear on the public games page.
+    """
+    series_games: dict[tuple[str, str], list] = defaultdict(list)
+    for game in games:
+        key = _playoff_series_key(game)
+        if key is not None:
+            series_games[key].append(game)
+
+    removed_ids: set[int] = set()
+    live_map = live_map or {}
+    for grouped_games in series_games.values():
+        wins_by_team: dict[str, int] = defaultdict(int)
+        series_decided = False
+        ordered_games = sorted(
+            grouped_games,
+            key=lambda game: (
+                _playoff_game_number(game),
+                _game_date_sort_value(game),
+                str(getattr(game, "game_id", "") or ""),
+            ),
+        )
+        for game in ordered_games:
+            live_snapshot = live_map.get(str(getattr(game, "game_id", "") or ""))
+            if series_decided and _is_unplayed_playoff_placeholder(game, live_snapshot):
+                removed_ids.add(id(game))
+                continue
+
+            winner = str(getattr(game, "wining_team_id", "") or "")
+            if not winner:
+                continue
+            wins_by_team[winner] += 1
+            if wins_by_team[winner] >= 4:
+                series_decided = True
+
+    if not removed_ids:
+        return games
+    return [game for game in games if id(game) not in removed_ids]
 
 
 def register_public_routes(
@@ -2193,6 +2281,10 @@ def register_public_routes(
                     .filter(Game.season.in_(season_ids_for_filter), Game.game_date.isnot(None))
                     .all()
                 )
+                bracket_games = _filter_unneeded_playoff_series_placeholders(
+                    bracket_games,
+                    live_map=live_map,
+                )
                 playoff_games = [g for g in bracket_games if str(g.season).startswith("4")]
                 playin_games = [g for g in bracket_games if str(g.season).startswith("5")]
                 bracket = _build_playoff_bracket(playoff_games)
@@ -2227,6 +2319,7 @@ def register_public_routes(
                 allowed_seasons=set(season_ids_for_filter) if season_ids_for_filter else None,
                 selected_team=selected_team,
             )
+            all_games = _filter_unneeded_playoff_series_placeholders(all_games, live_map=live_map)
             live_games = []
             completed_all = []
             upcoming_games = []

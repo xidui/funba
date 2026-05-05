@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -206,7 +207,66 @@ class TestGamesList(unittest.TestCase):
 
         self.assertEqual(response, "rendered")
         _, kwargs = render_template.call_args
-        self.assertEqual(kwargs["total"], 0)
+        self.assertEqual(kwargs["total"], 2)
         self.assertEqual(len(kwargs["completed_games"]), 0)
         self.assertEqual([entry.game_id for entry in kwargs["live_games"]], ["0022501178"])
         self.assertEqual([entry.game_id for entry in kwargs["upcoming_games"]], ["0022501185"])
+
+    def test_games_list_hides_playoff_placeholders_after_series_decided(self):
+        team_a = SimpleNamespace(team_id="A", abbr="AAA", full_name="Team A")
+        team_b = SimpleNamespace(team_id="B", abbr="BBB", full_name="Team B")
+
+        def playoff_game(game_id, *, winner=None, status="completed"):
+            return SimpleNamespace(
+                game_id=game_id,
+                season="42025",
+                game_date=date(2026, 4, 20 + int(game_id[-1])),
+                home_team_id="A",
+                road_team_id="B",
+                home_team_score=101 if winner else None,
+                road_team_score=92 if winner else None,
+                wining_team_id=winner,
+                game_status=status,
+            )
+
+        season_query = MagicMock()
+        season_query.filter.return_value.all.return_value = [SimpleNamespace(season="42025")]
+
+        teams_query = MagicMock()
+        teams_query.filter.return_value.order_by.return_value.all.return_value = [team_a, team_b]
+
+        games_query = MagicMock()
+        games_query.filter.return_value = games_query
+        games_query.order_by.return_value = games_query
+        games_query.all.return_value = [
+            playoff_game("0042500111", winner="A"),
+            playoff_game("0042500112", winner="A"),
+            playoff_game("0042500113", winner="A"),
+            playoff_game("0042500114", winner="A"),
+            playoff_game("0042500115", status="upcoming"),
+            playoff_game("0042500116", status="upcoming"),
+            playoff_game("0042500117", status="upcoming"),
+        ]
+
+        team_map_query = MagicMock()
+        team_map_query.all.return_value = [team_a, team_b]
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = [season_query, teams_query, games_query, team_map_query]
+
+        with self.web_app.app.test_request_context("/games?season=42025"):
+            with patch.object(self.web_app, "SessionLocal", return_value=session), \
+                 patch("web.public_routes.fetch_live_scoreboard_map", return_value={}), \
+                 patch.object(self.web_app, "render_template", return_value="rendered") as render_template:
+                response = self.web_app.games_list()
+
+        self.assertEqual(response, "rendered")
+        _, kwargs = render_template.call_args
+        self.assertEqual([game.game_id for game in kwargs["games"]], [
+            "0042500114",
+            "0042500113",
+            "0042500112",
+            "0042500111",
+        ])
+        self.assertEqual([entry.game_id for entry in kwargs["upcoming_games"]], [])
+        self.assertEqual(kwargs["total"], 4)
