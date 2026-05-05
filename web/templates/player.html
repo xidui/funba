@@ -255,9 +255,10 @@
     transform: translateY(-1px);
   }
 
-  /* ── Career-high chip row (sits between hero and first section card) ── */
+  /* ── Career-high chip row (lives at the top of section-career, scoped
+     by the same career_kind tab as the totals/per-game table below) ── */
   .career-highs {
-    margin: 16px 0 0;
+    margin: 0 0 18px;
   }
   .career-highs-title {
     font-size: 11px;
@@ -266,16 +267,6 @@
     letter-spacing: 0.1em;
     color: var(--muted);
     margin-bottom: 8px;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .career-highs-scope {
-    font-size: 10px;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--muted);
-    opacity: 0.75;
   }
   .career-highs-grid {
     display: flex;
@@ -2179,43 +2170,6 @@
   </div>
 </div>
 
-{% if career_highs %}
-{%- set _ch_scope_label -%}
-  {%- if selected_career_kind == 'playoffs' -%}{{ t('Playoffs', '季后赛') }}
-  {%- elif selected_career_kind == 'playin' -%}{{ t('Play-In', '附加赛') }}
-  {%- else -%}{{ t('Regular Season', '常规赛') }}
-  {%- endif -%}
-{%- endset -%}
-<div class="career-highs">
-  <div class="career-highs-title">
-    {{ t('Career Highs', '生涯单场最高') }}
-    <span class="career-highs-scope">{{ _ch_scope_label }}</span>
-  </div>
-  <div class="career-highs-grid">
-    {% for h in career_highs %}
-      {%- set _ch_label = h.name_zh if lang == 'zh' else h.abbr -%}
-      {%- set _ch_meta -%}
-        {%- if h.opponent_abbr -%}{{ 'vs' if h.is_home else '@' }} {{ h.opponent_abbr }}{%- endif -%}
-        {%- if h.date %}{% if h.opponent_abbr %} · {% endif %}{{ h.date }}{%- endif -%}
-      {%- endset -%}
-      {% if h.href %}
-      <a class="career-high-chip" href="{{ h.href }}">
-        <span class="ch-val">{{ h.value }}</span>
-        <span class="ch-lbl">{{ _ch_label }}</span>
-        {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
-      </a>
-      {% else %}
-      <div class="career-high-chip">
-        <span class="ch-val">{{ h.value }}</span>
-        <span class="ch-lbl">{{ _ch_label }}</span>
-        {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
-      </div>
-      {% endif %}
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
 <script>
   // Run as soon as the hero is parsed (long before the rest of the
   // 8MB+ player page finishes) so the section nav state is correct on
@@ -2308,6 +2262,34 @@
       <button class="tab-btn active" data-view="pergame">{{ t('Per Game', '场均') }}</button>
     </div>
   </div>
+
+  {% if career_highs %}
+  <div class="career-highs">
+    <div class="career-highs-title">{{ t('Single-Game Highs', '单场最高') }}</div>
+    <div class="career-highs-grid">
+      {% for h in career_highs %}
+        {%- set _ch_label = h.name_zh if lang == 'zh' else h.abbr -%}
+        {%- set _ch_meta -%}
+          {%- if h.opponent_abbr -%}{{ 'vs' if h.is_home else '@' }} {{ h.opponent_abbr }}{%- endif -%}
+          {%- if h.date %}{% if h.opponent_abbr %} · {% endif %}{{ h.date }}{%- endif -%}
+        {%- endset -%}
+        {% if h.href %}
+        <a class="career-high-chip" href="{{ h.href }}">
+          <span class="ch-val">{{ h.value }}</span>
+          <span class="ch-lbl">{{ _ch_label }}</span>
+          {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
+        </a>
+        {% else %}
+        <div class="career-high-chip">
+          <span class="ch-val">{{ h.value }}</span>
+          <span class="ch-lbl">{{ _ch_label }}</span>
+          {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if career_season_rows %}
 
