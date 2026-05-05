@@ -142,10 +142,10 @@ def _player_franchise_entity_id(player_id: str | None, franchise_id: str | None)
 
 
 def _parse_player_franchise_entity_id(entity_id: str) -> tuple[str | None, str | None]:
-    if not entity_id or ":" not in entity_id:
-        return None, None
-    player_id, franchise_id = entity_id.split(":", 1)
-    return player_id or None, franchise_id or None
+    from db.entity_id import decode
+
+    ref = decode("player_franchise", entity_id)
+    return ref.player_id, ref.team_id
 
 
 # ── Filter building ───────────────────────────────────────────────────────────

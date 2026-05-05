@@ -69,8 +69,9 @@ def _funba_article_tags(session, social_post: SocialPost) -> tuple[list[str], li
     if scope == "player" and entity_id:
         player_ids.append(str(entity_id))
     elif scope == "team" and entity_id:
-        # Entity may be raw team_id or "<season>:<team_id>" — split out the trailing id.
-        team_part = entity_id.split(":")[-1]
+        from db.entity_id import team_id_from_trailing
+
+        team_part = team_id_from_trailing(entity_id)
         if team_part and team_part not in team_ids:
             team_ids.append(team_part)
 

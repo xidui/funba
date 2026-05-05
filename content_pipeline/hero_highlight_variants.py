@@ -478,7 +478,11 @@ def _result_entity_label(session: Session, row: MetricResult) -> str:
     if entity_type == "game":
         return _game_entity_label(session, entity_id)
     if entity_type == "player_franchise":
-        player_id, _sep, team_id = entity_id.partition(":")
+        from db.entity_id import decode
+
+        ref = decode("player_franchise", entity_id)
+        player_id = ref.player_id or entity_id
+        team_id = ref.team_id
         player = session.query(Player.full_name).filter(Player.player_id == player_id).first()
         team = session.query(Team.abbr).filter(Team.team_id == team_id).first() if team_id else None
         player_label = str(player[0]) if player and player[0] else player_id

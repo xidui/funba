@@ -452,8 +452,14 @@ class MetricResult(Base):
 
     id = Column(Integer, primary_key=True)
     metric_key = Column(String(64), nullable=False, index=True)
-    entity_type = Column(String(16), nullable=False)   # player | team | game | league
-    entity_id = Column(String(50), nullable=True)      # player_id or team_id
+    entity_type = Column(String(16), nullable=False)   # player | team | game | league | season | player_franchise
+    # The shape of entity_id depends on entity_type. Compound shapes occur
+    # in `game` and `player_franchise` scopes. The full shape catalog and
+    # the canonical decoder live in db/entity_id.py — code that consumes
+    # entity_id MUST go through `db.entity_id.decode` instead of splitting
+    # the string itself. Inline splits drift from the catalog and silently
+    # mis-attribute when the field takes a shape the caller didn't think of.
+    entity_id = Column(String(50), nullable=True)
     season = Column(String(16), nullable=True)
     sub_key = Column(String(64), nullable=False, server_default='')
     rank_group = Column(String(64), nullable=True)

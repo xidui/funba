@@ -97,17 +97,20 @@ def _metric_dataset_description(metric_def, *, zh: bool = False) -> str:
 
 
 def register_metric_detail_routes(app, deps):
+    from db.entity_id import decode as _decode_entity_id
+
     def _resolve_entity_labels(session, rows):
-        player_ids = {r.entity_id for r in rows if r.entity_type == "player" and r.entity_id}
+        decoded = [(r, _decode_entity_id(r.entity_type, r.entity_id)) for r in rows]
+        player_ids = {ref.player_id for _, ref in decoded if ref.entity_type == "player" and ref.player_id}
         player_franchise_pairs = {
-            tuple(r.entity_id.split(":", 1))
-            for r in rows
-            if r.entity_type == "player_franchise" and r.entity_id and ":" in r.entity_id
+            (ref.player_id, ref.team_id)
+            for _, ref in decoded
+            if ref.entity_type == "player_franchise" and ref.player_id and ref.team_id
         }
-        player_ids.update({player_id for player_id, _ in player_franchise_pairs})
-        team_ids = {r.entity_id for r in rows if r.entity_type == "team" and r.entity_id}
-        team_ids.update({franchise_id for _, franchise_id in player_franchise_pairs})
-        game_ids = {r.entity_id.split(":")[0] for r in rows if r.entity_type == "game" and r.entity_id}
+        player_ids.update({pid for pid, _ in player_franchise_pairs})
+        team_ids = {ref.team_id for _, ref in decoded if ref.entity_type == "team" and ref.team_id}
+        team_ids.update({tid for _, tid in player_franchise_pairs})
+        game_ids = {ref.game_id for _, ref in decoded if ref.entity_type == "game" and ref.game_id}
 
         Player = deps.player_model()
         Game = deps.game_model()
@@ -138,35 +141,39 @@ def register_metric_detail_routes(app, deps):
             else {}
         )
 
-        def _label(entity_type, entity_id):
+        def _label(ref):
+            entity_type = ref.entity_type
+            entity_id = ref.raw
             if entity_type == "season":
                 return deps.season_label()(entity_id)
             if entity_type == "player":
                 return player_names.get(entity_id) or entity_id
-            if entity_type == "player_franchise" and entity_id and ":" in entity_id:
-                player_id, franchise_id = entity_id.split(":", 1)
-                player_name = player_names.get(player_id) or player_id
-                franchise_name = deps.team_name()(team_map, franchise_id)
+            if entity_type == "player_franchise" and ref.player_id and ref.team_id:
+                player_name = player_names.get(ref.player_id) or ref.player_id
+                franchise_name = deps.team_name()(team_map, ref.team_id)
                 return f"{player_name} — {franchise_name}"
             if entity_type == "team":
                 team = team_map.get(entity_id)
                 return (deps.display_team_name()(team) or team.abbr) if team else entity_id
             if entity_type == "game":
-                parts = entity_id.split(":")
-                gid = parts[0]
+                gid = ref.game_id or entity_id
                 if gid in game_info:
                     gdate, home_id, road_id = game_info[gid]
                     matchup = f"{deps.team_abbr()(team_map, road_id)} @ {deps.team_abbr()(team_map, home_id)}"
                     date_str = deps.fmt_date()(gdate)
-                    if len(parts) > 1:
-                        team_id = parts[1] if len(parts) > 1 else None
-                        qualifier = parts[2] if len(parts) > 2 else ""
-                        team_label = deps.team_abbr()(team_map, team_id) if team_id else ""
+                    if ref.team_id:
+                        qualifier = ref.segment or ""
+                        team_label = deps.team_abbr()(team_map, ref.team_id)
                         return f"{team_label} {qualifier} — {matchup} ({date_str})"
+                    if ref.player_id:
+                        # No prior pre-decoder code path produced this label
+                        # variant — game-with-player compounds (e.g. stocks)
+                        # were rendered just as "{matchup} ({date_str})".
+                        return f"{matchup} ({date_str})"
                     return f"{matchup} ({date_str})"
             return entity_id
 
-        labels = {(r.entity_type, r.entity_id): _label(r.entity_type, r.entity_id) for r in rows}
+        labels = {(r.entity_type, r.entity_id): _label(ref) for r, ref in decoded}
         return labels, player_active, game_info
 
     def metric_detail(metric_key: str):
@@ -756,10 +763,11 @@ def register_metric_detail_routes(app, deps):
                 label = rank_labels.get(rank, f"#{rank}")
                 group_phrase = f" in {rank_group_label}" if rank_group_label else ""
                 notable_reason = f"{label} of {standing_total} {scope_label}{group_phrase} {period}."
-                player_id_for_active = row.entity_id.split(":")[0] if row.entity_type in ("player", "player_franchise") else None
+                row_ref = _decode_entity_id(row.entity_type, row.entity_id)
+                player_id_for_active = row_ref.player_id if row_ref.entity_type in ("player", "player_franchise") else None
                 game_home_team_id = game_road_team_id = game_road_abbr = game_home_abbr = game_date_str = None
-                if row.entity_type == "game" and row.entity_id:
-                    gid = row.entity_id.split(":")[0]
+                if row_ref.entity_type == "game" and row_ref.game_id:
+                    gid = row_ref.game_id
                     gi = game_info.get(gid)
                     if gi:
                         game_home_team_id = str(gi[1]) if gi[1] else None

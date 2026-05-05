@@ -892,15 +892,33 @@ def build_prompt_context(
             trigger_team_full = tm.full_name or ""
             trigger_team_abbr = tm.abbr or ""
     else:
-        # game scope — pick the protagonist team. Prefer the curator-provided
-        # team_id (resolved from MetricDefinition.protagonist + context),
-        # which lets metrics like *_in_a_loss anchor on the losing team.
-        # When the caller passes a minimal card (e.g. admin regen), look up
-        # the protagonist from the metric definition + result. Final fallback
-        # is the winner.
+        # game scope — pick the protagonist team. Resolution order:
+        #   1. Compound entity_id encodes the trigger subject (player or
+        #      team). Decoded via db.entity_id.decode — see that module's
+        #      shape catalog for the four game-scope shapes. Without this,
+        #      the visual would borrow the winner's colors / roster even
+        #      when the actual story belongs to a player on the losing
+        #      side (e.g. Wemby's 12 stocks in a SAS loss).
+        #   2. Curator-provided card.team_id (lets *_in_a_loss anchor on the
+        #      losing team explicitly).
+        #   3. MetricDefinition.protagonist lookup.
+        #   4. Winner.
+        from db.entity_id import decode as _decode_eid
+
         home, _ = _team_label(session, str(game.home_team_id or ""))
         road, _ = _team_label(session, str(game.road_team_id or ""))
-        protagonist_tid = _safe_str(card.get("team_id"))
+        protagonist_tid = ""
+        compound_ref = _decode_eid("game", _safe_str(card.get("entity_id")), session=session)
+        if compound_ref.team_id:
+            protagonist_tid = compound_ref.team_id
+        elif compound_ref.player_id:
+            player_team = _team_for_player_in_game(
+                session, compound_ref.player_id, str(game.game_id)
+            )
+            if player_team and player_team.team_id:
+                protagonist_tid = str(player_team.team_id)
+        if not protagonist_tid:
+            protagonist_tid = _safe_str(card.get("team_id"))
         if not protagonist_tid and metric_key:
             from metrics.highlights.protagonist import lookup_team_id as _lookup_protagonist
             protagonist_tid = _lookup_protagonist(
@@ -966,7 +984,9 @@ def build_prompt_context(
         if pgs_row is not None:
             trigger_team_id_for_pool = str(pgs_row.team_id)
     elif metric_scope == "team" and trigger_entity_id:
-        trigger_team_id_for_pool = trigger_entity_id.split(":")[1] if ":" in trigger_entity_id else trigger_entity_id
+        from db.entity_id import team_id_best_effort
+
+        trigger_team_id_for_pool = team_id_best_effort(trigger_entity_id)
     else:
         # game scope: reuse the protagonist team_id resolved earlier for the
         # visual block. Falls back to the winner, then the home team.

@@ -2391,21 +2391,22 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
         results.sort(key=lambda r: r.value_num if r.value_num is not None else 0, reverse=reverse)
         top = results[:3]
         top3_raw[key] = top
+        from db.entity_id import decode as _decode_eid
+
         for r in top:
+            ref = _decode_eid(r.entity_type or scope, r.entity_id)
             if scope in ("player", "player_franchise"):
-                eid = r.entity_id.split(":")[0] if ":" in (r.entity_id or "") else r.entity_id
-                if eid:
-                    player_ids.add(eid)
+                if ref.player_id:
+                    player_ids.add(ref.player_id)
             elif scope == "team":
-                if r.entity_id:
-                    team_ids.add(r.entity_id)
+                if ref.team_id:
+                    team_ids.add(ref.team_id)
             elif scope == "season":
                 pass  # season entities use _season_label(), no DB lookup needed
             elif scope == "game" and r.entity_id:
                 game_entity_ids.add(r.entity_id)
-                base_game_id = r.entity_id.split(":")[0] if ":" in r.entity_id else r.entity_id
-                if base_game_id:
-                    game_base_ids.add(base_game_id)
+                if ref.game_id:
+                    game_base_ids.add(ref.game_id)
 
     # Bulk resolve names
     player_names = {}
@@ -7168,8 +7169,9 @@ def _humanize_post_topic(db_sess, topic: str, source_game_ids: list[str]) -> dic
         if player is not None:
             entity_text = player.full_name or player.player_id
     elif scope == "team":
-        # entity_id may be team_id or "{game_id}:{team_id}:Q4" for sub-keyed metrics.
-        team_id = entity_id.split(":")[1] if ":" in entity_id else entity_id
+        from db.entity_id import team_id_best_effort
+
+        team_id = team_id_best_effort(entity_id)
         team = db_sess.query(Team).filter(Team.team_id == team_id).first()
         if team is not None:
             entity_text = team.full_name or team.abbr or team_id

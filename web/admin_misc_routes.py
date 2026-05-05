@@ -835,7 +835,9 @@ def register_admin_misc_routes(app, deps):
             p = session.query(Player).filter(Player.player_id == entity_id).first()
             entity_label = p.full_name if p and p.full_name else entity_id
         elif scope == "team" and entity_id:
-            tid = entity_id.split(":")[1] if ":" in entity_id else entity_id
+            from db.entity_id import team_id_best_effort
+
+            tid = team_id_best_effort(entity_id)
             t = session.query(Team).filter(Team.team_id == tid).first()
             entity_label = t.full_name if t and t.full_name else entity_id
 
