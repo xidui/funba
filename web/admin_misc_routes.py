@@ -663,6 +663,47 @@ def register_admin_misc_routes(app, deps):
             or session.query(Game).filter(Game.slug == ref).first()
         )
 
+    def api_admin_metric_generator_prompt_config():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from metrics.framework.generator import (
+            METRIC_GENERATOR_PROMPT_KEY,
+            get_metric_generator_prompt_template,
+        )
+
+        try:
+            template = get_metric_generator_prompt_template()
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({
+            "ok": True,
+            "key": METRIC_GENERATOR_PROMPT_KEY,
+            "template": template,
+            "placeholders": [
+                {"key": "{EXAMPLES_PLACEHOLDER}", "desc": "Substituted at runtime with curated metric source examples (do not remove)."},
+            ],
+        })
+
+    def api_admin_update_metric_generator_prompt_config():
+        denied = deps.require_admin_json()()
+        if denied:
+            return denied
+        from metrics.framework.generator import set_metric_generator_prompt_template
+
+        body = request.get_json(force=True) or {}
+        template = body.get("template")
+        if template is None:
+            return jsonify({"ok": False, "error": "template required"}), 400
+        try:
+            saved = set_metric_generator_prompt_template(str(template))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            deps.logger().exception("failed to save metric generator prompt")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "template": saved})
+
     def api_admin_hero_poster_preview():
         denied = deps.require_admin_json()()
         if denied:
@@ -1703,6 +1744,8 @@ def register_admin_misc_routes(app, deps):
     app.add_url_rule("/api/admin/runtime-flags", endpoint="api_admin_update_runtime_flags", view_func=api_admin_update_runtime_flags, methods=["POST"])
     app.add_url_rule("/api/admin/hero-poster-config", endpoint="api_admin_hero_poster_config", view_func=api_admin_hero_poster_config)
     app.add_url_rule("/api/admin/hero-poster-config", endpoint="api_admin_update_hero_poster_config", view_func=api_admin_update_hero_poster_config, methods=["POST"])
+    app.add_url_rule("/api/admin/metric-generator-prompt", endpoint="api_admin_metric_generator_prompt_config", view_func=api_admin_metric_generator_prompt_config)
+    app.add_url_rule("/api/admin/metric-generator-prompt", endpoint="api_admin_update_metric_generator_prompt_config", view_func=api_admin_update_metric_generator_prompt_config, methods=["POST"])
     app.add_url_rule("/api/admin/hero-poster-preview", endpoint="api_admin_hero_poster_preview", view_func=api_admin_hero_poster_preview, methods=["POST"])
     app.add_url_rule("/api/admin/hero-poster-regenerate", endpoint="api_admin_hero_poster_regenerate", view_func=api_admin_hero_poster_regenerate, methods=["POST"])
     app.add_url_rule("/api/admin/publishing-matrix", endpoint="api_admin_publishing_matrix", view_func=api_admin_publishing_matrix)
@@ -1746,6 +1789,8 @@ def register_admin_misc_routes(app, deps):
         api_admin_update_hero_poster_config=api_admin_update_hero_poster_config,
         api_admin_hero_poster_preview=api_admin_hero_poster_preview,
         api_admin_hero_poster_regenerate=api_admin_hero_poster_regenerate,
+        api_admin_metric_generator_prompt_config=api_admin_metric_generator_prompt_config,
+        api_admin_update_metric_generator_prompt_config=api_admin_update_metric_generator_prompt_config,
         api_admin_publishing_matrix=api_admin_publishing_matrix,
         api_admin_update_publishing_matrix=api_admin_update_publishing_matrix,
         api_admin_social_throttle=api_admin_social_throttle,

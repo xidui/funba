@@ -8675,6 +8675,8 @@ api_admin_hero_poster_config = _admin_misc_views.api_admin_hero_poster_config
 api_admin_update_hero_poster_config = _admin_misc_views.api_admin_update_hero_poster_config
 api_admin_hero_poster_preview = _admin_misc_views.api_admin_hero_poster_preview
 api_admin_hero_poster_regenerate = _admin_misc_views.api_admin_hero_poster_regenerate
+api_admin_metric_generator_prompt_config = _admin_misc_views.api_admin_metric_generator_prompt_config
+api_admin_update_metric_generator_prompt_config = _admin_misc_views.api_admin_update_metric_generator_prompt_config
 
 
 @app.route("/api/admin/games/<game_id>/curate-highlights", methods=["POST"])

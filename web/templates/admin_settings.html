@@ -457,6 +457,30 @@
     <div id="ingest-block-status" class="runtime-flag-status" role="status"></div>
   </div>
 
+  <!-- Metric Generator Prompt -->
+  <div class="card">
+    <h2 style="margin-bottom:14px;">Metric Generator Prompt</h2>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+      System prompt used by the chat-based metric builder to translate plain-English requests into MetricDefinition
+      Python code. Saved live in the <code>Setting</code> table — edits take effect on the next generator call,
+      no redeploy needed. The placeholder <code>{EXAMPLES_PLACEHOLDER}</code> is required and is substituted at
+      runtime with curated metric source examples; do not remove it.
+    </p>
+    <div style="margin-bottom:10px;">
+      <label class="llm-settings-label" for="metric-gen-template" style="display:block;margin-bottom:4px;">Prompt template</label>
+      <textarea id="metric-gen-template" rows="28"
+                style="width:100%;font-family:ui-monospace,monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:8px;line-height:1.5;"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button id="metric-gen-save" class="llm-settings-save">Save</button>
+      <span id="metric-gen-status" class="llm-settings-status" role="status"></span>
+    </div>
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;font-weight:600;">Required placeholders</summary>
+      <div id="metric-gen-placeholders" style="margin-top:10px;font-size:12px;line-height:1.6;color:var(--muted);"></div>
+    </details>
+  </div>
+
   <!-- Hero Card Poster Prompt -->
   <div class="card">
     <h2 style="margin-bottom:14px;">Hero Card Poster (gpt-image-2)</h2>
@@ -1328,6 +1352,59 @@
           el.innerHTML = '<div style="color:var(--loss);font-size:13px;">Failed to load</div>';
         });
     });
+  })();
+
+  /* ── Metric Generator Prompt ────────────────────────────────────── */
+  (function () {
+    const ta = document.getElementById('metric-gen-template');
+    if (!ta) return;
+    const status = document.getElementById('metric-gen-status');
+    const phEl = document.getElementById('metric-gen-placeholders');
+
+    function setStatus(text, kind) {
+      status.textContent = text;
+      status.style.color = kind === 'err' ? 'var(--loss)' : (kind === 'ok' ? 'var(--win)' : 'var(--muted)');
+    }
+
+    async function load() {
+      setStatus('Loading…', '');
+      try {
+        const res = await fetch('/api/admin/metric-generator-prompt');
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('http ' + res.status));
+        ta.value = data.template || '';
+        if (Array.isArray(data.placeholders)) {
+          phEl.innerHTML = data.placeholders.map(p =>
+            `<div style="margin-bottom:4px;"><code style="background:var(--bg);padding:1px 5px;border-radius:3px;">${p.key}</code> — ${p.desc.replace(/</g,'&lt;')}</div>`
+          ).join('');
+        }
+        setStatus('', '');
+      } catch (e) {
+        setStatus('Failed to load: ' + e.message, 'err');
+      }
+    }
+
+    document.getElementById('metric-gen-save').addEventListener('click', async function () {
+      const text = ta.value;
+      if (!text.includes('{EXAMPLES_PLACEHOLDER}')) {
+        if (!confirm('Prompt is missing the {EXAMPLES_PLACEHOLDER} marker — examples will not be substituted. Save anyway?')) return;
+      }
+      setStatus('Saving…', '');
+      try {
+        const res = await fetch('/api/admin/metric-generator-prompt', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ template: text }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('http ' + res.status));
+        setStatus('Saved', 'ok');
+      } catch (e) {
+        setStatus('Save failed: ' + e.message, 'err');
+      }
+    });
+
+    load();
   })();
 
   /* ── Hero Card Poster ───────────────────────────────────────────── */
