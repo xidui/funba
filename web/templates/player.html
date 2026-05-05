@@ -255,6 +255,75 @@
     transform: translateY(-1px);
   }
 
+  /* ── Career-high chip row ────────────────────────────────────── */
+  .career-highs {
+    margin-top: 14px;
+  }
+  .career-highs-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .career-highs-scope {
+    font-size: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    opacity: 0.75;
+  }
+  .career-highs-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .career-high-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    text-align: center;
+    min-width: 84px;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  a.career-high-chip:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+  .career-high-chip .ch-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--heading);
+    line-height: 1.05;
+  }
+  .career-high-chip .ch-lbl {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+  .career-high-chip .ch-meta {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+    opacity: 0.8;
+    white-space: nowrap;
+  }
+
   @media (max-width: 540px) {
     .player-header { flex-direction: column; align-items: flex-start; }
     .player-avatar { width: 88px; height: 88px; }
@@ -275,6 +344,11 @@
     .compare-link-btn {
       min-height: 44px;
     }
+    .career-high-chip {
+      min-width: 72px;
+      padding: 6px 10px;
+    }
+    .career-high-chip .ch-val { font-size: 1.2rem; }
   }
 
   /* ── Career section ─────────────────────────────────────────────── */
@@ -2030,6 +2104,43 @@
           href="{{ url_for('players_compare', ids=player.player_id) }}"
         >{{ t('Compare', '对比') }}</a>
       </div>
+
+      {% if career_highs %}
+      {%- set _ch_scope_label -%}
+        {%- if selected_career_kind == 'playoffs' -%}{{ t('Playoffs', '季后赛') }}
+        {%- elif selected_career_kind == 'playin' -%}{{ t('Play-In', '附加赛') }}
+        {%- else -%}{{ t('Regular Season', '常规赛') }}
+        {%- endif -%}
+      {%- endset -%}
+      <div class="career-highs">
+        <div class="career-highs-title">
+          {{ t('Career Highs', '生涯单场最高') }}
+          <span class="career-highs-scope">{{ _ch_scope_label }}</span>
+        </div>
+        <div class="career-highs-grid">
+          {% for h in career_highs %}
+            {%- set _ch_label = h.name_zh if lang == 'zh' else h.abbr -%}
+            {%- set _ch_meta -%}
+              {%- if h.opponent_abbr -%}{{ 'vs' if h.is_home else '@' }} {{ h.opponent_abbr }}{%- endif -%}
+              {%- if h.date %}{% if h.opponent_abbr %} · {% endif %}{{ h.date }}{%- endif -%}
+            {%- endset -%}
+            {% if h.href %}
+            <a class="career-high-chip" href="{{ h.href }}">
+              <span class="ch-val">{{ h.value }}</span>
+              <span class="ch-lbl">{{ _ch_label }}</span>
+              {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
+            </a>
+            {% else %}
+            <div class="career-high-chip">
+              <span class="ch-val">{{ h.value }}</span>
+              <span class="ch-lbl">{{ _ch_label }}</span>
+              {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
     </div>
 
     <nav class="player-section-nav" id="player-section-nav" aria-label="{{ t('Page sections', '页内导航') }}">
