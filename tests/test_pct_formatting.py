@@ -189,6 +189,12 @@ class TestPlayerPageGameRowLinks(unittest.TestCase):
         awards_query = MagicMock()
         awards_query.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = []
 
+        playin_games_query = MagicMock()
+        playin_games_query.join.return_value.filter.return_value.exists.return_value = object()
+
+        has_playin_query = MagicMock()
+        has_playin_query.scalar.return_value = False
+
         heatmap_seasons_query = MagicMock()
         heatmap_seasons_query.join.return_value.filter.return_value.distinct.return_value.all.return_value = []
 
@@ -215,6 +221,12 @@ class TestPlayerPageGameRowLinks(unittest.TestCase):
         rows_query = MagicMock()
         rows_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = [(stat, game)]
 
+        career_high_query = MagicMock()
+        career_high_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = []
+
+        stint_query = MagicMock()
+        stint_query.filter.return_value.order_by.return_value.all.return_value = []
+
         salary_query = MagicMock()
         salary_query.filter.return_value.order_by.return_value.all.return_value = []
 
@@ -222,11 +234,15 @@ class TestPlayerPageGameRowLinks(unittest.TestCase):
         session.query.side_effect = [
             player_query,
             awards_query,
+            playin_games_query,
+            has_playin_query,
             heatmap_seasons_query,
             shot_query,
             zone_query,
             seasons_query,
             rows_query,
+            career_high_query,
+            stint_query,
             salary_query,
         ]
 

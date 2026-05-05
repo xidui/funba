@@ -51,6 +51,143 @@ def _lookup_by_slug_or_id(session, model, slug: str, *, id_attr: str, prefix: st
     return session.query(model).filter(id_col == legacy_id).first()
 
 
+_CAREER_HIGH_SPECS = [
+    ("pts", "PTS", "得分"),
+    ("reb", "REB", "篮板"),
+    ("ast", "AST", "助攻"),
+    ("stl", "STL", "抢断"),
+    ("blk", "BLK", "盖帽"),
+    ("fg3m", "3PM", "三分命中"),
+    ("fgm", "FGM", "投篮命中"),
+    ("fga", "FGA", "投篮出手"),
+    ("fg3a", "3PA", "三分出手"),
+    ("ftm", "FTM", "罚球命中"),
+    ("fta", "FTA", "罚球出手"),
+    ("min", "MIN", "出场时间"),
+    ("plus", "+/-", "正负值"),
+]
+
+
+def _player_stat_seconds(stat) -> int:
+    try:
+        return int(getattr(stat, "min", 0) or 0) * 60 + int(getattr(stat, "sec", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _player_stat_has_box_score(stat) -> bool:
+    if _player_stat_seconds(stat) > 0:
+        return True
+    for field, _, _ in _CAREER_HIGH_SPECS:
+        if field in {"min", "plus"}:
+            continue
+        try:
+            if int(getattr(stat, field, 0) or 0) != 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _career_high_raw_value(stat, field: str) -> int | None:
+    if field == "min":
+        seconds = _player_stat_seconds(stat)
+        return seconds if seconds > 0 else None
+    value = getattr(stat, field, None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _career_high_display_value(field: str, value: int) -> str:
+    if field == "min":
+        minutes, seconds = divmod(int(value), 60)
+        return f"{minutes}:{seconds:02d}"
+    return str(int(value))
+
+
+def _build_player_career_highs(
+    stat_game_rows,
+    *,
+    teams: dict[str, Any],
+    team_abbr_fn: Callable[[dict[str, Any], str | None], str],
+    fmt_date_fn: Callable[[Any], str],
+    localized_url_for_fn: Callable[..., str],
+) -> list[dict]:
+    best_by_field: dict[str, tuple[int, Any, Any]] = {}
+    for stat, game in stat_game_rows:
+        if not _player_stat_has_box_score(stat):
+            continue
+        for field, _, _ in _CAREER_HIGH_SPECS:
+            value = _career_high_raw_value(stat, field)
+            if value is None:
+                continue
+            if value <= 0:
+                continue
+            current = best_by_field.get(field)
+            if current is None or value > current[0]:
+                best_by_field[field] = (value, stat, game)
+
+    if not best_by_field:
+        return []
+
+    from web.historical_team_locations import get_era_abbr_for_year as _era_abbr_high
+
+    def _abbr(tid, season_year):
+        if tid is None:
+            return None
+        if season_year is not None:
+            historic = _era_abbr_high(tid, season_year)
+            if historic:
+                return historic
+        return team_abbr_fn(teams, tid)
+
+    career_highs: list[dict] = []
+    for field, abbr_label, zh_label in _CAREER_HIGH_SPECS:
+        best = best_by_field.get(field)
+        if best is None:
+            continue
+        value, stat, game = best
+        season_year = None
+        opp_abbr = None
+        is_home = None
+        date_str = None
+        href = None
+        if game is not None:
+            season_str = str(getattr(game, "season", "") or "")
+            if len(season_str) == 5 and season_str.isdigit():
+                season_year = int(season_str[1:])
+            player_team_id = getattr(stat, "team_id", None)
+            if player_team_id and player_team_id == getattr(game, "home_team_id", None):
+                opp_id = getattr(game, "road_team_id", None)
+                is_home = True
+            elif player_team_id and player_team_id == getattr(game, "road_team_id", None):
+                opp_id = getattr(game, "home_team_id", None)
+                is_home = False
+            else:
+                opp_id = None
+            opp_abbr = _abbr(opp_id, season_year)
+            date_str = fmt_date_fn(getattr(game, "game_date", None))
+            game_slug = getattr(game, "slug", None) or f"game-{getattr(game, 'game_id', '')}"
+            if game_slug:
+                href = localized_url_for_fn("game_page", slug=game_slug)
+        career_highs.append({
+            "field": field,
+            "abbr": abbr_label,
+            "name_zh": zh_label,
+            "value": value,
+            "value_display": _career_high_display_value(field, value),
+            "opponent_abbr": opp_abbr,
+            "is_home": is_home,
+            "date": date_str,
+            "href": href,
+        })
+    return career_highs
+
+
 def _build_upcoming_preview(session, game, teams, live_summary, *, headshot_fn=None):
     """Pre-tipoff context for the game detail page.
 
@@ -931,105 +1068,21 @@ def register_detail_routes(
 
             player_metrics = get_metric_results()(session, "player", player_id, selected_season)
 
-            # ── Career-high single-game chips (one row per career_kind) ──
-            # Reads cached best_single_game_<stat> rows (one per season) and picks
-            # the global max so the hero shows a player's all-time peak in each
-            # base counting stat without rescanning PlayerGameStats.
-            from db.models import MetricResult as _MR
-            _career_high_specs = [
-                ("best_single_game_pts",      "PTS", "得分"),
-                ("best_single_game_reb",      "REB", "篮板"),
-                ("best_single_game_ast",      "AST", "助攻"),
-                ("best_single_game_stl",      "STL", "抢断"),
-                ("best_single_game_blk",      "BLK", "盖帽"),
-                ("best_single_game_three_pm", "3PM", "三分"),
-                ("best_single_game_ftm",      "FTM", "罚球"),
-            ]
-            _high_rows = (
-                session.query(_MR.metric_key, _MR.value_num, _MR.game_id)
-                .filter(
-                    _MR.metric_key.in_([k for k, _, _ in _career_high_specs]),
-                    _MR.entity_id == str(player_id),
-                    _MR.season.like(f"{season_prefix}%"),
-                    _MR.value_num.isnot(None),
-                )
+            # ── Career-high chips (scoped by selected career_kind) ──
+            career_high_stat_rows = (
+                session.query(PlayerGameStats, Game)
+                .join(Game, PlayerGameStats.game_id == Game.game_id)
+                .filter(PlayerGameStats.player_id == player_id, Game.season.like(f"{season_prefix}%"))
+                .order_by(Game.game_date.desc(), Game.game_id.desc())
                 .all()
             )
-            _best_per_metric: dict[str, tuple[float, str | None]] = {}
-            for mk, val, gid in _high_rows:
-                if val is None:
-                    continue
-                fval = float(val)
-                cur = _best_per_metric.get(mk)
-                if cur is None or fval > cur[0]:
-                    _best_per_metric[mk] = (fval, gid)
-
-            career_highs: list[dict] = []
-            if _best_per_metric:
-                _gids = sorted({g for _, g in _best_per_metric.values() if g})
-                _games_meta = {}
-                _player_team_by_gid: dict[str, Any] = {}
-                if _gids:
-                    _games_meta = {
-                        g.game_id: g
-                        for g in session.query(Game).filter(Game.game_id.in_(_gids)).all()
-                    }
-                    for gid, tid in (
-                        session.query(PlayerGameStats.game_id, PlayerGameStats.team_id)
-                        .filter(PlayerGameStats.player_id == player_id, PlayerGameStats.game_id.in_(_gids))
-                        .all()
-                    ):
-                        _player_team_by_gid[gid] = tid
-
-                from web.historical_team_locations import get_era_abbr_for_year as _era_abbr_high
-
-                def _ch_abbr(tid, season_year):
-                    if tid is None:
-                        return None
-                    if season_year is not None:
-                        historic = _era_abbr_high(tid, season_year)
-                        if historic:
-                            return historic
-                    return get_team_abbr()(teams, tid)
-
-                for mk, abbr_label, zh_label in _career_high_specs:
-                    info = _best_per_metric.get(mk)
-                    if info is None:
-                        continue
-                    val, gid = info
-                    game = _games_meta.get(gid) if gid else None
-                    season_year = None
-                    opp_abbr = None
-                    is_home = None
-                    date_str = None
-                    href = None
-                    if game is not None:
-                        _season_str = str(game.season or "")
-                        if len(_season_str) == 5 and _season_str.isdigit():
-                            season_year = int(_season_str[1:])
-                        player_team_id = _player_team_by_gid.get(gid)
-                        if player_team_id and player_team_id == game.home_team_id:
-                            opp_id = game.road_team_id
-                            is_home = True
-                        elif player_team_id and player_team_id == game.road_team_id:
-                            opp_id = game.home_team_id
-                            is_home = False
-                        else:
-                            opp_id = None
-                        opp_abbr = _ch_abbr(opp_id, season_year)
-                        date_str = get_fmt_date()(game.game_date)
-                        if getattr(game, "slug", None):
-                            href = get_localized_url_for()("game_page", slug=game.slug)
-                    career_highs.append({
-                        "metric_key": mk,
-                        "abbr": abbr_label,
-                        "name_zh": zh_label,
-                        "value": int(round(val)),
-                        "opponent_abbr": opp_abbr,
-                        "is_home": is_home,
-                        "date": date_str,
-                        "href": href,
-                    })
+            career_highs = _build_player_career_highs(
+                career_high_stat_rows,
+                teams=teams,
+                team_abbr_fn=get_team_abbr(),
+                fmt_date_fn=get_fmt_date(),
+                localized_url_for_fn=get_localized_url_for(),
+            )
 
             # ── Team stint timeline ──
             player_stint_timeline = []

@@ -255,7 +255,7 @@
     transform: translateY(-1px);
   }
 
-  /* ── Career-high chip row (lives at the top of section-career, scoped
+  /* ── Career high chip row (lives at the top of section-career, scoped
      by the same career_kind tab as the totals/per-game table below) ── */
   .career-highs {
     margin: 0 0 18px;
@@ -2265,7 +2265,7 @@
 
   {% if career_highs %}
   <div class="career-highs">
-    <div class="career-highs-title">{{ t('Single-Game Highs', '单场最高') }}</div>
+    <div class="career-highs-title">{{ t('Career Highs', '生涯最高') }}</div>
     <div class="career-highs-grid">
       {% for h in career_highs %}
         {%- set _ch_label = h.name_zh if lang == 'zh' else h.abbr -%}
@@ -2275,13 +2275,13 @@
         {%- endset -%}
         {% if h.href %}
         <a class="career-high-chip" href="{{ h.href }}">
-          <span class="ch-val">{{ h.value }}</span>
+          <span class="ch-val">{{ h.value_display or h.value }}</span>
           <span class="ch-lbl">{{ _ch_label }}</span>
           {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
         </a>
         {% else %}
         <div class="career-high-chip">
-          <span class="ch-val">{{ h.value }}</span>
+          <span class="ch-val">{{ h.value_display or h.value }}</span>
           <span class="ch-lbl">{{ _ch_label }}</span>
           {% if _ch_meta %}<span class="ch-meta">{{ _ch_meta }}</span>{% endif %}
         </div>
