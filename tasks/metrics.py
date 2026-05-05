@@ -19,7 +19,8 @@ import hashlib
 import logging
 import os
 from datetime import date, datetime
-from random import randint
+from random import randint, uniform
+import time
 import uuid
 
 from celery import chord, shared_task
@@ -85,28 +86,55 @@ def _deadlock_retry_countdown(retries: int) -> int:
     return base + randint(0, 7)
 
 
+_INCREMENT_PROGRESS_MAX_ATTEMPTS = 5
+
+
 def _increment_compute_run_progress(run_id: str) -> None:
-    """Atomically increment done_game_count; mark complete when target reached."""
-    sess = sessionmaker(bind=engine)()
-    try:
-        sess.execute(
-            text(
-                "UPDATE MetricComputeRun "
-                "SET done_game_count = done_game_count + 1, "
-                "    status = CASE WHEN done_game_count + 1 >= target_game_count "
-                "                  THEN 'complete' ELSE status END, "
-                "    completed_at = CASE WHEN done_game_count + 1 >= target_game_count "
-                "                       THEN NOW() ELSE completed_at END "
-                "WHERE id = :run_id AND status = 'mapping'"
-            ),
-            {"run_id": run_id},
-        )
-        sess.commit()
-    except Exception:
-        logger.exception("Failed to increment compute run progress for %s", run_id)
-        sess.rollback()
-    finally:
-        sess.close()
+    """Atomically increment done_game_count; mark complete when target reached.
+
+    Retries on transient MySQL deadlocks. The MetricComputeRun row is hot
+    under high worker concurrency (~50 metric workers) and a single deadlock
+    victim used to leave the run permanently stuck at target-1, only
+    recovered by the 2-hour chord-fallback sweep. Bounded retry with jittered
+    backoff is enough to absorb the contention without blocking the worker.
+    """
+    Session = sessionmaker(bind=engine)
+    for attempt in range(_INCREMENT_PROGRESS_MAX_ATTEMPTS):
+        with Session() as sess:
+            try:
+                sess.execute(
+                    text(
+                        "UPDATE MetricComputeRun "
+                        "SET done_game_count = done_game_count + 1, "
+                        "    status = CASE WHEN done_game_count + 1 >= target_game_count "
+                        "                  THEN 'complete' ELSE status END, "
+                        "    completed_at = CASE WHEN done_game_count + 1 >= target_game_count "
+                        "                       THEN NOW() ELSE completed_at END "
+                        "WHERE id = :run_id AND status = 'mapping'"
+                    ),
+                    {"run_id": run_id},
+                )
+                sess.commit()
+                return
+            except SAOperationalError as exc:
+                sess.rollback()
+                if not _is_retryable_mysql_deadlock(exc):
+                    logger.exception(
+                        "Non-retryable error incrementing compute run progress for %s", run_id
+                    )
+                    return
+                if attempt + 1 >= _INCREMENT_PROGRESS_MAX_ATTEMPTS:
+                    logger.error(
+                        "Failed to increment compute run progress for %s after %d deadlock retries",
+                        run_id, _INCREMENT_PROGRESS_MAX_ATTEMPTS,
+                    )
+                    return
+            except Exception:
+                sess.rollback()
+                logger.exception("Failed to increment compute run progress for %s", run_id)
+                return
+        # Jittered exponential backoff between retries (max ~750ms total worst case).
+        time.sleep(0.05 * (2 ** attempt) + uniform(0, 0.05))
 
 
 class AdvisoryLockUnavailable(RuntimeError):
