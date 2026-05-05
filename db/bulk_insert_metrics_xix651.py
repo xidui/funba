@@ -2417,6 +2417,7 @@ def make_player_streak_specs() -> list[MetricSpec]:
 
 def make_player_record_specs() -> list[MetricSpec]:
     record_specs = [
+        ("best_single_game_pts", "Best Single-Game Points", "单场最高得分", "Season-high points in a single game.", "统计球员单赛季单场最高得分。", "pts", "season_records", "record", "desc", None, None, "max"),
         ("best_single_game_reb", "Best Single-Game Rebounds", "单场最高篮板", "Season-high rebounds in a single game.", "统计球员单赛季单场最高篮板。", "reb", "season_records", "record", "desc", None, None, "max"),
         ("best_single_game_ast", "Best Single-Game Assists", "单场最高助攻", "Season-high assists in a single game.", "统计球员单赛季单场最高助攻。", "ast", "season_records", "record", "desc", None, None, "max"),
         ("best_single_game_stl", "Best Single-Game Steals", "单场最高抢断", "Season-high steals in a single game.", "统计球员单赛季单场最高抢断。", "stl", "season_records", "record", "desc", None, None, "max"),
