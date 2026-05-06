@@ -113,19 +113,41 @@ class TestTeamPageSeasonSummary(unittest.TestCase):
         current_games_query = MagicMock()
         current_games_query.join.return_value.filter.return_value.order_by.return_value.all.return_value = []
 
-        session = _session_ctx(MagicMock())
-        session.query.side_effect = [
+        # Pre-configured queries return data the assertions check; anything
+        # the function calls beyond these (team-picker, future feature
+        # additions) gets a permissive MagicMock that resolves to empty
+        # results so the function can complete.
+        _queries = iter([
             team_query,
             championships_query,
             season_summary_query,
             current_games_query,
-        ]
+        ])
 
+        def _next_query(*_args, **_kwargs):
+            try:
+                return next(_queries)
+            except StopIteration:
+                m = MagicMock()
+                m.__iter__ = lambda self: iter([])
+                return m
+
+        session = _session_ctx(MagicMock())
+        session.query.side_effect = _next_query
+
+        # team_page now also queries TeamRosterStint and PlayerContract for
+        # the current-season roster. This test only cares about the season
+        # shooting summary, so short-circuit those blocks by patching one
+        # of the imports to None (the function falls into its disabled
+        # branch when any of the roster models is None).
+        import db.models as _fake_models
         with self.web_app.app.test_request_context("/teams/boston-celtics"):
             with patch.object(self.web_app, "SessionLocal", return_value=session), \
                  patch.object(self.web_app, "_team_map", return_value={}), \
                  patch.object(self.web_app, "_get_metric_results", return_value={"season": [], "alltime": []}), \
                  patch.object(self.web_app, "is_pro", return_value=False), \
+                 patch.object(_fake_models, "TeamRosterStint", None), \
+                 patch.object(_fake_models, "PlayerContractYear", None, create=True), \
                  patch.object(self.web_app, "render_template", return_value="rendered") as render_template:
                 response = self.web_app.team_page("boston-celtics")
 

@@ -867,7 +867,7 @@ def test_cmd_season_metrics_with_explicit_season_enqueues_matching_career_bucket
         supports_career=True,
         season_types=("regular",),
     )
-    args = SimpleNamespace(metric=None, season="22025")
+    args = SimpleNamespace(metric=None, season="22025", reset_tracking=False)
 
     with patch("metrics.framework.runtime.get_all_metrics", return_value=[base_metric]), patch(
         "tasks.metrics.enqueue_season_metric_refresh",

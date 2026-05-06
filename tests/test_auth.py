@@ -1553,10 +1553,22 @@ class TestMetricPublishAuth(unittest.TestCase):
         self.assertIn("Sign in or create an account to unlock the full drill-down game list.", template)
 
     def test_player_template_includes_anonymous_matchup_drilldown_teaser(self):
-        template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
-        self.assertIn("split-game-preview-shell", template)
-        self.assertIn("splitDrilldownPreviewEnabled", template)
-        self.assertIn("Sign in or create an account to unlock the full drill-down game list.", template)
+        # The matchup-split card body is now rendered by the lazy-loaded
+        # partial _matchup_split_card.html; player.html still owns the
+        # CSS shell and the JS toggle, but the teaser copy lives in the
+        # partial. Check the union of the two so the assertion reflects
+        # the full player flow rather than a single file.
+        player_template = (REPO_ROOT / "web" / "templates" / "player.html").read_text()
+        partial_template = (
+            REPO_ROOT / "web" / "templates" / "_matchup_split_card.html"
+        ).read_text()
+        combined = player_template + "\n" + partial_template
+        self.assertIn("split-game-preview-shell", combined)
+        self.assertIn("splitDrilldownPreviewEnabled", combined)
+        self.assertIn(
+            "Sign in or create an account to unlock the full drill-down game list.",
+            combined,
+        )
 
     def test_base_template_shows_my_metrics_link_for_all_logged_in_users(self):
         template = (REPO_ROOT / "web" / "templates" / "base.html").read_text()

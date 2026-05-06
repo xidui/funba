@@ -570,7 +570,9 @@ class TestCurateThenAnalyzeMetricGate(unittest.TestCase):
         list_session = MagicMock()
         list_session.query.return_value.filter.return_value.all.return_value = [("ready-game",), ("waiting-game",)]
         ready_session = MagicMock()
-        ready_session.query.return_value.filter.return_value.first.return_value = ready_game
+        # The curator path now wraps the per-game lookup in
+        # .with_for_update() to serialize concurrent callback workers.
+        ready_session.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = ready_game
         list_session_cm = MagicMock()
         list_session_cm.__enter__.return_value = list_session
         list_session_cm.__exit__.return_value = False
