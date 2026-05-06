@@ -316,133 +316,6 @@
     font-weight: 400;
   }
 
-  /* Hero stat band — totals + per-game side by side */
-  .career-hero {
-    position: relative;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    padding: 10px 4px;
-    margin-bottom: 8px;
-    background:
-      linear-gradient(135deg, rgba(249, 115, 22, 0.07) 0%, transparent 55%),
-      linear-gradient(0deg, var(--surface-2), var(--surface-2));
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .career-hero::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg,
-      var(--accent) 0%,
-      color-mix(in srgb, var(--accent) 50%, transparent) 50%,
-      transparent 100%);
-  }
-  .career-hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(420px 160px at 8% 0%, rgba(249, 115, 22, 0.08), transparent 70%);
-    pointer-events: none;
-  }
-  .career-hero-stat {
-    position: relative;
-    padding: 2px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .career-hero-stat + .career-hero-stat {
-    border-left: 1px solid var(--border);
-  }
-  .career-hero-stat .h-label {
-    font-family: 'Outfit', sans-serif;
-    font-size: 9.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--muted-2);
-  }
-  .career-hero-stat .h-total {
-    font-family: 'Outfit', sans-serif;
-    font-size: 1.45rem;
-    font-weight: 700;
-    color: var(--heading);
-    line-height: 1.05;
-    letter-spacing: -0.01em;
-    font-variant-numeric: tabular-nums;
-  }
-  .career-hero-stat .h-rate {
-    font-family: 'Outfit', sans-serif;
-    font-size: 11.5px;
-    font-weight: 700;
-    color: var(--accent);
-    margin-top: 0;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
-  }
-  .career-hero-stat .h-rate-suffix {
-    color: var(--muted);
-    font-weight: 500;
-    margin-left: 3px;
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  /* Shooting splits ribbon */
-  .career-shooting {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-bottom: 14px;
-    padding: 8px 16px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 88%, transparent) 100%);
-  }
-  .career-shooting-stat {
-    flex: 1;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 0 14px;
-  }
-  .career-shooting-stat + .career-shooting-stat {
-    border-left: 1px solid var(--border);
-  }
-  .career-shooting-stat .ss-label {
-    font-family: 'Outfit', sans-serif;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--muted-2);
-    flex-shrink: 0;
-  }
-  .career-shooting-stat .ss-line {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-  }
-  .career-shooting-stat .ss-pct {
-    font-family: 'Outfit', sans-serif;
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--heading);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-  }
-  .career-shooting-stat .ss-ratio {
-    font-size: 10.5px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
   /* Career Highs — polished pill chips */
   .career-highs {
     margin: 0 0 14px;
@@ -576,19 +449,92 @@
     .career-high-chip .ch-val { font-size: 1.05rem; }
   }
 
-  @media (max-width: 760px) {
-    .career-hero { grid-template-columns: repeat(2, 1fr); padding: 10px 4px; gap: 10px 0; }
-    .career-hero-stat { padding: 4px 14px; }
-    .career-hero-stat:nth-child(3) { border-left: none; padding-top: 10px; border-top: 1px solid var(--border); }
-    .career-hero-stat:nth-child(4) { padding-top: 10px; border-top: 1px solid var(--border); }
-    .career-hero-stat .h-total { font-size: 1.35rem; }
-    .career-shooting { padding: 8px 4px; }
-    .career-shooting-stat { padding: 0 10px; gap: 6px; }
+  /* ── Career table — heatmap fills + best-season highlight ────── */
+  .career-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 60%, transparent) 0%, transparent 100%);
   }
-  @media (max-width: 460px) {
-    .career-shooting { flex-wrap: wrap; gap: 6px 0; padding: 8px 12px; }
-    .career-shooting-stat { flex: 1 1 100%; padding: 0; }
-    .career-shooting-stat + .career-shooting-stat { border-left: none; }
+  .career-table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .career-table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: linear-gradient(180deg, var(--surface-3) 0%, var(--surface-2) 100%);
+    font-family: 'Outfit', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted-2);
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+  .career-table-wrap tbody td {
+    padding: 7px 10px;
+    font-size: 12.5px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    vertical-align: middle;
+    position: relative;
+  }
+  .career-table-wrap tbody tr:last-child td { border-bottom: none; }
+  .career-table-wrap tbody tr.row-overall td {
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--accent) 6%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 2%, transparent) 50%,
+      transparent 100%);
+    font-weight: 600;
+    color: var(--heading);
+    border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+  .career-table-wrap tbody tr.row-overall td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .career-table-wrap tbody tr.row-overall .stat-cell::after { display: none; }
+  .career-table-wrap tbody tr:not(.row-overall):hover td {
+    background: color-mix(in srgb, var(--surface-3) 35%, transparent);
+  }
+
+  /* Heatmap fill per cell */
+  .career-table-wrap .stat-cell::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: auto;
+    bottom: 2px;
+    width: calc(var(--fill, 0%) - 12px);
+    max-width: calc(100% - 12px);
+    height: 2px;
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--accent) 80%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 25%, transparent) 100%);
+    border-radius: 1px;
+    opacity: 0.55;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .career-table-wrap tbody tr:hover .stat-cell::after { opacity: 0.85; }
+  .career-table-wrap .stat-cell.stat-best {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .career-table-wrap .stat-cell.stat-best::after {
+    opacity: 0.95;
+    height: 2.5px;
+    background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  @media (max-width: 720px) {
+    .career-table-wrap tbody td { padding: 6px 8px; font-size: 12px; }
+    .career-table-wrap thead th { padding: 7px 8px; font-size: 10px; }
   }
 
   /* ── Career section ─────────────────────────────────────────────── */
@@ -2533,55 +2479,6 @@
     </div>
   </div>
 
-  {% if career_overall and career_overall.ppg and career_overall.ppg != '-' %}
-  <div class="career-hero">
-    <div class="career-hero-stat">
-      <span class="h-label">{{ t('Points', '总得分') }}</span>
-      <span class="h-total">{{ career_overall.pts }}</span>
-      <span class="h-rate">{{ career_overall.ppg }}<span class="h-rate-suffix">PPG</span></span>
-    </div>
-    <div class="career-hero-stat">
-      <span class="h-label">{{ t('Rebounds', '总篮板') }}</span>
-      <span class="h-total">{{ career_overall.reb }}</span>
-      <span class="h-rate">{{ career_overall.rpg }}<span class="h-rate-suffix">RPG</span></span>
-    </div>
-    <div class="career-hero-stat">
-      <span class="h-label">{{ t('Assists', '总助攻') }}</span>
-      <span class="h-total">{{ career_overall.ast }}</span>
-      <span class="h-rate">{{ career_overall.apg }}<span class="h-rate-suffix">APG</span></span>
-    </div>
-    <div class="career-hero-stat">
-      <span class="h-label">{{ t('Minutes', '总分钟') }}</span>
-      <span class="h-total">{{ career_overall.minutes }}</span>
-      <span class="h-rate">{{ career_overall.mpg }}<span class="h-rate-suffix">MPG</span></span>
-    </div>
-  </div>
-
-  <div class="career-shooting">
-    <div class="career-shooting-stat">
-      <span class="ss-label">{{ t('Field Goal', '投篮') }}</span>
-      <div class="ss-line">
-        <span class="ss-pct">{{ career_overall.fg_pct|pct_fmt }}</span>
-        <span class="ss-ratio">{{ career_overall.fgm }} / {{ career_overall.fga }}</span>
-      </div>
-    </div>
-    <div class="career-shooting-stat">
-      <span class="ss-label">{{ t('3-Point', '三分') }}</span>
-      <div class="ss-line">
-        <span class="ss-pct">{{ career_overall.fg3_pct|pct_fmt }}</span>
-        <span class="ss-ratio">{{ career_overall.fg3m }} / {{ career_overall.fg3a }}</span>
-      </div>
-    </div>
-    <div class="career-shooting-stat">
-      <span class="ss-label">{{ t('Free Throw', '罚球') }}</span>
-      <div class="ss-line">
-        <span class="ss-pct">{{ career_overall.ft_pct|pct_fmt }}</span>
-        <span class="ss-ratio">{{ career_overall.ftm }} / {{ career_overall.fta }}</span>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
   {% if career_highs %}
   <div class="career-highs">
     <div class="career-highs-title">{{ t('Career Highs', '生涯最高') }}</div>
@@ -2611,10 +2508,43 @@
   {% endif %}
 
   {% if career_season_rows %}
+  {%- set _stats = career_season_rows | map(attribute='stats') | list -%}
+  {%- macro stat_cell(val, max_val, display=None, mobile_hide=False, no_best=False, klass='') -%}
+    {%- set _v = val|float(0) -%}
+    {%- set _pct = ((_v / max_val * 100)|round|int) if (max_val and max_val > 0) else 0 -%}
+    {%- set _is_best = (not no_best) and max_val and max_val > 0 and _v == max_val and _v > 0 -%}
+    <td class="stat-cell{% if _is_best %} stat-best{% endif %}{% if mobile_hide %} mobile-hide{% endif %}{% if klass %} {{ klass }}{% endif %}" style="--fill:{{ _pct }}%">{{ display if display is not none else val }}</td>
+  {%- endmacro -%}
+  {%- set _max_gp     = _stats|map(attribute='games_tracked')|map('float', 0)|list|max -%}
+  {%- set _max_played = _stats|map(attribute='games_played')|map('float', 0)|list|max -%}
+  {%- set _max_min    = _stats|map(attribute='minutes')|map('float', 0)|list|max -%}
+  {%- set _max_pts    = _stats|map(attribute='pts')|map('float', 0)|list|max -%}
+  {%- set _max_reb    = _stats|map(attribute='reb')|map('float', 0)|list|max -%}
+  {%- set _max_oreb   = _stats|map(attribute='oreb')|map('float', 0)|list|max -%}
+  {%- set _max_dreb   = _stats|map(attribute='dreb')|map('float', 0)|list|max -%}
+  {%- set _max_ast    = _stats|map(attribute='ast')|map('float', 0)|list|max -%}
+  {%- set _max_stl    = _stats|map(attribute='stl')|map('float', 0)|list|max -%}
+  {%- set _max_blk    = _stats|map(attribute='blk')|map('float', 0)|list|max -%}
+  {%- set _max_tov    = _stats|map(attribute='tov')|map('float', 0)|list|max -%}
+  {%- set _max_pf     = _stats|map(attribute='pf')|map('float', 0)|list|max -%}
+  {%- set _max_pm     = _stats|map(attribute='plus_minus')|map('float', 0)|list|max -%}
+  {%- set _max_mpg    = _stats|map(attribute='mpg')|map('float', 0)|list|max -%}
+  {%- set _max_ppg    = _stats|map(attribute='ppg')|map('float', 0)|list|max -%}
+  {%- set _max_rpg    = _stats|map(attribute='rpg')|map('float', 0)|list|max -%}
+  {%- set _max_orpg   = _stats|map(attribute='orpg')|map('float', 0)|list|max -%}
+  {%- set _max_drpg   = _stats|map(attribute='drpg')|map('float', 0)|list|max -%}
+  {%- set _max_apg    = _stats|map(attribute='apg')|map('float', 0)|list|max -%}
+  {%- set _max_spg    = _stats|map(attribute='spg')|map('float', 0)|list|max -%}
+  {%- set _max_bpg    = _stats|map(attribute='bpg')|map('float', 0)|list|max -%}
+  {%- set _max_tpg    = _stats|map(attribute='tpg')|map('float', 0)|list|max -%}
+  {%- set _max_fpg    = _stats|map(attribute='fpg')|map('float', 0)|list|max -%}
+  {%- set _max_fgpct  = _stats|map(attribute='fg_pct')|map('float', 0)|list|max -%}
+  {%- set _max_fg3pct = _stats|map(attribute='fg3_pct')|map('float', 0)|list|max -%}
+  {%- set _max_ftpct  = _stats|map(attribute='ft_pct')|map('float', 0)|list|max -%}
 
   <!-- Totals view -->
   <div id="view-totals" class="stat-view">
-    <div class="table-wrap" data-mobile-key="player-career-totals">
+    <div class="table-wrap career-table-wrap" data-mobile-key="player-career-totals">
       <table>
         <thead>
           <tr>
@@ -2641,7 +2571,7 @@
         <tbody>
           {% set s = career_overall %}
           <tr class="row-overall">
-            <td><strong>Overall</strong></td>
+            <td><strong>{{ t('Overall', '生涯') }}</strong></td>
             <td class="meta">—</td>
             <td class="mobile-hide">{{ s.games_tracked }}</td>
             <td class="mobile-hide">{{ s.games_played }}</td>
@@ -2665,19 +2595,19 @@
           <tr>
             <td class="nowrap">{{ season_year_label(row.season) }}</td>
             <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
-            <td class="mobile-hide">{{ s.games_tracked }}</td>
-            <td class="mobile-hide">{{ s.games_played }}</td>
-            <td class="mobile-hide">{{ s.minutes }}</td>
-            <td>{{ s.pts }}</td>
-            <td>{{ s.reb }}</td>
-            <td class="mobile-hide">{{ s.oreb }}</td>
-            <td class="mobile-hide">{{ s.dreb }}</td>
-            <td>{{ s.ast }}</td>
-            <td class="mobile-hide">{{ s.stl }}</td>
-            <td class="mobile-hide">{{ s.blk }}</td>
-            <td class="mobile-hide">{{ s.tov }}</td>
-            <td class="mobile-hide">{{ s.pf }}</td>
-            <td class="mobile-hide">{{ s.plus_minus }}</td>
+            {{ stat_cell(s.games_tracked, _max_gp, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.games_played, _max_played, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.minutes, _max_min, mobile_hide=True) }}
+            {{ stat_cell(s.pts, _max_pts) }}
+            {{ stat_cell(s.reb, _max_reb) }}
+            {{ stat_cell(s.oreb, _max_oreb, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.dreb, _max_dreb, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.ast, _max_ast) }}
+            {{ stat_cell(s.stl, _max_stl, mobile_hide=True) }}
+            {{ stat_cell(s.blk, _max_blk, mobile_hide=True) }}
+            {{ stat_cell(s.tov, _max_tov, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.pf, _max_pf, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.plus_minus, _max_pm, mobile_hide=True) }}
             <td class="nowrap">{{ s.fgm }}/{{ s.fga }} <span class="meta">({{ s.fg_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.fg3m }}/{{ s.fg3a }} <span class="meta">({{ s.fg3_pct|pct_fmt }})</span></td>
             <td class="mobile-hide nowrap">{{ s.ftm }}/{{ s.fta }} <span class="meta">({{ s.ft_pct|pct_fmt }})</span></td>
@@ -2690,7 +2620,7 @@
 
   <!-- Per-Game view -->
   <div id="view-pergame" class="stat-view active">
-    <div class="table-wrap" data-mobile-key="player-career-pergame">
+    <div class="table-wrap career-table-wrap" data-mobile-key="player-career-pergame">
       <table>
         <thead>
           <tr>
@@ -2714,7 +2644,7 @@
         <tbody>
           {% set s = career_overall %}
           <tr class="row-overall">
-            <td><strong>Overall</strong></td>
+            <td><strong>{{ t('Overall', '生涯') }}</strong></td>
             <td class="meta">—</td>
             <td class="mobile-hide">{{ s.mpg }}</td>
             <td>{{ s.ppg }}</td>
@@ -2735,19 +2665,19 @@
           <tr>
             <td class="nowrap">{{ season_year_label(row.season) }}</td>
             <td class="nowrap">{{ row.team_abbrs | join(', ') if row.team_abbrs else '—' }}</td>
-            <td class="mobile-hide">{{ s.mpg }}</td>
-            <td>{{ s.ppg }}</td>
-            <td>{{ s.rpg }}</td>
-            <td class="mobile-hide">{{ s.orpg }}</td>
-            <td class="mobile-hide">{{ s.drpg }}</td>
-            <td>{{ s.apg }}</td>
-            <td class="mobile-hide">{{ s.spg }}</td>
-            <td class="mobile-hide">{{ s.bpg }}</td>
-            <td class="mobile-hide">{{ s.tpg }}</td>
-            <td class="mobile-hide">{{ s.fpg }}</td>
-            <td>{{ s.fg_pct|pct_fmt }}</td>
-            <td class="mobile-hide">{{ s.fg3_pct|pct_fmt }}</td>
-            <td class="mobile-hide">{{ s.ft_pct|pct_fmt }}</td>
+            {{ stat_cell(s.mpg, _max_mpg, mobile_hide=True) }}
+            {{ stat_cell(s.ppg, _max_ppg) }}
+            {{ stat_cell(s.rpg, _max_rpg) }}
+            {{ stat_cell(s.orpg, _max_orpg, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.drpg, _max_drpg, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.apg, _max_apg) }}
+            {{ stat_cell(s.spg, _max_spg, mobile_hide=True) }}
+            {{ stat_cell(s.bpg, _max_bpg, mobile_hide=True) }}
+            {{ stat_cell(s.tpg, _max_tpg, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.fpg, _max_fpg, mobile_hide=True, no_best=True) }}
+            {{ stat_cell(s.fg_pct, _max_fgpct, display=s.fg_pct|pct_fmt) }}
+            {{ stat_cell(s.fg3_pct, _max_fg3pct, display=s.fg3_pct|pct_fmt, mobile_hide=True) }}
+            {{ stat_cell(s.ft_pct, _max_ftpct, display=s.ft_pct|pct_fmt, mobile_hide=True) }}
           </tr>
           {% endfor %}
         </tbody>
