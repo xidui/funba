@@ -2309,6 +2309,7 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
         base_q = (
             session.query(
                 MetricResultModel.metric_key.label("metric_key"),
+                MetricResultModel.entity_type.label("entity_type"),
                 MetricResultModel.entity_id.label("entity_id"),
                 MetricResultModel.value_num.label("value_num"),
                 MetricResultModel.value_str.label("value_str"),
@@ -2332,12 +2333,14 @@ def _catalog_top3(session, metrics_list: list[dict]) -> dict[str, list[dict]]:
         return [
             SimpleNamespace(
                 metric_key=row.metric_key,
+                entity_type=row.entity_type,
                 entity_id=row.entity_id,
                 value_num=row.value_num,
                 value_str=row.value_str,
             )
             for row in session.query(
                 ranked.c.metric_key,
+                ranked.c.entity_type,
                 ranked.c.entity_id,
                 ranked.c.value_num,
                 ranked.c.value_str,
