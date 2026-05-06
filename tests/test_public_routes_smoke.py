@@ -6,13 +6,23 @@ A 5xx (or unhandled exception with TESTING=True) fails the test —
 catching the kind of regression where a refactor breaks a page that
 nobody actively unit-tests.
 
-Skips the entire module when no usable DB is reachable, so CI without
-MySQL stays green. To run locally:
+Skips entirely under two conditions:
 
-    NBA_DB_URL=mysql+pymysql://root@localhost/nba_data \\
-        .venv/bin/pytest tests/test_public_routes_smoke.py -v
+* `CI=true` (GitHub Actions, etc.) — CI doesn't have MySQL.
+* DB unreachable locally.
+
+Other tests in this suite (e.g. test_pct_formatting) install a fake
+`db.models` stub into `sys.modules`, so we can't trust a runtime DB
+probe inside the same pytest session — the CI env-var gate is the
+only honest skip.
+
+To run locally:
+
+    .venv/bin/pytest tests/test_public_routes_smoke.py -v
 """
 from __future__ import annotations
+
+import os
 
 import pytest
 from sqlalchemy import text
@@ -31,8 +41,8 @@ def _db_reachable() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _db_reachable(),
-    reason="DB unavailable — set NBA_DB_URL to a populated MySQL to run smoke tests",
+    os.getenv("CI", "").lower() == "true" or not _db_reachable(),
+    reason="Skipped in CI / when NBA_DB_URL points at no reachable MySQL",
 )
 
 
