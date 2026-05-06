@@ -64,9 +64,13 @@ _FORMAT_CLAUSE = {
         "no less. If only 1 row is listed, render only that 1 row; do NOT "
         "pad with empty numbered slots to fill space. If 7 are listed, "
         "render those 7. Use the empty space for art/typography instead of "
-        "blank rows. DO NOT compress fonts to cram more in, DO NOT skip "
-        "ranks (no holes in the numbering — show 1..N consecutively), DO "
-        "NOT alter or invent any number. The trigger row stays prominent "
+        "blank rows. DO NOT compress fonts to cram more in, DO NOT alter or "
+        "invent any number. Render every rank exactly as written: untied "
+        "ranks (1, 2, …) appear consecutively without gaps; a tie group "
+        "uses the same rank with a 'T' prefix (e.g. two rows both labelled "
+        "T7) and the next untied rank skips by the size of the tie group "
+        "(after two T7 rows the next is 9, not 8) — never renumber a tie "
+        "group into separate ranks. The trigger row stays prominent "
         "regardless of how many rows you ultimately render."
     ),
 }
@@ -101,7 +105,8 @@ Trigger: {trigger_label} — {trigger_value_str} (rank #{trigger_rank}{% if trig
 
 LEADERBOARD (use these EXACT entries in this EXACT order; do not invent, substitute, or reorder)
 {top_n_table}
-{% if not trigger_in_topn %}
+{% if has_ties %}A "T" prefix on a rank (e.g. "T7") marks a tie at that rank — render the prefix and the rank exactly as written. Tied rows share a rank; the next non-tied row's rank skips by the size of the tie group (so after two T7 rows the next rank is 9, not 8). DO NOT renumber the tied rows as separate ranks.
+{% endif %}{% if not trigger_in_topn %}
 Plus one extra row for the trigger, sitting outside the top {top_n}:
 {trigger_appendix_row}
 {% endif %}{% if trigger_in_topn %}
@@ -256,8 +261,9 @@ def _team_for_player_in_game(session: Session, player_id: str, game_id: str) -> 
     return session.query(Team).filter(Team.team_id == pgs.team_id).first()
 
 
-def _format_top_row(rank: int, name: str, team_abbr: str | None, team_full: str | None, jersey: str | None, value_str: str) -> str:
-    pieces = [f"{rank:>2}.", name]
+def _format_top_row(rank_label: int | str, name: str, team_abbr: str | None, team_full: str | None, jersey: str | None, value_str: str) -> str:
+    label = str(rank_label)
+    pieces = [f"{label:>3}.", name]
     if jersey:
         pieces.append(f"#{jersey}")
     if team_abbr:
@@ -267,6 +273,47 @@ def _format_top_row(rank: int, name: str, team_abbr: str | None, team_full: str 
     pieces.append("—")
     pieces.append(value_str)
     return " ".join(pieces)
+
+
+def _competition_ranks(rows, rank_order: str) -> tuple[list[int], list[bool]]:
+    """Return (per-row competition rank, per-row in-tie flag) for `rows`.
+
+    Competition rank: ties share the same rank, then the next rank skips by
+    the size of the tied group (e.g. 1, 2, 2, 4). The leaderboard query is
+    already sorted by value_num, so within the displayed top-N the
+    competition rank matches the rank in the underlying pool.
+    """
+    ranks: list[int] = []
+    in_tie: list[bool] = []
+    for row in rows:
+        v = row.value_num
+        if v is None:
+            ranks.append(0)
+            in_tie.append(False)
+            continue
+        higher = 0
+        tied = False
+        for other in rows:
+            ov = other.value_num
+            if ov is None:
+                continue
+            if rank_order == "asc":
+                if ov < v:
+                    higher += 1
+                elif ov == v and other is not row:
+                    tied = True
+            else:
+                if ov > v:
+                    higher += 1
+                elif ov == v and other is not row:
+                    tied = True
+        ranks.append(higher + 1)
+        in_tie.append(tied)
+    return ranks, in_tie
+
+
+def _rank_display_label(rank: int, in_tie: bool) -> str:
+    return f"T{rank}" if in_tie else str(rank)
 
 
 def _game_label(road_abbr: str, home_abbr: str, game_date: Any) -> str:
@@ -792,28 +839,38 @@ def build_prompt_context(
     # often have row.game_id == NULL, and team-scope metrics never carry a
     # game_id).
     trigger_rank: int | None = None
+    trigger_row_idx: int | None = None
     if trigger_entity_id:
-        for idx, row in enumerate(rows, start=1):
+        for idx, row in enumerate(rows):
             if str(row.entity_id) == trigger_entity_id and str(row.game_id or "") == trigger_game_id:
-                trigger_rank = idx
+                trigger_row_idx = idx
                 break
-        if trigger_rank is None:
-            for idx, row in enumerate(rows, start=1):
+        if trigger_row_idx is None:
+            for idx, row in enumerate(rows):
                 if str(row.entity_id) == trigger_entity_id:
-                    trigger_rank = idx
+                    trigger_row_idx = idx
                     break
-    trigger_in_topn = trigger_rank is not None
+    trigger_in_topn = trigger_row_idx is not None
+
+    # Competition rank per row so tied values share a rank (e.g. T7, T7, 9).
+    # Without this, two teams tied at 77 render as 7 and 8, which contradicts
+    # the curator's rank_snapshot (which uses SQL RANK() — competition rank).
+    row_ranks, row_in_tie = _competition_ranks(list(rows), rank_order)
+    has_ties = any(row_in_tie)
+    if trigger_in_topn:
+        trigger_rank = row_ranks[trigger_row_idx]
 
     top_lines: list[str] = []
-    for idx, row in enumerate(rows, start=1):
+    for idx, row in enumerate(rows):
         entity_id = _safe_str(row.entity_id)
-        is_trigger = trigger_in_topn and idx == trigger_rank
+        is_trigger = trigger_in_topn and idx == trigger_row_idx
+        rank_label = _rank_display_label(row_ranks[idx], row_in_tie[idx])
         if metric_scope == "player":
             name, p = _player_label(session, entity_id)
             team = _team_for_player_in_game(session, entity_id, str(row.game_id or ""))
             jersey = p.jersey if p else None
             line = _format_top_row(
-                idx,
+                rank_label,
                 name,
                 team.abbr if team else None,
                 team.full_name if team else None,
@@ -826,7 +883,7 @@ def build_prompt_context(
             # logo + full name carries everything; doubling up made GPT print
             # "Boston Celtics | BOS" with the abbr column redundant.
             line = _format_top_row(
-                idx,
+                rank_label,
                 tm.full_name if tm else entity_id,
                 None,
                 None,
@@ -840,7 +897,7 @@ def build_prompt_context(
                 home, _ = _team_label(session, str(g.home_team_id or ""))
                 road, _ = _team_label(session, str(g.road_team_id or ""))
                 label = _game_label(road, home, getattr(g, "game_date", None))
-            line = _format_top_row(idx, label or _safe_str(row.entity_id), None, None, None, _safe_str(row.value_str, "?"))
+            line = _format_top_row(rank_label, label or _safe_str(row.entity_id), None, None, None, _safe_str(row.value_str, "?"))
         if is_trigger:
             line += "    ← TRIGGERED TONIGHT"
         top_lines.append(line)
@@ -1032,6 +1089,7 @@ def build_prompt_context(
         "trigger_full_line": trigger_full_line,
         "trigger_in_topn": trigger_in_topn,
         "trigger_appendix_row": trigger_appendix_row,
+        "has_ties": has_ties,
         "top_n_table": "\n".join(f"  {line}" for line in top_lines) if top_lines else "  (no top-N rows available)",
         "top_n": top_n,
         "title_line_1": title_line_1,

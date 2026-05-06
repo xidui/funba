@@ -340,6 +340,48 @@ def test_generate_image_retries_moderation_block_with_safety_prompt(tmp_path):
     assert "Avoid realistic faces" in prompt_used
 
 
+def test_competition_ranks_marks_ties_with_skipped_next_rank():
+    """Two rows tied at the same value share a rank; the next rank skips."""
+    from social_media.hero_poster import _competition_ranks, _rank_display_label
+
+    class _R:
+        def __init__(self, value):
+            self.value_num = value
+
+    rows = [_R(151), _R(124), _R(121), _R(87), _R(85), _R(82), _R(77), _R(77), _R(75), _R(73)]
+    ranks, in_tie = _competition_ranks(rows, "desc")
+    assert ranks == [1, 2, 3, 4, 5, 6, 7, 7, 9, 10]
+    # Only the two 77-rows should be flagged as tied.
+    assert in_tie == [False, False, False, False, False, False, True, True, False, False]
+    # Rank labels: untied are bare ints, tied get "T" prefix.
+    labels = [_rank_display_label(r, t) for r, t in zip(ranks, in_tie)]
+    assert labels == ["1", "2", "3", "4", "5", "6", "T7", "T7", "9", "10"]
+
+
+def test_competition_ranks_handles_asc_metric():
+    """For asc-ordered metrics (smaller = better), ties still share a rank."""
+    from social_media.hero_poster import _competition_ranks
+
+    class _R:
+        def __init__(self, value):
+            self.value_num = value
+
+    rows = [_R(1.0), _R(2.0), _R(2.0), _R(3.0)]
+    ranks, in_tie = _competition_ranks(rows, "asc")
+    assert ranks == [1, 2, 2, 4]
+    assert in_tie == [False, True, True, False]
+
+
+def test_format_top_row_accepts_string_rank_label():
+    """Tie-prefixed labels like 'T7' must be rendered verbatim by _format_top_row."""
+    from social_media.hero_poster import _format_top_row
+
+    line = _format_top_row("T7", "Oklahoma City Thunder", None, None, None, "77")
+    assert line.lstrip().startswith("T7.")
+    assert "Oklahoma City Thunder" in line
+    assert line.endswith("77")
+
+
 def test_generate_image_raises_when_api_retries_fail(tmp_path):
     from social_media.hero_poster import _generate_image_with_safety_retry
 
