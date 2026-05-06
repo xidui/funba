@@ -255,64 +255,296 @@
     transform: translateY(-1px);
   }
 
-  /* ── Career high chip row (lives at the top of section-career, scoped
-     by the same career_kind tab as the totals/per-game table below) ── */
-  .career-highs {
-    margin: 0 0 18px;
+  /* ── Career section: fancy redesign ───────────────────────────── */
+  .career-card {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
   }
-  .career-highs-title {
-    font-size: 11px;
+  .career-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(900px 360px at -10% -20%, rgba(249, 115, 22, 0.10), transparent 55%),
+      radial-gradient(800px 360px at 110% 120%, rgba(96, 165, 250, 0.06), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .career-card > * { position: relative; z-index: 1; }
+
+  .career-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+  .career-header h2 {
+    margin: 0;
+    background: linear-gradient(96deg, #ffffff 0%, #ffffff 45%, var(--accent) 130%);
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    display: inline-block;
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: -0.015em;
+  }
+  .career-header .career-subtitle {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11.5px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.16em;
+    color: var(--muted-2);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .career-header .career-subtitle::before {
+    content: "";
+    display: inline-block;
+    width: 26px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 0%, transparent));
+    border-radius: 2px;
+  }
+  .career-header .career-subtitle .dot {
+    color: var(--border-2);
+    font-weight: 400;
+  }
+
+  /* Hero stat band — totals + per-game side by side */
+  .career-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    padding: 22px 8px;
+    margin-bottom: 14px;
+    background:
+      linear-gradient(135deg, rgba(249, 115, 22, 0.08) 0%, transparent 55%),
+      linear-gradient(0deg, var(--surface-2), var(--surface-2));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .career-hero::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg,
+      var(--accent) 0%,
+      color-mix(in srgb, var(--accent) 50%, transparent) 50%,
+      transparent 100%);
+  }
+  .career-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(420px 160px at 8% 0%, rgba(249, 115, 22, 0.08), transparent 70%);
+    pointer-events: none;
+  }
+  .career-hero-stat {
+    position: relative;
+    padding: 4px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .career-hero-stat + .career-hero-stat {
+    border-left: 1px solid var(--border);
+  }
+  .career-hero-stat .h-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--muted-2);
+  }
+  .career-hero-stat .h-total {
+    font-family: 'Outfit', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: var(--heading);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 18px rgba(249, 115, 22, 0.10);
+  }
+  .career-hero-stat .h-rate {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+  .career-hero-stat .h-rate-suffix {
     color: var(--muted);
-    margin-bottom: 8px;
+    font-weight: 500;
+    margin-left: 4px;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Shooting splits ribbon */
+  .career-shooting {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 22px;
+    padding: 12px 22px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 88%, transparent) 100%);
+  }
+  .career-shooting-stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 18px;
+  }
+  .career-shooting-stat + .career-shooting-stat {
+    border-left: 1px solid var(--border);
+  }
+  .career-shooting-stat .ss-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted-2);
+  }
+  .career-shooting-stat .ss-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .career-shooting-stat .ss-pct {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--heading);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .career-shooting-stat .ss-ratio {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Career Highs — polished pill chips */
+  .career-highs {
+    margin: 0 0 22px;
+  }
+  .career-highs-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted-2);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .career-highs-title::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .career-highs-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border-2) 0%, transparent 80%);
   }
   .career-highs-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
   }
   .career-high-chip {
-    background: var(--surface-2);
+    position: relative;
+    background: linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 78%, transparent) 100%);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px 14px;
+    border-radius: 12px;
+    padding: 10px 16px 11px;
     text-align: center;
-    min-width: 84px;
+    min-width: 96px;
     text-decoration: none;
     color: inherit;
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    overflow: hidden;
+    animation: career-fade-up 0.4s ease-out backwards;
+  }
+  .career-high-chip::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 30%, transparent));
+    opacity: 0;
+    transition: opacity 0.2s ease;
   }
   a.career-high-chip:hover {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(249, 115, 22, 0.14);
     text-decoration: none;
-    transform: translateY(-1px);
   }
+  a.career-high-chip:hover::before { opacity: 1; }
   .career-high-chip .ch-val {
     font-family: 'Outfit', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--heading);
     line-height: 1.05;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
   }
   .career-high-chip .ch-lbl {
+    font-family: 'Outfit', sans-serif;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-    margin-top: 3px;
+    letter-spacing: 0.14em;
+    color: var(--muted-2);
+    margin-top: 5px;
   }
   .career-high-chip .ch-meta {
     font-size: 10px;
     color: var(--muted);
     margin-top: 4px;
-    opacity: 0.8;
     white-space: nowrap;
+  }
+  .career-high-chip:nth-child(1) { animation-delay: 0.04s; }
+  .career-high-chip:nth-child(2) { animation-delay: 0.08s; }
+  .career-high-chip:nth-child(3) { animation-delay: 0.12s; }
+  .career-high-chip:nth-child(4) { animation-delay: 0.16s; }
+  .career-high-chip:nth-child(5) { animation-delay: 0.20s; }
+  .career-high-chip:nth-child(6) { animation-delay: 0.24s; }
+  .career-high-chip:nth-child(7) { animation-delay: 0.28s; }
+  .career-high-chip:nth-child(8) { animation-delay: 0.32s; }
+
+  @keyframes career-fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   @media (max-width: 540px) {
@@ -337,9 +569,25 @@
     }
     .career-high-chip {
       min-width: 72px;
-      padding: 6px 10px;
+      padding: 8px 12px 9px;
     }
-    .career-high-chip .ch-val { font-size: 1.2rem; }
+    .career-high-chip .ch-val { font-size: 1.25rem; }
+  }
+
+  @media (max-width: 760px) {
+    .career-hero { grid-template-columns: repeat(2, 1fr); padding: 18px 4px; gap: 14px 0; }
+    .career-hero-stat { padding: 6px 16px; }
+    .career-hero-stat:nth-child(3) { border-left: none; padding-top: 14px; border-top: 1px solid var(--border); }
+    .career-hero-stat:nth-child(4) { padding-top: 14px; border-top: 1px solid var(--border); }
+    .career-hero-stat .h-total { font-size: 1.95rem; }
+    .career-shooting { padding: 12px 4px; }
+    .career-shooting-stat { padding: 0 14px; }
+  }
+  @media (max-width: 460px) {
+    .career-shooting { flex-wrap: wrap; gap: 12px 0; padding: 12px 14px; }
+    .career-shooting-stat { flex: 1 1 30%; padding: 0 8px; }
+    .career-shooting-stat + .career-shooting-stat { border-left: none; }
+    .career-shooting-stat:not(:last-child) { border-right: 1px solid var(--border); }
   }
 
   /* ── Career section ─────────────────────────────────────────────── */
@@ -2234,8 +2482,29 @@
 {% endif %}
 
 <!-- ── Career Summary ─────────────────────────────────────────────── -->
-<div class="card" id="section-career">
-  <h2>{{ t('Career Summary', '生涯概览') }}</h2>
+<div class="card career-card" id="section-career">
+  {%- set _seasons_count = career_season_rows | length if career_season_rows else 0 -%}
+  {%- set _games_tracked = career_overall.games_tracked if career_overall and career_overall.games_tracked not in (None, '-', '—') else None -%}
+  <div class="career-header">
+    <h2>{{ t('Career Summary', '生涯概览') }}</h2>
+    {% if _seasons_count or _games_tracked %}
+    <div class="career-subtitle">
+      {% if lang == 'zh' %}
+        {% if _seasons_count %}<span>{{ _seasons_count }} 个赛季</span>{% endif %}
+        {% if _seasons_count and _games_tracked %}<span class="dot">·</span>{% endif %}
+        {% if _games_tracked %}<span>{{ _games_tracked }} 场比赛</span>{% endif %}
+        <span class="dot">·</span>
+        <span>{{ career_kind_label }}</span>
+      {% else %}
+        {% if _seasons_count %}<span>{{ _seasons_count }} season{{ '' if _seasons_count == 1 else 's' }}</span>{% endif %}
+        {% if _seasons_count and _games_tracked %}<span class="dot">·</span>{% endif %}
+        {% if _games_tracked %}<span>{{ _games_tracked }} games</span>{% endif %}
+        <span class="dot">·</span>
+        <span>{{ career_kind_label }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
 
   <!-- Season type tabs (link-based, preserves other params) -->
   <div class="career-controls">
@@ -2262,6 +2531,55 @@
       <button class="tab-btn active" data-view="pergame">{{ t('Per Game', '场均') }}</button>
     </div>
   </div>
+
+  {% if career_overall and career_overall.ppg and career_overall.ppg != '-' %}
+  <div class="career-hero">
+    <div class="career-hero-stat">
+      <span class="h-label">{{ t('Points', '总得分') }}</span>
+      <span class="h-total">{{ career_overall.pts }}</span>
+      <span class="h-rate">{{ career_overall.ppg }}<span class="h-rate-suffix">PPG</span></span>
+    </div>
+    <div class="career-hero-stat">
+      <span class="h-label">{{ t('Rebounds', '总篮板') }}</span>
+      <span class="h-total">{{ career_overall.reb }}</span>
+      <span class="h-rate">{{ career_overall.rpg }}<span class="h-rate-suffix">RPG</span></span>
+    </div>
+    <div class="career-hero-stat">
+      <span class="h-label">{{ t('Assists', '总助攻') }}</span>
+      <span class="h-total">{{ career_overall.ast }}</span>
+      <span class="h-rate">{{ career_overall.apg }}<span class="h-rate-suffix">APG</span></span>
+    </div>
+    <div class="career-hero-stat">
+      <span class="h-label">{{ t('Minutes', '总分钟') }}</span>
+      <span class="h-total">{{ career_overall.minutes }}</span>
+      <span class="h-rate">{{ career_overall.mpg }}<span class="h-rate-suffix">MPG</span></span>
+    </div>
+  </div>
+
+  <div class="career-shooting">
+    <div class="career-shooting-stat">
+      <span class="ss-label">{{ t('Field Goal', '投篮') }}</span>
+      <div class="ss-line">
+        <span class="ss-pct">{{ career_overall.fg_pct|pct_fmt }}</span>
+        <span class="ss-ratio">{{ career_overall.fgm }} / {{ career_overall.fga }}</span>
+      </div>
+    </div>
+    <div class="career-shooting-stat">
+      <span class="ss-label">{{ t('3-Point', '三分') }}</span>
+      <div class="ss-line">
+        <span class="ss-pct">{{ career_overall.fg3_pct|pct_fmt }}</span>
+        <span class="ss-ratio">{{ career_overall.fg3m }} / {{ career_overall.fg3a }}</span>
+      </div>
+    </div>
+    <div class="career-shooting-stat">
+      <span class="ss-label">{{ t('Free Throw', '罚球') }}</span>
+      <div class="ss-line">
+        <span class="ss-pct">{{ career_overall.ft_pct|pct_fmt }}</span>
+        <span class="ss-ratio">{{ career_overall.ftm }} / {{ career_overall.fta }}</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   {% if career_highs %}
   <div class="career-highs">
