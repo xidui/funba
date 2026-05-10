@@ -1253,7 +1253,15 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
     name_zh = getattr(metric_def, "name_zh", "") or ""
     description_zh = getattr(metric_def, "description_zh", "") or ""
     description = _localized_metric_description(getattr(metric_def, "description", "") or "", description_zh)
-    min_sample = int(getattr(metric_def, "min_sample", 1) or 1)
+    eligibility_note_zh = getattr(metric_def, "eligibility_note_zh", "") or ""
+    eligibility_note = _localized_metric_description(
+        getattr(metric_def, "eligibility_note", "") or "",
+        eligibility_note_zh,
+    )
+    raw_min_sample = getattr(metric_def, "min_sample", 1)
+    min_sample = int(raw_min_sample if raw_min_sample is not None else 1)
+    if not eligibility_note and min_sample > 1:
+        eligibility_note = f"至少 {min_sample} 场比赛" if _is_zh() else f"At least {min_sample} games"
     sample_note = ""
     if min_sample > 1:
         m = _METRIC_SAMPLE_NOTE_RE.search(description or "")
@@ -1265,6 +1273,9 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         name_en=metric_def.name,
         name_zh=name_zh,
         description=description,
+        eligibility_note=eligibility_note,
+        eligibility_note_en=getattr(metric_def, "eligibility_note", "") or "",
+        eligibility_note_zh=eligibility_note_zh,
         sample_note=sample_note,
         description_en=getattr(metric_def, "description", "") or "",
         description_zh=description_zh,
@@ -1272,7 +1283,7 @@ def _metric_def_view(metric_def, *, status: str | None = None, source_type: str 
         category=getattr(metric_def, "category", "") or "",
         status=status or getattr(metric_def, "status", "published"),
         source_type=source_type or getattr(metric_def, "source_type", "code"),
-        min_sample=int(getattr(metric_def, "min_sample", 1) or 1),
+        min_sample=min_sample,
         group_key=getattr(metric_def, "group_key", None),
         career=bool(getattr(metric_def, "career", False)),
         supports_career=bool(getattr(metric_def, "supports_career", False)),
@@ -1718,6 +1729,8 @@ def _sync_metric_family(
     name_zh: str,
     description: str,
     description_zh: str,
+    eligibility_note: str | None,
+    eligibility_note_zh: str | None,
     scope: str,
     category: str,
     group_key: str | None,
@@ -1743,6 +1756,8 @@ def _sync_metric_family(
     base_row.name_zh = name_zh or None
     base_row.description = description
     base_row.description_zh = description_zh or None
+    base_row.eligibility_note = (eligibility_note or "").strip() or None
+    base_row.eligibility_note_zh = (eligibility_note_zh or "").strip() or None
     base_row.scope = scope
     base_row.category = category
     base_row.group_key = group_key
@@ -1796,6 +1811,8 @@ def _sync_metric_family(
         existing_sibling.name_zh = career_name_zh or None
         existing_sibling.description = career_description
         existing_sibling.description_zh = career_description_zh or None
+        existing_sibling.eligibility_note = base_row.eligibility_note
+        existing_sibling.eligibility_note_zh = base_row.eligibility_note_zh
         existing_sibling.scope = scope
         existing_sibling.category = category
         existing_sibling.group_key = group_key

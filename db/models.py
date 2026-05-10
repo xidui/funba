@@ -541,6 +541,8 @@ class MetricDefinition(Base):
     definition_json = Column(Text, nullable=True)     # JSON rule spec (source_type='rule')
     code_python = Column(Text, nullable=True)         # generated Python code (source_type='code')
     context_label_template = Column(String(256), nullable=True)  # format string for context label
+    eligibility_note = Column(String(512), nullable=True)        # reader-facing qualification rule
+    eligibility_note_zh = Column(String(512), nullable=True)     # Chinese qualification rule
     expression = Column(Text, nullable=True)          # original plain-English input
     min_sample = Column(Integer, nullable=False, default=1)
     max_results_per_season = Column(Integer, nullable=True)

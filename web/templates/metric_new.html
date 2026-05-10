@@ -628,6 +628,16 @@
     </div>
     <div class="form-row-2">
       <div class="form-group">
+        <label class="form-label">Eligibility Note</label>
+        <input id="f-eligibility-note" class="form-input" type="text" placeholder="Optional reader-facing qualifier" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Eligibility Note (ZH)</label>
+        <input id="f-eligibility-note-zh" class="form-input" type="text" placeholder="可选中文资格线说明" />
+      </div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
         <label class="form-label">Scope</label>
         <select id="f-scope" class="form-select">
           <option value="player">Player</option>
@@ -800,6 +810,8 @@
       name_zh: {{ edit_metric.name_zh | tojson if edit_metric else 'null' }},
       description: {{ edit_metric.description | tojson if edit_metric else 'null' }},
       description_zh: {{ edit_metric.description_zh | tojson if edit_metric else 'null' }},
+      eligibility_note: {{ edit_metric.eligibility_note | tojson if edit_metric else 'null' }},
+      eligibility_note_zh: {{ edit_metric.eligibility_note_zh | tojson if edit_metric else 'null' }},
       scope: {{ edit_metric.scope | tojson if edit_metric else 'null' }},
       category: {{ edit_metric.category | tojson if edit_metric else 'null' }},
       rank_order: {{ ((edit_metric.rank_order if edit_metric else 'desc') | tojson) | safe }},
@@ -1033,6 +1045,8 @@
       keyInput.value = '';
       document.getElementById('f-name').value = '';
       document.getElementById('f-desc').value = '';
+      document.getElementById('f-eligibility-note').value = '';
+      document.getElementById('f-eligibility-note-zh').value = '';
       document.getElementById('f-scope').value = 'player';
       document.getElementById('f-category').value = 'scoring';
       rankOrderInput.value = 'desc';
@@ -1048,6 +1062,8 @@
     originalCode = currentSpec.code || '';
     document.getElementById('f-name').value = currentSpec.name || '';
     document.getElementById('f-desc').value = currentSpec.description || '';
+    document.getElementById('f-eligibility-note').value = currentSpec.eligibility_note || '';
+    document.getElementById('f-eligibility-note-zh').value = currentSpec.eligibility_note_zh || '';
     document.getElementById('f-scope').value = currentSpec.scope || 'player';
     document.getElementById('f-category').value = currentSpec.category || 'scoring';
     rankOrderInput.value = currentSpec.rank_order || 'desc';
@@ -1203,6 +1219,8 @@
         name_zh: currentSpec.name_zh || '',
         description: document.getElementById('f-desc').value,
         description_zh: currentSpec.description_zh || '',
+        eligibility_note: document.getElementById('f-eligibility-note').value,
+        eligibility_note_zh: document.getElementById('f-eligibility-note-zh').value,
         scope: document.getElementById('f-scope').value,
         category: document.getElementById('f-category').value,
         rank_order: rankOrderInput.value,
@@ -1261,6 +1279,8 @@
     if (EDIT_MODE) {
       currentSpec.name        = document.getElementById('f-name').value;
       currentSpec.description = document.getElementById('f-desc').value;
+      currentSpec.eligibility_note = document.getElementById('f-eligibility-note').value;
+      currentSpec.eligibility_note_zh = document.getElementById('f-eligibility-note-zh').value;
       currentSpec.scope       = document.getElementById('f-scope').value;
       currentSpec.category    = document.getElementById('f-category').value;
       currentSpec.rank_order  = rankOrderInput.value;
@@ -1268,6 +1288,8 @@
     } else {
       document.getElementById('f-name').value     = currentSpec.name || '';
       document.getElementById('f-desc').value     = currentSpec.description || '';
+      document.getElementById('f-eligibility-note').value = currentSpec.eligibility_note || '';
+      document.getElementById('f-eligibility-note-zh').value = currentSpec.eligibility_note_zh || '';
       if (!isFollowup) {
         document.getElementById('f-scope').value    = currentSpec.scope || 'player';
         document.getElementById('f-category').value = currentSpec.category || 'scoring';
@@ -1455,6 +1477,8 @@
       name_zh:    (currentSpec.name_zh || '').trim(),
       description:document.getElementById('f-desc').value.trim(),
       description_zh:(currentSpec.description_zh || '').trim(),
+      eligibility_note: document.getElementById('f-eligibility-note').value.trim(),
+      eligibility_note_zh: document.getElementById('f-eligibility-note-zh').value.trim(),
       scope:      document.getElementById('f-scope').value,
       category:   document.getElementById('f-category').value,
       rank_order: rankOrderInput.value,

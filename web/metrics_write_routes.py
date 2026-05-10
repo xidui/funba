@@ -386,6 +386,8 @@ def register_metrics_write_routes(app, deps):
         scope = (body.get("scope") or "").strip()
         code_python = (body.get("code") or "").strip()
         definition = body.get("definition")
+        eligibility_note = (body.get("eligibility_note") or "").strip()
+        eligibility_note_zh = (body.get("eligibility_note_zh") or "").strip()
         rank_order_override = str(body.get("rank_order") or "").strip().lower() or None
         season_types_override = body.get("season_types")
 
@@ -465,6 +467,8 @@ def register_metrics_write_routes(app, deps):
                 name_zh=name_zh or None,
                 description=description,
                 description_zh=description_zh or None,
+                eligibility_note=eligibility_note or None,
+                eligibility_note_zh=eligibility_note_zh or None,
                 scope=scope,
                 category=category,
                 group_key=body.get("group_key"),
@@ -488,6 +492,8 @@ def register_metrics_write_routes(app, deps):
                 name_zh=name_zh,
                 description=description,
                 description_zh=description_zh,
+                eligibility_note=eligibility_note,
+                eligibility_note_zh=eligibility_note_zh,
                 scope=scope,
                 category=category,
                 group_key=body.get("group_key"),
@@ -718,7 +724,23 @@ def register_metrics_write_routes(app, deps):
                     return jsonify({"ok": False, "error": f"Code validation failed: {exc}"}), 400
                 code_python = code_metadata["code_python"]
 
-            metadata_fields = {"code", "definition", "name", "name_zh", "description", "description_zh", "scope", "category", "min_sample", "group_key", "expression", "rank_order", "season_types"}
+            metadata_fields = {
+                "code",
+                "definition",
+                "name",
+                "name_zh",
+                "description",
+                "description_zh",
+                "eligibility_note",
+                "eligibility_note_zh",
+                "scope",
+                "category",
+                "min_sample",
+                "group_key",
+                "expression",
+                "rank_order",
+                "season_types",
+            }
             if not any(field in body for field in metadata_fields):
                 metric.updated_at = datetime.utcnow()
                 session.commit()
@@ -739,6 +761,8 @@ def register_metrics_write_routes(app, deps):
                     name_zh = body.get("name_zh") if body.get("name_zh") is not None else code_metadata.get("name_zh", "")
                     description = body.get("description") if body.get("description") is not None else code_metadata["description"]
                     description_zh = body.get("description_zh") if body.get("description_zh") is not None else code_metadata.get("description_zh", "")
+                    eligibility_note = body.get("eligibility_note", getattr(metric, "eligibility_note", "") or "")
+                    eligibility_note_zh = body.get("eligibility_note_zh", getattr(metric, "eligibility_note_zh", "") or "")
                     scope = body.get("scope") or code_metadata["scope"]
                     category = body.get("category") or code_metadata["category"]
                     min_sample = int(body.get("min_sample") or code_metadata["min_sample"])
@@ -756,6 +780,8 @@ def register_metrics_write_routes(app, deps):
                     name_zh = body.get("name_zh", getattr(metric, "name_zh", "") or "")
                     description = body["description"] if body.get("description") is not None else (getattr(metric, "description", "") or "")
                     description_zh = body.get("description_zh", getattr(metric, "description_zh", "") or "")
+                    eligibility_note = body.get("eligibility_note", getattr(metric, "eligibility_note", "") or "")
+                    eligibility_note_zh = body.get("eligibility_note_zh", getattr(metric, "eligibility_note_zh", "") or "")
                     scope = body.get("scope", getattr(metric, "scope", "player"))
                     category = body.get("category", getattr(metric, "category", "") or "")
                     min_sample = int(body.get("min_sample", getattr(metric, "min_sample", 1) or 1))
@@ -769,6 +795,8 @@ def register_metrics_write_routes(app, deps):
                     name_zh=name_zh or "",
                     description=description,
                     description_zh=description_zh or "",
+                    eligibility_note=eligibility_note,
+                    eligibility_note_zh=eligibility_note_zh,
                     scope=scope,
                     category=category,
                     group_key=body.get("group_key", getattr(metric, "group_key", None)),

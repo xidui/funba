@@ -242,6 +242,28 @@
     line-height: 1.5;
   }
 
+  .eligibility-note {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+    color: var(--muted-2);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .eligibility-note-label {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
   .metric-switch {
     display: inline-flex;
     align-items: center;
@@ -1378,6 +1400,12 @@
       {% endif %}
     </div>
     <div class="detail-desc">{{ metric_def.description }}</div>
+    {% if metric_def.eligibility_note %}
+    <div class="eligibility-note">
+      <span class="eligibility-note-label">{{ t('Qualifier', '资格线') }}</span>
+      <span>{{ metric_def.eligibility_note }}</span>
+    </div>
+    {% endif %}
     {% if backfill.latest_run_at %}
     <div style="font-size:11px;color:var(--muted);margin-top:4px;">Last updated: {{ backfill.latest_run_at }}</div>
     {% endif %}

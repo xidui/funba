@@ -751,6 +751,8 @@ class RuleMetricDefinition(MetricDefinition):
         self.description = row.description or ""
         self.scope = row.scope
         self.category = row.category or ""
+        self.eligibility_note = getattr(row, "eligibility_note", None)
+        self.eligibility_note_zh = getattr(row, "eligibility_note_zh", None)
         self.min_sample = self._base_min_sample
         self.group_key = row.group_key
         self.source_type = row.source_type
@@ -910,6 +912,8 @@ class CodeMetricDefinition(MetricDefinition):
         self.description = row.description or self._inner.description
         self.scope = row.scope or self._inner.scope
         self.category = getattr(self._inner, "category", row.category or "")
+        self.eligibility_note = getattr(row, "eligibility_note", None)
+        self.eligibility_note_zh = getattr(row, "eligibility_note_zh", None)
         self.min_sample = int(row.min_sample or self._inner.min_sample or 1)
         self._base_min_sample = self.min_sample
         self.incremental = self._inner.incremental

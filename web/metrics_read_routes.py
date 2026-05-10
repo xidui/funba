@@ -233,6 +233,8 @@ def register_metrics_read_routes(
                 "name_zh": metric_row.name_zh or "",
                 "description": metric_row.description or "",
                 "description_zh": metric_row.description_zh or "",
+                "eligibility_note": getattr(metric_row, "eligibility_note", None) or "",
+                "eligibility_note_zh": getattr(metric_row, "eligibility_note_zh", None) or "",
                 "scope": metric_row.scope,
                 "category": metric_row.category or "",
                 "code": metric_row.code_python or "",
