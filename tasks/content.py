@@ -37,6 +37,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @contextmanager
 def _social_throttle_lock(name: str, *, timeout_seconds: float = 1.0):
     lock_path = _project_root() / "logs" / "social_publish" / f".{name}.lock"
@@ -350,6 +357,77 @@ def dispatch_throttled_social_publish_task(self, platform: str = "twitter") -> d
     except TimeoutError as exc:
         logger.info("social publish throttle skipped; %s", exc)
         return {"ok": True, "platform": normalized_platform, "status": "lock_busy"}
+
+
+@shared_task(
+    bind=True,
+    name="tasks.content.discover_twitter_engagement",
+    queue="news",
+    max_retries=1,
+)
+def discover_twitter_engagement_task(
+    self,
+    query: str | None = None,
+    max_results: int | None = None,
+    daily_limit: int | None = None,
+    min_score: float | None = None,
+    dry_run: bool = False,
+    paperclip: bool | None = None,
+) -> dict:
+    """Discover X/Twitter posts and create Paperclip-backed reply work items.
+
+    This task never publishes replies. It writes disabled ``twitter_reply``
+    delivery rows, creates Paperclip Content Analyst work, and leaves the final
+    send step behind manual confirmation.
+    """
+    from sqlalchemy.orm import Session
+
+    from content_pipeline.twitter_engagement import (
+        discover_twitter_engagement_candidates,
+        wake_paperclip_twitter_engagement_agent,
+    )
+    from db.models import engine
+
+    try:
+        paperclip_enabled = (
+            _env_bool("FUNBA_TWITTER_ENGAGEMENT_PAPERCLIP", True)
+            if paperclip is None
+            else bool(paperclip)
+        )
+        with Session(engine) as session:
+            result = discover_twitter_engagement_candidates(
+                session,
+                query=query,
+                max_results=max_results,
+                daily_limit=daily_limit,
+                min_score=min_score,
+                dry_run=dry_run,
+                paperclip=paperclip_enabled,
+            )
+            if not dry_run and result.get("ok"):
+                session.commit()
+            else:
+                session.rollback()
+            if not dry_run and result.get("ok"):
+                wake_results = [
+                    wake_paperclip_twitter_engagement_agent(wake_request)
+                    for wake_request in (result.get("paperclip_wakeup_requests") or [])
+                    if isinstance(wake_request, dict)
+                ]
+                if wake_results:
+                    result["paperclip_wake_results"] = wake_results
+            logger.info(
+                "twitter engagement discovery status=%s candidates=%s created=%s dry_run=%s paperclip=%s",
+                result.get("status"),
+                result.get("candidate_count"),
+                len(result.get("created_reply_post_ids") or []),
+                dry_run,
+                paperclip_enabled,
+            )
+            return result
+    except Exception as exc:
+        logger.warning("twitter engagement discovery failed: %s", exc, exc_info=True)
+        raise self.retry(exc=_retry_exc(exc), countdown=300)
 
 
 @shared_task(

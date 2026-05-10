@@ -852,6 +852,75 @@ class SocialPostDelivery(Base):
     )
 
 
+class TwitterEngagementConversation(Base):
+    """External X/Twitter conversation tracked for engagement follow-up."""
+    __tablename__ = 'TwitterEngagementConversation'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    x_conversation_id = Column(String(64), nullable=False, unique=True)
+    root_tweet_id = Column(String(64), nullable=True)
+    root_url = Column(String(1024), nullable=True)
+    target_author_id = Column(String(64), nullable=True)
+    target_author_username = Column(String(64), nullable=True)
+    target_author_name = Column(String(255), nullable=True)
+    status = Column(String(16), nullable=False, default='active')
+    last_seen_tweet_id = Column(String(64), nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    last_replied_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_TwitterEngagementConversation_x_conversation_id', 'x_conversation_id'),
+        Index('ix_TwitterEngagementConversation_status', 'status'),
+        Index('ix_TwitterEngagementConversation_last_seen_at', 'last_seen_at'),
+    )
+
+
+class TwitterEngagementMessage(Base):
+    """One inbound or outbound tweet inside a tracked X/Twitter conversation."""
+    __tablename__ = 'TwitterEngagementMessage'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(
+        Integer,
+        ForeignKey('TwitterEngagementConversation.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    tweet_id = Column(String(64), nullable=False, unique=True)
+    x_conversation_id = Column(String(64), nullable=False)
+    parent_tweet_id = Column(String(64), nullable=True)
+    direction = Column(String(16), nullable=False, default='inbound')
+    status = Column(String(16), nullable=False, default='discovered')
+    author_id = Column(String(64), nullable=True)
+    author_username = Column(String(64), nullable=True)
+    author_name = Column(String(255), nullable=True)
+    author_verified = Column(Boolean, nullable=False, default=False)
+    author_followers_count = Column(Integer, nullable=False, default=0)
+    text = Column(Text, nullable=False)
+    tweet_url = Column(String(1024), nullable=False)
+    posted_at = Column(DateTime, nullable=True)
+    discovered_at = Column(DateTime, nullable=False)
+    discovered_query = Column(Text, nullable=True)
+    public_metrics_json = Column(Text, nullable=True)
+    raw_payload_json = Column(Text, nullable=True)
+    score = Column(Float, nullable=True)
+    score_reason = Column(Text, nullable=True)
+    matched_game_ids = Column(Text, nullable=True)
+    reply_post_id = Column(Integer, ForeignKey('SocialPost.id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('ix_TwitterEngagementMessage_conversation_id', 'conversation_id'),
+        Index('ix_TwitterEngagementMessage_tweet_id', 'tweet_id'),
+        Index('ix_TwitterEngagementMessage_x_conversation_id', 'x_conversation_id'),
+        Index('ix_TwitterEngagementMessage_reply_post_id', 'reply_post_id'),
+        Index('ix_TwitterEngagementMessage_status', 'status'),
+        Index('ix_TwitterEngagementMessage_posted_at', 'posted_at'),
+    )
+
+
 # ---------------------------------------------------------------------------
 # News feed: NewsCluster + NewsArticle (+ tag junctions)
 # ---------------------------------------------------------------------------

@@ -156,6 +156,67 @@ class TestPaperclipBridgeHelpers(unittest.TestCase):
         self.assertNotIn("Target image pool size for normal social posts is 10+ images", description)
         self.assertNotIn("Image pool is only 1 item(s); target is at least 10", description)
 
+    def test_build_post_issue_description_isolates_twitter_engagement_spec(self):
+        post = {
+            "id": 612,
+            "source_date": "2026-05-04",
+            "topic": "Twitter Reply - @nba_analyst - 1900000000000000001",
+            "status": "in_review",
+            "priority": 20,
+            "pipeline_type": "twitter_engagement",
+            "source_metrics": [],
+            "source_game_ids": ["0022500001"],
+            "twitter_context": {
+                "conversation": {
+                    "id": 9,
+                    "x_conversation_id": "1900000000000000001",
+                },
+                "current_message": {
+                    "id": 14,
+                    "tweet_url": "https://x.com/nba_analyst/status/1900000000000000001",
+                },
+                "metric_contexts": [
+                    {
+                        "game_id": "0022500001",
+                        "hero_signals": [
+                            {
+                                "metric_key": "game_total_steals",
+                                "narrative_en": "The teams combined for 25 steals.",
+                            }
+                        ],
+                    }
+                ],
+                "messages": [
+                    {
+                        "direction": "inbound",
+                        "status": "drafted",
+                        "author_username": "nba_analyst",
+                        "text": "The Warriors offense looked scary.",
+                    }
+                ],
+            },
+            "variants": [
+                {
+                    "id": 88,
+                    "title": "Paperclip reply for @nba_analyst",
+                    "audience_hint": "Paperclip-written X reply. Confirm with Yue before sending.",
+                    "content_raw": "seed",
+                    "status": "in_review",
+                    "destinations": [{"platform": "twitter_reply", "forum": "@nba_analyst"}],
+                }
+            ],
+        }
+        description = build_post_issue_description(post)
+
+        self.assertIn("Funba is the source of truth for this X/Twitter reply work item", description)
+        self.assertIn("NBA data analysis expert", description)
+        self.assertIn("/api/admin/content/612/variants/88/update", description)
+        self.assertIn("The teams combined for 25 steals", description)
+        self.assertIn('"twitter_context": {', description)
+        self.assertNotIn("Reviewer playbook", description)
+        self.assertNotIn("Publishing with images", description)
+        self.assertNotIn("agents/social-media", description)
+
     def test_merge_paperclip_comments_appends_only_new_remote_comments(self):
         comments = []
         local_ts = append_admin_comment(

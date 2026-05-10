@@ -55,7 +55,7 @@ from db.paperclip_settings import (
     set_paperclip_issue_base_url,
 )
 from db.ai_usage import get_ai_usage_dashboard, log_ai_usage_event
-from db.models import Award, Feedback, Game, GameContentAnalysisIssuePost, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricMilestone, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, User, engine
+from db.models import Award, Feedback, Game, GameContentAnalysisIssuePost, GameLineScore, GamePlayByPlay, MagicToken, MetricComputeRun, MetricDefinition as MetricDefinitionModel, MetricMilestone, MetricPerfLog, MetricResult as MetricResultModel, MetricRunLog, PageView, Player, PlayerGameStats, PlayerSalary, ShotRecord, SocialPost, SocialPostDelivery, SocialPostImage, SocialPostVariant, Team, TeamGameStats, TwitterEngagementConversation, TwitterEngagementMessage, User, engine
 from db.backfill_nba_player_shot_detail import back_fill_game_shot_record_from_api
 from content_pipeline.game_analysis_issues import (
     ensure_game_content_analysis_issue_for_game,
@@ -134,6 +134,7 @@ _PBP_EVENT_TYPE_LABELS = {
     18: "Replay",
 }
 _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF = "metric_deep_dive_brief"
+_SOCIAL_POST_EVENT_TWITTER_ENGAGEMENT = "twitter_engagement_reply_work_item"
 _GAME_METRICS_CACHE_VERSION = "v2"
 _GAME_METRICS_CACHE_TTL_SECONDS = int(os.getenv("FUNBA_GAME_METRICS_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
 _GAME_METRICS_CACHE_REDIS_URL = os.getenv("FUNBA_GAME_METRICS_CACHE_REDIS_URL") or os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -6693,6 +6694,11 @@ def _is_metric_deep_dive_event_post(post: SocialPost) -> bool:
     return any(str(comment.get("event_type") or "") == _SOCIAL_POST_EVENT_METRIC_DEEP_DIVE_BRIEF for comment in comments)
 
 
+def _is_twitter_engagement_event_post(post: SocialPost) -> bool:
+    comments = _social_post_comments(post)
+    return any(str(comment.get("event_type") or "") == _SOCIAL_POST_EVENT_TWITTER_ENGAGEMENT for comment in comments)
+
+
 def _is_metric_deep_dive_post(post: SocialPost, metric_key: str) -> bool:
     if not _is_metric_deep_dive_event_post(post):
         return False
@@ -6710,6 +6716,8 @@ def _social_post_pipeline_type(post: SocialPost, game_analysis_post_ids: set[int
         return "hero_highlight", "Hero Highlight"
     if _is_metric_deep_dive_event_post(post):
         return "metric_deep_dive", "Metric Deep Dive"
+    if _is_twitter_engagement_event_post(post):
+        return "twitter_engagement", "Twitter Engagement"
     return "other", "Other"
 
 
@@ -7106,6 +7114,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
         game_analysis_post_ids = set()
     pipeline_type, pipeline_label = _social_post_pipeline_type(post, game_analysis_post_ids)
     review_profile = pipeline_type if pipeline_type in {"game_analysis", "metric_deep_dive", "hero_highlight"} else "default"
+    twitter_context = _twitter_engagement_context_by_post(db_sess, [post_id]).get(int(post_id))
     snapshot = {
         "id": post.id,
         "topic": post.topic,
@@ -7115,6 +7124,7 @@ def _load_social_post_bundle(db_sess, post_id: int):
         "pipeline_type": pipeline_type,
         "pipeline_label": pipeline_label,
         "review_profile": review_profile,
+        "twitter_context": twitter_context,
         "source_metrics": source_metrics,
         "source_game_ids": source_game_ids,
         "variants": [
@@ -7211,6 +7221,175 @@ def _humanize_post_topic(db_sess, topic: str, source_game_ids: list[str]) -> dic
     }
 
 
+def _twitter_engagement_message_view(message: TwitterEngagementMessage, *, current_message_id: int | None = None) -> dict[str, object]:
+    try:
+        metrics = json.loads(message.public_metrics_json) if message.public_metrics_json else {}
+    except Exception:
+        metrics = {}
+    try:
+        matched_game_ids = json.loads(message.matched_game_ids) if message.matched_game_ids else []
+    except Exception:
+        matched_game_ids = []
+    return {
+        "id": message.id,
+        "tweet_id": message.tweet_id,
+        "x_conversation_id": message.x_conversation_id,
+        "parent_tweet_id": message.parent_tweet_id,
+        "direction": message.direction,
+        "status": message.status,
+        "author_username": message.author_username,
+        "author_name": message.author_name,
+        "author_verified": bool(message.author_verified),
+        "author_followers_count": message.author_followers_count,
+        "text": message.text,
+        "tweet_url": message.tweet_url,
+        "posted_at": message.posted_at.isoformat() if message.posted_at else None,
+        "discovered_at": message.discovered_at.isoformat() if message.discovered_at else None,
+        "score": message.score,
+        "score_reason": message.score_reason,
+        "public_metrics": metrics,
+        "matched_game_ids": matched_game_ids,
+        "reply_post_id": message.reply_post_id,
+        "is_current": current_message_id is not None and int(message.id) == int(current_message_id),
+    }
+
+
+def _twitter_metric_contexts_for_message(db_sess, message: TwitterEngagementMessage) -> list[dict[str, object]]:
+    try:
+        matched_game_ids = json.loads(message.matched_game_ids) if message.matched_game_ids else []
+    except Exception:
+        matched_game_ids = []
+    game_ids = [
+        str(game_id)
+        for game_id in matched_game_ids
+        if str(game_id or "").strip()
+    ]
+    if not game_ids:
+        return []
+    try:
+        from content_pipeline.twitter_engagement import GameContext, build_game_metric_contexts
+    except Exception as exc:
+        logger.warning("failed to import twitter metric context helpers: %s", exc)
+        return []
+
+    games = {
+        str(game.game_id): game
+        for game in (
+            db_sess.query(Game)
+            .filter(Game.game_id.in_(list(dict.fromkeys(game_ids))))
+            .all()
+        )
+    }
+    teams = _team_map(db_sess)
+    root = (
+        os.getenv("FUNBA_PUBLIC_BASE_URL")
+        or os.getenv("FUNBA_BASE_URL")
+        or "https://funba.app"
+    ).rstrip("/")
+    contexts = []
+    for game_id in dict.fromkeys(game_ids):
+        game = games.get(game_id)
+        if game is None:
+            continue
+        home_label = _team_abbr(teams, game.home_team_id)
+        road_label = _team_abbr(teams, game.road_team_id)
+        if game.home_team_score is not None and game.road_team_score is not None:
+            score = f"{road_label} {game.road_team_score}, {home_label} {game.home_team_score}"
+        else:
+            score = f"{road_label} @ {home_label}"
+        slug = game.slug or game.game_id
+        contexts.append(
+            GameContext(
+                game_id=str(game.game_id),
+                game_date=game.game_date,
+                url=f"{root}/games/{slug}",
+                matchup=f"{road_label} @ {home_label}",
+                score=score,
+                home_team_terms=(),
+                road_team_terms=(),
+            )
+        )
+    return build_game_metric_contexts(db_sess, contexts)
+
+
+def _twitter_engagement_context_by_post(db_sess, post_ids: list[int]) -> dict[int, dict[str, object]]:
+    if not post_ids:
+        return {}
+    inbound_messages = (
+        db_sess.query(TwitterEngagementMessage)
+        .filter(TwitterEngagementMessage.reply_post_id.in_(post_ids))
+        .order_by(TwitterEngagementMessage.id.asc())
+        .all()
+    )
+    current_by_post: dict[int, TwitterEngagementMessage] = {}
+    for message in inbound_messages:
+        if message.reply_post_id is not None and int(message.reply_post_id) not in current_by_post:
+            current_by_post[int(message.reply_post_id)] = message
+    conversation_ids = sorted({int(message.conversation_id) for message in current_by_post.values()})
+    if not conversation_ids:
+        return {}
+
+    conversations = {
+        int(conversation.id): conversation
+        for conversation in (
+            db_sess.query(TwitterEngagementConversation)
+            .filter(TwitterEngagementConversation.id.in_(conversation_ids))
+            .all()
+        )
+    }
+    all_messages = (
+        db_sess.query(TwitterEngagementMessage)
+        .filter(TwitterEngagementMessage.conversation_id.in_(conversation_ids))
+        .order_by(TwitterEngagementMessage.posted_at.asc(), TwitterEngagementMessage.id.asc())
+        .all()
+    )
+    messages_by_conversation: dict[int, list[TwitterEngagementMessage]] = {}
+    for message in all_messages:
+        messages_by_conversation.setdefault(int(message.conversation_id), []).append(message)
+
+    context_by_post: dict[int, dict[str, object]] = {}
+    for post_id, current_message in current_by_post.items():
+        conversation = conversations.get(int(current_message.conversation_id))
+        if conversation is None:
+            continue
+        messages = messages_by_conversation.get(int(conversation.id), [])
+        inbound_count = sum(1 for message in messages if message.direction == "inbound")
+        outbound_count = sum(1 for message in messages if message.direction == "outbound")
+        pending_inbound_count = sum(
+            1
+            for message in messages
+            if message.direction == "inbound" and message.status in {"discovered", "drafted"}
+        )
+        context_by_post[post_id] = {
+            "conversation": {
+                "id": conversation.id,
+                "x_conversation_id": conversation.x_conversation_id,
+                "root_tweet_id": conversation.root_tweet_id,
+                "root_url": conversation.root_url,
+                "target_author_username": conversation.target_author_username,
+                "target_author_name": conversation.target_author_name,
+                "status": conversation.status,
+                "last_seen_tweet_id": conversation.last_seen_tweet_id,
+                "last_seen_at": conversation.last_seen_at.isoformat() if conversation.last_seen_at else None,
+                "last_replied_at": conversation.last_replied_at.isoformat() if conversation.last_replied_at else None,
+                "message_count": len(messages),
+                "inbound_count": inbound_count,
+                "outbound_count": outbound_count,
+                "pending_inbound_count": pending_inbound_count,
+            },
+            "current_message": _twitter_engagement_message_view(
+                current_message,
+                current_message_id=current_message.id,
+            ),
+            "metric_contexts": _twitter_metric_contexts_for_message(db_sess, current_message),
+            "messages": [
+                _twitter_engagement_message_view(message, current_message_id=current_message.id)
+                for message in messages
+            ],
+        }
+    return context_by_post
+
+
 def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, object]]:
     post_ids = [p.id for p in posts]
     variants = db_sess.query(SocialPostVariant).filter(
@@ -7244,6 +7423,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
     img_by_post: dict[int, list] = {}
     for img in images:
         img_by_post.setdefault(img.post_id, []).append(img)
+    twitter_context_by_post = _twitter_engagement_context_by_post(db_sess, post_ids)
 
     rows = []
     for p in posts:
@@ -7265,6 +7445,7 @@ def _build_social_post_rows(db_sess, posts: list[SocialPost]) -> list[dict[str, 
             "llm_model": p.llm_model,
             "created_at": p.created_at,
             "workflow": _paperclip_workflow_view(p),
+            "twitter_context": twitter_context_by_post.get(int(p.id)),
             "variant_count": len(pvariants),
             "variants": [
                 {

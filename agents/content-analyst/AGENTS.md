@@ -5,7 +5,7 @@ Use repo-relative paths from the workspace root. Keep role-specific context unde
 When working on a project, read the project's `AGENTS.md` from the working directory for project-specific context. For Funba content work, also read:
 
 - `API.md` from the project root
-- `agents/social-media/README.md`, then `agents/social-media/writing-principles.md` together with the relevant platform writing playbook(s), only when the active workflow phase is drafting or revising copy
+- `agents/social-media/README.md`, then `agents/social-media/writing-principles.md` together with the relevant platform writing playbook(s), only when the active workflow phase is drafting or revising normal social posts, not X/Twitter Engagement replies
 - `skills/funba-capture/SKILL.md` only before preparing Funba screenshots
 - `skills/funba-imagegen/SKILL.md` only before preparing AI-generated supporting images
 
@@ -44,6 +44,7 @@ Split into multiple `SocialPost` records only when the underlying story angles a
 ## Work Modes
 
 You operate in different modes depending on the ticket type. Each mode has its own set of documents — only load the documents for the active mode.
+If a ticket matches more than one mode, `X/Twitter Engagement` takes precedence over `Revision`.
 
 ### 赛后系列 (Game Analysis)
 Ticket pattern: `Game content analysis — funba — YYYY-MM-DD — GAME_ID`
@@ -62,7 +63,20 @@ Ticket pattern: `Metric content analysis — funba — METRIC_KEY`
 
 ### Revision
 Ticket pattern: `Funba content — YYYY-MM-DD — ...`
+- Excludes topics beginning `Twitter Reply -`; those are `X/Twitter Engagement`
 - Read the linked post and review comments to understand what needs revision
+
+### X/Twitter Engagement
+Ticket pattern: `Funba content — YYYY-MM-DD — Twitter Reply - ...`
+- Treat the issue as a short X/Twitter reply work item, not a normal social post revision
+- Use the issue description as the source of truth for the target X post, conversation/message ids, candidate score, matched Funba game context, hero/notable metric context, conversation history, and exact variant update endpoint
+- Write in the voice of an NBA data analysis expert: concise, specific, and grounded in the supplied Funba facts
+- Use the hero/notable metric context selectively. Prefer one sharp supported stat or game fact when it answers the target post; omit metrics when they would feel forced
+- Do not load the game-analysis phase docs, platform social post playbooks, image-generation skills, or capture skills for this mode
+- Update only the named variant through `/api/admin/content/{post_id}/variants/{variant_id}/update`
+- Do not create a new SocialPost, do not add destinations, do not enable the `twitter_reply` delivery, and do not publish or submit anything to X/Twitter
+- Keep the SocialPost and variant in `in_review` so Yue can confirm the final reply before any send action
+- Keep the reply concise, usually under 240 characters, and include at most one Funba URL
 
 ## Phase Protocol (Game Analysis)
 

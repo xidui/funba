@@ -15,11 +15,13 @@ PIPELINE_FILTER_OPTIONS = (
     ("game_analysis", "Game Analysis"),
     ("metric_deep_dive", "Metric Deep Dive"),
     ("hero_highlight", "Hero Highlights"),
+    ("twitter_engagement", "Twitter Engagement"),
     ("other", "Other"),
 )
 PIPELINE_FILTER_KEYS = {key for key, _label in PIPELINE_FILTER_OPTIONS}
 HERO_HIGHLIGHT_TOPIC_PREFIX = "Hero Highlight"
 METRIC_DEEP_DIVE_EVENT_TYPE = "metric_deep_dive_brief"
+TWITTER_ENGAGEMENT_EVENT_TYPE = "twitter_engagement_reply_work_item"
 
 
 def _metric_deep_dive_clause(SocialPost):
@@ -29,8 +31,19 @@ def _metric_deep_dive_clause(SocialPost):
     )
 
 
+def _twitter_engagement_clause(SocialPost):
+    return or_(
+        SocialPost.admin_comments.like(f'%"event_type": "{TWITTER_ENGAGEMENT_EVENT_TYPE}"%'),
+        SocialPost.admin_comments.like(f'%"event_type":"{TWITTER_ENGAGEMENT_EVENT_TYPE}"%'),
+    )
+
+
 def _not_metric_deep_dive_clause(SocialPost):
     return or_(SocialPost.admin_comments.is_(None), ~_metric_deep_dive_clause(SocialPost))
+
+
+def _not_twitter_engagement_clause(SocialPost):
+    return or_(SocialPost.admin_comments.is_(None), ~_twitter_engagement_clause(SocialPost))
 
 
 def _hero_highlight_clause(SocialPost):
@@ -119,10 +132,13 @@ def _apply_pipeline_filter(query, session, SocialPost, GameContentAnalysisIssueP
         return query.filter(_metric_deep_dive_clause(SocialPost))
     if pipeline_filter == "hero_highlight":
         return query.filter(_hero_highlight_clause(SocialPost))
+    if pipeline_filter == "twitter_engagement":
+        return query.filter(_twitter_engagement_clause(SocialPost))
     if pipeline_filter == "other":
         return query.filter(
             ~SocialPost.id.in_(_game_analysis_post_id_query(session, GameContentAnalysisIssuePost)),
             _not_metric_deep_dive_clause(SocialPost),
+            _not_twitter_engagement_clause(SocialPost),
             ~_hero_highlight_clause(SocialPost),
         )
     return query
@@ -256,6 +272,7 @@ def register_admin_content_routes(app, deps):
             for d in deliveries:
                 d_by_variant.setdefault(d.variant_id, []).append(d)
             images = s.query(SocialPostImage).filter(SocialPostImage.post_id == post_id).order_by(SocialPostImage.id).all()
+            row_context = deps.build_social_post_rows()(s, [p])[0].get("twitter_context")
 
             return jsonify(
                 {
@@ -270,6 +287,7 @@ def register_admin_content_routes(app, deps):
                     "llm_model": p.llm_model,
                     "created_at": p.created_at.isoformat() if p.created_at else None,
                     "workflow": deps.paperclip_workflow_view()(p),
+                    "twitter_context": row_context,
                     "variants": [
                         {
                             "id": v.id,
@@ -799,6 +817,8 @@ def register_admin_content_routes(app, deps):
             )
             if not d:
                 return jsonify({"error": "not_found"}), 404
+            if enabled and str(d.platform or "").strip().lower() == "twitter_reply":
+                return jsonify({"error": "manual_confirmation_required"}), 400
             d.is_enabled = enabled
             d.updated_at = datetime.utcnow()
             if not enabled and d.status == "publishing":

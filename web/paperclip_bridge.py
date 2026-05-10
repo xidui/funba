@@ -204,6 +204,83 @@ def build_post_issue_title(post: Mapping[str, Any]) -> str:
     return f"Funba content — {topic}"[:240]
 
 
+def _build_twitter_engagement_post_issue_description(
+    *,
+    post: Mapping[str, Any],
+    variants: list[Mapping[str, Any]],
+    variant_block: str,
+    twitter_context: Mapping[str, Any],
+    payload: dict[str, Any],
+) -> str:
+    conversation = twitter_context.get("conversation") or {}
+    current_message = twitter_context.get("current_message") or {}
+    metric_contexts = twitter_context.get("metric_contexts") or []
+    messages = twitter_context.get("messages") or []
+    post_id = post.get("id") or "<ID>"
+    endpoint_lines = []
+    for variant in variants:
+        variant_id = variant.get("id") or "<VARIANT_ID>"
+        title = str(variant.get("title") or "Untitled variant").strip()
+        endpoint_lines.append(f"- {title}: `/api/admin/content/{post_id}/variants/{variant_id}/update`")
+    endpoint_text = "\n".join(endpoint_lines) if endpoint_lines else f"- `/api/admin/content/{post_id}/variants/<VARIANT_ID>/update`"
+    payload["twitter_context"] = twitter_context
+
+    desc = (
+        "Funba is the source of truth for this X/Twitter reply work item.\n\n"
+        "## Objective\n\n"
+        "Rewrite the existing seed variant into a natural, high-signal reply to the target X post.\n\n"
+        "## Reply Voice\n\n"
+        "Write as an NBA data analysis expert: concise, specific, and grounded in the supplied Funba facts. "
+        "Use hero/notable metrics selectively; prefer one sharp supported stat when it directly answers the target post, and omit metrics when they would feel forced.\n\n"
+        "## Hard Boundaries\n\n"
+        "- Do not publish, submit, or send anything to X/Twitter.\n"
+        "- Do not enable the disabled `twitter_reply` delivery until Yue manually confirms sending.\n"
+        "- Do not create a new SocialPost, add destinations, or use normal platform-specific post-generation playbooks for this reply.\n"
+        "- Keep the SocialPost and variant in `in_review` for manual confirmation.\n"
+        "- Keep the reply concise, usually under 240 characters.\n"
+        "- Include at most one Funba URL, and only use facts supported by the context below.\n\n"
+        "## Required Funba Write\n\n"
+        "Update only the existing variant through the matching endpoint:\n"
+        f"{endpoint_text}\n\n"
+        "Variants:\n"
+        f"{variant_block}\n\n"
+        "## X/Twitter Engagement Context\n\n"
+        f"Conversation DB ID: {conversation.get('id') or 'unknown'}\n"
+        f"X conversation ID: {conversation.get('x_conversation_id') or 'unknown'}\n"
+        f"Current inbound message DB ID: {current_message.get('id') or 'unknown'}\n"
+        f"Current target URL: {current_message.get('tweet_url') or 'unknown'}\n\n"
+        "Hero/notable metric context:\n"
+    )
+    if isinstance(metric_contexts, list) and metric_contexts:
+        desc += (
+            "```json\n"
+            f"{json.dumps(metric_contexts, ensure_ascii=False, indent=2)}\n"
+            "```\n\n"
+        )
+    else:
+        desc += "- none stored\n\n"
+
+    desc += "Recent conversation messages:\n"
+    if isinstance(messages, list) and messages:
+        for message in messages[-12:]:
+            if not isinstance(message, Mapping):
+                continue
+            author = str(message.get("author_username") or "unknown")
+            direction = str(message.get("direction") or "unknown")
+            status = str(message.get("status") or "unknown")
+            text = " ".join(str(message.get("text") or "").split())[:500]
+            desc += f"- {direction}/{status} @{author}: {text}\n"
+    else:
+        desc += "- none stored\n"
+
+    desc += (
+        "\n<funba_post>\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n"
+        "</funba_post>"
+    )
+    return desc
+
+
 def build_post_issue_description(post: Mapping[str, Any]) -> str:
     variants = post.get("variants") or []
     images = post.get("images") or []
@@ -251,6 +328,16 @@ def build_post_issue_description(post: Mapping[str, Any]) -> str:
     enabled_count = len(enabled_images)
 
     variant_block = "\n".join(variant_lines) if variant_lines else "- none yet"
+    twitter_context = post.get("twitter_context") or {}
+    if pipeline_type == "twitter_engagement" and isinstance(twitter_context, Mapping):
+        return _build_twitter_engagement_post_issue_description(
+            post=post,
+            variants=[variant for variant in variants if isinstance(variant, Mapping)],
+            variant_block=variant_block,
+            twitter_context=twitter_context,
+            payload=payload,
+        )
+
     desc = (
         "Funba is the source of truth for this post. Review and publishing signals come from the Funba admin content UI.\n\n"
         f"Review profile: `{review_profile}`\n"

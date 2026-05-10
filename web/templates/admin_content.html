@@ -47,6 +47,7 @@
   .pipeline-chip.game_analysis { color: #60a5fa; border-color: rgba(96,165,250,0.45); background: rgba(96,165,250,0.12); }
   .pipeline-chip.metric_deep_dive { color: #f59e0b; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.12); }
   .pipeline-chip.hero_highlight { color: var(--win); border-color: color-mix(in srgb, var(--win) 45%, transparent); background: color-mix(in srgb, var(--win) 12%, transparent); }
+  .pipeline-chip.twitter_engagement { color: #38bdf8; border-color: rgba(56,189,248,0.45); background: rgba(56,189,248,0.12); }
   .pipeline-chip.other { color: var(--muted); }
 
   /* Date group */
@@ -91,9 +92,56 @@
   .d-chip a { color: inherit; text-decoration: none; }
   .d-chip a:hover { text-decoration: underline; }
 
+  .twitter-thread-summary {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    font-size: 11px; color: var(--muted-2);
+  }
+  .twitter-thread-summary span {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 2px 7px;
+  }
+
   /* Expanded detail */
   .post-detail { display: none; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
   .post-card.expanded .post-detail { display: block; }
+
+  .twitter-thread-section { margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface-2); }
+  .twitter-thread-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .twitter-thread-header h4 { font-size: 12px; color: var(--muted-2); margin: 0; font-weight: 700; }
+  .twitter-thread-meta { display: flex; gap: 8px; font-size: 11px; color: var(--muted); align-items: center; }
+  .twitter-thread-meta a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .twitter-thread-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px; margin-bottom: 10px;
+  }
+  .twitter-thread-field {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 8px; font-size: 12px; color: var(--text);
+  }
+  .twitter-thread-field strong {
+    display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); margin-bottom: 2px;
+  }
+  .twitter-timeline { display: flex; flex-direction: column; gap: 8px; }
+  .twitter-message {
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
+    background: var(--surface);
+  }
+  .twitter-message.outbound { border-color: color-mix(in srgb, var(--win) 34%, var(--border)); }
+  .twitter-message.current { border-color: rgba(56,189,248,0.7); box-shadow: inset 3px 0 0 #38bdf8; }
+  .twitter-message-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 5px; font-size: 11px; }
+  .twitter-direction {
+    font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--heading);
+  }
+  .twitter-author { color: var(--accent); font-weight: 700; }
+  .twitter-status, .twitter-current {
+    border-radius: 4px; padding: 1px 6px; background: var(--surface-3); color: var(--muted-2);
+  }
+  .twitter-current { background: rgba(56,189,248,0.14); color: #38bdf8; }
+  .twitter-message-top a { color: var(--accent); text-decoration: none; margin-left: auto; }
+  .twitter-message-text { font-size: 13px; line-height: 1.45; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .twitter-message-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 10px; color: var(--muted); }
 
   /* Variant tabs */
   .variant-tabs { display: flex; gap: 6px; margin-bottom: 12px; }

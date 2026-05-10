@@ -27,6 +27,8 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import sys
 import uuid
@@ -47,6 +49,13 @@ from tasks.celery_app import app as celery_app  # noqa: F401 — ensures tasks a
 
 # Import so Celery knows about them before we call apply_async
 from tasks.ingest import ingest_game  # noqa: F401
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _session():
@@ -808,6 +817,52 @@ def cmd_season_metrics(args: argparse.Namespace) -> None:
         print(f"Enqueued {result['enqueued']} season metric task(s) for {len(metrics)} metric(s).")
 
 
+def cmd_twitter_engage(args: argparse.Namespace) -> None:
+    """Create Paperclip-backed X/Twitter engagement reply work items."""
+    paperclip = (
+        _env_bool("FUNBA_TWITTER_ENGAGEMENT_PAPERCLIP", True)
+        if args.paperclip is None
+        else bool(args.paperclip)
+    )
+    kwargs = {
+        "query": args.query,
+        "max_results": args.max_results,
+        "daily_limit": args.daily_limit,
+        "min_score": args.min_score,
+        "dry_run": args.dry_run,
+        "paperclip": paperclip,
+    }
+    if args.run_now:
+        from sqlalchemy.orm import Session
+
+        from content_pipeline.twitter_engagement import (
+            discover_twitter_engagement_candidates,
+            wake_paperclip_twitter_engagement_agent,
+        )
+
+        with Session(engine) as session:
+            result = discover_twitter_engagement_candidates(session, **kwargs)
+            if args.dry_run or not result.get("ok"):
+                session.rollback()
+            else:
+                session.commit()
+        if not args.dry_run and result.get("ok"):
+            wake_results = [
+                wake_paperclip_twitter_engagement_agent(wake_request)
+                for wake_request in (result.get("paperclip_wakeup_requests") or [])
+                if isinstance(wake_request, dict)
+            ]
+            if wake_results:
+                result["paperclip_wake_results"] = wake_results
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    from tasks.content import discover_twitter_engagement_task
+
+    discover_twitter_engagement_task.apply_async(kwargs=kwargs)
+    print("Enqueued Twitter engagement discovery task -> Queue: news.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tasks.dispatch",
@@ -913,6 +968,25 @@ def main() -> None:
              "with a fresh one. Use when a prior dispatch left tracking stale.",
     )
     p_sm.set_defaults(func=cmd_season_metrics)
+
+    # --- twitter-engage ---
+    p_te = sub.add_parser(
+        "twitter-engage",
+        help="Discover X/Twitter posts and create Paperclip-backed reply work items.",
+    )
+    p_te.add_argument("--query", default=None, help="Override X recent-search query.")
+    p_te.add_argument("--max-results", dest="max_results", type=int, default=None)
+    p_te.add_argument("--daily-limit", dest="daily_limit", type=int, default=None)
+    p_te.add_argument("--min-score", dest="min_score", type=float, default=None)
+    p_te.add_argument(
+        "--paperclip",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Create a Paperclip Content Analyst issue for each work item. Use --no-paperclip for local debugging.",
+    )
+    p_te.add_argument("--dry-run", action="store_true", help="Print candidates without creating SocialPost work items.")
+    p_te.add_argument("--run-now", action="store_true", help="Run synchronously instead of enqueueing Celery.")
+    p_te.set_defaults(func=cmd_twitter_engage)
 
     args = parser.parse_args()
     args.func(args)

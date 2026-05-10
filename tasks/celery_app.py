@@ -53,6 +53,7 @@ app.conf.update(
         "tasks.content.curate_then_analyze_for_season": {"queue": "ingest"},
         "tasks.content.publish_social_delivery": {"queue": "ingest"},
         "tasks.content.dispatch_throttled_social_publish": {"queue": "ingest"},
+        "tasks.content.discover_twitter_engagement": {"queue": "news"},
         "tasks.ingest.scrape_nba_news": {"queue": "news"},
         "tasks.ingest.scrape_news_source": {"queue": "news"},
         "tasks.ingest.refresh_news_scores": {"queue": "news"},
@@ -93,6 +94,10 @@ app.conf.update(
             "task": "tasks.content.dispatch_throttled_social_publish",
             "schedule": 300,
             "kwargs": {"platform": "instagram"},
+        },
+        "discover-twitter-engagement-candidates": {
+            "task": "tasks.content.discover_twitter_engagement",
+            "schedule": 30 * 60,
         },
         "sync-schedule-window": {
             "task": "tasks.ingest.sync_schedule_window",

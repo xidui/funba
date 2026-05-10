@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -22,6 +24,21 @@ from social_media.twitter.post import (  # noqa: E402
     _resolve_image_paths,
     _status_url_matches_handle,
     _tweet_text_for_twitter,
+)
+from social_media.twitter.reply import (  # noqa: E402
+    _composer_button_selectors,
+    _reply_button_selectors,
+    _reply_target_url,
+    _status_id_from_url,
+    record_successful_reply_in_db,
+)
+from db.models import (  # noqa: E402
+    Base,
+    SocialPost,
+    SocialPostDelivery,
+    SocialPostVariant,
+    TwitterEngagementConversation,
+    TwitterEngagementMessage,
 )
 from scripts.funba_twitter_publish import _collect_post_image_paths  # noqa: E402
 
@@ -164,6 +181,123 @@ class TestTwitterPostHelpers(unittest.TestCase):
         ):
             _create_context(pw, headless=True)
         self.assertTrue(pw.chromium.headless)
+
+
+class TestTwitterReplyHelpers(unittest.TestCase):
+    def test_reply_target_url_normalizes_twitter_status_url(self):
+        self.assertEqual(
+            _reply_target_url("https://twitter.com/nba_analyst/status/1900000000000000001?s=20"),
+            "https://x.com/nba_analyst/status/1900000000000000001",
+        )
+
+    def test_reply_target_url_rejects_non_status_url(self):
+        with self.assertRaises(ValueError):
+            _reply_target_url("https://x.com/home")
+
+    def test_reply_selectors_cover_reply_and_submit_buttons(self):
+        self.assertIn('[data-testid="reply"]', _reply_button_selectors())
+        self.assertIn('[data-testid="tweetButtonInline"]', _composer_button_selectors())
+
+    def test_status_id_from_url_reads_reply_status_id(self):
+        self.assertEqual(
+            _status_id_from_url("https://x.com/funba_app/status/1900000000000000999?s=20"),
+            "1900000000000000999",
+        )
+
+    def test_record_successful_reply_writes_outbound_message_and_delivery(self):
+        from datetime import date, datetime
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        SessionLocal = sessionmaker(bind=engine)
+        try:
+            with SessionLocal() as session:
+                now = datetime(2026, 5, 2, 18, 0, 0)
+                post = SocialPost(
+                    topic="Twitter Reply - @analyst - 1900000000000000001",
+                    source_date=date.fromisoformat("2026-05-02"),
+                    source_metrics="[]",
+                    source_game_ids="[]",
+                    status="in_review",
+                    admin_comments="[]",
+                    priority=50,
+                    llm_model=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(post)
+                session.flush()
+                variant = SocialPostVariant(
+                    post_id=post.id,
+                    title="Reply",
+                    content_raw="reply text",
+                    audience_hint="test",
+                    status="in_review",
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(variant)
+                session.flush()
+                delivery = SocialPostDelivery(
+                    variant_id=variant.id,
+                    platform="twitter_reply",
+                    forum="@analyst",
+                    is_enabled=False,
+                    status="pending",
+                    created_at=now,
+                    updated_at=now,
+                )
+                conversation = TwitterEngagementConversation(
+                    x_conversation_id="1900000000000000001",
+                    root_tweet_id="1900000000000000001",
+                    status="active",
+                    last_seen_tweet_id="1900000000000000001",
+                    last_seen_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add_all([delivery, conversation])
+                session.flush()
+                inbound = TwitterEngagementMessage(
+                    conversation_id=conversation.id,
+                    tweet_id="1900000000000000001",
+                    x_conversation_id=conversation.x_conversation_id,
+                    direction="inbound",
+                    status="drafted",
+                    author_username="analyst",
+                    author_verified=False,
+                    author_followers_count=0,
+                    text="target",
+                    tweet_url="https://x.com/analyst/status/1900000000000000001",
+                    posted_at=now,
+                    discovered_at=now,
+                    reply_post_id=post.id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(inbound)
+                session.flush()
+
+                result = record_successful_reply_in_db(
+                    session,
+                    inbound_message_id=inbound.id,
+                    delivery_id=delivery.id,
+                    final_url="https://x.com/funba_app/status/1900000000000000999",
+                    content="reply text",
+                    account_handle="funba_app",
+                    now_utc=now,
+                )
+                session.commit()
+
+                outbound = session.get(TwitterEngagementMessage, result["outbound_message_id"])
+                self.assertEqual(outbound.direction, "outbound")
+                self.assertEqual(outbound.parent_tweet_id, inbound.tweet_id)
+                self.assertEqual(outbound.reply_post_id, post.id)
+                self.assertEqual(inbound.status, "replied")
+                self.assertEqual(delivery.status, "published")
+                self.assertEqual(delivery.published_url, "https://x.com/funba_app/status/1900000000000000999")
+        finally:
+            engine.dispose()
 
 
 class TestResolveImagePaths(unittest.TestCase):

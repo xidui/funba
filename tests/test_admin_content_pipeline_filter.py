@@ -49,8 +49,12 @@ class TestAdminContentPipelineFilter(unittest.TestCase):
                 comments=[{"event_type": "metric_deep_dive_brief", "text": "brief"}],
             )
             hero_post = self._post(topic="Hero Highlight — 0022500001 — player — pts — p1")
+            twitter_post = self._post(
+                topic="Twitter Reply - @analyst - 1900000000000000001",
+                comments=[{"event_type": "twitter_engagement_reply_work_item", "text": "candidate"}],
+            )
             other_post = self._post(topic="Manual post", comments=None)
-            session.add_all([game_post, metric_post, hero_post, other_post])
+            session.add_all([game_post, metric_post, hero_post, twitter_post, other_post])
             session.flush()
             session.add(
                 GameContentAnalysisIssuePost(
@@ -68,12 +72,13 @@ class TestAdminContentPipelineFilter(unittest.TestCase):
                     row.id
                     for row in _apply_pipeline_filter(base, session, SocialPost, GameContentAnalysisIssuePost, key).all()
                 }
-                for key in ("game_analysis", "metric_deep_dive", "hero_highlight", "other")
+                for key in ("game_analysis", "metric_deep_dive", "hero_highlight", "twitter_engagement", "other")
             }
 
             self.assertEqual(ids_by_filter["game_analysis"], {game_post.id})
             self.assertEqual(ids_by_filter["metric_deep_dive"], {metric_post.id})
             self.assertEqual(ids_by_filter["hero_highlight"], {hero_post.id})
+            self.assertEqual(ids_by_filter["twitter_engagement"], {twitter_post.id})
             self.assertEqual(ids_by_filter["other"], {other_post.id})
 
 
