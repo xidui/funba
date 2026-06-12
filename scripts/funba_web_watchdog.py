@@ -179,7 +179,7 @@ def _terminate_stale_listeners(port: int, grace_seconds: float) -> list[int]:
 
 
 def _kickstart(service: str) -> bool:
-    target = f"gui/{os.getuid()}/{service}"
+    target = os.getenv("FUNBA_WEB_WATCHDOG_LAUNCHCTL_TARGET") or f"gui/{os.getuid()}/{service}"
     result = _run(["/bin/launchctl", "kickstart", "-k", target], timeout=15.0)
     if result.returncode == 0:
         _log(f"kickstarted {target}")

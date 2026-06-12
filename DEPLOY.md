@@ -36,9 +36,9 @@ The remote is `https://github.com/xidui/funba.git` (private repo). Every complet
 ```
 User → funba.app (Cloudflare DNS, proxied)
      → Cloudflare Edge (global PoPs, auto-TLS)
-     → cloudflared tunnel (runs on Mac Studio, launchd LaunchAgent)
+     → cloudflared tunnel (runs on Mac Studio, launchd LaunchDaemon)
      → localhost:5001 on Mac Studio
-     → gunicorn web app (4 workers, launchd LaunchAgent)
+     → gunicorn web app (4 workers, launchd LaunchDaemon)
 ```
 
 No reverse SSH tunnel or public droplet required for the app traffic. The DigitalOcean
@@ -80,19 +80,60 @@ Code edits and `git push` work from either side (the mount writes through, and `
 
 ---
 
-## Session Behavior
+## Boot And Session Behavior
 
-The current Mac Studio app services are user `LaunchAgent`s under `~/Library/LaunchAgents/`.
+The production web stack runs as system `LaunchDaemon`s so it can start without
+a user GUI login:
 
+- `homebrew.mxcl.mysql`
+- `homebrew.mxcl.redis`
 - `app.funba.web`
 - `app.funba.cloudflared`
-- `app.funba.backup`
+- `app.funba.scheduler`
+- `app.funba.worker-ingest`
+- `app.funba.worker-metrics`
+- `app.funba.worker-reduce`
+- `app.funba.worker-news`
+- `app.funba.web-watchdog`
 
-This means:
+Runtime files for those daemons live outside `~/Documents` to avoid macOS TCC
+protection issues:
 
-- They keep running while the screen is locked.
-- They stop on logout because the `gui/$(id -u)` launchd domain is torn down.
-- Promoting them to true system `LaunchDaemon`s requires `sudo` access to `/Library/LaunchDaemons` and is safer only after runtime assets are moved out of TCC-protected paths such as `~/Documents`.
+```bash
+/Users/yuewang/Library/funba/deploy-main
+/Users/yuewang/Library/funba/venv
+/Users/yuewang/Library/funba/LaunchDaemons
+/Users/yuewang/Library/Logs/funba
+```
+
+Prepare or refresh the runtime/staged plist files from the current deploy
+worktree and local source plist environment. These one-time migration helpers
+are intentionally stored outside the repo:
+
+```bash
+python3 /Users/yuewang/Library/funba/migration/prepare_launchdaemon_runtime.py
+```
+
+Install and switch the services into the system launchd domain:
+
+```bash
+sudo bash /Users/yuewang/Library/funba/migration/install_launch_daemons.sh
+```
+
+`sudo` is required because `/Library/LaunchDaemons` must be owned by
+`root:wheel`. The install script moves the old user LaunchAgent plist files into
+a timestamped backup directory under `~/Library/LaunchAgents/` and also keeps a
+stable copy at `~/Library/funba/LaunchAgents-source/` so future runtime refreshes
+can regenerate daemon plists without committing secrets.
+
+Power-loss behavior:
+
+- `pmset -g | grep autorestart` should show `autorestart 1`; set it with
+  `sudo pmset -a autorestart 1`.
+- If FileVault is enabled, a full power-loss restart still stops at the
+  FileVault unlock screen. LaunchDaemons can start before GUI login only after
+  the encrypted volume is unlocked. Fully unattended power-loss recovery
+  requires disabling FileVault or preventing hard power loss with a UPS.
 
 ---
 
@@ -117,8 +158,9 @@ cloudflared tunnel create funba
 # 4 — Route DNS
 cloudflared tunnel route dns funba funba.app
 
-# 5 — Start service
-launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
+# 5 — Refresh staged daemons and start service
+python3 /Users/yuewang/Library/funba/migration/prepare_launchdaemon_runtime.py
+sudo bash /Users/yuewang/Library/funba/migration/install_launch_daemons.sh
 ```
 
 ---
@@ -138,23 +180,30 @@ The app runs under launchd as service `app.funba.web`, supervised by gunicorn (4
 ### Runtime source of truth:
 
 The live launchd service does **not** run directly from the repo root checkout.
-It runs from the deploy worktree:
+The source deploy worktree remains:
 
 ```bash
 /Users/yuewang/Documents/github/funba/.paperclip/deploy-main
 ```
 
-That path is the `WorkingDirectory` in `~/Library/LaunchAgents/app.funba.web.plist`.
+System LaunchDaemons run from a synced runtime copy outside `~/Documents`:
+
+```bash
+/Users/yuewang/Library/funba/deploy-main
+```
 
 This means normal pushes to `origin/main` do **not** update the running app by itself.
-Deploying the latest `main` requires two explicit steps:
+Deploying the latest `main` requires three explicit steps:
 
 ```bash
 # 1. Update the deploy worktree to the target commit
 git -C /Users/yuewang/Documents/github/funba/.paperclip/deploy-main checkout --detach <commit-or-origin/main>
 
-# 2. Restart the launchd web service
-launchctl kickstart -k gui/$(id -u)/app.funba.web
+# 2. Sync daemon runtime + regenerate staged daemon plists
+python3 /Users/yuewang/Library/funba/migration/prepare_launchdaemon_runtime.py
+
+# 3. Restart the system web service
+sudo launchctl kickstart -k system/app.funba.web
 ```
 
 If the deploy worktree is not updated first, the restarted service will continue
@@ -164,24 +213,23 @@ running the old code even when `origin/main` is newer.
 
 ```bash
 # Check status
-launchctl list app.funba.web
+sudo launchctl print system/app.funba.web
 
 # Start
-launchctl load ~/Library/LaunchAgents/app.funba.web.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/app.funba.web.plist
 
 # Stop
-launchctl unload ~/Library/LaunchAgents/app.funba.web.plist
+sudo launchctl bootout system/app.funba.web
 
 # Restart
-launchctl unload ~/Library/LaunchAgents/app.funba.web.plist
-launchctl load ~/Library/LaunchAgents/app.funba.web.plist
+sudo launchctl kickstart -k system/app.funba.web
 ```
 
 ### Logs:
-- Access log: `logs/web-app-5001.log`
-- Error log: `logs/web-app-5001-error.log`
-- Stdout: `logs/web-app-5001-stdout.log`
-- Stderr: `logs/web-app-5001-stderr.log`
+- Access log: `~/Library/Logs/funba/web-app-5001.log`
+- Error log: `~/Library/Logs/funba/web-app-5001-error.log`
+- Stdout: `~/Library/Logs/funba/web-app-5001-stdout.log`
+- Stderr: `~/Library/Logs/funba/web-app-5001-stderr.log`
 
 ### Web watchdog:
 
@@ -190,15 +238,17 @@ launchctl load ~/Library/LaunchAgents/app.funba.web.plist
 quickly, it terminates stale Funba web processes still holding port 5001 and
 then kickstarts `app.funba.web`.
 
-Install or update it after deploy changes that touch `scripts/funba_web_watchdog.py`:
+Install or update it after deploy changes that touch `scripts/funba_web_watchdog.py`
+by refreshing the daemon runtime:
 
 ```bash
-bash /Users/yuewang/Documents/github/funba/.paperclip/deploy-main/scripts/install_web_watchdog_agent.sh
+python3 /Users/yuewang/Library/funba/migration/prepare_launchdaemon_runtime.py
+sudo launchctl kickstart -k system/app.funba.web-watchdog
 ```
 
 Logs:
-- Stdout: `logs/web-watchdog-stdout.log`
-- Stderr: `logs/web-watchdog-stderr.log`
+- Stdout: `~/Library/Logs/funba/web-watchdog-stdout.log`
+- Stderr: `~/Library/Logs/funba/web-watchdog-stderr.log`
 
 ### Environment variables (set in plist):
 
@@ -232,7 +282,14 @@ Logs:
 | `OBJC_DISABLE_INITIALIZE_FORK_SAFETY` | macOS fork safety workaround |
 | `RESEND_API_KEY` | Email notifications (worker-reduce only) |
 
-To override, edit `~/Library/LaunchAgents/app.funba.<service>.plist` → `EnvironmentVariables`.
+To override, edit the source plist under `~/Library/funba/LaunchAgents-source/`
+after migration, or `~/Library/LaunchAgents/app.funba.<service>.plist` before
+migration, then rerun:
+
+```bash
+python3 /Users/yuewang/Library/funba/migration/prepare_launchdaemon_runtime.py
+sudo bash /Users/yuewang/Library/funba/migration/install_launch_daemons.sh
+```
 
 Secrets (API keys, etc.) must NOT be committed to git. See local `SECRETS.md` (gitignored).
 
@@ -244,22 +301,21 @@ Secrets (API keys, etc.) must NOT be committed to git. See local `SECRETS.md` (g
 
 ```bash
 # Check status
-launchctl list app.funba.cloudflared
+sudo launchctl print system/app.funba.cloudflared
 
 # Start
-launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/app.funba.cloudflared.plist
 
 # Stop
-launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist
+sudo launchctl bootout system/app.funba.cloudflared
 
 # Restart
-launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist
-launchctl load ~/Library/LaunchAgents/app.funba.cloudflared.plist
+sudo launchctl kickstart -k system/app.funba.cloudflared
 ```
 
 ### Logs:
-- `logs/cloudflared-stdout.log`
-- `logs/cloudflared-stderr.log`
+- `~/Library/Logs/funba/cloudflared-stdout.log`
+- `~/Library/Logs/funba/cloudflared-stderr.log`
 
 ---
 
@@ -284,13 +340,13 @@ Web app (publish metric / daily scheduler)
 
 | Service | Label | Queue(s) | Autoscale (min–max) | Notes |
 |---------|-------|----------|---------------------|-------|
-| Redis | `homebrew.mxcl.redis` | — | — | Broker (`brew services start redis`) |
+| Redis | `homebrew.mxcl.redis` | — | — | Broker (system LaunchDaemon) |
 | Ingest worker | `app.funba.worker-ingest` | `ingest` | 2–10 | DB_POOL_SIZE=1 |
 | Metrics worker | `app.funba.worker-metrics` | `metrics` | 8–50 | DB_POOL_SIZE=1, fd limit 4096 |
 | Reduce worker | `app.funba.worker-reduce` | `reduce` | 2–16 | DB_POOL_SIZE=4 |
 | Scheduler | `app.funba.scheduler` | — | — | Celery Beat (hourly ingest + 2-min sweep + daily topics at 12:00) |
 
-All workers use the deploy worktree as WorkingDirectory and set
+All workers use the runtime deploy copy as WorkingDirectory and set
 `CELERY_BROKER_URL=redis://localhost:6379/0` in their plist EnvironmentVariables.
 
 `CELERY_RESULT_BACKEND` defaults to `redis://localhost:6379/0` in code (same as
@@ -333,27 +389,26 @@ leak ~100 MB/min during sustained backfill due to Python malloc fragmentation.
 
 ```bash
 # Check all funba services
-launchctl list | grep app.funba
+sudo launchctl print system | grep app.funba
 
 # Check Redis
-brew services info redis
+sudo launchctl print system/homebrew.mxcl.redis
 redis-cli ping
 
 # Start a worker
-launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/app.funba.worker-metrics.plist
 
 # Stop a worker
-launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+sudo launchctl bootout system/app.funba.worker-metrics
 
 # Restart a worker
-launchctl unload ~/Library/LaunchAgents/app.funba.worker-metrics.plist
-launchctl load ~/Library/LaunchAgents/app.funba.worker-metrics.plist
+sudo launchctl kickstart -k system/app.funba.worker-metrics
 
 # View logs
-tail -f logs/worker-metrics-stderr.log
-tail -f logs/worker-ingest-stderr.log
-tail -f logs/worker-reduce-stderr.log
-tail -f logs/scheduler-stderr.log
+tail -f ~/Library/Logs/funba/worker-metrics-stderr.log
+tail -f ~/Library/Logs/funba/worker-ingest-stderr.log
+tail -f ~/Library/Logs/funba/worker-reduce-stderr.log
+tail -f ~/Library/Logs/funba/scheduler-stderr.log
 ```
 
 ### After code changes:
@@ -393,7 +448,7 @@ redis-cli llen metrics
 redis-cli llen reduce
 
 # Worker consuming tasks?
-tail -50 logs/worker-metrics-stderr.log
+tail -50 ~/Library/Logs/funba/worker-metrics-stderr.log
 
 # Purge stuck tasks from a queue
 redis-cli del metrics
@@ -506,19 +561,21 @@ ls -lh ~/Documents/github/funba/backups/
 
 ## Startup Checklist (after Mac Studio reboot)
 
-1. MySQL: `brew services list | grep mysql` — should show `started`
-2. Redis: `brew services list | grep redis` — should show `started`
-3. Web app: `launchctl list app.funba.web` — should show PID
-4. Web watchdog: `launchctl list app.funba.web-watchdog` — should show `"LastExitStatus" = 0` between interval runs
-5. Tunnel: `launchctl list app.funba.cloudflared` — should show PID
-6. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
-7. Workers: `launchctl list | grep app.funba.worker` — all three should show PIDs
-8. Scheduler: `launchctl list app.funba.scheduler` — should show PID
+1. Power recovery: `pmset -g | grep autorestart` — should show `autorestart 1`
+2. FileVault: `fdesetup status` — if enabled, the machine must still be unlocked after power loss
+3. MySQL: `sudo launchctl print system/homebrew.mxcl.mysql` — should show `state = running`
+4. Redis: `sudo launchctl print system/homebrew.mxcl.redis` — should show `state = running`
+5. Web app: `sudo launchctl print system/app.funba.web` — should show `state = running`
+6. Web watchdog: `sudo launchctl print system/app.funba.web-watchdog` — should show recent successful runs
+7. Tunnel: `sudo launchctl print system/app.funba.cloudflared` — should show `state = running`
+8. Backup job: `launchctl list app.funba.backup` — should show `"LastExitStatus" = 0` (no PID between runs; it exits after each dump)
+9. Workers: `sudo launchctl print system | grep app.funba.worker` — all four workers should be present
+10. Scheduler: `sudo launchctl print system/app.funba.scheduler` — should show `state = running`
 
-`app.funba.web`, `app.funba.web-watchdog`, and `app.funba.cloudflared` have
-`RunAtLoad` or `KeepAlive` behavior so they start automatically after login and
-stay up while the screen is locked. They do not survive a full logout because
-they are `LaunchAgent`s, not system `LaunchDaemon`s.
+`app.funba.web`, `app.funba.web-watchdog`, `app.funba.cloudflared`, Redis,
+MySQL, scheduler, and workers have `RunAtLoad`/`KeepAlive` in the system launchd
+domain. They are not tied to the user GUI session, but FileVault can still block
+unattended boot before disk unlock.
 
 ---
 
@@ -528,20 +585,20 @@ they are `LaunchAgent`s, not system `LaunchDaemon`s.
 ```bash
 lsof -nP -iTCP:5001 -sTCP:LISTEN          # What's on port 5001?
 curl http://localhost:5001/api/health       # Is gunicorn responding?
-launchctl list app.funba.web               # PID?
-launchctl list app.funba.web-watchdog      # LastExitStatus?
-launchctl list app.funba.cloudflared       # PID?
+sudo launchctl print system/app.funba.web               # state?
+sudo launchctl print system/app.funba.web-watchdog      # last run?
+sudo launchctl print system/app.funba.cloudflared       # state?
 ```
 If a stale process (dev_server, web.app) is holding port 5001, kill it and kickstart gunicorn:
 ```bash
 kill <stale-pid>
-launchctl kickstart -k gui/$(id -u)/app.funba.web
+sudo launchctl kickstart -k system/app.funba.web
 ```
 
 ### Tunnel disconnected
 ```bash
 cloudflared tunnel info funba              # Check connections
-launchctl kickstart -k gui/$(id -u)/app.funba.cloudflared
+sudo launchctl kickstart -k system/app.funba.cloudflared
 ```
 
 ### cert.pem missing / tunnel login expired
@@ -554,7 +611,7 @@ cloudflared tunnel login                   # Re-auth in browser
 ## Rollback
 
 If Cloudflare Tunnel needs to be disabled:
-1. `launchctl unload ~/Library/LaunchAgents/app.funba.cloudflared.plist`
+1. `sudo launchctl bootout system/app.funba.cloudflared`
 2. Re-add `funba.app` block to droplet Caddyfile (see Option A below)
 3. Re-load autossh: `launchctl load ~/Library/LaunchAgents/app.funba.tunnel.plist`
 4. Update DNS at Porkbun: `funba.app A 209.38.71.231`
