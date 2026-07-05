@@ -43,6 +43,14 @@ def _import_helper():
         "GameLineScore", "TeamCoachStint",
     ):
         setattr(fake_models, name, MagicMock())
+
+    def _fake_model_attr(name):
+        model = MagicMock()
+        model.__name__ = name
+        setattr(fake_models, name, model)
+        return model
+
+    fake_models.__getattr__ = _fake_model_attr
     fake_models.engine = fake_engine
     sys.modules["db.models"] = fake_models
     fake_db = sys.modules.get("db") or types.ModuleType("db")

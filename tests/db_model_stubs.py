@@ -54,6 +54,16 @@ def install_fake_db_module(
     for name in model_names:
         setattr(fake_models, name, MagicMock())
 
+    def _fake_model_attr(name):
+        # Fallback for model names web.app starts importing after this list
+        # was written — memoized so repeated lookups return the same mock.
+        model = MagicMock()
+        model.__name__ = name
+        setattr(fake_models, name, model)
+        return model
+
+    fake_models.__getattr__ = _fake_model_attr
+
     if user_cls is None:
         user_cls = MagicMock()
         user_cls.__name__ = "User"

@@ -1008,6 +1008,7 @@ def sync_current_team_rosters(self) -> dict:
                         continue
                     api_player_ids.add(pid)
                     api_player_meta[pid] = {
+                        "player_name": str(row.get("PLAYER") or "")[:100] or None,
                         "jersey": str(row.get("NUM") or "")[:10] or None,
                         "position": str(row.get("POSITION") or "")[:30] or None,
                         "how_acquired": str(row.get("HOW_ACQUIRED") or "")[:255] or None,
@@ -1041,6 +1042,34 @@ def sync_current_team_rosters(self) -> dict:
                 if pid in open_player_ids:
                     continue
                 meta = api_player_meta[pid]
+                # Ensure a Player row exists — offseason rosters contain new
+                # draftees/signings that no game ingest has created yet, and
+                # TeamRosterStint.player_id has an FK to Player.
+                player_exists = session.execute(
+                    text("SELECT 1 FROM Player WHERE player_id = :pid"),
+                    {"pid": pid},
+                ).first()
+                if player_exists is None:
+                    player_name = meta["player_name"] or ""
+                    name_parts = player_name.split()
+                    session.execute(
+                        text("""
+                            INSERT INTO Player
+                              (player_id, first_name, last_name, full_name, is_active, is_team)
+                            VALUES
+                              (:pid, :first, :last, :full, 1, 0)
+                        """),
+                        {
+                            "pid": pid,
+                            "first": name_parts[0] if name_parts else None,
+                            "last": " ".join(name_parts[1:]) if len(name_parts) > 1 else "",
+                            "full": player_name or None,
+                        },
+                    )
+                    logger.info(
+                        "sync_current_team_rosters: created missing player %s (%s)",
+                        pid, player_name,
+                    )
                 session.execute(
                     text("""
                         INSERT INTO TeamRosterStint

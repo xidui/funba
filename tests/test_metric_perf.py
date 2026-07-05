@@ -25,6 +25,14 @@ def _import_runner_module():
     fake_models = types.ModuleType("db.models")
     for name in ("Game", "MetricPerfLog", "MetricResult", "MetricRunLog", "PlayerGameStats", "Team"):
         setattr(fake_models, name, MagicMock())
+
+    def _fake_model_attr(name):
+        model = MagicMock()
+        model.__name__ = name
+        setattr(fake_models, name, model)
+        return model
+
+    fake_models.__getattr__ = _fake_model_attr
     sys.modules["db.models"] = fake_models
 
     fake_db = types.ModuleType("db")
