@@ -31,12 +31,13 @@
 {%- endmacro %}
 {% if item.kind == 'image' %}
 {% set _share_url = item.news_url or item.metric_url or item.game_url or '#' %}
-<div class="feed-card feed-image-card">
+<div class="feed-card feed-image-card{% if not item.poster_url %} poster-unavailable{% endif %}">
   <a class="feed-card-link" href="{{ _share_url }}" aria-label="{{ item.title }}"></a>
   {% if item.poster_url %}
-    <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy"></div>
+    <div class="fh-poster"><img src="{{ item.poster_url }}" alt="" loading="lazy" onerror="this.closest('.feed-image-card').classList.add('poster-unavailable'); this.parentElement.hidden = true;"></div>
   {% endif %}
   <div class="fh-body">
+    <span class="fh-kicker">{{ t('GAME SPOTLIGHT', '比赛焦点') }}</span>
     <div class="fh-title">{{ item.title }}</div>
     {{ game_chip(item.game_id, item.road_team_id, item.home_team_id, item.road_abbr, item.home_abbr, item.road_score, item.home_score, item.winner_id, item.game_date) }}
   </div>

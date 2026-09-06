@@ -1,0 +1,76 @@
+/* Shared typography, surfaces and navigation for the public site. */
+:root {
+  color-scheme: dark;
+  --bg: #101318;
+  --surface: #191e25;
+  --surface-2: #202731;
+  --surface-3: #2a3340;
+  --border: #2c3440;
+  --border-2: #414c5c;
+  --text: #e1e6ed;
+  --muted: #95a2b3;
+  --muted-2: #acb7c6;
+  --heading: #f8fafc;
+  --accent: #fb923c;
+  --accent-dim: #fb923c14;
+  --topbar-bg: #101318f5;
+}
+
+html[data-theme='light'] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --surface-3: #e6eaf0;
+  --border: #e0e4e9;
+  --border-2: #c9d0da;
+  --text: #293340;
+  --muted: #697687;
+  --muted-2: #596778;
+  --heading: #141c27;
+  --accent: #bf4b12;
+  --accent-dim: #ed66100d;
+  --topbar-bg: #fffffff5;
+}
+
+body { font-size: 1rem; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font-family: inherit; }
+:where(a, button, input, select, summary):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.topbar { border-bottom-color: var(--border); }
+html[data-theme='light'] .topbar { box-shadow: none; }
+.topbar-inner { height: 72px; gap: 20px; }
+.brand-mark { width: 38px; height: 38px; flex-basis: 38px; filter: none; }
+.brand-name { font-size: 21px; font-weight: 800; letter-spacing: -.04em; }
+.gs-wrap { max-width: 290px; }
+.gs-input { min-height: 40px; font-size: 14px; border-radius: 7px; }
+.nav-link { font-size: 14px; padding: 9px 8px; border-radius: 5px; }
+.nav-link.active { background: var(--accent-dim); }
+.theme-toggle { width: 38px; height: 38px; }
+.card { border-radius: 10px; animation: none; }
+h1 { letter-spacing: -.035em; }
+.site-footer { border-top-color: var(--border); }
+
+@media (max-width: 1000px) {
+  .topbar-inner { height: 68px; gap: 14px; }
+  .topbar-nav { display: none; }
+  .gs-wrap { max-width: 480px; margin-left: auto; }
+  .mobile-nav-toggle, .mobile-nav-overlay, .mobile-nav-scrim { display: block; }
+  .mobile-nav-toggle-box { display: block; margin: auto; }
+  .gs-input { min-height: 44px; }
+}
+@media (max-width: 540px) {
+  .topbar-inner { padding-top: 10px; padding-bottom: 10px; }
+  .brand-name { display: none; }
+  .gs-wrap { flex: 1; }
+  .gs-input { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
