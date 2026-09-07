@@ -296,6 +296,10 @@ def _load_admin_top_pages_panel(session, raw_window: str | None):
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+# Reuse logos and styles during ordinary navigation instead of revalidating
+# every asset at the edge. Files are mutable, so retain validators and bound
+# freshness to one hour; stylesheet URLs also carry explicit version values.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = timedelta(hours=1)
 SessionLocal = sessionmaker(bind=engine)
 
 _LOCALIZED_PUBLIC_ENDPOINTS = {

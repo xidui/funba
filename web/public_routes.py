@@ -1598,8 +1598,8 @@ def register_public_routes(
             feed_has_more=True,
         )
         # Force a fresh fetch every visit so live scores aren't served from a
-        # stale HTML cache. The 15s JS poller still updates an open tab in
-        # place; this header just prevents a returning visitor from seeing the
+        # stale HTML cache. The visibility-aware JS poller updates active
+        # games in an open tab; this prevents a returning visitor from seeing the
         # render snapshot the browser cached an hour ago.
         response = make_response(rendered)
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
