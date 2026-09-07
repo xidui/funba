@@ -12,7 +12,14 @@ import re
 from collections.abc import Callable
 
 from db.ai_usage import extract_provider_usage
-from db.llm_models import ensure_model_available, env_default_llm_model, openai_chat_parameters, provider_for_model
+from db.llm_models import (
+    DEFAULT_OPENAI_MODEL,
+    default_reasoning_for_purpose,
+    ensure_model_available,
+    env_default_llm_model,
+    openai_chat_parameters,
+    provider_for_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +215,14 @@ def _call_llm(
     usage_recorder: Callable[[dict], None] | None = None,
 ) -> str:
     """Call LLM with the metric-generator system prompt."""
+    selected_model = model or env_default_llm_model()
     return _call_llm_with_system(
         _build_system_prompt(),
         messages,
-        model=model,
+        model=selected_model,
+        # High reasoning shares the completion budget with generated code.
+        max_tokens=16384 if selected_model == DEFAULT_OPENAI_MODEL else 4096,
+        reasoning_effort=default_reasoning_for_purpose(selected_model, "generate"),
         usage_recorder=usage_recorder,
     )
 

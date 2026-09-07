@@ -4,12 +4,13 @@ import os
 from datetime import datetime
 
 DEFAULT_OPENAI_MODEL = "gpt-6-astra"
-DEFAULT_SEARCH_MODEL = "gpt-5.6-luna"
+DEFAULT_SEARCH_MODEL = DEFAULT_OPENAI_MODEL
+GPT6_REASONING_BY_PURPOSE = {"search": "low", "curator": "medium", "generate": "high"}
 
 AVAILABLE_LLM_MODELS = (
     DEFAULT_OPENAI_MODEL,
     "gpt-5.6-terra",
-    DEFAULT_SEARCH_MODEL,
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -18,7 +19,7 @@ AVAILABLE_LLM_MODELS = (
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
 )
-AVAILABLE_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+AVAILABLE_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 DEFAULT_LLM_MODEL_SETTING_KEY = "default_llm_model"
 SEARCH_LLM_MODEL_SETTING_KEY = "llm_model_search"
 GENERATE_LLM_MODEL_SETTING_KEY = "llm_model_generate"
@@ -102,7 +103,15 @@ def available_reasoning_efforts_for_model(model: str) -> list[str]:
     efforts = AVAILABLE_REASONING_EFFORTS
     if model == DEFAULT_OPENAI_MODEL:
         efforts = tuple(effort for effort in efforts if effort != "none")
+    else:
+        efforts = tuple(effort for effort in efforts if effort != "max")
     return list(efforts)
+
+
+def default_reasoning_for_purpose(model: str, purpose: str) -> str:
+    if model == DEFAULT_OPENAI_MODEL:
+        return GPT6_REASONING_BY_PURPOSE.get(purpose, "medium")
+    return "none"
 
 
 def openai_chat_parameters(model: str, reasoning_effort: str | None = None) -> dict:
@@ -194,22 +203,27 @@ def set_llm_model_for_purpose(session, purpose: str, model: str) -> str:
 def get_curator_reasoning_effort(session) -> str:
     """Return the configured reasoning_effort for the highlight curator.
 
-    Defaults to 'low' for Astra and 'none' for the other supported models.
+    Defaults to 'medium' for Astra and 'none' for the other supported models.
     """
     setting_model = _setting_model()
     row = session.get(setting_model, CURATOR_REASONING_SETTING_KEY) if setting_model else None
     value = str(row.value or "").strip().lower() if row else "none"
-    efforts = available_reasoning_efforts_for_model(get_llm_model_for_purpose(session, "curator"))
-    return value if value in efforts else efforts[0]
+    model = get_llm_model_for_purpose(session, "curator")
+    efforts = available_reasoning_efforts_for_model(model)
+    return value if value in efforts else default_reasoning_for_purpose(model, "curator")
 
 
 def set_curator_reasoning_effort(session, effort: str) -> str:
     normalized = str(effort or "").strip().lower()
     if normalized not in AVAILABLE_REASONING_EFFORTS:
         raise ValueError(f"Unsupported reasoning_effort: {effort}")
-    efforts = available_reasoning_efforts_for_model(get_llm_model_for_purpose(session, "curator"))
+    model = get_llm_model_for_purpose(session, "curator")
+    efforts = available_reasoning_efforts_for_model(model)
     if normalized not in efforts:
-        normalized = efforts[0]
+        if normalized == "none":
+            normalized = default_reasoning_for_purpose(model, "curator")
+        else:
+            raise ValueError(f"Unsupported reasoning_effort for {model}: {effort}")
     setting_model = _setting_model()
     if setting_model is None:
         raise RuntimeError("Setting model is unavailable")

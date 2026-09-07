@@ -19,7 +19,13 @@ from db.embeddings import (
     hash_embedding_text as _hash_embedding_text,
     vector_to_blob as _vector_to_blob,
 )
-from db.llm_models import ensure_model_available, env_default_llm_model, openai_chat_parameters, provider_for_model
+from db.llm_models import (
+    default_reasoning_for_purpose,
+    ensure_model_available,
+    env_default_llm_model,
+    openai_chat_parameters,
+    provider_for_model,
+)
 
 EMBEDDING_PRERANK_TOP_K = 40
 # Per-process cache of {metric_key: float32 ndarray}. Populated lazily from the
@@ -306,7 +312,7 @@ def rank_metrics(
         import openai
 
         client = openai.OpenAI()
-        params = openai_chat_parameters(selected_model, "none")
+        params = openai_chat_parameters(selected_model, default_reasoning_for_purpose(selected_model, "search"))
         response = client.chat.completions.create(
             model=selected_model,
             # Astra needs room for reasoning before producing the ranking JSON.

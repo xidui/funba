@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from db.llm_models import DEFAULT_OPENAI_MODEL
+from db.llm_models import DEFAULT_OPENAI_MODEL, default_reasoning_for_purpose
 from metrics.framework.generator import _call_llm_with_system
 from metrics.highlights.prefilter import build_llm_input
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 DEFAULT_MODEL = DEFAULT_OPENAI_MODEL
-DEFAULT_REASONING_EFFORT = "low"
+DEFAULT_REASONING_EFFORT = default_reasoning_for_purpose(DEFAULT_MODEL, "curator")
 MAX_HERO = 2
 MAX_NOTABLE = 6
 MAX_TRIGGERED_HERO = 2
@@ -484,7 +484,8 @@ def curate_game_highlights(
         [{"role": "user", "content": user_message}],
         model=selected_model,
         max_tokens=None,
-        reasoning_effort=reasoning_effort,
+        reasoning_effort=(reasoning_effort if reasoning_effort is not None
+                          else default_reasoning_for_purpose(selected_model, "curator")),
     )
 
     parsed = _parse_llm_json(raw_response)
@@ -786,7 +787,8 @@ def curate_triggered_highlights(
         [{"role": "user", "content": user_message}],
         model=selected_model,
         max_tokens=None,
-        reasoning_effort=reasoning_effort,
+        reasoning_effort=(reasoning_effort if reasoning_effort is not None
+                          else default_reasoning_for_purpose(selected_model, "curator")),
     )
     parsed = _parse_llm_json(raw_response)
 
