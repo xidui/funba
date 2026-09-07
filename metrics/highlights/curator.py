@@ -16,14 +16,15 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from db.llm_models import DEFAULT_OPENAI_MODEL
 from metrics.framework.generator import _call_llm_with_system
 from metrics.highlights.prefilter import build_llm_input
 
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
-DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_REASONING_EFFORT = "none"
+DEFAULT_MODEL = DEFAULT_OPENAI_MODEL
+DEFAULT_REASONING_EFFORT = "low"
 MAX_HERO = 2
 MAX_NOTABLE = 6
 MAX_TRIGGERED_HERO = 2

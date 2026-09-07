@@ -655,6 +655,14 @@
     const saveBtn = document.getElementById('llm-model-save');
     const status = document.getElementById('llm-model-status');
     let clearTimer = null;
+    let modelMetadata = [];
+    let reasoningEfforts = ['none', 'low', 'medium', 'high', 'xhigh'];
+
+    function renderReasoningOptions(selected) {
+      const model = modelMetadata.find((item) => item.id === curatorSelect.value);
+      const efforts = model?.reasoning_efforts || reasoningEfforts;
+      renderOptions(reasoningSelect, efforts, efforts.includes(selected) ? selected : efforts[0]);
+    }
 
     function renderOptions(selectEl, values, selected) {
       selectEl.innerHTML = '';
@@ -717,13 +725,15 @@
         const models = data.available_models || {{ llm_available_models | tojson }};
         const modelsMeta = data.available_models_meta;
         const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
+        modelMetadata = modelsMeta || [];
+        reasoningEfforts = efforts;
         const renderModel = modelsMeta
           ? (sel, val) => renderModelOptions(sel, modelsMeta, val)
           : (sel, val) => renderOptions(sel, models, val);
         renderModel(searchSelect, data.search_model);
         renderModel(generateSelect, data.generate_model);
         renderModel(curatorSelect, data.curator_model);
-        renderOptions(reasoningSelect, efforts, data.curator_reasoning);
+        renderReasoningOptions(data.curator_reasoning);
         setDisabled(false);
       } catch (err) {
         setStatus(err.message || 'Failed to load.', 'error');
@@ -749,13 +759,15 @@
         const models = data.available_models || {{ llm_available_models | tojson }};
         const modelsMeta = data.available_models_meta;
         const efforts = data.available_reasoning_efforts || ['none', 'low', 'medium', 'high', 'xhigh'];
+        modelMetadata = modelsMeta || [];
+        reasoningEfforts = efforts;
         const renderModel = modelsMeta
           ? (sel, val) => renderModelOptions(sel, modelsMeta, val)
           : (sel, val) => renderOptions(sel, models, val);
         if (data.search_model) renderModel(searchSelect, data.search_model);
         if (data.generate_model) renderModel(generateSelect, data.generate_model);
         if (data.curator_model) renderModel(curatorSelect, data.curator_model);
-        if (data.curator_reasoning) renderOptions(reasoningSelect, efforts, data.curator_reasoning);
+        renderReasoningOptions(data.curator_reasoning || reasoningSelect.value);
         setStatus('Saved', 'success');
       } catch (err) {
         setStatus(err.message || 'Failed to save.', 'error');
@@ -764,6 +776,7 @@
       }
     }
 
+    curatorSelect.addEventListener('change', () => renderReasoningOptions(reasoningSelect.value));
     saveBtn.addEventListener('click', saveConfig);
     loadConfig();
   })();

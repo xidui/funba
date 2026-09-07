@@ -12,7 +12,7 @@ from openai import BadRequestError, OpenAI
 
 
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
-DEFAULT_RESPONSES_MODEL = "gpt-5.5"
+DEFAULT_RESPONSES_MODEL = "gpt-6-astra"
 FALLBACK_RESPONSES_MODEL = "gpt-5"
 DEFAULT_SIZE = "1536x1024"
 DEFAULT_QUALITY = "high"
@@ -179,7 +179,7 @@ def _call_responses_image_generation(
 ):
     content = [{"type": "input_text", "text": prompt}]
     for file_id in file_ids:
-        content.append({"type": "input_image", "file_id": file_id})
+        content.append({"type": "input_image", "file_id": file_id, "detail": "high"})
 
     tool = {
         "type": "image_generation",
@@ -194,6 +194,7 @@ def _call_responses_image_generation(
             model=model,
             input=[{"role": "user", "content": content}],
             tools=[tool],
+            **({"reasoning": {"effort": "low"}} if model == DEFAULT_RESPONSES_MODEL else {}),
         )
     except BadRequestError as exc:
         message = str(exc).lower()

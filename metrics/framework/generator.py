@@ -1,6 +1,6 @@
 """AI-powered metric generator: converts plain-English descriptions into executable Python code.
 
-Uses OpenAI GPT-5.4 when available, with Anthropic as a fallback, to generate a
+Uses OpenAI GPT-6 Astra when available, with Anthropic as a fallback, to generate a
 MetricDefinition subclass that the runner can execute directly. Returns a spec
 dict with metadata + Python code.
 """
@@ -12,7 +12,7 @@ import re
 from collections.abc import Callable
 
 from db.ai_usage import extract_provider_usage
-from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
+from db.llm_models import ensure_model_available, env_default_llm_model, openai_chat_parameters, provider_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -163,11 +163,7 @@ def _call_llm_with_system(
         }
         if max_tokens is not None:
             kwargs["max_completion_tokens"] = max_tokens
-        if reasoning_effort and reasoning_effort.lower() != "none":
-            # Reasoning-enabled GPT-5.4 models reject temperature=0, so skip it.
-            kwargs["reasoning_effort"] = reasoning_effort
-        else:
-            kwargs["temperature"] = 0
+        kwargs.update(openai_chat_parameters(selected_model, reasoning_effort))
         response = client.chat.completions.create(**kwargs)
         if usage_recorder:
             usage_recorder(extract_provider_usage(provider, response, selected_model))

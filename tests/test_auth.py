@@ -1295,6 +1295,7 @@ class TestMetricSearchAuth(unittest.TestCase):
         session = MagicMock()
         session.__enter__ = MagicMock(return_value=session)
         session.__exit__ = MagicMock(return_value=False)
+        session.get.return_value = None
 
         with patch("web.app._current_user", return_value=SimpleNamespace(id="admin-1", is_admin=True, subscription_tier="free")), \
              patch("web.app.SessionLocal", return_value=session), \

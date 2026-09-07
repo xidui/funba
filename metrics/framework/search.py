@@ -19,7 +19,7 @@ from db.embeddings import (
     hash_embedding_text as _hash_embedding_text,
     vector_to_blob as _vector_to_blob,
 )
-from db.llm_models import ensure_model_available, env_default_llm_model, provider_for_model
+from db.llm_models import ensure_model_available, env_default_llm_model, openai_chat_parameters, provider_for_model
 
 EMBEDDING_PRERANK_TOP_K = 40
 # Per-process cache of {metric_key: float32 ndarray}. Populated lazily from the
@@ -253,7 +253,7 @@ def rank_metrics(
     if mode not in ("search", "similarity"):
         raise ValueError(f"Unknown rank_metrics mode: {mode}")
 
-    selected_model = model or env_default_llm_model()
+    selected_model = model or env_default_llm_model("search")
     if not selected_model:
         raise ValueError("Metric search requires OPENAI_API_KEY or ANTHROPIC_API_KEY.")
 
@@ -306,11 +306,12 @@ def rank_metrics(
         import openai
 
         client = openai.OpenAI()
+        params = openai_chat_parameters(selected_model, "none")
         response = client.chat.completions.create(
             model=selected_model,
-            max_completion_tokens=400,
-            temperature=0,
-            reasoning_effort="none",
+            # Astra needs room for reasoning before producing the ranking JSON.
+            max_completion_tokens=4096 if params["reasoning_effort"] != "none" else 400,
+            **params,
             messages=[{"role": "user", "content": prompt}],
         )
         if usage_recorder:

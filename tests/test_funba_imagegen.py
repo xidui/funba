@@ -83,6 +83,10 @@ class TestFunbaImagegenGenerate(unittest.TestCase):
             )
             mock_client.files.create.assert_called_once()
             mock_client.responses.create.assert_called_once()
+            params = mock_client.responses.create.call_args.kwargs
+            self.assertEqual(params["model"], "gpt-6-astra")
+            self.assertEqual(params["reasoning"], {"effort": "low"})
+            self.assertEqual(params["input"][0]["content"][1]["detail"], "high")
             self.assertFalse(mock_client.images.generate.called)
 
     def test_call_images_with_retry_drops_unknown_output_format(self):
