@@ -114,7 +114,7 @@ def test_search_default_and_astra_override_have_valid_token_budgets(monkeypatch,
             assert params["max_completion_tokens"] == 400
 
 
-def test_metric_generation_uses_high_reasoning_with_room_for_code(monkeypatch):
+def test_metric_generation_uses_xhigh_reasoning_with_room_for_code(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     with patch("metrics.framework.generator._build_system_prompt", return_value="Return JSON"), \
          patch("openai.OpenAI") as client_cls:
@@ -125,7 +125,7 @@ def test_metric_generation_uses_high_reasoning_with_room_for_code(monkeypatch):
         _call_llm([{"role": "user", "content": "Build a scoring metric"}])
         params = client.chat.completions.create.call_args.kwargs
         assert params["model"] == "gpt-6-astra"
-        assert params["reasoning_effort"] == "high"
+        assert params["reasoning_effort"] == "xhigh"
         assert params["max_completion_tokens"] == 16384
         assert "temperature" not in params
 

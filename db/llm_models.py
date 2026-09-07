@@ -5,7 +5,7 @@ from datetime import datetime
 
 DEFAULT_OPENAI_MODEL = "gpt-6-astra"
 DEFAULT_SEARCH_MODEL = DEFAULT_OPENAI_MODEL
-GPT6_REASONING_BY_PURPOSE = {"search": "low", "curator": "medium", "generate": "high"}
+GPT6_REASONING_BY_PURPOSE = {"search": "low", "curator": "medium", "generate": "xhigh"}
 
 AVAILABLE_LLM_MODELS = (
     DEFAULT_OPENAI_MODEL,

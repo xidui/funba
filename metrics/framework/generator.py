@@ -220,7 +220,7 @@ def _call_llm(
         _build_system_prompt(),
         messages,
         model=selected_model,
-        # High reasoning shares the completion budget with generated code.
+        # Extra-high reasoning shares the completion budget with generated code.
         max_tokens=16384 if selected_model == DEFAULT_OPENAI_MODEL else 4096,
         reasoning_effort=default_reasoning_for_purpose(selected_model, "generate"),
         usage_recorder=usage_recorder,
