@@ -5872,6 +5872,11 @@ _CURL_USER_AGENT_SIGNATURES = ("curl/",)
 _CURL_ALLOWED_IPS_ENV = "FUNBA_CURL_ALLOWED_IPS"
 _ANALYTICS_EXCLUDE_IPS_ENV = "FUNBA_ANALYTICS_EXCLUDE_IPS"
 _DYNAMIC_CRAWLER_BLOCK_ENV = "FUNBA_DYNAMIC_CRAWLER_BLOCK"
+_CRAWLER_HISTORY_LOOKUPS_ENV = "FUNBA_CRAWLER_HISTORY_LOOKUPS"
+# History checks are optional heuristics: they must not occupy a web worker
+# indefinitely when analytics grows or an index is missing.
+_CRAWLER_HISTORY_BUDGET_SECONDS = 0.250
+_CRAWLER_HISTORY_QUERY_HINT = "/*+ MAX_EXECUTION_TIME(75) */"
 _AI_READER_UA_SIGNATURES = ("chatgpt-user", "oai-searchbot")
 _AI_CODING_UA_SIGNATURES = ("claude-code", "codex", "anthropic")
 _ANALYTICS_EXCLUDE_UA_SIGNATURES = _AI_CODING_UA_SIGNATURES + _AI_READER_UA_SIGNATURES
@@ -6013,6 +6018,17 @@ def _probe_crawler_name_for_path(path: str | None) -> str | None:
     return None
 
 
+def _crawler_history_lookup_allowed() -> bool:
+    if app.config.get("TESTING") or not _env_flag(_CRAWLER_HISTORY_LOOKUPS_ENV, default=True):
+        return False
+    now = time.monotonic()
+    deadline = getattr(g, "_crawler_history_deadline", None)
+    if deadline is None:
+        deadline = now + _CRAWLER_HISTORY_BUDGET_SECONDS
+        g._crawler_history_deadline = deadline
+    return now < deadline
+
+
 @lru_cache(maxsize=8192)
 def _recent_repeat_crawler_ip_cached(ip_address: str, cache_bucket: int) -> bool:
     del cache_bucket
@@ -6024,6 +6040,7 @@ def _recent_repeat_crawler_ip_cached(ip_address: str, cache_bucket: int) -> bool
         with SessionLocal() as db_sess:
             auth_spray_seen = (
                 db_sess.query(PageView.id)
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.ip_address == value,
                     PageView.crawler_name == "auth-spray-bot",
@@ -6057,6 +6074,7 @@ def _proxied_scraper_ua_cached(user_agent: str, cache_bucket: int) -> bool:
                     func.count(func.distinct(PageView.ip_address)).label("uniq_ips"),
                     func.count(PageView.id).label("pv"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.user_agent == ua,
                     PageView.created_at >= cutoff,
@@ -6117,6 +6135,7 @@ def _stale_ua_scraper_cached(user_agent: str, cache_bucket: int) -> bool:
                     func.count(func.distinct(PageView.ip_address)).label("uniq_ips"),
                     func.count(PageView.id).label("pv"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.user_agent == ua,
                     PageView.created_at >= cutoff,
@@ -6155,6 +6174,7 @@ def _datacenter_scraper_ua_cached(user_agent: str, cache_bucket: int) -> bool:
                     func.count(func.distinct(PageView.ip_address)).label("uniq_ips"),
                     func.count(PageView.id).label("pv"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.user_agent == ua,
                     PageView.created_at >= cutoff,
@@ -6207,6 +6227,7 @@ def _ip_cookie_churn_scraper_cached(ip_address: str, cache_bucket: int) -> bool:
                     func.count(func.distinct(PageView.visitor_id)).label("visitors"),
                     func.count(func.distinct(PageView.user_agent)).label("uas"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.ip_address == value,
                     PageView.created_at >= cutoff,
@@ -6253,6 +6274,7 @@ def _network_cookie_churn_scraper_cached(prefix: str, cache_bucket: int) -> bool
                     func.count(func.distinct(PageView.ip_address)).label("ips"),
                     func.count(func.distinct(PageView.user_agent)).label("uas"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.ip_address.like(f"{value}%"),
                     PageView.created_at >= cutoff,
@@ -6316,6 +6338,7 @@ def _distributed_proxy_scraper_cached(prefix: str, cache_bucket: int) -> bool:
                     func.sum(case((self_ref, 1), else_=0)).label("self_refs"),
                     func.sum(case((external_ref, 1), else_=0)).label("external_refs"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.ip_address.like(f"{value}%"),
                     PageView.created_at >= cutoff,
@@ -6372,6 +6395,7 @@ def _recent_marked_dynamic_crawler_prefix_cached(prefix: str, cache_bucket: int)
                     func.count(PageView.id).label("pv"),
                     func.count(func.distinct(PageView.ip_address)).label("ips"),
                 )
+                .prefix_with(_CRAWLER_HISTORY_QUERY_HINT, dialect="mysql")
                 .filter(
                     PageView.ip_address.like(f"{value}%"),
                     PageView.crawler_name.in_(tuple(_DYNAMIC_CRAWLER_NAMES)),
@@ -6395,13 +6419,13 @@ def _recent_marked_dynamic_crawler_prefix(ip_address: str | None) -> bool:
 
 def _dynamic_pageview_crawler_name() -> str | None:
     ip_address = _real_ip()
-    if _is_ip_cookie_churn_scraper(ip_address):
+    if _crawler_history_lookup_allowed() and _is_ip_cookie_churn_scraper(ip_address):
         return "ip-cookie-churn-scraper"
-    if _is_network_cookie_churn_scraper(ip_address):
+    if _crawler_history_lookup_allowed() and _is_network_cookie_churn_scraper(ip_address):
         return "network-cookie-churn-scraper"
-    if _is_distributed_proxy_scraper(ip_address):
+    if _crawler_history_lookup_allowed() and _is_distributed_proxy_scraper(ip_address):
         return "distributed-proxy-scraper"
-    if _recent_marked_dynamic_crawler_prefix(ip_address):
+    if _crawler_history_lookup_allowed() and _recent_marked_dynamic_crawler_prefix(ip_address):
         return "network-cookie-churn-scraper"
     return None
 
@@ -6428,41 +6452,41 @@ def _request_crawler_decision() -> dict[str, object]:
                 "crawler_name": probe_crawler_name,
                 "should_block": True,
             }
-        elif not app.config.get("TESTING") and _recent_repeat_crawler_ip(_real_ip()):
-            decision = {
-                "is_crawler": True,
-                "crawler_name": "auth-spray-bot",
-                "should_block": True,
-            }
-        elif not app.config.get("TESTING") and (dynamic_crawler_name := _dynamic_pageview_crawler_name()):
-            decision = {
-                "is_crawler": True,
-                "crawler_name": dynamic_crawler_name,
-                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
-            }
-        elif not app.config.get("TESTING") and _is_proxied_scraper_ua():
-            decision = {
-                "is_crawler": True,
-                "crawler_name": "proxied-scraper",
-                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
-            }
-        elif not app.config.get("TESTING") and _is_stale_ua_scraper():
-            decision = {
-                "is_crawler": True,
-                "crawler_name": "stale-ua-scraper",
-                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
-            }
-        elif not app.config.get("TESTING") and _is_datacenter_scraper_ua():
-            decision = {
-                "is_crawler": True,
-                "crawler_name": "datacenter-scraper",
-                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
-            }
         elif not app.config.get("TESTING") and _is_bot():
             decision = {
                 "is_crawler": True,
                 "crawler_name": "other-bot",
                 "should_block": True,
+            }
+        elif _crawler_history_lookup_allowed() and _recent_repeat_crawler_ip(_real_ip()):
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "auth-spray-bot",
+                "should_block": True,
+            }
+        elif _crawler_history_lookup_allowed() and (dynamic_crawler_name := _dynamic_pageview_crawler_name()):
+            decision = {
+                "is_crawler": True,
+                "crawler_name": dynamic_crawler_name,
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
+            }
+        elif _crawler_history_lookup_allowed() and _is_proxied_scraper_ua():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "proxied-scraper",
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
+            }
+        elif _crawler_history_lookup_allowed() and _is_stale_ua_scraper():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "stale-ua-scraper",
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
+            }
+        elif _crawler_history_lookup_allowed() and _is_datacenter_scraper_ua():
+            decision = {
+                "is_crawler": True,
+                "crawler_name": "datacenter-scraper",
+                "should_block": _env_flag(_DYNAMIC_CRAWLER_BLOCK_ENV, default=True),
             }
         else:
             decision = {
@@ -6532,7 +6556,7 @@ def _block_bots():
     """Return 403 for known bots / non-browser clients."""
     if app.config.get("TESTING"):
         return
-    if request.path.startswith("/static/") or request.path == "/robots.txt":
+    if request.path.startswith("/static/") or request.path in {"/robots.txt", "/api/health"}:
         return
     if request.path.startswith("/api/v1/mobile/"):
         return

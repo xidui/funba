@@ -713,6 +713,9 @@ class PageView(Base):
         Index('ix_PageView_visitor_id_created_at', 'visitor_id', 'created_at'),
         Index('ix_PageView_is_crawler_created_at', 'is_crawler', 'created_at'),
         Index('ix_PageView_crawler_name_created_at', 'crawler_name', 'created_at'),
+        Index('ix_PageView_ip_address_created_at', 'ip_address', 'created_at'),
+        Index('ix_PageView_user_agent_created_at', 'user_agent', 'created_at'),
+        Index('ix_PageView_path_is_crawler_visitor_id', 'path', 'is_crawler', 'visitor_id'),
     )
 
 

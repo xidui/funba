@@ -256,6 +256,124 @@ class TestCrawlerTracking(unittest.TestCase):
         fake_session.__exit__ = MagicMock(return_value=False)
         return fake_session
 
+    def test_health_endpoint_never_reads_crawler_history(self):
+        with patch("web.app.SessionLocal") as session_factory, \
+             patch("web.app._request_crawler_decision") as classify:
+            for user_agent in ("", "curl/8.7.1", "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1.15"):
+                with self.subTest(user_agent=user_agent):
+                    response = self.app.test_client().get(
+                        "/api/health",
+                        headers={"User-Agent": user_agent, "CF-Connecting-IP": "198.51.100.8"},
+                        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json, {"ok": True, "service": "funba"})
+        session_factory.assert_not_called()
+        classify.assert_not_called()
+
+    def test_history_lookups_can_be_disabled_without_disabling_static_rules(self):
+        cases = (
+            ("/players/201939", "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1.15", False),
+            ("/players/201939", "curl/8.7.1", True),
+            ("/players/201939", "gptbot/1.0", True),
+            ("/players/201939", "Googlebot/2.1", False),
+            ("/.env", "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1.15", True),
+        )
+        with patch.dict("os.environ", {"FUNBA_CRAWLER_HISTORY_LOOKUPS": "0"}), \
+             patch("web.app.SessionLocal") as session_factory:
+            for path, user_agent, should_block in cases:
+                with self.subTest(path=path, user_agent=user_agent):
+                    with self.app.test_request_context(
+                        path,
+                        headers={"User-Agent": user_agent},
+                        environ_base={"REMOTE_ADDR": "198.51.100.8"},
+                    ):
+                        self.assertEqual(self.web_app._request_crawler_decision()["should_block"], should_block)
+        session_factory.assert_not_called()
+
+    def test_generic_bots_are_rejected_before_history_lookups(self):
+        with patch.dict("os.environ", {"FUNBA_CRAWLER_HISTORY_LOOKUPS": "1"}), \
+             patch("web.app.SessionLocal") as session_factory:
+            with self.app.test_request_context(
+                "/players/201939",
+                headers={"User-Agent": "curl/8.7.1"},
+                environ_base={"REMOTE_ADDR": "198.51.100.8"},
+            ):
+                decision = self.web_app._request_crawler_decision()
+        self.assertEqual(decision["crawler_name"], "other-bot")
+        self.assertTrue(decision["should_block"])
+        session_factory.assert_not_called()
+
+    def test_history_budget_is_shared_across_ip_network_and_ua_checks(self):
+        clock = [10.0]
+
+        def slow_negative(*args):
+            clock[0] += 0.150
+            return False
+
+        with patch.dict("os.environ", {"FUNBA_CRAWLER_HISTORY_LOOKUPS": "1"}), \
+             patch("web.app.time.monotonic", side_effect=lambda: clock[0]), \
+             patch("web.app._recent_repeat_crawler_ip", side_effect=slow_negative) as repeat, \
+             patch("web.app._is_ip_cookie_churn_scraper", side_effect=slow_negative) as ip_churn, \
+             patch("web.app._is_network_cookie_churn_scraper") as network_churn, \
+             patch("web.app._is_distributed_proxy_scraper") as proxy, \
+             patch("web.app._recent_marked_dynamic_crawler_prefix") as marked, \
+             patch("web.app._is_proxied_scraper_ua") as proxy_ua, \
+             patch("web.app._is_stale_ua_scraper") as stale_ua, \
+             patch("web.app._is_datacenter_scraper_ua") as datacenter_ua:
+            with self.app.test_request_context(
+                "/players/201939",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1.15"},
+                environ_base={"REMOTE_ADDR": "198.51.100.8"},
+            ):
+                self.assertFalse(self.web_app._request_crawler_decision()["should_block"])
+        repeat.assert_called_once()
+        ip_churn.assert_called_once()
+        for lookup in (network_churn, proxy, marked, proxy_ua, stale_ua, datacenter_ua):
+            lookup.assert_not_called()
+
+    def test_all_history_queries_have_mysql_execution_limits(self):
+        from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, String, Table
+        from sqlalchemy.dialects import mysql
+        from sqlalchemy.orm import Query
+
+        table = Table(
+            "PageView", MetaData(),
+            Column("id", Integer), Column("visitor_id", String), Column("path", String),
+            Column("referrer", String), Column("user_agent", String), Column("is_crawler", Boolean),
+            Column("crawler_name", String), Column("ip_address", String), Column("created_at", DateTime),
+        )
+        page_view = SimpleNamespace(**{column.name: column for column in table.c})
+        session = self._session_ctx()
+        session.query.side_effect = lambda *columns: Query(columns)
+        statements = []
+
+        def execute(query):
+            statements.append(str(query.statement.compile(dialect=mysql.dialect())))
+            return SimpleNamespace(pv=0, uniq_ips=0, visitors=0, uas=0, ips=0, paths=0,
+                                   direct_refs=0, self_refs=0, external_refs=0)
+
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36"
+        lookups = (
+            (self.web_app._recent_repeat_crawler_ip_cached, "198.51.100.8"),
+            (self.web_app._proxied_scraper_ua_cached, user_agent),
+            (self.web_app._stale_ua_scraper_cached, user_agent),
+            (self.web_app._datacenter_scraper_ua_cached, user_agent),
+            (self.web_app._ip_cookie_churn_scraper_cached, "198.51.100.8"),
+            (self.web_app._network_cookie_churn_scraper_cached, "198.51."),
+            (self.web_app._distributed_proxy_scraper_cached, "198.51."),
+            (self.web_app._recent_marked_dynamic_crawler_prefix_cached, "198.51."),
+        )
+        with patch("web.app.PageView", page_view), \
+             patch("web.app.SessionLocal", return_value=session), \
+             patch.object(Query, "one", execute), patch.object(Query, "first", execute):
+            for lookup, value in lookups:
+                lookup.cache_clear()
+                lookup(value, 0)
+        self.assertEqual(len(statements), len(lookups))
+        for statement in statements:
+            self.assertTrue(statement.startswith("SELECT /*+ MAX_EXECUTION_TIME(75) */"), statement)
+
     def test_meta_webindexer_is_blocked_but_recorded(self):
         captured = []
 

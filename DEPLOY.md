@@ -234,9 +234,19 @@ sudo launchctl kickstart -k system/app.funba.web
 ### Web watchdog:
 
 `app.funba.web-watchdog` runs every 30 seconds and checks
-`http://127.0.0.1:5001/api/health`. If the local app does not return `200`
-quickly, it terminates stale Funba web processes still holding port 5001 and
-then kickstarts `app.funba.web`.
+`http://127.0.0.1:5001/api/health`. It requires three consecutive failed checks
+before recovery and waits at least five minutes between recovery attempts.
+Failure counts and cooldown survive invocations in
+`~/Library/Caches/funba/web-watchdog.json`; overlapping checks are skipped.
+
+For a system daemon running as the app user, recovery verifies the launchd
+KeepAlive master PID, ownership, and command, then gracefully terminates only
+that master so launchd restarts it. Root or GUI-domain watchdogs use kickstart.
+The watchdog never force-kills all processes listening on the web port.
+
+Optional settings are `FUNBA_WEB_WATCHDOG_FAILURE_THRESHOLD`,
+`FUNBA_WEB_WATCHDOG_RESTART_COOLDOWN_SECONDS`, and
+`FUNBA_WEB_WATCHDOG_STATE_PATH`. Keep the state file outside the synced runtime.
 
 Install or update it after deploy changes that touch `scripts/funba_web_watchdog.py`
 by refreshing the daemon runtime:
@@ -477,8 +487,26 @@ curl -s -o /dev/null -w "Health: %{http_code}\n" http://localhost:5001/api/healt
 cloudflared tunnel info funba
 
 # 4. Public HTTPS
-curl -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
+curl -A 'Codex' -s -o /dev/null -w "HTTPS: %{http_code}\n" https://funba.app/
 ```
+
+The app allows the `Codex` diagnostic User-Agent; a generic external curl can
+be blocked by bot rules or Cloudflare. `/api/health` is public in the app, but
+Cloudflare rules still apply. Verify ordinary browser access as well.
+
+### PageView query performance
+
+Run migration `l9m0n1o2p3q4` (or a later head) to add the IP/time, user-agent/time,
+and path/crawler/visitor indexes. MySQL builds them online with concurrent
+reads and writes; a bounded metadata-lock timeout fails the migration instead
+of leaving requests queued indefinitely. Check and resolve long-running
+PageView transactions before retrying if that timeout occurs.
+
+Request-time crawler history checks remain enabled by default. Each MySQL
+history SELECT has a 75 ms execution limit and a request stops starting history
+checks after a shared 250 ms budget. These limits exclude connection-pool and
+network waits. `FUNBA_CRAWLER_HISTORY_LOOKUPS=0` disables only the historical
+heuristics during an incident; static bot rules remain active.
 
 ---
 

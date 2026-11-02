@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Single-shot watchdog for the Funba web LaunchAgent.
+"""Check web health and ask launchd to recover a persistently unhealthy service.
 
-launchd runs this periodically. It checks the local Flask health endpoint and,
-if the app is alive but unresponsive, removes stale Funba processes that still
-hold the web port before asking launchd to start a fresh service instance.
+Failures and restart attempts survive each scheduled invocation. A busy worker
+must not cause a restart storm; recovery targets only the launchd-managed service.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -17,14 +18,15 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 DEFAULT_HEALTH_URL = "http://127.0.0.1:5001/api/health"
 DEFAULT_FALLBACK_URL = "http://127.0.0.1:5001/robots.txt"
-DEFAULT_PORT = 5001
 DEFAULT_SERVICE = "app.funba.web"
 DEFAULT_TIMEOUT_SECONDS = 3.0
-DEFAULT_TERM_GRACE_SECONDS = 5.0
+DEFAULT_FAILURE_THRESHOLD = 3
+DEFAULT_RESTART_COOLDOWN_SECONDS = 300.0
 
 
 def _log(message: str) -> None:
@@ -87,7 +89,7 @@ def _health_ok(url: str, timeout_seconds: float, *, require_json: bool) -> tuple
     except Exception:
         return False, "health endpoint returned non-JSON"
 
-    if payload.get("ok") is True:
+    if isinstance(payload, dict) and payload.get("ok") is True:
         return True, "ok"
     return False, f"unexpected payload: {payload!r}"
 
@@ -104,83 +106,12 @@ def _app_ok(health_url: str, fallback_url: str, timeout_seconds: float) -> tuple
     return False, detail
 
 
-def _listener_pids(port: int) -> set[int]:
-    result = _run(
-        ["/usr/sbin/lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-        timeout=5.0,
-    )
-    if result.returncode not in (0, 1):
-        _log(f"lsof failed: {result.stderr.strip() or result.stdout.strip()}")
-        return set()
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            pids.add(int(line))
-        except ValueError:
-            continue
-    return pids
-
-
-def _pid_command(pid: int) -> str:
-    result = _run(["/bin/ps", "-p", str(pid), "-o", "command="], timeout=5.0)
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
-
-
-def _is_funba_web_process(command: str) -> bool:
-    lower = command.lower()
-    if "funba" not in lower:
+def _kickstart(target: str) -> bool:
+    try:
+        result = _run(["/bin/launchctl", "kickstart", "-k", target], timeout=15.0)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _log(f"launchctl kickstart failed for {target}: {exc}")
         return False
-    return "gunicorn" in lower or "web.app" in lower or "web/dev_server.py" in lower
-
-
-def _terminate_stale_listeners(port: int, grace_seconds: float) -> list[int]:
-    current_pid = os.getpid()
-    candidates: list[int] = []
-    for pid in sorted(_listener_pids(port)):
-        if pid == current_pid:
-            continue
-        command = _pid_command(pid)
-        if _is_funba_web_process(command):
-            candidates.append(pid)
-        else:
-            _log(f"not killing pid {pid}; command does not look like Funba web: {command}")
-
-    if not candidates:
-        return []
-
-    _log(f"terminating stale Funba listener pid(s): {', '.join(map(str, candidates))}")
-    for pid in candidates:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-
-    deadline = time.monotonic() + grace_seconds
-    while time.monotonic() < deadline:
-        remaining = _listener_pids(port).intersection(candidates)
-        if not remaining:
-            return candidates
-        time.sleep(0.25)
-
-    remaining = _listener_pids(port).intersection(candidates)
-    if remaining:
-        _log(f"force-killing stale Funba listener pid(s): {', '.join(map(str, sorted(remaining)))}")
-    for pid in remaining:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    return candidates
-
-
-def _kickstart(service: str) -> bool:
-    target = os.getenv("FUNBA_WEB_WATCHDOG_LAUNCHCTL_TARGET") or f"gui/{os.getuid()}/{service}"
-    result = _run(["/bin/launchctl", "kickstart", "-k", target], timeout=15.0)
     if result.returncode == 0:
         _log(f"kickstarted {target}")
         return True
@@ -189,24 +120,107 @@ def _kickstart(service: str) -> bool:
     return False
 
 
-def main() -> int:
+def _managed_keepalive_pid(target: str) -> int | None:
+    result = _run(["/bin/launchctl", "print", target], timeout=5.0)
+    if result.returncode != 0:
+        return None
+    properties = re.search(r"^\s*properties = (.+)$", result.stdout, re.MULTILINE)
+    pid = re.search(r"^\s*pid = (\d+)\s*$", result.stdout, re.MULTILINE)
+    if not properties or "keepalive" not in properties.group(1).split(" | ") or not pid:
+        return None
+    return int(pid.group(1))
+
+
+def _restart_service(target: str) -> bool:
+    if not target.startswith("system/") or os.geteuid() == 0:
+        return _kickstart(target)
+
+    # An unprivileged system daemon cannot kickstart another system service.
+    # It can gracefully stop its own launchd-managed master, with KeepAlive
+    # responsible for restarting it. Never signal workers or arbitrary listeners.
+    try:
+        pid = _managed_keepalive_pid(target)
+        if pid is None:
+            _log(f"recovery skipped: {target} has no running KeepAlive master")
+            return False
+        process = _run(["/bin/ps", "-p", str(pid), "-o", "uid=,ppid=,command="], timeout=5.0)
+        fields = process.stdout.strip().split(None, 2)
+        if process.returncode != 0 or len(fields) != 3:
+            _log(f"recovery skipped: cannot verify master pid {pid}")
+            return False
+        uid, parent_pid, command = fields
+        if (int(uid) != os.geteuid() or int(parent_pid) != 1
+                or "funba" not in command.lower() or "gunicorn" not in command
+                or "web.app:app" not in command):
+            _log(f"recovery skipped: pid {pid} is not our launchd-managed Funba gunicorn master")
+            return False
+        if _managed_keepalive_pid(target) != pid:
+            _log("recovery skipped: launchd master changed during verification")
+            return False
+        os.kill(pid, signal.SIGTERM)
+        _log(f"sent SIGTERM to {target} master pid {pid}; launchd KeepAlive will restart it")
+        return True
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        _log(f"recovery failed for {target}: {exc}")
+        return False
+
+
+def _save_state(path: Path, state: dict) -> None:
+    # Keep the lock in a separate file so atomic replacement does not release it.
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(state))
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _check_service(state_path: Path) -> int:
     health_url = os.getenv("FUNBA_WEB_WATCHDOG_URL", DEFAULT_HEALTH_URL)
     fallback_url = os.getenv("FUNBA_WEB_WATCHDOG_FALLBACK_URL", DEFAULT_FALLBACK_URL)
-    port = _env_int("FUNBA_WEB_WATCHDOG_PORT", DEFAULT_PORT)
     service = os.getenv("FUNBA_WEB_WATCHDOG_SERVICE", DEFAULT_SERVICE)
+    target = os.getenv("FUNBA_WEB_WATCHDOG_LAUNCHCTL_TARGET") or f"gui/{os.getuid()}/{service}"
     timeout_seconds = _env_float("FUNBA_WEB_WATCHDOG_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
-    grace_seconds = _env_float("FUNBA_WEB_WATCHDOG_TERM_GRACE_SECONDS", DEFAULT_TERM_GRACE_SECONDS)
+    failure_threshold = max(2, _env_int("FUNBA_WEB_WATCHDOG_FAILURE_THRESHOLD", DEFAULT_FAILURE_THRESHOLD))
+    cooldown_seconds = max(30.0, _env_float(
+        "FUNBA_WEB_WATCHDOG_RESTART_COOLDOWN_SECONDS", DEFAULT_RESTART_COOLDOWN_SECONDS,
+    ))
     verbose = os.getenv("FUNBA_WEB_WATCHDOG_VERBOSE") == "1"
+
+    try:
+        state = json.loads(state_path.read_text())
+    except FileNotFoundError:
+        state = {}
+    if not isinstance(state, dict):
+        raise ValueError("watchdog state must be an object")
+    if state.get("target") != target:
+        state = {"target": target, "failures": 0, "last_restart_at": None}
 
     ok, detail = _app_ok(health_url, fallback_url, timeout_seconds)
     if ok:
+        state["failures"] = 0
+        _save_state(state_path, state)
         if verbose:
             _log(f"healthy: {health_url}")
         return 0
 
-    _log(f"unhealthy: {health_url} ({detail})")
-    _terminate_stale_listeners(port, grace_seconds)
-    _kickstart(service)
+    state["failures"] = min(int(state.get("failures", 0)) + 1, failure_threshold)
+    _save_state(state_path, state)
+    _log(f"unhealthy: {health_url} ({detail}); consecutive failures {state['failures']}/{failure_threshold}")
+    if state["failures"] < failure_threshold:
+        return 1
+
+    now = time.time()
+    last_restart = state.get("last_restart_at")
+    if last_restart is not None and now - float(last_restart) < cooldown_seconds:
+        _log("recovery skipped: restart cooldown is active")
+        return 1
+
+    # Persist before calling launchctl: failed or timed-out restarts also back off.
+    state.update(failures=0, last_restart_at=now)
+    _save_state(state_path, state)
+    if not _restart_service(target):
+        return 1
 
     time.sleep(2.0)
     ok, detail = _app_ok(health_url, fallback_url, timeout_seconds)
@@ -216,6 +230,24 @@ def main() -> int:
 
     _log(f"still unhealthy after restart attempt: {detail}")
     return 1
+
+
+def main() -> int:
+    state_path = Path(os.getenv("FUNBA_WEB_WATCHDOG_STATE_PATH") or (
+        Path.home() / "Library" / "Caches" / "funba" / "web-watchdog.json"
+    ))
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with state_path.with_name(f"{state_path.name}.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return 0
+            return _check_service(state_path)
+    except (OSError, ValueError, TypeError) as exc:
+        # Never restart when durable cooldown/failure tracking is unavailable.
+        _log(f"watchdog state unavailable; recovery skipped: {exc}")
+        return 1
 
 
 if __name__ == "__main__":
