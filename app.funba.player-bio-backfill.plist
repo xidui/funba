@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Do not load this file directly.
+  Run db/install_player_bio_backfill_agent.sh so the script is copied to
+  ~/Library/Scripts/funba/ and the plist is written with local env values.
+-->
+<dict>
+    <key>Label</key>
+    <string>app.funba.player-bio-backfill</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/yuewang/Library/Scripts/funba/player_bio_backfill.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PROJECT_ROOT</key>
+        <string>/Users/yuewang/Documents/github/funba</string>
+        <key>STATE_DIR</key>
+        <string>/Users/yuewang/Library/Application Support/funba/player-bio-backfill</string>
+        <key>LOG_DIR</key>
+        <string>/Users/yuewang/Library/Logs/funba</string>
+        <key>BATCH_LIMIT</key>
+        <string>30</string>
+        <key>WITH_GAMES_ONLY</key>
+        <string>0</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/yuewang/Library/Logs/funba/player-bio-backfill-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/yuewang/Library/Logs/funba/player-bio-backfill-stderr.log</string>
+</dict>
+</plist>
