@@ -13,6 +13,7 @@ How it works
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -147,6 +148,23 @@ _NO_FALLBACK = object()
 _refreshing: set[str] = set()
 
 
+def _reset_after_fork() -> None:
+    """Make the cache safe in forked children.
+
+    gunicorn runs with ``preload_app``: workers fork from a master whose
+    background refresh threads (and possibly a held ``_cache_lock``) do not
+    exist in the child. Without this, a key marked "refreshing" at fork time
+    would never refresh again in that worker.
+    """
+    global _cache_lock
+    _cache_lock = threading.Lock()
+    _refreshing.clear()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_after_fork)
+
+
 def _refresh_async(key: str, builder: Callable[[], Any], wrap: Callable[[Callable[[], Any]], Any] | None = None) -> None:
     with _cache_lock:
         if key in _refreshing:
@@ -159,7 +177,7 @@ def _refresh_async(key: str, builder: Callable[[], Any], wrap: Callable[[Callabl
             with _cache_lock:
                 _cache[key] = (time.monotonic(), value)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("next-ui background refresh failed for %s", key, exc_info=True)
         finally:
             with _cache_lock:
                 _refreshing.discard(key)
@@ -445,7 +463,14 @@ def register_next_ui(app, *, base_render: Callable[..., Any], deps: SimpleNamesp
     SessionLocal = deps.session_local
 
     def _in_app_context(fn: Callable[[], Any]) -> Any:
-        with app.app_context():
+        """Run a background cache build inside a synthetic *anonymous public*
+        request: catalog/milestone helpers call ``is_admin()``, which needs a
+        request, and we want public (non-admin, non-localhost) results."""
+        with app.test_request_context(
+            "/",
+            base_url="https://funba.app",
+            environ_base={"REMOTE_ADDR": "203.0.113.1"},
+        ):
             return fn()
 
     Game = deps.Game
@@ -1217,15 +1242,24 @@ def register_next_ui(app, *, base_render: Callable[..., Any], deps: SimpleNamesp
     app.add_template_filter(_dedupe_family, "dedupe_family")
     app.add_template_filter(_family, "metric_family")
 
-    # ── warm slow caches in the background at startup ────────────────────
-    if not app.config.get("TESTING") and os.getenv("FUNBA_NEXT_UI_WARM", "1") != "0":
-        def _warm():
-            time.sleep(3)
-            try:
-                published_metric_count()
-                home_extra()
-            except Exception:
-                pass
+    # ── warm slow caches once per serving process ────────────────────────
+    # Started lazily on a process's first request rather than at import, so it
+    # never runs in gunicorn's preloading master (threads don't survive fork).
+    _warm_state = {"pid": None}
+
+    def _warm() -> None:
+        try:
+            _in_app_context(lambda: (published_metric_count(), home_extra()))
+        except Exception:
+            app.logger.warning("next-ui warm-up failed", exc_info=True)
+
+    @app.before_request
+    def _next_ui_warm_once():
+        if _warm_state["pid"] == os.getpid():
+            return
+        _warm_state["pid"] = os.getpid()
+        if app.config.get("TESTING") or os.getenv("FUNBA_NEXT_UI_WARM", "1") == "0":
+            return
         threading.Thread(target=_warm, name="next-ui-warm", daemon=True).start()
 
     # ── context processor (all templates, next pages use these) ─────────

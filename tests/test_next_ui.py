@@ -96,6 +96,30 @@ def test_margin_series_downsamples_pbp_scores():
     assert min(series) == -5         # road led by 5 in Q2
 
 
+def test_reset_after_fork_clears_inflight_refresh_markers():
+    # Simulate a fork that happened while a refresh thread held the lock and
+    # had its key marked in flight.
+    next_ui._refreshing.add("metric_count")
+    held = next_ui._cache_lock
+    held.acquire()
+    try:
+        next_ui._reset_after_fork()
+        assert "metric_count" not in next_ui._refreshing
+        assert next_ui._cache_lock is not held
+        assert next_ui._cache_lock.acquire(blocking=False)
+        next_ui._cache_lock.release()
+    finally:
+        held.release()
+
+
+def test_swr_cache_refreshes_after_fork_reset():
+    key = "test-swr-fork"
+    next_ui._cache.pop(key, None)
+    next_ui._refreshing.add(key)          # stale marker inherited from a parent
+    next_ui._reset_after_fork()
+    assert next_ui._cached_swr(key, 60, lambda: 42) == 42
+
+
 # ── Route smoke tests (need the real DB) ─────────────────────────────────────
 
 web_app = pytest.importorskip("web.app")
