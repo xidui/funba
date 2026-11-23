@@ -1,0 +1,243 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ t('Players', '球员') }} · {{ season_label(selected_season) }} · {{ site_name }}{% endblock %}
+{% block meta_description %}{{ t('Browse every NBA player by team and season — per-game stats, positions and profiles.', '按球队和赛季浏览所有 NBA 球员——场均数据、位置与个人档案。') }}{% endblock %}
+{% block page_id %}players{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/lists.css') }}?v=1" />{% endblock %}
+
+{% macro pos_letters(position) -%}
+  {%- set ns = namespace(out='') -%}
+  {%- for tok in ((position or '')|upper|replace('-', ' ')).split() -%}{%- if tok[:1] in 'GFC' and tok[:1] not in ns.out -%}{%- set ns.out = ns.out ~ tok[:1] -%}{%- endif -%}{%- endfor -%}
+  {{- ns.out -}}
+{%- endmacro %}
+
+{% block content %}
+{% set yr = season_year %}
+<header class="lhero">
+  <div class="wrap">
+    <div class="lhero__row">
+      <div>
+        <span class="kicker kicker--flame">{{ season_label(selected_season) }}</span>
+        <h1 class="display display-xl">{{ t('Players', '球员') }}</h1>
+      </div>
+      <div class="lstats">
+        <div><span class="kicker">{{ t('Players', '球员') }}</span><span class="big-num" data-count="{{ player_count }}">{{ player_count }}</span></div>
+        <div><span class="kicker">{{ t('Teams', '球队') }}</span><span class="big-num">{{ teams_with_players|length }}</span></div>
+      </div>
+    </div>
+    <label class="psearch" style="display:block;margin-top:26px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="players-search" type="search" autocomplete="off" spellcheck="false"
+             placeholder="{{ t('Search any player, any era…', '搜索任意年代的任意球员…') }}" aria-label="{{ t('Search players', '搜索球员') }}">
+    </label>
+  </div>
+</header>
+
+<div class="wrap" id="search-results" hidden>
+  <div class="psearch-results">
+    {% call ui.sec_head(t('Search', '搜索'), t('Results', '结果'), small=True) %}<span class="kicker" data-search-label></span>{% endcall %}
+    <div class="sr-grid" data-search-grid></div>
+  </div>
+</div>
+
+<div id="season-content">
+  {# ── Season leaders strip ───────────────────────────────────────── #}
+  {% if nx and nx.leaders %}
+  <div class="wrap">
+    <div class="lstrip">
+      {% for cat in nx.leaders %}
+        {% set top = cat.rows[0] if cat.rows else None %}
+        {% if top %}
+        <a class="ls" href="{{ player_url(top.player_id) }}" style="--tc: {{ team_color(top.team_id) }}">
+          <span class="kicker">{{ cat.label_zh if lang == 'zh' else cat.label_en }} · {{ cat.abbr }}</span>
+          <span class="ls__text">
+            <span class="ls__val">{{ '%.1f'|format(top[cat.key]) }}</span>
+            <span class="ls__name">{{ top.name_zh if lang == 'zh' and top.name_zh else top.name }}</span>
+          </span>
+          <span class="ls__shot"><img src="{{ headshot_src(top.player_id) }}" alt="" loading="lazy" onerror="this.remove()"></span>
+        </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Toolbar ─────────────────────────────────────────────────────── #}
+  <div class="toolbar">
+    <div class="wrap toolbar__row">
+      <label class="pick">
+        <select aria-label="{{ t('Season', '赛季') }}" onchange="location.href='{{ url_for('players_browse') }}?season='+this.value">
+          {% for sid in season_ids %}<option value="{{ sid }}"{% if sid == selected_season %} selected{% endif %}>{{ season_label(sid) }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="seg" data-pos-filter role="tablist" aria-label="{{ t('Position', '位置') }}">
+        <button type="button" class="is-on" data-pos="">{{ t('All', '全部') }}</button>
+        <button type="button" data-pos="G">{{ t('Guards', '后卫') }}</button>
+        <button type="button" data-pos="F">{{ t('Forwards', '前锋') }}</button>
+        <button type="button" data-pos="C">{{ t('Centers', '中锋') }}</button>
+      </div>
+      <span class="toolbar__spacer"></span>
+      <span class="toolbar__label">{{ t('Sort', '排序') }}</span>
+      <div class="seg" data-sort role="tablist" aria-label="{{ t('Sort', '排序') }}">
+        <button type="button" class="is-on" data-key="name">{{ t('Name', '姓名') }}</button>
+        <button type="button" data-key="ppg">PPG</button>
+        <button type="button" data-key="rpg">RPG</button>
+        <button type="button" data-key="apg">APG</button>
+      </div>
+      <div class="seg" data-view role="tablist" aria-label="{{ t('Layout', '布局') }}">
+        <button type="button" class="is-on" data-v="team">{{ t('By team', '按球队') }}</button>
+        <button type="button" data-v="flat">{{ t('League', '全联盟') }}</button>
+      </div>
+    </div>
+    <div class="wrap" style="padding-bottom:10px;">
+      <div class="teampick" data-teampick>
+        <button type="button" class="is-on" data-team="all">{{ t('All', '全部') }}</button>
+        {% for team in teams_with_players %}
+          {% set abbr = team_abbr_for_year(team.team_id, yr) or team.abbr %}
+          <button type="button" data-team="{{ team.team_id }}" title="{{ team_name_for_year(team.team_id, yr) or team.full_name }}" style="--tc: {{ team_color(team.team_id) }}">
+            <img src="{{ team_logo(team.team_id, yr) }}" alt="{{ abbr }}" loading="lazy" onerror="this.replaceWith(document.createTextNode('{{ abbr }}'))">
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Rosters ────────────────────────────────────────────────────── #}
+  <div class="wrap" id="rosters">
+    {% for team in teams_with_players %}
+      {% set abbr = team_abbr_for_year(team.team_id, yr) or team.abbr %}
+      {% set name = (team.full_name if lang == 'zh' else (team_name_for_year(team.team_id, yr) or team.full_name)) %}
+      <section class="roster" data-team="{{ team.team_id }}" style="--tc: {{ team_color(team.team_id) }}">
+        <div class="roster__head">
+          <img src="{{ team_logo(team.team_id, yr) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+          <a class="roster__name" href="{{ (team_url(team.team_id) or '#') }}?season={{ selected_season }}">{{ name }}</a>
+          <span class="kicker">{{ abbr }}</span>
+          <span class="roster__count">{{ team.players|length }} {{ t('players', '人') }}</span>
+        </div>
+        <div class="pcards">
+          {% for p in team.players %}
+            {% set pos = pos_letters(p.position) %}
+            <a class="pc{% if not p.gp %} is-dnp{% endif %}" href="{{ player_url(p.player_id) }}"
+               style="--tc: {{ team_color(team.team_id) }}"
+               data-team="{{ team.team_id }}" data-pos="{{ pos }}" data-name="{{ p.full_name }}"
+               data-ppg="{{ p.ppg if p.ppg != '-' else -1 }}" data-rpg="{{ p.rpg if p.rpg != '-' else -1 }}" data-apg="{{ p.apg if p.apg != '-' else -1 }}">
+              <span class="pc__rank"></span>
+              <span class="pc__shot"><img src="{{ headshot_src(p.player_id) }}" alt="" loading="lazy" onerror="this.remove()"></span>
+              <span class="pc__who">
+                <span class="pc__name">{{ p.full_name }}</span>
+                <span class="pc__pos">{{ pos|join(' · ') if pos else '—' }}{% if p.jersey %} · #{{ p.jersey }}{% endif %}{% if p.gp %} · {{ p.gp }} {{ t('GP', '场') }}{% endif %}</span>
+              </span>
+              <span class="pc__stats">
+                <div><b>{{ p.ppg }}</b><span>PTS</span></div>
+                <div><b>{{ p.rpg }}</b><span>REB</span></div>
+                <div><b>{{ p.apg }}</b><span>AST</span></div>
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+    <div class="empty" data-empty hidden style="margin-top:30px;">{{ t('No players match these filters.', '没有符合条件的球员。') }}</div>
+    <section class="roster flat-wrap" data-flat hidden>
+      <div class="roster__head" style="--tc: var(--ink)"><span class="roster__name">{{ t('League-wide', '全联盟') }}</span><span class="roster__count" data-flat-count></span></div>
+      <div class="pcards flat" data-flat-grid></div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX;
+  var state = { team: 'all', pos: '', key: 'name', view: 'team' };
+  var rosters = FX.$$('#rosters .roster[data-team]');
+  var cards = FX.$$('#rosters .pc');
+  cards.forEach(function (c) { c._home = c.parentNode; });
+  var flat = document.querySelector('[data-flat]'), flatGrid = document.querySelector('[data-flat-grid]');
+  var empty = document.querySelector('[data-empty]');
+
+  function cmp(a, b) {
+    if (state.key === 'name') return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
+    return parseFloat(b.getAttribute('data-' + state.key)) - parseFloat(a.getAttribute('data-' + state.key));
+  }
+  function visible(c) {
+    if (state.team !== 'all' && c.getAttribute('data-team') !== state.team) return false;
+    if (state.pos && (c.getAttribute('data-pos') || '').indexOf(state.pos) === -1) return false;
+    return true;
+  }
+  function render() {
+    var shown = 0;
+    if (state.view === 'flat') {
+      var list = cards.filter(visible).sort(cmp);
+      cards.forEach(function (c) { c.hidden = !visible(c); });
+      list.forEach(function (c, i) { c.querySelector('.pc__rank').textContent = i + 1; flatGrid.appendChild(c); });
+      rosters.forEach(function (r) { r.hidden = true; });
+      flat.hidden = !list.length;
+      document.querySelector('[data-flat-count]').textContent = list.length + ' ' + FX.t('players', '人');
+      shown = list.length;
+    } else {
+      flat.hidden = true;
+      cards.forEach(function (c) { if (c.parentNode !== c._home) c._home.appendChild(c); });
+      rosters.forEach(function (r) {
+        var grid = r.querySelector('.pcards');
+        var own = cards.filter(function (c) { return c._home === grid; });
+        own.sort(cmp).forEach(function (c) { c.hidden = !visible(c); grid.appendChild(c); });
+        var n = own.filter(visible).length;
+        r.hidden = n === 0;
+        shown += n;
+      });
+    }
+    empty.hidden = shown > 0;
+  }
+  function wireSeg(sel, attr, prop) {
+    var seg = document.querySelector(sel);
+    if (!seg) return;
+    seg.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      FX.$$('button', seg).forEach(function (x) { x.classList.toggle('is-on', x === b); });
+      state[prop] = b.getAttribute(attr);
+      render();
+    });
+  }
+  wireSeg('[data-pos-filter]', 'data-pos', 'pos');
+  wireSeg('[data-sort]', 'data-key', 'key');
+  wireSeg('[data-view]', 'data-v', 'view');
+  wireSeg('[data-teampick]', 'data-team', 'team');
+
+  // Global search (any era) via the existing hints API
+  var input = document.getElementById('players-search');
+  var area = document.getElementById('search-results');
+  var grid = document.querySelector('[data-search-grid]');
+  var label = document.querySelector('[data-search-label]');
+  var season = document.getElementById('season-content');
+  var hintsUrl = {{ url_for('player_hints_api')|tojson }};
+  var profileBase = {{ url_for('player_page', slug='__SLUG__')|tojson }};
+  var timer = null, ctrl = null;
+  function clear() { area.hidden = true; grid.innerHTML = ''; season.hidden = false; }
+  function search(q) {
+    if (ctrl) ctrl.abort();
+    ctrl = window.AbortController ? new AbortController() : null;
+    fetch(hintsUrl + '?limit=30&q=' + encodeURIComponent(q), { signal: ctrl && ctrl.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var items = d.items || [];
+        label.textContent = items.length ? items.length + ' ' + FX.t('players', '名球员') : FX.t('No players found', '未找到球员');
+        grid.innerHTML = items.map(function (p) {
+          return '<a class="sr" href="' + profileBase.replace('__SLUG__', encodeURIComponent(p.slug)) + '">' +
+            '<span class="hs"><img src="https://cdn.nba.com/headshots/nba/latest/260x190/' + FX.esc(p.player_id) + '.png" alt="" loading="lazy" onerror="this.remove()"></span>' +
+            '<b>' + FX.esc(p.full_name) + '</b></a>';
+        }).join('');
+        area.hidden = false; season.hidden = true;
+      }).catch(function () {});
+  }
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    var q = input.value.trim();
+    if (!q) { clear(); return; }
+    timer = setTimeout(function () { search(q); }, 180);
+  });
+  input.addEventListener('keydown', function (e) { if (e.key === 'Escape') { input.value = ''; clear(); input.blur(); } });
+});
+</script>
+{% endblock %}

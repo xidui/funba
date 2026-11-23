@@ -1,0 +1,353 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+
+{% set _metrics_total = metrics_total if metrics_total is not none else none %}
+{% set _metrics_has_more = metrics_has_more if metrics_has_more is defined else (_metrics_total is not none and _metrics_total > metrics_list|length) %}
+{% set _metrics_page_size = metrics_page_size|default(metrics_list|length or 24, true) %}
+{% set _total_known = nx and nx.catalog_total %}
+{% set _total = (nx.catalog_total if _total_known else (_metrics_total or (nx.metric_count if nx else 0))) %}
+{% set _scopes = [
+  ('', t('All', '全部')),
+  ('player', t('Player', '球员')),
+  ('team', t('Team', '球队')),
+  ('game', t('Game', '比赛')),
+  ('season', t('Season', '赛季')),
+] %}
+
+{% block title %}{{ t('NBA Metrics Library', 'NBA 指标库') }} · {{ site_name }}{% endblock %}
+{% block meta_description %}{% set _n = ('{:,} '.format(_total|int)) if _total_known else '' %}{{ t('Browse ' ~ _n ~ 'NBA metrics — records, streaks, efficiency and situational stats, ranked every night.', '浏览 ' ~ _n ~ '项 NBA 指标——纪录、连续性、效率与情境数据，每晚更新排名。') }}{% endblock %}
+{% block page_id %}metrics{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/metrics.css') }}?v=1" />{% endblock %}
+
+{% block content %}
+{# ═══ HERO ═══════════════════════════════════════════════════════════ #}
+<section class="mhero">
+  <div class="wrap">
+    <div class="mhero__head">
+      <span class="kicker kicker--flame">{{ t('The metric library', '指标库') }}</span>
+      <span class="kicker">{{ t('Ranked nightly · built by fans', '每晚更新 · 由球迷共建') }}</span>
+    </div>
+    <h1 class="mhero__title display">
+      {% if lang == 'zh' %}
+        <span class="mhero__num"{% if _total_known %} data-mcount="{{ _total|int }}"{% else %} data-mcount-url="{{ nx.catalog_total_url }}"{% endif %}>{{ '{:,}'.format(_total|int) if _total_known else '—' }}</span><span class="mhero__line">种方式</span><span class="mhero__line mhero__line--soft">解读一场比赛。</span>
+      {% else %}
+        <span class="mhero__num"{% if _total_known %} data-mcount="{{ _total|int }}"{% else %} data-mcount-url="{{ nx.catalog_total_url }}"{% endif %}>{{ '{:,}'.format(_total|int) if _total_known else '—' }}</span><span class="mhero__line">ways to measure</span><span class="mhero__line mhero__line--soft">the game.</span>
+      {% endif %}
+    </h1>
+
+    <div class="msearch" id="msearch">
+      <div class="msearch__field">
+        <svg class="msearch__spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.9 5.6L19.5 10.5 13.9 12.4 12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/><path d="M19 3v4M17 5h4"/></svg>
+        <input id="metric-search-input" class="msearch__input" type="text" maxlength="200" autocomplete="off" spellcheck="false"
+               value="{{ search_query or '' }}"
+               placeholder="{{ t('Describe a stat in plain words — “clutch shooting”, “bench scoring”, “comebacks”…', '用自然语言描述一个数据——“关键时刻投篮”、“替补得分”、“逆转”…') }}"
+               aria-label="{{ t('Search metrics with natural language', '自然语言搜索指标') }}" />
+        {% if is_admin %}
+        <select id="metric-search-model" class="msearch__model" aria-label="LLM model">
+          {% for model_name in llm_available_models %}
+          <option value="{{ model_name }}" {% if model_name == llm_default_model %}selected{% endif %}>{{ model_name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        <button id="metric-search-btn" class="btn btn--flame msearch__go" type="button">
+          <span>{{ t('Find metrics', '查找指标') }}</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="msearch__foot">
+        <div class="msearch__try">
+          <span class="kicker">{{ t('Try', '试试') }}</span>
+          {% for q in ([t('clutch shooting', '关键时刻投篮'), t('bench scoring', '替补得分'), t('20-point comebacks', '20分大逆转'), t('triple-doubles', '三双'), t('free throw streaks', '罚球连中')]) %}
+            <button type="button" class="chip" data-try>{{ q }}</button>
+          {% endfor %}
+        </div>
+        <a id="metric-create-cta-inline" class="msearch__create{% if not can_create_metrics %} is-locked{% endif %}" href="{{ metric_create_cta_href }}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          {{ t('Create a metric', '创建指标') }}{% if metric_create_cta_badge %} <span class="chip chip--flame">{{ metric_create_cta_badge }}</span>{% endif %}
+        </a>
+      </div>
+      <div id="metric-search-status" class="msearch__status" role="status">{{ t('Search in any language. If nothing fits, create a new metric from the same words.', '支持任意语言搜索。如果没有合适的指标，可以直接用同一条描述创建新指标。') }}</div>
+    </div>
+  </div>
+</section>
+
+{# ═══ FILTER BAR ═════════════════════════════════════════════════════ #}
+<div class="mbar">
+  <div class="wrap mbar__row">
+    <nav class="seg" aria-label="{{ t('Scope', '范围') }}">
+      {% for key, label in _scopes %}
+        <a href="{{ url_for('metrics_browse', scope=key) if key else url_for('metrics_browse') }}" class="{{ 'is-on' if (scope_filter or '') == key }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    {% if nx and nx.categories %}
+    <div class="mcats" data-cats role="toolbar" aria-label="{{ t('Category', '类别') }}">
+      <button type="button" class="mcat is-on" data-cat="">{{ t('Every category', '全部类别') }}</button>
+      {% for c in nx.categories %}
+        <button type="button" class="mcat" data-cat="{{ c.key }}">{{ (c.label_zh if lang == 'zh' and c.label_zh else c.key|replace('_', ' ')) }}<span>{{ c.count }}</span></button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <span class="mbar__count mono" id="metrics-total-label">{% if _total_known %}{{ '{:,}'.format(_total|int) }} {{ t('metrics', '项指标') }}{% endif %}</span>
+  </div>
+</div>
+
+<div class="wrap">
+  {# ═══ AI SEARCH RESULTS ═══════════════════════════════════════════ #}
+  <section id="metric-search-results" class="mresults" hidden>
+    <div class="sec-head sec-head--sm">
+      <div class="sec-head__title">
+        <span class="kicker kicker--flame">{{ t('Best matches', '最佳匹配') }}</span>
+        <h2 id="metric-search-subtitle"></h2>
+      </div>
+      <div class="sec-head__aside">
+        <button type="button" class="btn btn--ghost btn--sm" id="metric-search-clear">{{ t('Back to library', '返回指标库') }}</button>
+        <a id="metric-create-cta" class="btn btn--sm{% if not can_create_metrics %} btn--ghost{% endif %}" href="{{ metric_create_cta_href }}">{{ t('Create this metric', '创建这个指标') }}{% if metric_create_cta_badge %} · {{ metric_create_cta_badge }}{% endif %}</a>
+      </div>
+    </div>
+    <div id="metric-search-cards" class="mgrid mgrid--results"></div>
+  </section>
+
+  {# ═══ CATALOG ═══════════════════════════════════════════════════ #}
+  <section class="mcatalog" id="mcatalog">
+    <div id="metrics-full-catalog" class="mgrid">
+      {% include "next/_metrics_catalog_cards.html" %}
+    </div>
+    <div id="metrics-catalog-loader" class="mloader" hidden>
+      {% for i in range(3) %}<div class="skel mskel"></div>{% endfor %}
+    </div>
+    <div id="metrics-catalog-end" class="mend mono" {% if _metrics_has_more %}hidden{% endif %}>{{ t('That’s the whole library.', '已经到底了。') }} <a href="{{ metric_create_cta_href }}" class="flame">{{ t('Missing something? Create it →', '缺少什么？创建它 →') }}</a></div>
+    <div id="metrics-catalog-empty" class="empty" hidden>{{ t('No metrics in this category yet.', '该类别暂时没有指标。') }}</div>
+    <div id="metrics-catalog-sentinel" style="height:1px;"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX, esc = FX.esc;
+  var totalLabel = document.getElementById('metrics-total-label');
+  function countUp(el, target) {
+    if (totalLabel) totalLabel.textContent = target.toLocaleString('en-US') + ' ' + FX.t('metrics', '项指标');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = target.toLocaleString('en-US'); return; }
+    var start = performance.now(), dur = 1100;
+    (function step(now) {
+      var p = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * e).toLocaleString('en-US');
+      if (p < 1) requestAnimationFrame(step);
+    })(start);
+  }
+  FX.$$('[data-mcount]').forEach(function (el) {
+    var target = parseInt(el.getAttribute('data-mcount'), 10);
+    if (target) countUp(el, target);
+  });
+  FX.$$('[data-mcount-url]').forEach(function (el) {
+    fetch(el.getAttribute('data-mcount-url'), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.ok && d.total) countUp(el, d.total); })
+      .catch(function () {});
+  });
+  var input = document.getElementById('metric-search-input');
+  var btn = document.getElementById('metric-search-btn');
+  var status = document.getElementById('metric-search-status');
+  var resultsWrap = document.getElementById('metric-search-results');
+  var cards = document.getElementById('metric-search-cards');
+  var subtitle = document.getElementById('metric-search-subtitle');
+  var createCta = document.getElementById('metric-create-cta');
+  var createInline = document.getElementById('metric-create-cta-inline');
+  var modelSelect = document.getElementById('metric-search-model');
+  var grid = document.getElementById('metrics-full-catalog');
+  var catalog = document.getElementById('mcatalog');
+  var loader = document.getElementById('metrics-catalog-loader');
+  var endEl = document.getElementById('metrics-catalog-end');
+  var emptyEl = document.getElementById('metrics-catalog-empty');
+  var sentinel = document.getElementById('metrics-catalog-sentinel');
+  var scope = {{ (scope_filter or '')|tojson }};
+  var statusFilter = {{ (status_filter or '')|tojson }};
+  var pageSize = {{ _metrics_page_size|int }};
+  var canCreate = {{ 'true' if can_create_metrics else 'false' }};
+  var newMetricUrl = {{ url_for('metric_new')|tojson }};
+  var detailBase = {{ url_for('metric_detail', metric_key='__KEY__')|tojson }};
+  var defaultStatus = status.textContent;
+
+  var state = {
+    offset: {{ metrics_list|length }},
+    hasMore: {{ 'true' if _metrics_has_more else 'false' }},
+    loading: false,
+    category: '',
+    gen: 0
+  };
+
+  /* ── merge cards of the same family (variants split across pages) ── */
+  function mergeFamilies() {
+    var seen = {};
+    FX.$$('.mcard', grid).forEach(function (card) {
+      var fam = card.getAttribute('data-family');
+      var first = seen[fam];
+      if (!first) { seen[fam] = card; return; }
+      var wins = first.querySelector('[data-wins]');
+      var have = {};
+      FX.$$('.mwin', wins).forEach(function (a) { have[a.getAttribute('href')] = true; });
+      FX.$$('.mwin', card).forEach(function (a) { if (!have[a.getAttribute('href')]) wins.appendChild(a); });
+      FX.$$('.mwin', wins).sort(function (a, b) { return (+a.dataset.order) - (+b.dataset.order); }).forEach(function (a) { wins.appendChild(a); });
+      if (!first.querySelector('.mcard__board') && card.querySelector('.mcard__board')) {
+        var empty = first.querySelector('.mcard__empty');
+        var board = card.querySelector('.mcard__board'), cap = card.querySelector('.mcard__boardcap');
+        if (empty) { empty.replaceWith(board); if (cap) board.after(cap); }
+      }
+      card.remove();
+    });
+  }
+  mergeFamilies();
+
+  function showLoader(on) { state.loading = on; loader.hidden = !on; }
+
+  function catalogUrl() {
+    var p = new URLSearchParams({ scope: scope, offset: String(state.offset), limit: String(pageSize) });
+    if (state.category) { p.set('category', state.category); return '/api/next/metrics/catalog?' + p.toString(); }
+    p.set('status', statusFilter);
+    return '/api/metrics/catalog?' + p.toString();
+  }
+
+  function loadMore() {
+    if (state.loading || !state.hasMore || !resultsWrap.hidden) return;
+    var gen = state.gen;
+    showLoader(true);
+    fetch(catalogUrl(), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (gen !== state.gen) return;
+        if (!data || !data.ok) throw new Error((data && data.error) || 'failed');
+        if (data.html) grid.insertAdjacentHTML('beforeend', data.html);
+        mergeFamilies();
+        state.offset = data.next_offset || state.offset;
+        state.hasMore = !!data.has_more;
+        endEl.hidden = state.hasMore || !grid.children.length;
+        emptyEl.hidden = !!grid.children.length || state.hasMore;
+        // keep filling the viewport
+        if (state.hasMore && sentinel.getBoundingClientRect().top < window.innerHeight + 900) setTimeout(loadMore, 30);
+      })
+      .catch(function () { status.textContent = FX.t('Loading more metrics failed.', '加载更多指标失败。'); })
+      .then(function () { if (gen === state.gen) showLoader(false); });
+  }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+    }, { rootMargin: '900px 0px' }).observe(sentinel);
+  }
+
+  /* ── category lens ─────────────────────────────────────────────── */
+  var cats = document.querySelector('[data-cats]');
+  function setCategory(cat, push) {
+    state.category = cat || '';
+    state.gen += 1;
+    state.offset = 0; state.hasMore = true; state.loading = false;
+    grid.innerHTML = '';
+    endEl.hidden = true; emptyEl.hidden = true;
+    if (cats) FX.$$('[data-cat]', cats).forEach(function (b) { b.classList.toggle('is-on', b.getAttribute('data-cat') === state.category); });
+    if (push !== false) {
+      var u = new URL(window.location.href);
+      if (state.category) u.searchParams.set('cat', state.category); else u.searchParams.delete('cat');
+      history.replaceState(null, '', u.toString());
+    }
+    loadMore();
+  }
+  if (cats) cats.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-cat]'); if (!b) return;
+    clearSearch();
+    setCategory(b.getAttribute('data-cat'));
+  });
+  var initialCat = new URLSearchParams(window.location.search).get('cat');
+  if (initialCat) setCategory(initialCat, false);
+
+  /* ── natural-language search (same API as classic) ───────────────── */
+  var scopeLabels = { player: FX.t('Player', '球员'), player_franchise: FX.t('Player', '球员'), team: FX.t('Team', '球队'), game: FX.t('Game', '比赛'), season: FX.t('Season', '赛季') };
+  function windowLabel(m) {
+    if (!m.career) return '';
+    var w = m.window_type;
+    if (w === 'last3') return FX.t('Last 3', '近3季');
+    if (w === 'last5') return FX.t('Last 5', '近5季');
+    if (w === 'last10') return FX.t('Last 10', '近10季');
+    return m.scope === 'team' ? FX.t('Franchise', '队史') : FX.t('Career', '生涯');
+  }
+  function resultCard(m, i) {
+    var wl = windowLabel(m);
+    return '<article class="mcard mcard--hit scope-' + esc(m.scope) + '">' +
+      '<a class="mcard__hit" href="' + detailBase.replace('__KEY__', encodeURIComponent(m.key)) + '"></a>' +
+      '<div class="mcard__top"><span class="kicker">' + esc((m.category || '').replace(/_/g, ' ')) + '</span>' +
+      '<span class="mcard__flags">' + (m.status === 'draft' ? '<span class="chip chip--gold">' + FX.t('Draft', '草稿') + '</span>' : '') +
+      (wl ? '<span class="chip">' + esc(wl) + '</span>' : '') +
+      '<span class="mcard__scope">' + esc(scopeLabels[m.scope] || m.scope) + '</span></span></div>' +
+      '<div class="mcard__match mono">' + FX.t('Match', '匹配') + ' ' + String(i + 1).padStart(2, '0') + '</div>' +
+      '<h3 class="mcard__name">' + esc(m.name) + '</h3>' +
+      (m.description ? '<p class="mcard__desc">' + esc(m.description) + '</p>' : '') +
+      (m.reason ? '<p class="mcard__reason"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.6L19.5 10.5 13.9 12.4 12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/></svg>' + esc(m.reason) + '</p>' : '') +
+      '</article>';
+  }
+  function clearSearch() {
+    if (resultsWrap.hidden) return;
+    resultsWrap.hidden = true;
+    catalog.hidden = false;
+    status.textContent = defaultStatus;
+    status.classList.remove('is-busy');
+  }
+  function setCreateLinks(q) {
+    if (!canCreate) return;
+    var href = newMetricUrl + '?expression=' + encodeURIComponent(q);
+    createCta.href = href; createInline.href = href;
+  }
+  function runSearch() {
+    var query = input.value.trim();
+    setCreateLinks(query);
+    if (!query) { clearSearch(); return; }
+    btn.disabled = true;
+    status.classList.add('is-busy');
+    status.textContent = FX.t('Reading the library for “' + query + '”…', '正在为“' + query + '”检索指标库…');
+    fetch('/api/metrics/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query, scope: scope, status: statusFilter, model: modelSelect ? modelSelect.value : undefined })
+    })
+      .then(function (res) { return res.json().catch(function () { return null; }).then(function (d) { return { res: res, data: d }; }); })
+      .then(function (o) {
+        var res = o.res, data = o.data;
+        if (res.status === 401 && data && data.error === 'login_required') {
+          window.location.href = '/auth/login?next=' + encodeURIComponent(window.location.pathname + window.location.search); return;
+        }
+        if (res.status === 403 && data && data.error === 'pro_required' && data.upgrade_url) { window.location.href = data.upgrade_url; return; }
+        if (!res.ok || !data || !data.ok) {
+          status.textContent = (data && data.error) || FX.t('Search failed.', '搜索失败。');
+          return;
+        }
+        resultsWrap.hidden = false;
+        catalog.hidden = true;
+        var u = new URL(window.location.href); u.searchParams.set('q', query); history.replaceState(null, '', u.toString());
+        if (!data.matches.length) {
+          subtitle.textContent = FX.t('Nothing fits “' + query + '” yet', '还没有符合“' + query + '”的指标');
+          cards.innerHTML = '<div class="empty">' + FX.t('No strong match. Turn this idea into a new metric — it takes a sentence.', '没有很好的匹配。用一句话把这个想法变成新指标吧。') + '</div>';
+          status.textContent = FX.t('No strong match found.', '没有找到合适的匹配。');
+          return;
+        }
+        subtitle.textContent = data.matches.length + ' ' + FX.t('for “' + query + '”', '项匹配“' + query + '”');
+        cards.innerHTML = data.matches.map(resultCard).join('');
+        status.textContent = FX.t('Showing the most relevant existing metrics.', '显示最相关的现有指标。');
+        resultsWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      })
+      .catch(function (err) { status.textContent = FX.t('Search failed: ', '搜索失败：') + err.message; })
+      .then(function () { btn.disabled = false; status.classList.remove('is-busy'); });
+  }
+  btn.addEventListener('click', runSearch);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
+  document.getElementById('metric-search-clear').addEventListener('click', function () {
+    input.value = ''; clearSearch();
+    var u = new URL(window.location.href); u.searchParams.delete('q'); history.replaceState(null, '', u.toString());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  FX.$$('[data-try]').forEach(function (c) {
+    c.addEventListener('click', function () { input.value = c.textContent.trim(); input.focus(); runSearch(); });
+  });
+  if (input.value.trim()) runSearch();
+});
+</script>
+{% endblock %}

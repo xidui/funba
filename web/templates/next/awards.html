@@ -1,0 +1,143 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ t('Awards', '荣誉') }} · {{ site_name }}{% endblock %}
+{% block page_id %}awards{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/awards.css') }}?v=1" />{% endblock %}
+
+{% block content %}
+{% set section = award_sections[0] if award_sections else None %}
+{% set board = (nx.boards.get(section.award_type) if (nx and section) else []) or [] %}
+
+<section class="phero">
+  <div class="wrap">
+    <div class="phero__row">
+      <div>
+        <span class="kicker kicker--flame">{{ t('Hall of record', '荣誉殿堂') }}</span>
+        <h1 class="display display-xl">{{ section.label if section else t('Awards', '荣誉') }}</h1>
+      </div>
+      <form class="aw-season" onsubmit="return false">
+        <label class="kicker" for="aw-season">{{ t('Season', '赛季') }}</label>
+        <select id="aw-season" onchange="(function(v){var u=new URL(location.href); if(v){u.searchParams.set('season',v)}else{u.searchParams.delete('season')} location.href=u.toString();})(this.value)">
+          <option value="">{{ t('All seasons', '全部赛季') }}</option>
+          {% for s in season_options %}<option value="{{ s }}"{% if s == selected_season %} selected{% endif %}>{{ season_label(s) }}</option>{% endfor %}
+        </select>
+      </form>
+    </div>
+    <nav class="aw-tabs" aria-label="{{ t('Award types', '荣誉类型') }}">
+      {% for group in award_tab_groups %}
+        <div class="aw-tabs__group">
+          <span class="kicker">{{ group.label or t('Team', '球队') }}</span>
+          <div class="aw-tabs__row">
+            {% for tab in group.tabs %}
+              <a class="{{ 'is-on' if tab.award_type == selected_award_type }}" href="{{ url_for('awards_page', type=tab.award_type, season=selected_season) if selected_season else url_for('awards_page', type=tab.award_type) }}">{{ tab.label }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </nav>
+  </div>
+</section>
+
+<div class="wrap">
+{% if not section or not section.groups %}
+  <section class="section"><div class="empty">{{ t('No awards found for this season.', '这个赛季没有找到荣誉记录。') }}</div></section>
+{% else %}
+
+  {# ── Latest winner feature (non-grid awards) ─────────────────────── #}
+  {% if not section.is_grid_award %}
+    {% set latest = section.groups[0] %}
+    {% set w = latest.entries[0] %}
+    <section class="section aw-feature-wrap">
+      <div class="aw-feature" style="--tc: {{ team_color(w.team_id) }}; --tc2: {{ team_color(w.team_id, 1) }};">
+        <div class="aw-feature__text">
+          <span class="kicker">{{ latest.season_label }} · {{ section.short_label or section.label }}</span>
+          <h2 class="display display-l">{{ w.team_name if section.is_team_award else w.player_name }}</h2>
+          <div class="aw-feature__meta">
+            {% if w.team_id and not section.is_team_award %}{{ ui.team_badge(w.team_id, show_name=True, size=26) }}{% endif %}
+            {% if latest.streak %}<span class="chip chip--flame">{{ t('Streak', '连续') }} ×{{ latest.streak }}</span>{% endif %}
+            {% if w.notes and section.is_team_award %}
+              {% if w.notes.lower().startswith('final game:') %}
+                <a class="chip" href="{{ game_url(w.notes.split(':', 1)[1].strip()) }}">{{ t('Title clincher', '夺冠之战') }} →</a>
+              {% else %}<span class="chip">{{ w.notes }}</span>{% endif %}
+            {% endif %}
+          </div>
+          {% set mine = (board|selectattr('player_id' if not section.is_team_award else 'team_id', 'equalto', w.player_id if not section.is_team_award else w.team_id)|list) %}
+          {% if mine %}<p class="aw-feature__count"><span class="big-num">{{ mine[0].count }}</span> {{ t('career wins' if not section.is_team_award else 'titles all-time', '次获奖' if not section.is_team_award else '座冠军') }}</p>{% endif %}
+        </div>
+        <div class="aw-feature__art">
+          {% if section.is_team_award %}
+            <img class="aw-feature__logo" src="{{ team_logo(w.team_id) }}" alt="">
+          {% elif w.player_id %}
+            <img class="aw-feature__shot" src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ w.player_id }}.png" alt="" onerror="this.style.display='none'">
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="section">
+    <div class="split">
+      <div>
+        {{ ui.sec_head(t('Every winner', '历届得主') if not selected_season else season_label(selected_season), t('The list', '名单')) }}
+        <ol class="aw-list">
+          {% for group in section.groups %}
+            {% if section.is_grid_award %}
+              <li class="aw-grid-row">
+                <span class="aw-season mono">{{ group.season_label }}</span>
+                <div class="aw-grid">
+                  {% for e in group.entries %}
+                    <a class="aw-card" href="{{ player_url(e.player_id) if e.player_id else '#' }}" style="--tc: {{ team_color(e.team_id) }}">
+                      {{ ui.headshot(e.player_id, 'lg', e.team_id) }}
+                      <span class="aw-card__name">{{ e.player_name }}</span>
+                      <span class="kicker">{{ e.team_abbr or e.team_name or '' }}{% if e.streak %} · ×{{ e.streak }}{% endif %}</span>
+                    </a>
+                  {% endfor %}
+                </div>
+              </li>
+            {% else %}
+              {% set e = group.entries[0] %}
+              <li class="aw-row{% if group.is_dynasty %} is-dynasty{% endif %}" style="--tc: {{ team_color(e.team_id) }}">
+                <span class="aw-season mono">{{ group.season_label }}</span>
+                {% if section.is_team_award %}
+                  <img class="aw-logo" src="{{ team_logo(e.team_id, group.season // 1 % 10000 if group.season else None) if e.team_id else '' }}" alt="" loading="lazy" {% if not e.team_id %}hidden{% endif %}>
+                  <a class="aw-name" href="{{ team_url(e.team_id) or '#' }}">{{ e.team_name or e.notes or t('Unknown team', '未知球队') }}</a>
+                {% else %}
+                  {{ ui.headshot(e.player_id, '', e.team_id) }}
+                  <a class="aw-name" href="{{ player_url(e.player_id) if e.player_id else '#' }}">{{ e.player_name }}</a>
+                {% endif %}
+                <span class="aw-tail">
+                  {% if e.team_abbr and not section.is_team_award %}<span class="kicker">{{ e.team_abbr }}</span>{% endif %}
+                  {% if group.streak %}<span class="chip chip--flame">×{{ group.streak }}</span>{% endif %}
+                  {% if group.is_dynasty %}<span class="chip chip--gold">{{ t('Dynasty', '王朝') }}</span>{% endif %}
+                </span>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ol>
+      </div>
+
+      {% if board %}
+      <aside>
+        {{ ui.sec_head(t('Most wins', '获奖次数'), t('Leaderboard', '排行榜'), small=True) }}
+        <ol class="aw-board">
+          {% for b in board %}
+            <li style="--tc: {{ team_color(b.team_id) }}">
+              <span class="aw-board__n big-num">{{ b.count }}</span>
+              {% if section.is_team_award %}
+                <img class="aw-logo" src="{{ team_logo(b.team_id) }}" alt="" loading="lazy">
+                <a href="{{ team_url(b.team_id) or '#' }}">{{ b.team_name }}</a>
+              {% else %}
+                {{ ui.headshot(b.player_id, 'sm', b.team_id) }}
+                <a href="{{ player_url(b.player_id) if b.player_id else '#' }}">{{ b.player_name }}</a>
+              {% endif %}
+              <span class="kicker">{{ t('last', '最近') }} {{ b.last }}</span>
+            </li>
+          {% endfor %}
+        </ol>
+      </aside>
+      {% endif %}
+    </div>
+  </section>
+{% endif %}
+</div>
+{% endblock %}

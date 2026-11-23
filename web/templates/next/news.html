@@ -1,0 +1,74 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ t('News', '资讯') }} · {{ site_name }}{% endblock %}
+{% block page_id %}news{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/news.css') }}?v=1" />{% endblock %}
+
+{% macro ago(dt) -%}
+  {%- if dt -%}
+    {%- set d = nx_now() - dt -%}
+    {%- if d.days >= 30 -%}{{ dt.strftime('%Y-%m-%d') }}
+    {%- elif d.days >= 1 -%}{{ d.days }}{{ t('d ago', '天前') }}
+    {%- elif d.seconds >= 3600 -%}{{ d.seconds // 3600 }}{{ t('h ago', '小时前') }}
+    {%- else -%}{{ [d.seconds // 60, 1]|max }}{{ t('m ago', '分钟前') }}{%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro tags(e, limit=4) -%}
+  <span class="nw-tags">
+    {% for tm in (e.teams or [])[:2] %}<a class="nw-team" href="{{ url_for('team_page', slug=tm.slug) if tm.slug else '#' }}" style="--tc: {{ team_color(tm.team_id) }}"><img src="{{ team_logo(tm.team_id) }}" alt="">{{ tm.abbr }}</a>{% endfor %}
+    {% for p in (e.players or [])[:limit] %}<a class="nw-player" href="{{ url_for('player_page', slug=p.slug) if p.slug else '#' }}">{{ ui.headshot(p.player_id, 'sm') }}<span>{{ p.full_name_zh if lang == 'zh' and p.full_name_zh else p.full_name }}</span></a>{% endfor %}
+  </span>
+{%- endmacro %}
+
+{% block content %}
+<section class="phero">
+  <div class="wrap phero__row">
+    <div>
+      <span class="kicker kicker--flame">{{ t('The wire', '资讯流') }}</span>
+      <h1 class="display display-xl">{{ t('News', '资讯') }}</h1>
+    </div>
+    <p class="lede" style="margin:0;max-width:44ch;">{{ t('Stories clustered across sources and linked to the players and teams they mention.', '跨来源聚合的新闻，自动关联到提及的球员与球队。') }}</p>
+  </div>
+</section>
+
+<div class="wrap">
+{% if not news_entries %}
+  <section class="section"><div class="empty">{{ t('No news yet.', '暂无资讯。') }}</div></section>
+{% else %}
+  {% set lead = news_entries[0] %}
+  <section class="section nw-top">
+    <a class="nw-lead" href="{{ url_for('news_detail', cluster_id=lead.cluster_id) }}">
+      <span class="kicker">{{ lead.source }} · {{ ago(lead.published_at) }}{% if lead.article_count and lead.article_count > 1 %} · {{ lead.article_count }} {{ t('sources', '个来源') }}{% endif %}</span>
+      <h2 class="nw-lead__title{% if lead.title|length > 80 %} is-long{% endif %}">{{ lead.title }}</h2>
+      {% if lead.players %}
+        <span class="nw-faces">{% for p in lead.players[:6] %}{{ ui.headshot(p.player_id, 'lg') }}{% endfor %}</span>
+      {% endif %}
+    </a>
+    <ol class="nw-side">
+      {% for e in news_entries[1:6] %}
+        <li><a href="{{ url_for('news_detail', cluster_id=e.cluster_id) }}">
+          <span class="nw-side__n big-num">{{ loop.index + 1 }}</span>
+          <span><span class="nw-side__t">{{ e.title }}</span><span class="kicker">{{ e.source }} · {{ ago(e.published_at) }}</span></span>
+        </a></li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section class="section">
+    {{ ui.sec_head(t('Latest', '最新'), t('More stories', '更多新闻')) }}
+    <div class="nw-grid">
+      {% for e in news_entries[6:] %}
+        <article class="nw-card rv">
+          <a class="nw-card__link" href="{{ url_for('news_detail', cluster_id=e.cluster_id) }}">
+            <span class="kicker">{{ e.source }} · {{ ago(e.published_at) }}{% if e.article_count and e.article_count > 1 %} · {{ e.article_count }} {{ t('sources', '个来源') }}{% endif %}</span>
+            <h3>{{ e.title }}</h3>
+          </a>
+          {{ tags(e, 3) }}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+</div>
+{% endblock %}

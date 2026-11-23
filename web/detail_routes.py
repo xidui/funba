@@ -1915,7 +1915,7 @@ def register_detail_routes(
             # need a sane value when _sel_year is None).
             era_logo_url = get_logo_url_for_year(team_id, 2025, static_prefix="/")
         era_view = {
-            "name": (era or {}).get("era_name") or get_display_team_name()(team),
+            "name": (era or {}).get("era_name") or team.full_name or team.abbr or "",
             "abbr": (era or {}).get("abbr") or team.abbr or "",
             "city": (era or {}).get("city") or team.city or "",
             "state": (era or {}).get("state") or team.state or "",

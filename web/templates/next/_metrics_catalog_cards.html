@@ -1,0 +1,88 @@
+{#- Next UI catalog cards. One card per metric *family*: window variants
+    (season / last3 / last5 / last10 / career) collapse into chips on the card.
+    Cards split across API pages are merged client-side by data-family. -#}
+{%- set _scope_labels = {
+  'player': t('Player', '球员'), 'player_franchise': t('Player', '球员'),
+  'team': t('Team', '球队'), 'game': t('Game', '比赛'), 'season': t('Season', '赛季'),
+} -%}
+{%- set _order = {'': 0, 'season': 0, 'last3': 1, 'last5': 2, 'last10': 3, 'career': 4} -%}
+{%- set _fams = {} -%}{%- set _fam_order = [] -%}
+{%- for m in metrics_list -%}
+  {%- set f = m.key|metric_family -%}
+  {%- if f not in _fams -%}{%- if _fam_order.append(f) -%}{%- endif -%}{%- if _fams.update({f: []}) -%}{%- endif -%}{%- endif -%}
+  {%- if _fams[f].append(m) -%}{%- endif -%}
+{%- endfor -%}
+
+{%- macro win_type(m) -%}{{ (m.window_type or ('career' if m.career else 'season')) }}{%- endmacro -%}
+{%- macro win_label(m) -%}
+  {%- set w = win_type(m) -%}
+  {%- if w == 'season' -%}{{ t('Season', '单季') }}
+  {%- elif w == 'last3' -%}{{ t('L3', '近3季') }}
+  {%- elif w == 'last5' -%}{{ t('L5', '近5季') }}
+  {%- elif w == 'last10' -%}{{ t('L10', '近10季') }}
+  {%- else -%}{{ t('Franchise', '队史') if m.scope == 'team' else t('Career', '生涯') }}{%- endif -%}
+{%- endmacro -%}
+{%- macro clean_val(v) -%}{%- set v = (v or '')|string -%}{{ v[:-3] if v.endswith('.00') else v }}{%- endmacro -%}
+
+{%- for f in _fam_order -%}
+  {%- set variants = _fams[f] -%}
+  {%- set base = (variants|selectattr('key', 'equalto', f)|list|first) or variants[0] -%}
+  {%- set ns = namespace(top=None, top_m=None) -%}
+  {%- for m in [base] + variants -%}
+    {%- if ns.top is none and top3_by_metric.get(m.key) -%}{%- set ns.top = top3_by_metric.get(m.key) -%}{%- set ns.top_m = m -%}{%- endif -%}
+  {%- endfor -%}
+  {%- set mine = variants|selectattr('is_mine')|list -%}
+  {%- set drafts = variants|selectattr('status', 'equalto', 'draft')|list -%}
+<article class="mcard scope-{{ base.scope }}" data-family="{{ f }}" data-category="{{ base.category }}">
+  <a class="mcard__hit" href="{{ url_for('metric_detail', metric_key=base.key) }}" aria-label="{{ base.name }}"></a>
+  <div class="mcard__top">
+    <span class="kicker">{{ (base.category or '')|replace('_', ' ') }}</span>
+    <span class="mcard__flags">
+      {% if mine %}<span class="chip chip--flame">{{ t('Mine', '我的') }}</span>{% endif %}
+      {% if drafts %}<span class="chip chip--gold">{{ t('Draft', '草稿') }}</span>{% endif %}
+      <span class="mcard__scope">{{ _scope_labels.get(base.scope, base.scope) }}</span>
+    </span>
+  </div>
+  <h3 class="mcard__name">{{ base.name }}</h3>
+  {% if base.description %}<p class="mcard__desc">{{ base.description }}</p>{% endif %}
+
+  {% if ns.top %}
+  <ol class="mcard__board">
+    {% for e in ns.top %}
+      {% set long_val = (e.value_str or '')|length > 12 %}
+      <li class="mrow{% if loop.first %} mrow--lead{% endif %}">
+        <span class="mrow__rk">{{ loop.index }}</span>
+        {% if e.headshot_url %}
+          <span class="hs{% if not loop.first %} hs--sm{% endif %}"><img src="{{ e.headshot_url }}" alt="" loading="lazy" onerror="this.remove()"></span>
+        {% elif e.logo_url %}
+          <span class="mrow__logo"><img src="{{ e.logo_url }}" alt="" loading="lazy" onerror="this.remove()"></span>
+        {% elif e.road_logo_url or e.home_logo_url %}
+          <span class="mrow__logos">
+            {% if e.road_logo_url %}<img src="{{ e.road_logo_url }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+            {% if e.home_logo_url %}<img src="{{ e.home_logo_url }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+          </span>
+        {% else %}
+          <span class="mrow__logo"></span>
+        {% endif %}
+        <span class="mrow__who">
+          <span class="mrow__name">{{ e.label }}</span>
+          {% if long_val %}<span class="mrow__sub">{{ e.value_str }}</span>{% endif %}
+        </span>
+        {% if not long_val %}<span class="mrow__val">{{ clean_val(e.value_str) }}</span>{% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+  <div class="mcard__boardcap mono">{{ t('Leaders', '榜首') }} · {{ win_label(ns.top_m) }}</div>
+  {% else %}
+  <div class="mcard__empty mono">{{ t('Leaderboard warming up', '榜单计算中') }}</div>
+  {% endif %}
+
+  <div class="mcard__wins" data-wins>
+    {% for w in ['season', 'last3', 'last5', 'last10', 'career'] %}
+      {% for m in variants if win_type(m)|string == w %}
+      <a class="mwin" data-order="{{ loop.index0 + _order.get(w, 9) * 10 }}" href="{{ url_for('metric_detail', metric_key=m.key) }}">{{ win_label(m) }}</a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</article>
+{%- endfor -%}

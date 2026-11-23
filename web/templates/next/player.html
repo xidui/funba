@@ -1,0 +1,617 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+
+{% set player_name = display_player_name(player) %}
+{% set hero_team_id = (nx.hero_team_id if nx else None) or player_current_team_id %}
+{% set tc = (nx.color if nx else None) or team_color(hero_team_id) %}
+{% set tc2 = (nx.color2 if nx else None) or team_color(hero_team_id, 1) %}
+{% set pct = nx.percentiles if nx else None %}
+{% set sl = nx.season_line if nx else None %}
+{%- if lang == 'zh' and player.full_name_zh -%}
+  {%- set _parts = player.full_name_zh.split('·') -%}
+  {%- set first_name = _parts[:-1]|join('·') if _parts|length > 1 else '' -%}
+  {%- set last_name = _parts[-1] -%}
+{%- else -%}
+  {%- set first_name = player.first_name or '' -%}
+  {%- set last_name = player.last_name or player.full_name -%}
+{%- endif -%}
+{% set initials = ((player.first_name or ' ')[:1] ~ (player.last_name or ' ')[:1])|upper %}
+{% set _team_label = display_team_name(player_current_team) if player_current_team else '' %}
+{% set _has_career = career_overall and career_overall.ppg and career_overall.ppg != '-' %}
+{% set kind_labels = {'regular': t('Regular Season', '常规赛'), 'playoffs': t('Playoffs', '季后赛'), 'playin': t('Play-In', '附加赛')} %}
+{% set kind_label = kind_labels.get(selected_career_kind, career_kind_label) %}
+{% set zone_zh = {'restricted_area': '限制区', 'paint_non_ra': '油漆区（非限制区）', 'left_mid_range': '左侧中距离', 'center_mid_range': '正面中距离', 'right_mid_range': '右侧中距离', 'left_corner_3': '左侧底角三分', 'right_corner_3': '右侧底角三分', 'left_above_break_3': '左翼三分', 'center_above_break_3': '弧顶三分', 'right_above_break_3': '右翼三分', 'backcourt': '后场'} %}
+{% macro qs(career_kind=None, season=None, heatmap_season=None) -%}
+  ?career_kind={{ career_kind or selected_career_kind }}&season={{ (season if season is not none else selected_season) or '' }}&heatmap_season={{ heatmap_season or selected_heatmap_season }}
+{%- endmacro %}
+
+{% block title %}{{ player_name }}{% if _team_label %} ({{ _team_label }}){% endif %} — {{ site_name }}{% endblock %}
+{% block meta_description %}{% if _has_career %}{{ player_name }} — {{ t('career averages', '生涯场均') }} {{ career_overall.ppg }} PPG, {{ career_overall.rpg }} RPG, {{ career_overall.apg }} APG. {{ t('Season profile, game log, shot chart and rankings.', '赛季画像、比赛日志、投篮图与排名。') }}{% else %}{{ player_name }} — {{ t('career stats, shot charts, game log, and metrics.', '球员生涯数据、投篮图、比赛日志和指标。') }}{% endif %}{% endblock %}
+{% block og_type %}profile{% endblock %}
+{% block og_title %}{{ player_name }} — {{ site_name }}{% endblock %}
+{% block og_image %}https://cdn.nba.com/headshots/nba/latest/1040x760/{{ player.player_id }}.png{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">{{ {
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "name": player_name,
+  "url": "https://funba.app/players/" ~ player.slug,
+  "image": "https://cdn.nba.com/headshots/nba/latest/260x190/" ~ player.player_id ~ ".png",
+  "jobTitle": "Professional Basketball Player",
+  "memberOf": {"@type": "SportsOrganization", "name": "NBA"}
+}|tojson }}</script>
+{% endblock %}
+{% block page_id %}player{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/player.css') }}?v=1" />{% endblock %}
+
+{% block content %}
+{# ═══ HERO ══════════════════════════════════════════════════════════ #}
+<section class="pl-hero" style="--tc: {{ tc }}; --tc2: {{ tc2 }};">
+  <div class="pl-hero__bg" aria-hidden="true">
+    <span class="pl-hero__num">{{ player.jersey or initials }}</span>
+    {% if hero_team_id %}<img class="pl-hero__mark" src="{{ team_logo(hero_team_id) }}" alt="">{% endif %}
+  </div>
+  <div class="wrap pl-hero__grid">
+    <div class="pl-hero__text">
+      <div class="pl-hero__tags">
+        {% set _retired = (not player.is_active) and player.to_year and player.to_year < current_year - 1 %}
+        <span class="pl-tag"><i class="pl-dot{% if player.is_active %} is-on{% endif %}"></i>{{ t('Active', '现役') if player.is_active else (t('Retired', '已退役') if _retired else t('Inactive', '非现役')) }}</span>
+        {% if player.position %}<span class="pl-tag">{{ player.position }}</span>{% endif %}
+        {% if player.jersey %}<span class="pl-tag mono">#{{ player.jersey }}</span>{% endif %}
+        {% if player.is_active and player_current_team %}
+          <a class="pl-tag pl-tag--team" href="{{ url_for('team_page', slug=player_current_team.slug) }}">
+            <img src="{{ team_logo(player_current_team.team_id) }}" alt="">{{ display_team_name(player_current_team) }}
+          </a>
+        {% elif hero_team_id and team_info(hero_team_id).slug %}
+          {% set _ht = team_info(hero_team_id) %}
+          <a class="pl-tag pl-tag--team" href="{{ url_for('team_page', slug=_ht.slug) }}">
+            <img src="{{ team_logo(hero_team_id) }}" alt="">{{ _ht.name_zh if lang == 'zh' and _ht.name_zh else _ht.name }}
+          </a>
+        {% endif %}
+        {% if player.greatest_75_flag %}<span class="pl-tag pl-tag--gold">★ {{ t('75 Greatest', '75 大巨星') }}</span>{% endif %}
+      </div>
+      <h1 class="pl-hero__name">
+        {% if first_name %}<span class="pl-hero__first">{{ first_name }}</span>{% endif %}
+        <span class="pl-hero__last{% if last_name|length > 11 %} is-long{% endif %}">{{ last_name }}</span>
+      </h1>
+      {% if lang == 'zh' and player.full_name and player.full_name_zh %}<div class="pl-hero__alt mono">{{ player.full_name }}</div>{% endif %}
+
+      <dl class="pl-bio">
+        {% if nx and nx.age %}<div><dt>{{ t('Age', '年龄') }}</dt><dd>{{ nx.age }}{% if player.birth_date %}<small>{{ player.birth_date.strftime('%b %-d, %Y') if lang != 'zh' else player.birth_date.strftime('%Y.%-m.%-d') }}</small>{% endif %}</dd></div>{% endif %}
+        {% if player.height %}<div><dt>{{ t('Height', '身高') }}</dt><dd>{{ player.height }}</dd></div>{% endif %}
+        {% if player.weight %}<div><dt>{{ t('Weight', '体重') }}</dt><dd>{{ player.weight }}<small>lbs</small></dd></div>{% endif %}
+        {% if player.draft_year %}<div><dt>{{ t('Draft', '选秀') }}</dt><dd><a href="{{ url_for('draft_page', year=player.draft_year) }}">{{ player.draft_year }}</a>{% if player.draft_number %}<small>R{{ player.draft_round }} · #{{ player.draft_number }}</small>{% endif %}</dd></div>{% endif %}
+        {% if player.school or player.country %}<div><dt>{{ t('From', '来自') }}</dt><dd>{{ player.school or player.country }}{% if player.school and player.country %}<small>{{ player.country }}</small>{% endif %}</dd></div>{% endif %}
+        {% if player.from_year %}<div><dt>{{ t('Career', '生涯') }}</dt><dd>{{ player.from_year }}–{{ t('now', '今') if player.is_active else player.to_year }}{% if player.season_exp %}<small>{{ player.season_exp }} {{ t('yrs', '年') }}</small>{% endif %}</dd></div>{% endif %}
+      </dl>
+
+      {% if player_awards %}
+      <div class="pl-awards">
+        {% for a in player_awards %}
+          <a class="pl-award" href="{{ url_for('awards_page', type=a.award_type) }}"><span>{{ a.label }}</span>{% if a.count > 1 %}<b>×{{ a.count }}</b>{% endif %}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="pl-hero__photo">
+      <span class="pl-hero__mono">{{ initials }}</span>
+      <img src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ player.player_id }}.png" alt="{{ player_name }}"
+           onerror="this.remove()" fetchpriority="high">
+    </div>
+  </div>
+
+  {# headline numbers #}
+  {% set sl = sl if player.is_active else None %}
+  {% set line_src = sl if sl else (career_overall if _has_career else None) %}
+  {% if line_src %}
+  <div class="pl-strip">
+    <div class="wrap pl-strip__row">
+      <div class="pl-strip__label">
+        <span class="kicker">{{ season_label(selected_season) if sl else (t('Career', '生涯') ~ ' · ' ~ kind_label) }}</span>
+        {% if sl %}<span class="mono">{{ sl.games_played }} {{ t('GP', '场') }}</span>{% endif %}
+      </div>
+      {% set ts = (pct.line.ts_pct * 100) if (sl and pct and pct.line and pct.line.ts_pct) else None %}
+      {% for val, lab in [(line_src.ppg, 'PPG'), (line_src.rpg, 'RPG'), (line_src.apg, 'APG'), ((ts|round(1)) if ts else fmt_pct(line_src.fg_pct), 'TS%' if ts else 'FG%'), (line_src.mpg, 'MPG')] %}
+        <div class="pl-strip__stat">
+          <span class="big-num" {% if val not in (None, '-', '—') %}data-count="{{ val }}"{% endif %}>{{ val }}</span>
+          <span class="kicker">{{ lab }}</span>
+        </div>
+      {% endfor %}
+      <a class="btn pl-strip__cta" href="{{ url_for('players_compare', ids=player.player_id) }}">{{ t('Compare', '对比') }} →</a>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{# ═══ SECTION NAV ═══════════════════════════════════════════════════ #}
+<nav class="pl-nav" aria-label="{{ t('Player sections', '球员板块') }}">
+  <div class="wrap pl-nav__row">
+    <span class="pl-nav__who"><span class="swatch" style="--tc: {{ tc }}"></span>{{ player_name }}</span>
+    {% if pct or (nx and nx.top_ranks) %}<a href="#profile">{{ t('Profile', '画像') }}</a>{% endif %}
+    {% if game_rows %}<a href="#gamelog">{{ t('Game log', '比赛日志') }}</a>{% endif %}
+    <a href="#career">{{ t('Career', '生涯') }}</a>
+    {% if shot_attempts %}<a href="#shots">{{ t('Shots', '投篮') }}</a>{% endif %}
+    {% if nx and nx.rankings %}<a href="#rankings">{{ t('Rankings', '排名') }}</a>{% endif %}
+    {% if salary_panel or salary_rows %}<a href="#contract">{{ t('Contract', '合同') }}</a>{% endif %}
+    {% if player_stint_timeline or player_transactions %}<a href="#journey">{{ t('Journey', '履历') }}</a>{% endif %}
+  </div>
+</nav>
+
+<div class="wrap">
+
+{# ═══ PROFILE: percentiles + headline ranks ═════════════════════════ #}
+{% if pct or (nx and nx.top_ranks) %}
+<section class="section" id="profile">
+  {% call ui.sec_head(t('Versus the league', '与全联盟对比'), t('Season profile', '赛季画像')) %}
+    {% if pct %}<span class="chip">{{ season_label(pct.season) }}</span>{% endif %}
+  {% endcall %}
+  <div class="pl-profile{% if not pct %} is-single{% endif %}">
+    {% if pct %}
+    <div class="pl-pctl" style="--tc: {{ tc }}">
+      <div class="pl-pctl__title kicker">{{ t('Percentile among', '百分位 · 对比') }} {{ pct.pool_size }} {{ t('qualified players', '名达标球员') }}</div>
+      <div class="pl-pctl__head">
+        <span></span>
+        <span class="pl-pctl__scale mono"><span>0</span><span>50</span><span>100</span></span>
+        <span></span>
+      </div>
+      {% for s in pct.stats %}
+        <div class="pctl{% if s.percentile >= 90 %} pctl--elite{% endif %}" style="--tc: {{ tc }}">
+          <span class="pctl__label">{{ s.label_zh if lang == 'zh' else s.label_en }}</span>
+          <span class="pctl__track">
+            <span class="pctl__fill" style="width: {{ s.percentile }}%"></span>
+            <span class="pctl__dot" style="left: {{ [[s.percentile, 4]|max, 96]|min }}%">{{ s.percentile }}</span>
+          </span>
+          <span class="pctl__val">{{ '%.1f'|format(s.value) }}{% if s.is_pct %}%{% endif %}</span>
+        </div>
+      {% endfor %}
+      <p class="pl-note">
+        {% if pct.qualified %}
+          {{ t('Per-game averages vs. players with at least', '场均数据，对比出场至少') }} {{ pct.min_gp }} {{ t('games this season. Turnovers are inverted (fewer = better).', '场的球员。失误为反向指标（越少越好）。') }}
+        {% else %}
+          <span class="flame">{{ t('Not yet qualified', '尚未达到门槛') }}</span> — {{ pct.gp }}/{{ pct.min_gp }} {{ t('games. Compared against qualified players.', '场。对比对象为达标球员。') }}
+        {% endif %}
+      </p>
+    </div>
+    {% endif %}
+
+    {% if nx and nx.top_ranks %}
+    <div class="pl-tops">
+      <h3 class="sub">{{ t('Where he ranks', '排名亮点') }}</h3>
+      <ol class="pl-tops__list">
+        {% for r in nx.top_ranks %}
+          <li>
+            <a href="{{ url_for('metric_detail', metric_key=r.metric_key, season=r.url_season) if r.url_season else url_for('metric_detail', metric_key=r.metric_key) }}">
+              <span class="pl-tops__rank big-num{% if r.rank == 1 %} is-one{% endif %}"><small>#</small>{{ r.rank }}</span>
+              <span class="pl-tops__body">
+                <span class="pl-tops__name">{{ r.metric_name }}</span>
+                <span class="pl-tops__meta mono">
+                  {{ t('of', '共') }} {{ r.total }} · {% if r.scope == 'season' %}{{ season_label(selected_season) }}{% elif r.scope == 'all_regular' %}{{ t('Regular-season career', '常规赛生涯') }}{% elif r.scope == 'all_playoffs' %}{{ t('Playoff career', '季后赛生涯') }}{% else %}{{ t('Play-In career', '附加赛生涯') }}{% endif %}
+                </span>
+              </span>
+              <span class="pl-tops__val">{{ r.value }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ═══ GAME LOG ══════════════════════════════════════════════════════ #}
+<section class="section" id="gamelog">
+  {% call ui.sec_head(t('Night by night', '逐场表现'), t('Game log', '比赛日志')) %}
+    <div class="seg" data-gl-stat>
+      <button type="button" class="is-on" data-k="pts">PTS</button>
+      <button type="button" data-k="reb">REB</button>
+      <button type="button" data-k="ast">AST</button>
+      <button type="button" data-k="min">MIN</button>
+    </div>
+    {% if season_options %}
+    <form method="get" class="pl-select">
+      <select name="season" onchange="this.form.submit()" aria-label="{{ t('Season', '赛季') }}">
+        {% for s in season_options %}<option value="{{ s }}"{% if s == selected_season %} selected{% endif %}>{{ season_label(s) }}</option>{% endfor %}
+      </select>
+      <input type="hidden" name="career_kind" value="{{ selected_career_kind }}">
+      <input type="hidden" name="heatmap_season" value="{{ selected_heatmap_season }}">
+    </form>
+    {% endif %}
+  {% endcall %}
+  {% if game_rows %}
+    {% set wins = game_rows|selectattr('result', 'equalto', 'W')|list|length %}
+    {% set losses = game_rows|selectattr('result', 'equalto', 'L')|list|length %}
+    <div class="pl-gl-summary">
+      <div><span class="kicker">{{ t('Games', '比赛') }}</span><span class="big-num">{{ game_rows|length }}</span></div>
+      <div><span class="kicker">{{ t('Team record', '球队战绩') }}</span><span class="big-num">{{ wins }}<span class="muted pl-dash">-</span>{{ losses }}</span></div>
+      <div><span class="kicker">{{ t('Best night', '单场最佳') }}</span><span class="big-num" data-gl-best>—</span></div>
+      <div><span class="kicker">{{ t('Average', '平均') }}</span><span class="big-num" data-gl-avg>—</span></div>
+    </div>
+    <div class="pl-gl-chart" id="gl-chart"></div>
+    <div class="pl-gl-legend mono"><span><i style="background: {{ tc }}"></i>{{ t('Team won', '球队获胜') }}</span><span><i class="is-l"></i>{{ t('Team lost', '球队失利') }}</span><span><i class="is-avg"></i>{{ t('Season average', '赛季平均') }}</span></div>
+
+    <div class="table-scroll pl-gl-table">
+      <table class="dt">
+        <thead>
+          <tr>
+            <th>{{ t('Date', '日期') }}</th>
+            <th style="text-align:left">{{ t('Opponent', '对手') }}</th>
+            <th>{{ t('Result', '结果') }}</th>
+            <th>MIN</th><th>PTS</th><th>REB</th><th>AST</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in game_rows %}
+          <tr{% if loop.index > 10 %} data-gl-more hidden{% endif %}>
+            <td class="mono muted">{{ r.game_date }}</td>
+            <td style="text-align:left">
+              <span class="pl-opp"><span class="muted mono">{{ 'vs' if r.is_home else '@' }}</span>
+                {% if r.opponent_href %}<a class="tb" href="{{ r.opponent_href }}"><img src="{{ team_logo(r.opponent_id, r.season_year) }}" alt="" width="20" height="20" style="width:20px;height:20px">{{ r.opponent_abbr }}</a>{% else %}{{ r.opponent_abbr }}{% endif %}
+              </span>
+            </td>
+            <td><a href="{{ game_url(r.game_id) }}" class="pl-res pl-res--{{ (r.result or '')|lower }}"><b>{{ t('W', '胜') if r.result == 'W' else (t('L', '负') if r.result == 'L' else '–') }}</b> {% if r.player_team_score is not none %}{{ r.player_team_score }}–{{ r.opponent_score }}{% endif %}</a></td>
+            <td class="mono">{{ r.minutes }}</td>
+            <td class="num-strong">{{ r.pts }}</td>
+            <td>{{ r.reb }}</td>
+            <td>{{ r.ast }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if game_rows|length > 10 %}
+      <button type="button" class="btn btn--ghost btn--sm pl-more" data-reveal="[data-gl-more]">{{ t('Show all', '显示全部') }} {{ game_rows|length }} {{ t('games', '场') }}</button>
+    {% endif %}
+  {% else %}
+    <div class="empty">{{ t('No games logged for this season.', '该赛季暂无比赛记录。') }}</div>
+  {% endif %}
+</section>
+
+{# ═══ CAREER ════════════════════════════════════════════════════════ #}
+<section class="section" id="career">
+  {% call ui.sec_head(t('The long view', '生涯全景'), t('Career arc', '生涯轨迹')) %}
+    <div class="seg">
+      <a href="{{ qs(career_kind='regular') }}#career" class="{{ 'is-on' if selected_career_kind == 'regular' }}">{{ kind_labels.regular }}</a>
+      <a href="{{ qs(career_kind='playoffs') }}#career" class="{{ 'is-on' if selected_career_kind == 'playoffs' }}">{{ kind_labels.playoffs }}</a>
+      {% if has_playin_stats %}<a href="{{ qs(career_kind='playin') }}#career" class="{{ 'is-on' if selected_career_kind == 'playin' }}">{{ kind_labels.playin }}</a>{% endif %}
+    </div>
+  {% endcall %}
+
+  {% if career_season_rows %}
+    {% set n_seasons = career_season_rows|length %}
+    <div class="pl-arc">
+      <div class="pl-arc__head">
+        <div class="pl-arc__totals">
+          <div><span class="kicker">{{ t('Seasons', '赛季') }}</span><span class="big-num">{{ n_seasons }}</span></div>
+          <div><span class="kicker">{{ t('Games', '出场') }}</span><span class="big-num">{{ career_overall.games_played }}</span></div>
+          <div><span class="kicker">{{ t('Points', '总得分') }}</span><span class="big-num">{{ '{:,}'.format(career_overall.pts) if career_overall.pts is number else career_overall.pts }}</span></div>
+          <div><span class="kicker">{{ t('Rebounds', '总篮板') }}</span><span class="big-num">{{ '{:,}'.format(career_overall.reb) if career_overall.reb is number else career_overall.reb }}</span></div>
+          <div><span class="kicker">{{ t('Assists', '总助攻') }}</span><span class="big-num">{{ '{:,}'.format(career_overall.ast) if career_overall.ast is number else career_overall.ast }}</span></div>
+        </div>
+        <div class="seg" data-arc-stat>
+          <button type="button" class="is-on" data-k="ppg">PPG</button>
+          <button type="button" data-k="rpg">RPG</button>
+          <button type="button" data-k="apg">APG</button>
+          <button type="button" data-k="fg_pct">FG%</button>
+          <button type="button" data-k="fg3_pct">3P%</button>
+        </div>
+      </div>
+      <div class="pl-arc__chart" id="arc-chart"></div>
+    </div>
+
+    {% if career_highs %}
+    <h3 class="sub" style="margin-top:44px;">{{ t('Career highs', '生涯最高') }}</h3>
+    <div class="pl-highs">
+      {% for h in career_highs %}
+        <{{ 'a' if h.href else 'div' }} class="pl-high"{% if h.href %} href="{{ h.href }}"{% endif %}>
+          <span class="big-num">{{ h.value_display or h.value }}</span>
+          <span class="kicker">{{ h.name_zh if lang == 'zh' else h.abbr }}</span>
+          {% if h.opponent_abbr or h.date %}<span class="pl-high__meta mono">{% if h.opponent_abbr %}{{ 'vs' if h.is_home else '@' }} {{ h.opponent_abbr }}{% endif %}{% if h.date %} · {{ h.date[:4] }}{% endif %}</span>{% endif %}
+        </{{ 'a' if h.href else 'div' }}>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {%- macro pc(v) -%}{%- if v in (None, '-', '—', '') -%}—{%- else -%}{{ '%.1f'|format(v|float * 100) }}{%- endif -%}{%- endmacro -%}
+    {% set _stats = career_season_rows|map(attribute='stats')|list %}
+    {% set mx = {
+      'ppg': _stats|map(attribute='ppg')|map('float', 0)|max,
+      'rpg': _stats|map(attribute='rpg')|map('float', 0)|max,
+      'apg': _stats|map(attribute='apg')|map('float', 0)|max,
+      'spg': _stats|map(attribute='spg')|map('float', 0)|max,
+      'bpg': _stats|map(attribute='bpg')|map('float', 0)|max,
+      'pts': _stats|map(attribute='pts')|map('float', 0)|max,
+      'reb': _stats|map(attribute='reb')|map('float', 0)|max,
+      'ast': _stats|map(attribute='ast')|map('float', 0)|max,
+    } %}
+    {% macro hi(v, key) -%}{%- if v not in (None, '-', '—') and mx[key] > 0 and v|float == mx[key] -%}{{ ' is-best' }}{%- endif -%}{%- endmacro %}
+
+    <div class="pl-career-tables">
+      <div class="pl-career-tables__bar">
+        <h3 class="sub" style="flex:1;margin:0;">{{ t('Season by season', '逐季数据') }} · {{ kind_label }}</h3>
+        <div class="seg" data-tabs="careerview" role="tablist">
+          <button type="button" data-tab="pg" class="is-on">{{ t('Per game', '场均') }}</button>
+          <button type="button" data-tab="tot">{{ t('Totals', '总数') }}</button>
+        </div>
+      </div>
+      <div class="table-scroll" data-panel-of="careerview" data-panel="pg">
+        <table class="dt pl-career">
+          <thead><tr>
+            <th class="sticky-col">{{ t('Season', '赛季') }}</th><th style="text-align:left">{{ t('Team', '球队') }}</th>
+            <th>GP</th><th>MPG</th><th>PPG</th><th>RPG</th><th>APG</th><th>SPG</th><th>BPG</th><th>TOV</th><th>FG%</th><th>3P%</th><th>FT%</th>
+          </tr></thead>
+          <tbody>
+            {% for row in career_season_rows %}{% set s = row.stats %}
+            <tr>
+              <td class="sticky-col mono">{{ season_year_label(row.season) }}</td>
+              <td style="text-align:left"><span class="pl-teams">{% for ab in row.team_abbrs or [] %}<span>{{ ab }}</span>{% endfor %}</span></td>
+              <td>{{ s.games_played }}</td><td>{{ s.mpg }}</td>
+              <td class="num-strong{{ hi(s.ppg, 'ppg') }}">{{ s.ppg }}</td>
+              <td class="{{ hi(s.rpg, 'rpg') }}">{{ s.rpg }}</td>
+              <td class="{{ hi(s.apg, 'apg') }}">{{ s.apg }}</td>
+              <td class="{{ hi(s.spg, 'spg') }}">{{ s.spg }}</td>
+              <td class="{{ hi(s.bpg, 'bpg') }}">{{ s.bpg }}</td>
+              <td>{{ s.tpg }}</td>
+              <td>{{ pc(s.fg_pct) }}</td><td>{{ pc(s.fg3_pct) }}</td><td>{{ pc(s.ft_pct) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>{% set s = career_overall %}
+            <tr>
+              <td class="sticky-col">{{ t('Career', '生涯') }}</td><td></td>
+              <td>{{ s.games_played }}</td><td>{{ s.mpg }}</td><td>{{ s.ppg }}</td><td>{{ s.rpg }}</td><td>{{ s.apg }}</td><td>{{ s.spg }}</td><td>{{ s.bpg }}</td><td>{{ s.tpg }}</td>
+              <td>{{ pc(s.fg_pct) }}</td><td>{{ pc(s.fg3_pct) }}</td><td>{{ pc(s.ft_pct) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="table-scroll" data-panel-of="careerview" data-panel="tot" hidden>
+        <table class="dt pl-career">
+          <thead><tr>
+            <th class="sticky-col">{{ t('Season', '赛季') }}</th><th style="text-align:left">{{ t('Team', '球队') }}</th>
+            <th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG</th><th>3PT</th><th>FT</th><th>+/-</th>
+          </tr></thead>
+          <tbody>
+            {% for row in career_season_rows %}{% set s = row.stats %}
+            <tr>
+              <td class="sticky-col mono">{{ season_year_label(row.season) }}</td>
+              <td style="text-align:left"><span class="pl-teams">{% for ab in row.team_abbrs or [] %}<span>{{ ab }}</span>{% endfor %}</span></td>
+              <td>{{ s.games_played }}</td><td>{{ s.minutes }}</td>
+              <td class="num-strong{{ hi(s.pts, 'pts') }}">{{ s.pts }}</td>
+              <td class="{{ hi(s.reb, 'reb') }}">{{ s.reb }}</td>
+              <td class="{{ hi(s.ast, 'ast') }}">{{ s.ast }}</td>
+              <td>{{ s.stl }}</td><td>{{ s.blk }}</td><td>{{ s.tov }}</td>
+              <td class="mono">{{ s.fgm }}/{{ s.fga }}</td><td class="mono">{{ s.fg3m }}/{{ s.fg3a }}</td><td class="mono">{{ s.ftm }}/{{ s.fta }}</td>
+              <td class="{{ 'pm-pos' if (s.plus_minus or 0) > 0 else ('pm-neg' if (s.plus_minus or 0) < 0) }}">{{ s.plus_minus }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>{% set s = career_overall %}
+            <tr>
+              <td class="sticky-col">{{ t('Career', '生涯') }}</td><td></td>
+              <td>{{ s.games_played }}</td><td>{{ s.minutes }}</td><td>{{ s.pts }}</td><td>{{ s.reb }}</td><td>{{ s.ast }}</td><td>{{ s.stl }}</td><td>{{ s.blk }}</td><td>{{ s.tov }}</td>
+              <td class="mono">{{ s.fgm }}/{{ s.fga }}</td><td class="mono">{{ s.fg3m }}/{{ s.fg3a }}</td><td class="mono">{{ s.ftm }}/{{ s.fta }}</td><td>{{ s.plus_minus }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty">{{ t('No', '暂无') }} {{ kind_label }} {{ t('stats for this player.', '数据。') }}</div>
+  {% endif %}
+</section>
+
+{# ═══ SHOT PROFILE ══════════════════════════════════════════════════ #}
+<section class="section" id="shots">
+  {% call ui.sec_head(t('Shot profile', '投篮画像'), t('Where he scores', '得分版图')) %}
+    <div class="seg" data-tabs="shotview" role="tablist">
+      <button type="button" data-tab="hex" class="is-on">{{ t('Hex map', '蜂窝图') }}</button>
+      <button type="button" data-tab="zones">{{ t('Zones', '分区') }}</button>
+    </div>
+    <form method="get" class="pl-select">
+      <select name="heatmap_season" onchange="this.form.submit()" aria-label="{{ t('Shot chart scope', '投篮图范围') }}">
+        <option value="overall"{% if selected_heatmap_season == 'overall' %} selected{% endif %}>{{ t('Career', '生涯') }} · {{ kind_label }}</option>
+        {% for s in heatmap_season_options %}<option value="{{ s }}"{% if s == selected_heatmap_season %} selected{% endif %}>{{ season_label(s) }}</option>{% endfor %}
+      </select>
+      <input type="hidden" name="career_kind" value="{{ selected_career_kind }}">
+      <input type="hidden" name="season" value="{{ selected_season }}">
+    </form>
+  {% endcall %}
+  {% if shot_attempts %}
+  <div class="pl-shots" style="--tc: {{ tc }}">
+    <div class="pl-shots__court">
+      <div data-panel-of="shotview" data-panel="hex"><div id="hex-court" class="pl-court"></div></div>
+      <div data-panel-of="shotview" data-panel="zones" hidden><div id="zone-court" class="pl-court"></div></div>
+      <div class="pl-shots__legend">
+        <span class="kicker">{{ t('FG% vs. typical NBA rate from that spot', '命中率 vs 联盟同区域常规水平') }}</span>
+        <span class="pl-ramp"><span>{{ t('Colder', '偏冷') }}</span><i></i><span>{{ t('Hotter', '偏热') }}</span></span>
+        <span class="kicker" data-hex-only>{{ t('Hex size = volume', '蜂窝大小 = 出手量') }}</span>
+      </div>
+    </div>
+    <div class="pl-shots__side">
+      <div class="pl-shots__totals">
+        <div><span class="kicker">{{ t('Attempts', '出手') }}</span><span class="big-num">{{ '{:,}'.format(shot_attempts) }}</span></div>
+        <div><span class="kicker">{{ t('Made', '命中') }}</span><span class="big-num">{{ '{:,}'.format(shot_made_count) }}</span></div>
+        <div><span class="kicker">FG%</span><span class="big-num">{{ '%.1f'|format(shot_made_count / shot_attempts * 100) }}</span></div>
+      </div>
+      <p class="pl-note">{{ season_label(selected_heatmap_season) if selected_heatmap_season != 'overall' else (t('Career', '生涯') ~ ' · ' ~ kind_label) }}</p>
+      {% set zones_sorted = heatmap_zones|rejectattr('zone_key', 'equalto', 'backcourt')|sort(attribute='attempts', reverse=True)|list %}
+      {% set zmax = (zones_sorted|map(attribute='attempts')|list + [1])|max %}
+      <ol class="pl-zones">
+        {% for z in zones_sorted if z.attempts %}
+          <li data-zone="{{ z.zone_key }}">
+            <span class="pl-zones__name">{{ zone_zh.get(z.zone_key, z.zone_label) if lang == 'zh' else z.zone_label }}</span>
+            <span class="pl-zones__bar"><i style="width: {{ (z.attempts / zmax * 100)|round(1) }}%"></i></span>
+            <span class="pl-zones__fg mono" data-fg="{{ z.fg_pct }}" data-key="{{ z.zone_key }}">{{ fmt_pct(z.fg_pct) }}%</span>
+            <span class="pl-zones__n mono muted">{{ z.made }}/{{ z.attempts }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  {% else %}
+    <div class="empty">{{ t('No shot location data for this scope.', '当前范围暂无投篮位置数据。') }}</div>
+  {% endif %}
+</section>
+
+{# ═══ RANKINGS ══════════════════════════════════════════════════════ #}
+{% if nx and nx.rankings %}
+{% set scope_labels = {
+  'season': season_label(selected_season),
+  'all_regular': t('Regular career', '常规赛生涯'),
+  'all_playoffs': t('Playoff career', '季后赛生涯'),
+  'all_playin': t('Play-In career', '附加赛生涯'),
+} %}
+{% set category_labels = {
+  'scoring': t('Scoring', '得分'), 'playmaking': t('Playmaking', '组织'), 'defense': t('Defense', '防守'),
+  'efficiency': t('Efficiency', '效率'), 'record': t('Records', '纪录'), 'aggregate': t('Totals', '累计'),
+  'conditional': t('Situational', '场景'), 'milestone': t('Milestones', '里程碑'), 'streaks': t('Streaks', '连续'),
+  'awards': t('Awards', '荣誉'), 'salary': t('Salary', '薪资'), 'rebounding': t('Rebounding', '篮板'),
+} %}
+<section class="section" id="rankings">
+  {% call ui.sec_head(t('Funba metrics', 'Funba 指标'), t('Rankings', '指标排名')) %}
+    <div class="pl-segwrap"><div class="seg" data-tabs="rk" role="tablist">
+      {% for key in ['season', 'all_regular', 'all_playoffs', 'all_playin'] if nx.rankings.get(key) %}
+        <button type="button" data-tab="{{ key }}" class="{{ 'is-on' if loop.first }}">{{ scope_labels[key] }} <span class="muted">{{ nx.rankings[key]|length }}</span></button>
+      {% endfor %}
+    </div></div>
+  {% endcall %}
+  {% for key in ['season', 'all_regular', 'all_playoffs', 'all_playin'] if nx.rankings.get(key) %}
+    {% set rows = nx.rankings[key] %}
+    {% set cats = rows|map(attribute='category')|reject('equalto', '')|unique|list %}
+    <div class="pl-rk" data-panel-of="rk" data-panel="{{ key }}"{% if not loop.first %} hidden{% endif %}>
+      {% if cats|length > 1 %}
+      <div class="pl-rk__cats" data-rk-cats>
+        <button type="button" class="chip chip--solid" data-cat="">{{ t('All', '全部') }}</button>
+        {% for c in cats %}<button type="button" class="chip" data-cat="{{ c }}">{{ category_labels.get(c, c|title) }}</button>{% endfor %}
+      </div>
+      {% endif %}
+      <ol class="pl-rk__list">
+        {% for r in rows %}
+          {% set p = ((1 - r.ratio) * 100)|round(0)|int if r.total else 0 %}
+          <li class="pl-rk__row" data-c="{{ r.category }}"{% if loop.index > 24 %} data-rk-more hidden{% endif %}>
+            <span class="pl-rk__rank{% if r.rank == 1 %} is-one{% elif r.rank and r.rank <= 10 %} is-top{% endif %}">{% if r.rank %}#{{ r.rank }}{% else %}—{% endif %}</span>
+            <a class="pl-rk__name" href="{{ url_for('metric_detail', metric_key=r.metric_key, season=r.url_season) if r.url_season else url_for('metric_detail', metric_key=r.metric_key) }}">
+              {{ r.metric_name }}
+              <span class="pl-rk__sub">
+                {% if r.total %}<span class="mono muted">{{ t('of', '共') }} {{ r.total }}</span>{% endif %}
+                {% if r.context_label %}<span class="muted">· {{ r.context_label }}</span>{% endif %}
+                {% if key == 'season' %}{{ ui.rank(r.career_rank, t('Career', '生涯'), r.career_total) }}{{ ui.rank(r.last10_rank, 'L10') }}{{ ui.rank(r.last5_rank, 'L5') }}{{ ui.rank(r.last3_rank, 'L3') }}{% endif %}
+              </span>
+            </a>
+            <span class="pl-rk__bar" style="--p: {{ p }}%"><i></i></span>
+            <span class="pl-rk__val">{{ r.value }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      {% if rows|length > 24 %}
+        <button type="button" class="btn btn--ghost btn--sm pl-more" data-reveal="[data-panel='{{ key }}'] [data-rk-more]">{{ t('Show all', '显示全部') }} {{ rows|length }}</button>
+      {% endif %}
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ═══ CONTRACT ══════════════════════════════════════════════════════ #}
+{% if salary_panel %}
+{% set s = salary_panel.summary %}
+{% set flavor_colors = {'rookie': '#7C9CBF', 'rookie-ext': '#4F7CAC', 'ext': '#2F5D8A', 'max': '#FF4F12', 'super-max': '#C2185B', 'mle': '#8E7CC3', 'min': '#A8A39A', 'free-agent': '#3F8F6B', 'sign-trade': '#B8862B', 'qo': '#9C8E7A', 'other': '#8B8880'} %}
+<section class="section" id="contract">
+  {{ ui.sec_head(t('Follow the money', '薪资档案'), t('Contract', '合同')) }}
+  <div class="pl-money">
+    <div class="pl-money__lead">
+      <span class="kicker">{{ t('Career earnings', '生涯总薪资') }}</span>
+      <span class="big-num">{{ fmt_money(s.career_total_usd) }}</span>
+      <span class="mono muted">{{ s.years_under_pay }} {{ t('paid seasons', '个领薪赛季') }}</span>
+    </div>
+    {% if s.highest_year %}<div><span class="kicker">{{ t('Highest year', '单季最高') }}</span><span class="big-num">{{ fmt_money(s.highest_year.cap_hit_usd) }}</span><span class="mono muted">{{ season_year_label(s.highest_year.season) }}{% if s.highest_year.age %} · {{ t('age', '年龄') }} {{ s.highest_year.age }}{% endif %}</span></div>{% endif %}
+    {% if s.biggest_total_contract and s.biggest_total_contract.total_value_usd %}<div><span class="kicker">{{ t('Biggest deal', '最大合同') }}</span><span class="big-num">{{ fmt_money(s.biggest_total_contract.total_value_usd) }}</span><span class="mono muted">{{ s.biggest_total_contract.years }}{{ t('y', '年') }} · {{ s.biggest_total_contract.flavor_label }}{% if s.biggest_total_contract.team %} · {{ s.biggest_total_contract.team.abbr }}{% endif %}</span></div>{% endif %}
+    {% if s.max_contract_count %}<div><span class="kicker">{{ t('Max deals', '顶薪合同') }}</span><span class="big-num">{{ s.max_contract_count }}</span><span class="mono muted">{{ t('at the max scale', '按顶薪签约') }}</span></div>{% endif %}
+  </div>
+  {% if salary_panel.chart_years %}
+    <div class="pl-money__chart" id="money-chart"></div>
+    <div class="pl-money__legend mono">
+      {% for fl in salary_panel.chart_years|map(attribute='flavor')|unique %}{% if fl %}<span><i style="background: {{ flavor_colors.get(fl, '#8B8880') }}"></i>{{ fl|replace('-', ' ')|title }}</span>{% endif %}{% endfor %}
+      <span><i class="is-future"></i>{{ t('Future', '未来') }}</span>
+    </div>
+  {% endif %}
+  {% if salary_panel.contracts %}
+    <ol class="pl-deals">
+      {% for c in salary_panel.contracts|reverse %}
+        <li class="{{ 'is-now' if c.is_active_now }}">
+          <span class="pl-deals__sw" style="background: {{ flavor_colors.get(c.flavor, '#8B8880') }}"></span>
+          <span class="mono">{{ c.start_season }}–{{ c.end_season }}</span>
+          <span class="pl-deals__what">{{ c.flavor_label }}{% if c.team %} · {{ c.team.abbr }}{% endif %}{% if c.is_upcoming %} <span class="chip chip--flame">{{ t('Upcoming', '即将生效') }}</span>{% elif c.is_active_now %} <span class="chip">{{ t('Current', '当前') }}</span>{% endif %}</span>
+          <span class="mono">{{ c.years }}{{ t('y', '年') }} · {{ fmt_money(c.total_value_usd) }}</span>
+          <span class="mono muted">{{ fmt_money(c.aav_usd) }}/{{ t('yr', '年') }}</span>
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+</section>
+{% elif salary_rows %}
+<section class="section" id="contract">
+  {{ ui.sec_head(t('Follow the money', '薪资档案'), t('Salary', '薪资')) }}
+  <div class="pl-money__chart" id="money-chart"></div>
+</section>
+{% endif %}
+
+{# ═══ JOURNEY: stints + transactions ════════════════════════════════ #}
+{% if player_stint_timeline or player_transactions %}
+{% set tx_labels = {
+  'trade': t('Trade', '交易'), 'signing': t('Signing', '签约'), 'two_way': t('Two-way', '双向'), 'ten_day': t('10-day', '10天'),
+  'conversion': t('Conversion', '转正'), 'extension': t('Extension', '续约'), 'waive': t('Waived', '裁员'),
+  'waive_claim': t('Waiver claim', '豁免认领'), 'fine_or_suspension': t('Fine', '罚款'), 'draft': t('Draft', '选秀'), 'other': t('Other', '其他'),
+} %}
+<section class="section" id="journey">
+  {{ ui.sec_head(t('Stops along the way', '职业足迹'), t('Journey', '职业履历')) }}
+  {% if player_stint_timeline %}
+  <ol class="pl-stints">
+    {% for st in player_stint_timeline %}
+      <li style="--tc: {{ team_color(st.team_id) }}">
+        <a href="{{ url_for('team_page', slug=st.team_slug, season=st.last_season_code) if (st.team_slug and st.last_season_code) else (url_for('team_page', slug=st.team_slug) if st.team_slug else '#') }}">
+          <img src="{{ team_logo(st.team_id, st.era_year) }}" alt="">
+          <span class="pl-stints__abbr">{{ st.team_abbr }}</span>
+          <span class="mono muted">{{ st.joined_year or '' }}–{{ t('now', '今') if st.is_active else (st.left_year or '') }}</span>
+          {% if st.how_acquired %}<span class="pl-stints__how">{{ st.how_acquired }}</span>{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {% if player_transactions %}
+  <h3 class="sub" style="margin-top:40px;">{{ t('Transactions', '交易记录') }}</h3>
+  <ol class="pl-tx">
+    {% for tx in player_transactions %}
+      <li>
+        <time class="mono">{{ tx.date.strftime('%Y-%m-%d') if tx.date else '' }}</time>
+        <span class="chip{% if tx.type == 'trade' %} chip--flame{% endif %}">{{ tx_labels.get(tx.type, tx.type) }}</span>
+        <span class="pl-tx__text">{{ tx.raw_text }}</span>
+      </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endif %}
+
+</div>
+
+{# ═══ data for charts ═══ #}
+{% set zones_out = [] %}
+{% for z in heatmap_zones if z.zone_key != 'backcourt' %}{% set _ = zones_out.append({'zone_key': z.zone_key, 'zone_label': (zone_zh.get(z.zone_key, z.zone_label) if lang == 'zh' else z.zone_label), 'path_d': z.path_d, 'x': z.x, 'y': z.y, 'attempts': z.attempts, 'made': z.made, 'fg_pct': z.fg_pct}) %}{% endfor %}
+<script type="application/json" id="pl-data">{{ {
+  'color': tc,
+  'gameLog': nx.game_log if nx else [],
+  'career': nx.career_series if nx else [],
+  'shots': nx.shots_flat if nx else [],
+  'zones': zones_out,
+  'money': (salary_panel.chart_years if salary_panel else []),
+  'moneyFallback': nx.money_fallback if nx else [],
+  'flavorColors': {'rookie': '#7C9CBF', 'rookie-ext': '#4F7CAC', 'ext': '#2F5D8A', 'max': '#FF4F12', 'super-max': '#C2185B', 'mle': '#8E7CC3', 'min': '#A8A39A', 'free-agent': '#3F8F6B', 'sign-trade': '#B8862B', 'qo': '#9C8E7A', 'other': '#8B8880'},
+}|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='next/player.js') }}?v=1" defer></script>
+{% endblock %}

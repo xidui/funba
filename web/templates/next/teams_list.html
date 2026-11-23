@@ -1,0 +1,291 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ t('NBA Teams', 'NBA 球队') }} · {{ site_name }}{% endblock %}
+{% block meta_description %}{{ t('All 30 NBA franchises — current standings by division, plus 80 years of relocations, renames and records.', '全部 30 支 NBA 球队——按赛区的当季战绩，以及 80 年来的搬迁、更名与战绩。') }}{% endblock %}
+{% block page_id %}teams{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/lists.css') }}?v=1" />{% endblock %}
+
+{% block content %}
+{% set yr_suffix = '%02d'|format((default_year + 1) % 100) %}
+<header class="lhero">
+  <div class="wrap lhero__row">
+    <div>
+      <span class="kicker kicker--flame">{{ default_year }}–{{ yr_suffix }} · {{ t('Regular season', '常规赛') }}</span>
+      <h1 class="display display-xl">{{ t('Teams', '球队') }}</h1>
+      <p class="lede">{{ t('Thirty franchises, eighty seasons. Standings by division below — then scrub through history to watch teams move, rename and rise.', '30 支球队，80 个赛季。先看本季各赛区战绩，再拖动时间轴，看球队如何搬迁、更名与崛起。') }}</p>
+    </div>
+    <div class="lstats">
+      <div><span class="kicker">{{ t('Franchises', '球队') }}</span><span class="big-num">30</span></div>
+      <div><span class="kicker">{{ t('Seasons', '赛季') }}</span><span class="big-num" data-count="{{ max_year - min_year + 1 }}">{{ max_year - min_year + 1 }}</span></div>
+      <div><span class="kicker">{{ t('Past identities', '历史名称') }}</span><span class="big-num" data-count="{{ eras|length }}">{{ eras|length }}</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  {# ── Current league ─────────────────────────────────────────────── #}
+  <section class="section">
+    <div class="confs">
+      {% for conf in (nx.confs if nx else []) %}
+        <div class="conf">
+          <div class="conf__title">
+            <h2>{{ conf.label_zh if lang == 'zh' else conf.label_en }}</h2>
+            <span class="kicker">{{ t('Conference', '联盟') }} · {{ t('by division', '按赛区') }}</span>
+          </div>
+          {% for div in conf.divisions %}
+            <div class="divn">
+              <div class="divn__name">{{ div.name_zh if lang == 'zh' else div.name }}</div>
+              <div class="tt-grid">
+                {% for tm in div.teams %}
+                  <a class="tt rv" href="{{ url_for('team_page', slug=tm.slug) if tm.slug else '#' }}" style="--tc: {{ tm.color }}; --tc2: {{ tm.color2 }}; transition-delay: {{ loop.index0 * 40 }}ms">
+                    <span class="tt__abbr" aria-hidden="true">{{ tm.abbr }}</span>
+                    {% if nx.has_records and tm.rank %}<span class="tt__seed">{{ t('No.', '第') }}{{ tm.rank }}</span>{% endif %}
+                    <span class="tt__logo"><img src="{{ team_logo(tm.team_id) }}" alt="" loading="lazy"></span>
+                    {% set tname = tm.name_zh if lang == 'zh' and tm.name_zh else tm.nick %}
+                    <span class="tt__body">
+                      <span class="tt__name{% if tname and tname|length > 9 %} tt__name--long{% endif %}">{{ tname }}</span>
+                      {% if nx.has_records %}
+                        <span class="tt__rec"><b>{{ tm.w }}–{{ tm.l }}</b><span>{{ ('%.3f'|format(tm.pct))[1:] if tm.pct is not none and tm.pct < 1 else ('1.000' if tm.pct else '—') }}</span></span>
+                        <span class="tt__bar"><i style="width: {{ ((tm.pct or 0) * 100)|round(1) }}%"></i></span>
+                      {% endif %}
+                    </span>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ── Time machine ───────────────────────────────────────────────── #}
+  <section class="section" id="history">
+    {% call ui.sec_head(t('Franchise history', '球队历史'), t('Time machine', '时间机器')) %}
+      <span class="kicker">{{ t('Drag the slider · hover a marker for its journey', '拖动滑块 · 悬停查看迁徙路线') }}</span>
+    {% endcall %}
+    <div class="tmach">
+      <div>
+        <div class="tmach__year">
+          <span class="big-num"><span data-year>{{ default_year }}</span><small>–<span data-year-suffix>{{ yr_suffix }}</span></small></span>
+          <span class="tmach__info"><b data-count-teams>—</b> {{ t('franchises', '支球队') }}</span>
+        </div>
+        <div class="slider">
+          <input id="year-slider" type="range" min="{{ min_year }}" max="{{ max_year }}" step="1" value="{{ default_year }}" aria-label="{{ t('Season', '赛季') }}">
+          <div class="ticks" data-ticks></div>
+        </div>
+        <div class="mapbox">
+          <svg id="teams-map" viewBox="0 0 960 600" role="img" aria-label="{{ t('Map of NBA franchises', 'NBA 球队地图') }}"></svg>
+          <div class="offmap" data-offmap hidden></div>
+        </div>
+      </div>
+      <aside>
+        <div class="ystand__head">
+          <h3 data-standings-title>{{ t('Standings', '战绩') }}</h3>
+          <div class="seg" data-standings-mode hidden>
+            <button type="button" class="is-on" data-mode="division">{{ t('Divisions', '赛区') }}</button>
+            <button type="button" data-mode="flat">{{ t('All', '全部') }}</button>
+          </div>
+        </div>
+        <div class="ystand__body" data-standings></div>
+      </aside>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js" defer></script>
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX;
+  var eras = {{ eras|tojson }};
+  var journeys = {{ journeys|tojson }};
+  var teamLogos = {{ team_logos|tojson }};
+  var recordsByYear = {{ records_by_year|tojson }};
+  var divisionsMap = {{ divisions_map|tojson }};
+  var divisionsGroups = {{ divisions_groups|tojson }};
+  var minYear = {{ min_year }}, maxYear = {{ max_year }}, defaultYear = {{ default_year }};
+  var zh = {{ (lang == 'zh')|tojson }};
+  var teamUrlBase = {{ url_for('team_page', slug='__SLUG__')|tojson }};
+  var L = {
+    offmap: FX.t('Off the map:', '地图之外：'),
+    rs: FX.t('Regular season', '常规赛'),
+    empty: FX.t('No regular-season results for this season yet.', '本赛季暂无常规赛数据。'),
+    divZh: {}
+  };
+  divisionsGroups.forEach(function (g) { L.divZh[g[1]] = g[2] || g[1]; });
+
+  function teamUrl(slug, year) { return teamUrlBase.replace('__SLUG__', slug) + (year != null ? '?season=2' + year : ''); }
+  function logoForYear(teamId, year, fallback) {
+    var list = teamLogos[teamId];
+    if (!list || !list.length) return fallback || null;
+    var best = null;
+    list.forEach(function (e) {
+      if (e.year_start > year) return;
+      if (e.year_end !== null && e.year_end < year) return;
+      if (!best || e.year_start > best.year_start) { best = e; return; }
+      if (e.year_start === best.year_start) {
+        var be = best.year_end === null ? 1e9 : best.year_end, ce = e.year_end === null ? 1e9 : e.year_end;
+        if ((ce - e.year_start) < (be - best.year_start)) best = e;
+      }
+    });
+    return (best && best.url) || fallback || null;
+  }
+  function erasForYear(y) {
+    return eras.filter(function (e) { var ye = e.year_end === null ? 9999 : e.year_end; return e.year_start <= y && y <= ye; });
+  }
+  var esc = FX.esc;
+  var slider = document.getElementById('year-slider');
+  function setProgress() { slider.style.setProperty('--p', ((slider.value - minYear) / (maxYear - minYear) * 100) + '%'); }
+
+  // Standings
+  var mode = 'division';
+  var modeSeg = document.querySelector('[data-standings-mode]');
+  modeSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    mode = b.getAttribute('data-mode');
+    FX.$$('button', modeSeg).forEach(function (x) { x.classList.toggle('is-on', x === b); });
+    renderStandings(+slider.value);
+  });
+  function row(r, year, n) {
+    var pct = (r.w + r.l > 0) ? (r.w / (r.w + r.l)).toFixed(3).replace(/^0/, '') : '—';
+    var logo = logoForYear(r.era.team_id, year, r.era.logo_url);
+    return '<a class="yrow" href="' + teamUrl(r.era.slug, year) + '">' +
+      '<span class="yrow__n">' + (n || '') + '</span>' +
+      (logo ? '<img src="' + esc(logo) + '" alt="" loading="lazy">' : '<span></span>') +
+      '<span class="yrow__name">' + esc(r.era.era_name) + '</span>' +
+      '<span class="yrow__rec">' + r.w + '–' + r.l + '</span>' +
+      '<span class="yrow__pct">' + pct + '</span></a>';
+  }
+  function renderStandings(year) {
+    var body = document.querySelector('[data-standings]');
+    document.querySelector('[data-standings-title]').textContent = year + '–' + String((year + 1) % 100).padStart(2, '0');
+    var records = recordsByYear[String(year)] || {};
+    var active = erasForYear(year);
+    var hasRecords = Object.keys(records).length > 0;
+    var divOK = year >= 2004 && hasRecords;
+    modeSeg.hidden = !divOK;
+    if (!hasRecords) { body.innerHTML = '<div class="yempty">' + L.empty + '</div>'; return; }
+    var rows = active.map(function (e) { var r = records[e.team_id] || { w: 0, l: 0 }; return { era: e, w: r.w, l: r.l }; });
+    var sorter = function (a, b) { return (b.w - b.l) - (a.w - a.l) || b.w - a.w; };
+    if (!divOK || mode === 'flat') {
+      rows.sort(sorter);
+      body.innerHTML = rows.map(function (r, i) { return row(r, year, i + 1); }).join('');
+      return;
+    }
+    var html = '';
+    divisionsGroups.forEach(function (g) {
+      var list = rows.filter(function (r) { var d = divisionsMap[r.era.team_id]; return d && d[1] === g[1]; }).sort(sorter);
+      if (!list.length) return;
+      html += '<div class="ydiv__title"><b>' + (g[0] === 'E' ? FX.t('East', '东部') : FX.t('West', '西部')) + '</b>' + esc(zh ? (g[2] || g[1]) : g[1]) + '</div>';
+      html += list.map(function (r, i) { return row(r, year, i + 1); }).join('');
+    });
+    body.innerHTML = html;
+  }
+
+  // Map
+  var svg, projection, gMarkers, gTrails, trailG = null;
+  function initMap() {
+    if (!window.d3 || !window.topojson) { setTimeout(initMap, 120); return; }
+    var d3 = window.d3;
+    svg = d3.select('#teams-map');
+    projection = d3.geoAlbersUsa().scale(1280).translate([480, 300]);
+    var path = d3.geoPath().projection(projection);
+    var gStates = svg.append('g');
+    gTrails = svg.append('g');
+    gMarkers = svg.append('g');
+    fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json').then(function (r) { return r.json(); }).then(function (us) {
+      gStates.selectAll('path').data(topojson.feature(us, us.objects.states).features).join('path').attr('class', 'state-path').attr('d', path);
+      gStates.append('path').datum(topojson.mesh(us, us.objects.states, function (a, b) { return a !== b; })).attr('class', 'state-mesh').attr('d', path);
+      renderMap(+slider.value);
+    }).catch(function () {});
+  }
+  function hideTrail() { if (trailG) { trailG.remove(); trailG = null; } }
+  function showTrail(era) {
+    if (era.kind !== 'current') return;
+    var j = journeys[era.team_id];
+    if (!j || j.length < 2) return;
+    hideTrail();
+    var pts = j.map(function (s) { return projection([s.lon, s.lat]); }).filter(Boolean);
+    if (pts.length < 2) return;
+    trailG = gTrails.append('g');
+    trailG.append('path').attr('class', 'journey-trail').attr('d', window.d3.line().curve(window.d3.curveCatmullRom.alpha(0.5))(pts));
+    trailG.selectAll('circle').data(pts).join('circle').attr('class', 'journey-dot').attr('cx', function (d) { return d[0]; }).attr('cy', function (d) { return d[1]; }).attr('r', 3);
+  }
+  function renderMap(year) {
+    if (!gMarkers) return;
+    var d3 = window.d3;
+    var active = erasForYear(year), withC = [], off = [];
+    active.forEach(function (e) {
+      var logo = logoForYear(e.team_id, year, e.logo_url);
+      var c = projection([e.lon, e.lat]);
+      if (c) withC.push(Object.assign({}, e, { _x: c[0], _y: c[1], _logo: logo })); else off.push(Object.assign({}, e, { _logo: logo }));
+    });
+    gMarkers.selectAll('g.era-marker').interrupt();
+    var R = 14;
+    var m = gMarkers.selectAll('g.era-marker').data(withC, function (d) { return d.team_id; });
+    m.exit().transition().duration(250).style('opacity', 0).remove();
+    var en = m.enter().append('g').attr('class', function (d) { return 'era-marker kind-' + d.kind; })
+      .style('opacity', 0).attr('transform', function (d) { return 'translate(' + d._x + ',' + d._y + ')'; })
+      .on('click', function (ev, d) { window.location.href = teamUrl(d.slug, +slider.value); })
+      .on('mouseenter', function (ev, d) {
+        showTrail(d);
+        FX.tip.show('<div class="kicker">' + d.year_start + '–' + (d.year_end || FX.t('now', '至今')) + '</div><b>' + esc(d.era_name) + '</b><div>' + esc(d.city) + (d.state ? ', ' + esc(d.state) : '') + '</div>', ev.clientX, ev.clientY);
+      })
+      .on('mouseleave', function () { hideTrail(); FX.tip.hide(); });
+    en.append('circle').attr('class', 'era-hit').attr('r', R + 8);
+    en.append('circle').attr('class', 'era-ring').attr('r', R);
+    en.append('clipPath').attr('id', function (d) { return 'clip-' + d.team_id; }).append('circle').attr('r', R - 2);
+    en.append('image').attr('class', 'era-logo').attr('x', -(R - 2)).attr('y', -(R - 2)).attr('width', (R - 2) * 2).attr('height', (R - 2) * 2)
+      .attr('preserveAspectRatio', 'xMidYMid meet').attr('clip-path', function (d) { return 'url(#clip-' + d.team_id + ')'; }).attr('href', function (d) { return d._logo || ''; });
+    en.append('text').attr('class', 'era-label').attr('y', 1).text(function (d) { return d._logo ? '' : d.abbr; });
+    en.append('text').attr('class', 'era-label-sub').attr('y', R + 10).text(function (d) { return d.abbr; });
+    en.transition().duration(300).style('opacity', 1);
+    m.style('opacity', 1)
+      .attr('class', function (d) { return 'era-marker kind-' + d.kind; })
+      .each(function (d) {
+        var g = d3.select(this);
+        g.select('.era-logo').attr('href', d._logo || '');
+        g.select('.era-label').text(d._logo ? '' : d.abbr);
+        g.select('.era-label-sub').text(d.abbr);
+      })
+      .transition().duration(420).ease(d3.easeCubicInOut).attr('transform', function (d) { return 'translate(' + d._x + ',' + d._y + ')'; });
+    var note = document.querySelector('[data-offmap]');
+    note.hidden = !off.length;
+    note.innerHTML = off.length ? L.offmap + ' ' + off.map(function (e) { return '<a href="' + teamUrl(e.slug, year) + '">' + esc(e.era_name) + '</a> (' + esc(e.city) + ')'; }).join(', ') : '';
+  }
+  function renderYear(year) {
+    document.querySelector('[data-year]').textContent = year;
+    document.querySelector('[data-year-suffix]').textContent = String((year + 1) % 100).padStart(2, '0');
+    document.querySelector('[data-count-teams]').textContent = erasForYear(year).length;
+    setProgress();
+    renderMap(year);
+    renderStandings(year);
+  }
+  var raf = null;
+  slider.addEventListener('input', function () {
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(function () { renderYear(+slider.value); raf = null; });
+  });
+  var ticks = [
+    { year: 1946, label: 'BAA' }, { year: 1949, label: 'NBA' }, { year: 1967, label: 'ABA' },
+    { year: 1976, label: FX.t('Merger', '合并') }, { year: 1995, label: FX.t('Canada', '加拿大') }, { year: 2004, label: FX.t('30 teams', '30队') }
+  ];
+  var tw = document.querySelector('[data-ticks]');
+  ticks.forEach(function (tk) {
+    if (tk.year < minYear || tk.year > maxYear) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.style.left = ((tk.year - minYear) / (maxYear - minYear) * 100) + '%';
+    b.textContent = tk.label;
+    b.title = tk.year;
+    b.addEventListener('click', function () { slider.value = tk.year; renderYear(tk.year); });
+    tw.appendChild(b);
+  });
+  renderYear(defaultYear);
+  FX.onVisible(document.getElementById('history'), initMap);
+});
+</script>
+{% endblock %}

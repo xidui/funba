@@ -1,0 +1,489 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+
+{% set road_id = game.road_team_id %}
+{% set home_id = game.home_team_id %}
+{% set season_year = (game.season[1:]|int) if game.season and game.season|length == 5 else None %}
+{% set road_name = team_name(road_id) %}
+{% set home_name = team_name(home_id) %}
+{% set rc = nx.road_color if nx else team_color(road_id) %}
+{% set hc = nx.home_color if nx else team_color(home_id) %}
+{% set is_final = game_status == 'completed' %}
+{% set is_live = game_status == 'live' %}
+{% set is_upcoming = game_status == 'upcoming' %}
+{% set road_score = (live_summary.road_score if (is_live and live_summary and live_summary.road_score is not none) else game.road_team_score) %}
+{% set home_score = (live_summary.home_score if (is_live and live_summary and live_summary.home_score is not none) else game.home_team_score) %}
+{% set road_won = is_final and game.wining_team_id == road_id %}
+{% set home_won = is_final and game.wining_team_id == home_id %}
+{% set ot = nx.ot_periods if nx else 0 %}
+
+{% block title %}{{ road_abbr }} {{ road_score if road_score is not none else '' }} – {{ home_score if home_score is not none else '' }} {{ home_abbr }} · {{ game.game_date }} · {{ site_name }}{% endblock %}
+{% block meta_description %}{{ road_name }} {{ t('at', '客场挑战') }} {{ home_name }}, {{ game.game_date }}. {{ t('Game flow, box score, shot charts and storylines.', '比赛走势、技术统计、投篮图与看点。') }}{% endblock %}
+{% block page_id %}game{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/game.css') }}?v=1" />{% endblock %}
+
+{% block content %}
+{# ═══ HERO / SCOREBOARD ═══════════════════════════════════════════════ #}
+<section class="ghero" style="--road: {{ rc }}; --home: {{ hc }}; --road-ink: {{ ink_on(rc) }}; --home-ink: {{ ink_on(hc) }};">
+  <div class="ghero__field" aria-hidden="true">
+    <div class="ghero__half ghero__half--road"><span>{{ road_abbr }}</span></div>
+    <div class="ghero__half ghero__half--home"><span>{{ home_abbr }}</span></div>
+  </div>
+  <div class="wrap ghero__inner">
+    <div class="ghero__meta">
+      <span class="kicker">{{ season_label(game.season) }}</span>
+      <span class="ghero__sep"></span>
+      <span class="kicker">{% if lang == 'zh' %}{{ game.game_date.strftime('%Y年%-m月%-d日') }}{% else %}{{ game.game_date.strftime('%a %b %-d, %Y') }}{% endif %}</span>
+      {% if game.national_tv_broadcaster %}<span class="ghero__sep"></span><span class="kicker">{{ game.national_tv_broadcaster }}</span>{% endif %}
+    </div>
+
+    <div class="ghero__board">
+      <a class="gteam gteam--road{% if road_won %} is-winner{% elif is_final %} is-loser{% endif %}" href="{{ team_url(road_id) or '#' }}">
+        <span class="gteam__logo"><img src="{{ team_logo(road_id, season_year) }}" alt=""></span>
+        <span class="gteam__text">
+          <span class="gteam__city">{{ t('Away', '客队') }}</span>
+          <span class="gteam__name">{{ road_name }}</span>
+          {% if upcoming_preview and upcoming_preview.road %}<span class="gteam__rec mono">{{ upcoming_preview.road.wins }}–{{ upcoming_preview.road.losses }}</span>{% endif %}
+        </span>
+      </a>
+
+      <div class="ghero__score">
+        {% if is_upcoming %}
+          <div class="ghero__vs display">VS</div>
+          <div class="ghero__status">{{ (upcoming_preview.tipoff_et if upcoming_preview and upcoming_preview.tipoff_et else game.tipoff_time) or t('Tip-off TBD', '开球时间待定') }}</div>
+        {% else %}
+          <div class="ghero__nums">
+            <span class="big-num{% if is_final and not road_won %} dim{% endif %}" {% if road_score is not none %}data-count="{{ road_score }}"{% endif %}>{{ road_score if road_score is not none else '–' }}</span>
+            <span class="ghero__dash"></span>
+            <span class="big-num{% if is_final and not home_won %} dim{% endif %}" {% if home_score is not none %}data-count="{{ home_score }}"{% endif %}>{{ home_score if home_score is not none else '–' }}</span>
+          </div>
+          <div class="ghero__status">
+            {% if is_live %}<span class="live-dot"></span>{{ (live_summary.summary if live_summary and live_summary.summary else t('Live', '进行中')) }}
+            {% else %}{{ t('Final', '终场') }}{% if ot %} / {{ 'OT' if ot == 1 else ot ~ 'OT' }}{% endif %}{% endif %}
+          </div>
+        {% endif %}
+      </div>
+
+      <a class="gteam gteam--home{% if home_won %} is-winner{% elif is_final %} is-loser{% endif %}" href="{{ team_url(home_id) or '#' }}">
+        <span class="gteam__logo"><img src="{{ team_logo(home_id, season_year) }}" alt=""></span>
+        <span class="gteam__text">
+          <span class="gteam__city">{{ t('Home', '主队') }}</span>
+          <span class="gteam__name">{{ home_name }}</span>
+          {% if upcoming_preview and upcoming_preview.home %}<span class="gteam__rec mono">{{ upcoming_preview.home.wins }}–{{ upcoming_preview.home.losses }}</span>{% endif %}
+        </span>
+      </a>
+    </div>
+
+    {% if quarter_scores %}
+    <table class="linescore mono" aria-label="{{ t('Line score', '分节比分') }}">
+      <thead><tr><th></th>{% for q in quarter_scores %}<th>{{ ('Q' ~ q.period) if q.period <= 4 else ('OT' ~ (q.period - 4) if q.period > 5 else 'OT') }}</th>{% endfor %}<th>T</th></tr></thead>
+      <tbody>
+        <tr><td>{{ road_abbr }}</td>{% for q in quarter_scores %}<td class="{{ 'hi' if q.road > q.home }}">{{ q.road }}</td>{% endfor %}<td class="tot">{{ road_score }}</td></tr>
+        <tr><td>{{ home_abbr }}</td>{% for q in quarter_scores %}<td class="{{ 'hi' if q.home > q.road }}">{{ q.home }}</td>{% endfor %}<td class="tot">{{ home_score }}</td></tr>
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</section>
+
+{# ═══ SECTION NAV ════════════════════════════════════════════════════ #}
+{% if not is_upcoming %}
+<nav class="gnav" aria-label="{{ t('Game sections', '比赛板块') }}">
+  <div class="wrap gnav__row">
+    <span class="gnav__score mono"><span class="swatch" style="--tc: {{ rc }}"></span>{{ road_abbr }} {{ road_score }} – {{ home_score }} {{ home_abbr }}<span class="swatch" style="--tc: {{ hc }}"></span></span>
+    <a href="#flow">{{ t('Flow', '走势') }}</a>
+    {% if is_final %}<a href="#storylines">{{ t('Storylines', '看点') }}</a>{% endif %}
+    {% if game_leaders %}<a href="#leaders">{{ t('Leaders', '领袖') }}</a>{% endif %}
+    {% if players_by_team %}<a href="#box">{{ t('Box score', '数据') }}</a>{% endif %}
+    {% if shot_rows %}<a href="#shots">{{ t('Shots', '投篮') }}</a>{% endif %}
+    {% if pbp_rows %}<a href="#plays">{{ t('Plays', '逐回合') }}</a>{% endif %}
+  </div>
+</nav>
+{% endif %}
+
+<div class="wrap">
+
+{# ═══ UPCOMING PREVIEW ══════════════════════════════════════════════ #}
+{% if is_upcoming and upcoming_preview %}
+  {% set up = upcoming_preview %}
+  <section class="section">
+    {{ ui.sec_head(t('Preview', '赛前'), t('Tale of the tape', '双方对比')) }}
+    <div class="preview">
+      {% for side, sid, color in [('road', road_id, rc), ('home', home_id, hc)] %}
+        {% set s = up[side] %}
+        <div class="preview__team" style="--tc: {{ color }}">
+          <div class="preview__head">
+            {{ ui.team_badge(sid, show_name=True, size=36) }}
+            <span class="big-num preview__rec">{{ s.wins }}<span>–</span>{{ s.losses }}</span>
+          </div>
+          <div class="preview__row"><span class="kicker">{{ t('Last 10', '近10场') }}</span>{{ ui.wl_dots(s.last10|reverse|list) }}<span class="mono">{{ s.last10|select('equalto','W')|list|length }}–{{ s.last10|select('equalto','L')|list|length }}</span></div>
+          {% if s.rest %}<div class="preview__row"><span class="kicker">{{ t('Rest', '休息') }}</span><span>{% if s.rest.is_b2b %}<span class="chip chip--flame">{{ t('Back-to-back', '背靠背') }}</span>{% else %}{{ s.rest.days }} {{ t('days', '天') }}{% endif %}</span></div>{% endif %}
+          {% if s.last_game_scorer %}
+            {% set sc = s.last_game_scorer %}
+            <a class="preview__hot" href="{{ player_url(sc.player_id) }}">
+              {{ ui.headshot(sc.player_id, 'lg', sid) }}
+              <span>
+                <span class="kicker">{{ t('Last game', '上一场') }}</span>
+                <span class="preview__hot-name">{{ sc.name }}</span>
+                <span class="mono muted">{{ sc.pts }} PTS · {{ sc.reb }} REB · {{ sc.ast }} AST</span>
+              </span>
+            </a>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    {% if up.h2h_history %}
+      <h3 class="sub" style="margin-top:40px;">{{ t('Recent meetings', '近期交手') }}</h3>
+      <div class="h2h">
+        {% for m in up.h2h_history %}
+          <a class="h2h__item" href="{{ game_url(m.game_id) }}" style="--tc: {{ team_color(m.winner_team_id) }}">
+            <span class="kicker">{{ m.game_date.strftime('%b %Y') if m.game_date else '' }}</span>
+            <span class="mono">{{ team_info(m.road_team_id).abbr }} {{ m.road_score }}</span>
+            <span class="mono">{{ team_info(m.home_team_id).abbr }} {{ m.home_score }}</span>
+            <i></i>
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+
+{# ═══ GAME FLOW ═════════════════════════════════════════════════════ #}
+{% if not is_upcoming %}
+<section class="section" id="flow">
+  {% call ui.sec_head(t('How it unfolded', '比赛进程'), t('Game flow', '比分走势')) %}
+    <span class="legend"><i style="background: {{ rc }}"></i>{{ road_abbr }} {{ t('lead', '领先') }}</span>
+    <span class="legend"><i style="background: {{ hc }}"></i>{{ home_abbr }} {{ t('lead', '领先') }}</span>
+  {% endcall %}
+  {% if nx and nx.flow %}
+    {% set f = nx.flow %}
+    <div class="flowstats">
+      <div><span class="kicker">{{ t('Lead changes', '领先易主') }}</span><span class="big-num" data-count="{{ f.lead_changes }}">{{ f.lead_changes }}</span></div>
+      <div><span class="kicker">{{ t('Times tied', '战平次数') }}</span><span class="big-num" data-count="{{ f.times_tied }}">{{ f.times_tied }}</span></div>
+      <div style="--tc: {{ rc }}"><span class="kicker">{{ road_abbr }} {{ t('largest lead', '最大领先') }}</span><span class="big-num tc">{{ f.largest_lead.road }}</span></div>
+      <div style="--tc: {{ hc }}"><span class="kicker">{{ home_abbr }} {{ t('largest lead', '最大领先') }}</span><span class="big-num tc">{{ f.largest_lead.home }}</span></div>
+      {% if f.best_run and f.best_run.pts %}
+      <div style="--tc: {{ rc if f.best_run.team == 'road' else hc }}"><span class="kicker">{{ t('Biggest run', '最大攻势') }}</span><span class="big-num tc">{{ f.best_run.pts }}<small>–0</small></span><span class="mono muted flowstats__sub">{{ road_abbr if f.best_run.team == 'road' else home_abbr }}</span></div>
+      {% endif %}
+    </div>
+  {% endif %}
+  <div class="flowchart" id="flowchart" data-progression='{{ score_progression_json }}'></div>
+</section>
+
+{# ═══ STORYLINES (lazy fragment) ════════════════════════════════════ #}
+{% if is_final %}
+<section class="section" id="storylines">
+  {{ ui.sec_head(t('By the numbers', '数据看点'), t('Storylines', '本场看点')) }}
+  <div id="storylines-body" data-src="{{ url_for('game_fragment_metrics', slug=game.slug) }}?ui=next">
+    <div class="skeleton-list">
+      {% for i in range(4) %}<div class="skel"></div>{% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ═══ LEADERS ═══════════════════════════════════════════════════════ #}
+{% if game_leaders %}
+<section class="section" id="leaders">
+  {{ ui.sec_head(t('Top performers', '最佳表现'), t('Game leaders', '本场领袖')) }}
+  <div class="leaders">
+    {% for key, label, short in [('scorer', t('Points', '得分'), 'PTS'), ('rebounder', t('Rebounds', '篮板'), 'REB'), ('assister', t('Assists', '助攻'), 'AST')] %}
+      <div class="leaders__cat">
+        <div class="kicker">{{ label }}</div>
+        {% for side, sid, color in [('road', road_id, rc), ('home', home_id, hc)] %}
+          {% set p = game_leaders[side][key] if game_leaders[side] else None %}
+          {% if p %}
+          {% set other = game_leaders['home' if side == 'road' else 'road'][key] %}
+          <a class="leader{% if other and p.value >= other.value %} is-top{% endif %}" href="{{ url_for('player_page', slug=p.slug) if p.slug else player_url(p.player_id) }}" style="--tc: {{ color }}">
+            {{ ui.headshot(p.player_id, 'lg', sid) }}
+            <span class="leader__who">
+              <span class="leader__name">{{ p.name }}</span>
+              <span class="kicker">{{ road_abbr if side == 'road' else home_abbr }}</span>
+            </span>
+            <span class="leader__val big-num">{{ p.value }}<small>{{ short }}</small></span>
+          </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ═══ TALE OF THE TAPE + BOX SCORE ══════════════════════════════════ #}
+{% if team_stats %}
+{% set tsid = nx.team_stats_by_id if nx else {} %}
+{% set rts = tsid.get(road_id) %}{% set hts = tsid.get(home_id) %}
+{% if rts and hts %}
+<section class="section">
+  {{ ui.sec_head(t('Team comparison', '球队对比'), t('Tale of the tape', '技术对比')) }}
+  <div class="tape" style="--road: {{ rc }}; --home: {{ hc }};">
+    <div class="tape__head">
+      {{ ui.team_badge(road_id, size=28, year=season_year) }}
+      <span></span>
+      {{ ui.team_badge(home_id, size=28, year=season_year) }}
+    </div>
+    {% for key, label, kind, lower in [
+      ('fg_pct', t('Field goal %', '投篮命中率'), 'pct', False),
+      ('fg3_pct', t('3-point %', '三分命中率'), 'pct', False),
+      ('ft_pct', t('Free throw %', '罚球命中率'), 'pct', False),
+      ('fg3m', t('3-pointers made', '三分命中'), 'n', False),
+      ('reb', t('Rebounds', '篮板'), 'n', False),
+      ('oreb', t('Offensive rebounds', '进攻篮板'), 'n', False),
+      ('ast', t('Assists', '助攻'), 'n', False),
+      ('stl', t('Steals', '抢断'), 'n', False),
+      ('blk', t('Blocks', '盖帽'), 'n', False),
+      ('tov', t('Turnovers', '失误'), 'n', True),
+      ('pf', t('Fouls', '犯规'), 'n', True),
+    ] %}
+      {% set rv = rts[key] or 0 %}{% set hv = hts[key] or 0 %}
+      {% set mx = [rv, hv, 0.0001]|max %}
+      {% set road_better = (rv < hv) if lower else (rv > hv) %}
+      {% set home_better = (hv < rv) if lower else (hv > rv) %}
+      <div class="tape__row">
+        <span class="tape__v{% if road_better %} is-better{% endif %}">{{ fmt_pct(rv) if kind == 'pct' else rv }}</span>
+        <span class="tape__bar tape__bar--road"><i style="width: {{ (rv / mx * 100)|round(1) }}%"></i></span>
+        <span class="tape__label">{{ label }}</span>
+        <span class="tape__bar tape__bar--home"><i style="width: {{ (hv / mx * 100)|round(1) }}%"></i></span>
+        <span class="tape__v{% if home_better %} is-better{% endif %}">{{ fmt_pct(hv) if kind == 'pct' else hv }}</span>
+      </div>
+    {% endfor %}
+    <div class="tape__foot mono muted">
+      {{ road_abbr }} {{ rts.fgm }}/{{ rts.fga }} FG · {{ rts.fg3m }}/{{ rts.fg3a }} 3P · {{ rts.ftm }}/{{ rts.fta }} FT
+      <span>{{ home_abbr }} {{ hts.fgm }}/{{ hts.fga }} FG · {{ hts.fg3m }}/{{ hts.fg3a }} 3P · {{ hts.ftm }}/{{ hts.fta }} FT</span>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+
+{% if players_by_team %}
+<section class="section" id="box">
+  {% call ui.sec_head(t('Every minute accounted for', '每一分钟'), t('Box score', '技术统计')) %}
+    <div class="seg" data-tabs="box" role="tablist">
+      {% for tid in ordered_team_ids %}
+        <button type="button" data-tab="{{ tid }}" class="{{ 'is-on' if loop.first }}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ team_abbr(tid) }}</button>
+      {% endfor %}
+    </div>
+  {% endcall %}
+  {% for tid in ordered_team_ids %}
+    {% set rows = players_by_team.get(tid) or [] %}
+    {% set max_pts = (rows|map(attribute='pts')|select('number')|list + [1])|max %}
+    <div data-panel-of="box" data-panel="{{ tid }}" {% if not loop.first %}hidden{% endif %} style="--tc: {{ rc if tid == road_id else hc }}">
+      <div class="box-title">
+        {{ ui.team_badge(tid, show_name=True, size=26, year=season_year) }}
+        {% set tsx = (nx.team_stats_by_id.get(tid) if nx else None) %}
+        {% if tsx %}<span class="mono muted">{{ tsx.pts }} PTS · {{ fmt_pct(tsx.fg_pct) }} FG% · {{ tsx.ast }} AST</span>{% endif %}
+      </div>
+      <div class="table-scroll">
+        <table class="dt box">
+          <thead>
+            <tr>
+              <th class="sticky-col">{{ t('Player', '球员') }}</th>
+              <th class="sortable">MIN</th>
+              <th class="sortable">PTS</th>
+              <th class="sortable">REB</th>
+              <th class="sortable">AST</th>
+              <th class="sortable">STL</th>
+              <th class="sortable">BLK</th>
+              <th class="sortable">TOV</th>
+              <th class="sortable">FG</th>
+              <th class="sortable">3PT</th>
+              <th class="sortable">FT</th>
+              <th class="sortable">+/-</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(bench=False) %}
+            {% for p in rows %}
+              {% set first_bench = (not p.is_starter) and not ns.bench %}
+              {% if not p.is_starter %}{% set ns.bench = True %}{% endif %}
+              <tr class="{{ 'is-dim' if p.is_dnp }}{{ ' group-break' if first_bench }}">
+                <td class="sticky-col">
+                  <a class="box-player" href="{{ player_url(p.player_id) }}">
+                    {{ ui.headshot(p.player_id, 'sm') }}
+                    <span>{{ p.player_name }}</span>
+                    {% if p.is_starter %}<span class="box-pos">{{ t('S', '首') }}</span>{% endif %}
+                  </a>
+                </td>
+                {% if p.is_dnp %}
+                  <td colspan="11" class="box-dnp">{{ p.status }}</td>
+                {% else %}
+                  <td data-v="{{ p.minutes }}">{{ p.minutes }}</td>
+                  <td class="num-strong cell-bar" data-v="{{ p.pts }}">{{ p.pts }}<i style="width: {{ ((p.pts or 0) / max_pts * 28)|round(1) }}px"></i></td>
+                  <td>{{ p.reb }}</td>
+                  <td>{{ p.ast }}</td>
+                  <td>{{ p.stl }}</td>
+                  <td>{{ p.blk }}</td>
+                  <td>{{ p.tov }}</td>
+                  <td data-v="{{ p.fgm }}">{{ p.fgm }}-{{ p.fga }}</td>
+                  <td data-v="{{ p.fg3m }}">{{ p.fg3m }}-{{ p.fg3a }}</td>
+                  <td data-v="{{ p.ftm }}">{{ p.ftm }}-{{ p.fta }}</td>
+                  <td class="{{ 'pm-pos' if (p.plus_minus or 0) > 0 else ('pm-neg' if (p.plus_minus or 0) < 0) }}">{{ ('+' if (p.plus_minus or 0) > 0 else '') ~ (p.plus_minus if p.plus_minus is not none else '–') }}</td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ═══ SHOT CHART ════════════════════════════════════════════════════ #}
+{% if shot_rows %}
+<section class="section" id="shots">
+  {% call ui.sec_head(t('Where the shots came from', '出手分布'), t('Shot chart', '投篮图')) %}
+    <div class="seg" data-shot-filter>
+      <button type="button" class="is-on" data-period="all">{{ t('All', '全部') }}</button>
+      {% for q in quarter_scores %}<button type="button" data-period="{{ q.period }}">{{ ('Q' ~ q.period) if q.period <= 4 else 'OT' ~ (q.period - 4) }}</button>{% endfor %}
+    </div>
+  {% endcall %}
+  <div class="courts">
+    {% for tid in shot_chart_team_ids %}
+      {% set c = rc if tid == road_id else hc %}
+      {% set made = shot_made_count_by_team.get(tid, 0) %}{% set miss = shot_miss_count_by_team.get(tid, 0) %}
+      <figure class="court" style="--tc: {{ c }}">
+        <figcaption>
+          {{ ui.team_badge(tid, show_name=True, size=24, year=season_year) }}
+          <span class="mono court__stat" data-court-stat="{{ tid }}">{{ made }}/{{ made + miss }} · {{ fmt_pct(made / ((made + miss) or 1)) }}%</span>
+        </figcaption>
+        <div class="court__svg" data-court="{{ tid }}" data-color="{{ c }}"></div>
+        <div class="court__legend mono"><span><i class="dot" style="background: {{ c }}"></i>{{ t('Made', '命中') }}</span><span><i class="x">×</i>{{ t('Missed', '未中') }}</span></div>
+      </figure>
+    {% endfor %}
+  </div>
+  <script type="application/json" id="shots-data">{{ shot_rows_by_team|tojson }}</script>
+</section>
+{% endif %}
+
+{# ═══ PLAY BY PLAY ══════════════════════════════════════════════════ #}
+{% if pbp_rows %}
+<section class="section" id="plays">
+  {% set periods = pbp_rows|map(attribute='period')|unique|list %}
+  {% call ui.sec_head(t('Every possession', '每一回合'), t('Play-by-play', '逐回合')) %}
+    <label class="pbp-scoring"><input type="checkbox" data-pbp-scoring> {{ t('Scoring plays only', '只看得分') }}</label>
+    <div class="seg" data-tabs="pbp" role="tablist">
+      {% for p in periods %}
+        <button type="button" data-tab="p{{ p }}" class="{{ 'is-on' if loop.first }}">{{ ('Q' ~ p) if p <= 4 else 'OT' ~ (p - 4) }}</button>
+      {% endfor %}
+    </div>
+  {% endcall %}
+  {% for per in periods %}
+    <ol class="pbp" data-panel-of="pbp" data-panel="p{{ per }}" {% if not loop.first %}hidden{% endif %}>
+      {% set ns = namespace(prev='0 - 0') %}
+      {% for e in pbp_rows if e.period == per %}
+        {% set scoring = e.score and e.score != '-' and e.score != ns.prev %}
+        {% if e.score and e.score != '-' %}{% set ns.prev = e.score %}{% endif %}
+        {% set side = 'road' if e.team_id == road_id else ('home' if e.team_id == home_id else 'neutral') %}
+        <li class="pbp__row pbp__row--{{ side }}{% if scoring %} is-scoring{% endif %}" style="--tc: {{ rc if side == 'road' else hc }}">
+          <span class="pbp__clock mono">{{ e.clock }}</span>
+          <span class="pbp__team">{% if side != 'neutral' %}<i></i>{{ road_abbr if side == 'road' else home_abbr }}{% endif %}</span>
+          <span class="pbp__desc">{{ e.description }}</span>
+          <span class="pbp__score mono">{% if scoring %}{% set parts = e.score.split('-') %}{{ parts[1]|trim }}–{{ parts[0]|trim }}{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ol>
+  {% endfor %}
+</section>
+{% endif %}
+{% endif %}
+
+{% if is_admin %}
+<p class="mono muted" style="font-size:12px;padding:24px 0;">{{ t('Admin tools for this game live in the classic view.', '本场比赛的管理工具在旧版页面中。') }} <a class="flame" href="{{ ui_switch_url('classic') }}">{{ t('Open classic', '打开旧版') }} →</a></p>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX;
+  var roadC = {{ rc|tojson }}, homeC = {{ hc|tojson }};
+  var roadAbbr = {{ road_abbr|tojson }}, homeAbbr = {{ home_abbr|tojson }};
+
+  // Flow chart
+  var flowEl = document.getElementById('flowchart');
+  function drawFlow() {
+    if (!flowEl) return;
+    var prog = [];
+    try { prog = JSON.parse(flowEl.getAttribute('data-progression') || '[]'); } catch (_) {}
+    FX.flowChart(flowEl, { progression: prog, roadColor: roadC, homeColor: homeC, roadAbbr: roadAbbr, homeAbbr: homeAbbr, height: window.innerWidth < 700 ? 260 : 360 });
+  }
+  drawFlow();
+  var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(drawFlow, 150); });
+  document.addEventListener('fx:theme', drawFlow);
+
+  // Shot charts
+  var shotData = {};
+  var sd = document.getElementById('shots-data');
+  if (sd) { try { shotData = JSON.parse(sd.textContent); } catch (_) {} }
+  var period = 'all';
+  function drawCourts() {
+    FX.$$('[data-court]').forEach(function (el) {
+      var tid = el.getAttribute('data-court');
+      var res = FX.shotChart(el, shotData[tid] || [], {
+        color: el.getAttribute('data-color'),
+        filter: period === 'all' ? null : function (s) { return String(s.period) === String(period); }
+      });
+      var stat = document.querySelector('[data-court-stat="' + tid + '"]');
+      if (stat && res) stat.textContent = res.made + '/' + res.count + ' · ' + (res.count ? (res.made / res.count * 100).toFixed(1) : '0.0') + '%';
+    });
+  }
+  if (sd) {
+    FX.onVisible(document.getElementById('shots'), drawCourts);
+    document.addEventListener('fx:theme', drawCourts);
+    var filt = document.querySelector('[data-shot-filter]');
+    if (filt) filt.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-period]'); if (!b) return;
+      FX.$$('[data-period]', filt).forEach(function (x) { x.classList.toggle('is-on', x === b); });
+      period = b.getAttribute('data-period');
+      drawCourts();
+    });
+  }
+
+  // Play-by-play scoring filter
+  var sc = document.querySelector('[data-pbp-scoring]');
+  if (sc) sc.addEventListener('change', function () {
+    document.getElementById('plays').classList.toggle('only-scoring', sc.checked);
+  });
+
+  // Storylines fragment
+  var sl = document.getElementById('storylines-body');
+  if (sl) {
+    FX.onVisible(sl, function () {
+      fetch(sl.getAttribute('data-src'), { headers: { 'Accept': 'text/html' } })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (html) {
+          sl.innerHTML = html && html.trim() ? html : '<div class="empty">' + FX.t('No storylines for this game yet.', '本场暂无数据看点。') + '</div>';
+          sl.querySelectorAll('[data-more]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var tgt = sl.querySelector(btn.getAttribute('data-more'));
+              if (tgt) { tgt.hidden = !tgt.hidden; btn.textContent = tgt.hidden ? btn.getAttribute('data-label-more') : btn.getAttribute('data-label-less'); }
+            });
+          });
+        })
+        .catch(function () { sl.innerHTML = ''; });
+    });
+  }
+
+  // Section nav highlight
+  var links = FX.$$('.gnav a[href^="#"]');
+  if (links.length && 'IntersectionObserver' in window) {
+    var map = {};
+    links.forEach(function (a) { var s = document.querySelector(a.getAttribute('href')); if (s) map[s.id] = a; });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { links.forEach(function (a) { a.classList.remove('is-on'); }); if (map[en.target.id]) map[en.target.id].classList.add('is-on'); }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    Object.keys(map).forEach(function (id) { io.observe(document.getElementById(id)); });
+  }
+
+  {% if live_refresh_interval_ms and is_live %}
+  setTimeout(function () { window.location.reload(); }, {{ live_refresh_interval_ms }});
+  {% endif %}
+});
+</script>
+{% endblock %}

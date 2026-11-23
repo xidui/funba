@@ -1,0 +1,114 @@
+{% import "next/_macros.html" as ui with context %}
+{% set game_metric_list = game_metrics.season or [] %}
+{% set extra_game_metric_list = game_metrics.season_extra or [] %}
+{% set tpm = triggered_player_metrics or [] %}
+{% set ttm = triggered_team_metrics or [] %}
+
+{% macro mname(m) -%}{{ (m.metric_name_zh if lang == 'zh' and m.metric_name_zh else m.metric_name) or m.metric_key }}{%- endmacro %}
+{% macro mval(m) -%}
+  {%- if m.value_str and m.value_str|length <= 9 -%}{{ m.value_str }}
+  {%- elif m.value_num is not none -%}{{ ('%d'|format(m.value_num)) if (m.value_num == m.value_num|round(0)) else ('%.3g'|format(m.value_num)) }}
+  {%- else -%}—{%- endif -%}
+{%- endmacro %}
+{% macro pills(m) -%}
+  {%- set career = (m.season or '')|string %}
+  {%- if m.season_badge_text %}{{ ui.rank(m.rank, t('Career', '生涯') if career.startswith('all') else t('Szn', '赛季'), m.total) }}{% endif -%}
+  {%- if m.last3_badge_text %}{{ ui.rank(m.last3_rank, 'L3', m.last3_total) }}{% endif -%}
+  {%- if m.last5_badge_text %}{{ ui.rank(m.last5_rank, 'L5', m.last5_total) }}{% endif -%}
+  {%- if m.last10_badge_text %}{{ ui.rank(m.last10_rank, 'L10', m.last10_total) }}{% endif -%}
+  {%- if m.all_badge_text %}{{ ui.rank(m.all_games_rank or m.all_rank, t('All-time', '历史'), m.all_games_total or m.all_total) }}{% endif -%}
+{%- endmacro %}
+
+{% if not (game_metric_list or tpm or ttm) %}
+  <div class="empty">{{ t('No storylines for this game yet.', '本场暂无数据看点。') }}</div>
+{% else %}
+
+{# ── Headline numbers ─────────────────────────────────────────────── #}
+{% if game_metric_list %}
+<div class="story-group">
+  <h3 class="sub">{{ t('Headline numbers', '本场之最') }}</h3>
+  <div class="story-hero">
+    {% for m in game_metric_list[:4] %}
+      {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or m.narrative_en or m.narrative_zh %}
+      <a class="story-card" href="{{ url_for('metric_detail', metric_key=m.metric_key) }}" {% if m.team_id %}style="--tc: {{ team_color(m.team_id) }}"{% endif %}>
+        <span class="kicker">{% if m.is_hero %}<span class="flame">★ </span>{% endif %}{{ mname(m) }}</span>
+        <span class="story-card__val big-num">{{ mval(m) }}</span>
+        <span class="story-card__title">{{ narrative or (m.value_str if m.value_str and m.value_str|length > 9 else (m.context_label or '')) }}</span>
+        <span class="story-card__meta">{{ pills(m) }}</span>
+      </a>
+    {% endfor %}
+  </div>
+  {% set more = game_metric_list[4:] + extra_game_metric_list %}
+  {% if more %}
+    <ol class="story-list" id="more-game" hidden>
+      {% for m in more %}
+        <li class="story">
+          <span class="story__mark"><span class="glyph">#{{ m.rank or '–' }}</span></span>
+          <span class="story__text">
+            <div class="story__head"><a href="{{ url_for('metric_detail', metric_key=m.metric_key) }}">{{ mname(m) }}</a></div>
+            <div class="story__sub">{% if m.context_label %}<span>{{ m.context_label }}</span>{% endif %}{{ pills(m) }}</div>
+          </span>
+          <span class="story__val">{{ mval(m) }}</span>
+        </li>
+      {% endfor %}
+    </ol>
+    <button type="button" class="btn btn--ghost btn--sm story-more" data-more="#more-game"
+      data-label-more="{{ t('Show', '显示') }} {{ more|length }} {{ t('more game metrics', '项更多比赛指标') }}"
+      data-label-less="{{ t('Show less', '收起') }}">{{ t('Show', '显示') }} {{ more|length }} {{ t('more game metrics', '项更多比赛指标') }}</button>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Player storylines ───────────────────────────────────────────── #}
+{% if tpm %}
+{% set ns = namespace(rows=tpm|dedupe_family) %}
+<div class="story-group">
+  <h3 class="sub">{{ t('Player storylines', '球员看点') }}</h3>
+  <ol class="story-list">
+    {% for m in ns.rows %}
+      {% set narrative = (m.narrative_zh if lang == 'zh' else m.narrative_en) or (m.fallback_narrative_zh if lang == 'zh' else m.fallback_narrative_en) %}
+      {% set pname = m.player_name or (m.context_json.player.name_zh if lang == 'zh' and m.context_json and m.context_json.player and m.context_json.player.name_zh else (m.context_json.player.name_en if m.context_json and m.context_json.player else '')) %}
+      <li class="story"{% if loop.index > 10 %} data-extra-player hidden{% endif %}>
+        <span class="story__mark">{{ ui.headshot(m.entity_id) }}</span>
+        <span class="story__text">
+          <div class="story__head">
+            {% if m.is_hero %}<span class="flame">★ </span>{% endif %}
+            {% if narrative %}{{ narrative }}{% else %}<a href="{{ player_url(m.entity_id) }}">{{ pname }}</a> · {{ mname(m) }}{% if m.context_label %} <span class="muted">({{ m.context_label }})</span>{% endif %}{% endif %}
+          </div>
+          <div class="story__sub">
+            <a href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}">{{ mname(m) }}</a>
+            {{ pills(m) }}
+          </div>
+        </span>
+        <span class="story__val">{{ mval(m) }}</span>
+      </li>
+    {% endfor %}
+  </ol>
+  {% if ns.rows|length > 10 %}
+    <button type="button" class="btn btn--ghost btn--sm story-more" onclick="this.parentElement.querySelectorAll('[data-extra-player]').forEach(function(e){e.hidden=false});this.remove();">{{ t('Show', '显示') }} {{ ns.rows|length - 10 }} {{ t('more', '条更多') }}</button>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Team storylines ─────────────────────────────────────────────── #}
+{% if ttm %}
+<div class="story-group">
+  <h3 class="sub">{{ t('Team storylines', '球队看点') }}</h3>
+  <ol class="story-list">
+    {% for m in (ttm|dedupe_family)[:12] %}
+      <li class="story" style="--tc: {{ team_color(m.team_id) }}">
+        <span class="story__mark"><img class="logo" src="{{ team_logo(m.team_id) }}" alt=""></span>
+        <span class="story__text">
+          <div class="story__head">
+            {% if m.is_hero %}<span class="flame">★ </span>{% endif %}
+            <b>{{ m.team_abbr }}</b> · {{ mname(m) }}{% if m.context_label %} <span class="muted">({{ m.context_label }})</span>{% endif %}
+          </div>
+          <div class="story__sub">{{ pills(m) }}</div>
+        </span>
+        <span class="story__val">{{ mval(m) }}</span>
+      </li>
+    {% endfor %}
+  </ol>
+</div>
+{% endif %}
+{% endif %}

@@ -1,0 +1,299 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ site_name }} — {{ t('NBA, in numbers', '用数字读懂 NBA') }}{% endblock %}
+{% block page_id %}home{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/home.css') }}?v=1" />{% endblock %}
+
+{% macro pname(p) -%}{{ p.name_zh if (lang == 'zh' and p.name_zh) else p.name }}{%- endmacro %}
+{% macro fmt_day(iso) -%}
+  {%- if iso -%}
+    {%- set parts = iso.split('-') -%}
+    {%- if lang == 'zh' -%}{{ parts[1]|int }}月{{ parts[2]|int }}日{%- else -%}
+      {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][parts[1]|int - 1] }} {{ parts[2]|int }}
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+{% set cover = nx.cover if nx else None %}
+{% set slate = nx.slate_games if nx else [] %}
+
+{# ═══ COVER ══════════════════════════════════════════════════════════ #}
+<section class="cover">
+  <div class="wrap cover__grid">
+    <div class="cover__text">
+      <div class="cover__dateline">
+        <span class="kicker kicker--flame">{{ t('Last night', '昨夜') }}</span>
+        <span class="kicker">{{ fmt_day(nx.slate_date) }} · {{ slate|length }} {{ t('games', '场比赛') }}</span>
+      </div>
+      {% if cover %}
+        {% set p = cover.player %}
+        <h1 class="cover__headline display">
+          {% set cover_name = (p.name_zh if lang == 'zh' and p.name_zh else cover.last_name) %}
+          <span class="cover__name" style="--len: {{ [cover_name|length, 6]|max if lang != 'zh' else [cover_name|length * 2, 6]|max }}">{{ cover_name }}</span>
+          <span class="cover__nums">{% for n in cover.headline_nums %}<span>{{ n }}</span>{% if not loop.last %}<i>/</i>{% endif %}{% endfor %}</span>
+        </h1>
+        <p class="cover__dek">{{ cover.sentence_zh if lang == 'zh' else cover.sentence_en }}</p>
+        <div class="cover__line">
+          {% for label, v in [('PTS', p.pts), ('REB', p.reb), ('AST', p.ast), ('STL', p.stl), ('BLK', p.blk)] %}
+            <div><span class="big-num">{{ v }}</span><span class="kicker">{{ label }}</span></div>
+          {% endfor %}
+          <div><span class="big-num">{{ p.fgm }}<small>/{{ p.fga }}</small></span><span class="kicker">FG</span></div>
+        </div>
+        <div class="cover__ctas">
+          <a class="btn" href="{{ url_for('game_page', slug=cover.game.slug) }}">{{ t('Full game breakdown', '查看比赛详情') }} →</a>
+          <a class="btn btn--ghost" href="{{ player_url(p.player_id) }}">{{ pname(p) }}</a>
+        </div>
+      {% else %}
+        <h1 class="cover__headline display"><span class="cover__name">{{ t('The game, in numbers', '用数字读懂比赛') }}</span></h1>
+        <p class="cover__dek">{{ t('Box scores, game flow, records and 1,600+ custom metrics for every NBA game.', '每场 NBA 比赛的技术统计、比分走势、纪录与 1600+ 自定义指标。') }}</p>
+      {% endif %}
+    </div>
+
+    {% if cover %}
+    {% set tc = team_color(cover.team_id) %}
+    <a class="cover__art" href="{{ player_url(cover.player.player_id) }}" style="--tc: {{ tc }}; --tc2: {{ team_color(cover.team_id, 1) }};">
+      <span class="cover__bignum" aria-hidden="true">{{ cover.player.pts }}</span>
+      <img class="cover__shot" src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ cover.player.player_id }}.png" alt="{{ pname(cover.player) }}" onerror="this.style.display='none'">
+      <span class="cover__tag">
+        <img src="{{ team_logo(cover.team_id) }}" alt="">
+        <span>
+          <b>{{ team_info(cover.team_id).abbr }} {{ cover.own_score }}</b>–{{ cover.opp_score }} {{ team_info(cover.opp_id).abbr }}
+          <em>{{ t('Final', '终场') }}{% if cover.game.ot %} / OT{% endif %}</em>
+        </span>
+      </span>
+    </a>
+    {% endif %}
+  </div>
+</section>
+
+<div class="wrap">
+
+{# ═══ RESULTS ════════════════════════════════════════════════════════ #}
+{% if slate %}
+<section class="section">
+  {% call ui.sec_head(t('Results', '赛果'), t('How every game unfolded', '每场比赛的走势')) %}
+    <a class="btn btn--ghost btn--sm" href="{{ url_for('games_list') }}">{{ t('All games', '全部比赛') }} →</a>
+  {% endcall %}
+  <div class="results">
+    {% for gm in slate %}
+      {% set road = team_info(gm.road_id) %}{% set home = team_info(gm.home_id) %}
+      {% set margin = (gm.home_score or 0) - (gm.road_score or 0) %}
+      <a class="result rv{% if loop.first %} result--feature{% endif %}" href="{{ url_for('game_page', slug=gm.slug) }}" style="--road: {{ gm.road_color }}; --home: {{ gm.home_color }}; transition-delay: {{ loop.index0 * 40 }}ms">
+        <div class="result__tags">
+          {% if loop.first %}<span class="chip chip--flame">{{ t('Game of the night', '今夜最佳') }}</span>{% endif %}
+          {% if margin|abs <= 3 %}<span class="chip">{{ t('Thriller', '惊险') }}</span>{% endif %}
+          {% if gm.ot %}<span class="chip chip--solid">{{ 'OT' if gm.ot == 1 else gm.ot ~ 'OT' }}</span>{% endif %}
+          {% if gm.flow.lead_changes and gm.flow.lead_changes >= 10 %}<span class="chip">{{ gm.flow.lead_changes }} {{ t('lead changes', '次易主') }}</span>{% endif %}
+          {% set loser_max = gm.flow.largest_lead.road if gm.winner == gm.home_id else gm.flow.largest_lead.home %}
+          {% if gm.flow.largest_lead and loser_max and loser_max >= 12 %}<span class="chip">{{ t('Comeback', '逆转') }} · {{ loser_max }}</span>{% endif %}
+        </div>
+        <div class="result__teams">
+          {% for side, tm, tid, score in [('road', road, gm.road_id, gm.road_score), ('home', home, gm.home_id, gm.home_score)] %}
+            <div class="result__row{% if gm.winner and gm.winner != tid %} is-loser{% endif %}">
+              <img src="{{ team_logo(tid) }}" alt="" loading="lazy">
+              <span class="result__abbr">{{ tm.abbr }}</span>
+              <span class="result__nick">{{ (tm.name_zh if lang == 'zh' and tm.name_zh else tm.nick) }}</span>
+              <span class="result__score big-num">{{ score }}</span>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="spark" data-spark='{{ gm.series|tojson }}' data-home="{{ gm.home_color }}" data-road="{{ gm.road_color }}"></div>
+        <div class="result__tops">
+          {% for p in gm.top %}
+            <span class="result__top" style="--tc: {{ team_color(p.team_id) }}">
+              {{ ui.headshot(p.player_id, 'sm', p.team_id) }}
+              <span><b>{{ pname(p) }}</b><em class="mono">{{ p.pts }}p {{ p.reb }}r {{ p.ast }}a</em></span>
+            </span>
+          {% endfor %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ═══ TONIGHT ════════════════════════════════════════════════════════ #}
+{% set tonight = (today_games or [])|rejectattr('status', 'equalto', 'completed')|list %}
+{% if tonight %}
+<section class="section">
+  {{ ui.sec_head(t('On the slate', '今日赛程'), t('Tonight', '今晚')) }}
+  <div class="tonight">
+    {% for gm in tonight %}
+      {% set road = team_info(gm.road_team_id) %}{% set home = team_info(gm.home_team_id) %}
+      <a class="tn rv" href="{{ game_url(gm.game_id) }}" style="transition-delay: {{ loop.index0 * 30 }}ms">
+        <div class="tn__status">
+          {% if gm.status == 'live' %}<span class="tk__status is-live"><span class="live-dot"></span>{{ t('Live', '直播中') }}</span>
+          {% else %}<span class="kicker">{{ gm.tipoff_et or t('Tonight', '今晚') }}</span>{% endif %}
+          {% if gm.h2h %}<span class="kicker">{{ t('Series', '交手') }} {{ gm.h2h.road_wins }}–{{ gm.h2h.home_wins }}</span>{% endif %}
+        </div>
+        {% for tm, tid, rec, l10, rest, score in [(road, gm.road_team_id, gm.road_record, gm.road_last10, gm.road_rest, gm.road_score), (home, gm.home_team_id, gm.home_record, gm.home_last10, gm.home_rest, gm.home_score)] %}
+          <div class="tn__row" style="--tc: {{ team_color(tid) }}">
+            <img src="{{ team_logo(tid) }}" alt="" loading="lazy">
+            <span class="tn__abbr">{{ tm.abbr }}</span>
+            <span class="tn__rec mono">{% if rec %}{{ rec[0] }}–{{ rec[1] }}{% endif %}</span>
+            {% if l10 %}{{ ui.wl_dots(l10|reverse|list) }}{% endif %}
+            {% if rest and rest.is_b2b %}<span class="chip chip--flame tn__b2b">B2B</span>{% endif %}
+            {% if gm.status == 'live' %}<span class="tn__score big-num">{{ score }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ═══ RECORD BOOK + STANDOUTS ════════════════════════════════════════ #}
+<section class="section">
+  <div class="split split--wide">
+    <div>
+      {{ ui.sec_head(t('The record book', '纪录簿'), t('Milestones from last night', '昨夜里程碑')) }}
+      {% if nx.milestones %}
+      <ol class="mile">
+        {% for m in nx.milestones %}
+          <li class="mile__item rv" style="transition-delay: {{ loop.index0 * 35 }}ms">
+            <span class="mile__rank big-num">{% if m.rank %}<small>No.</small>{{ m.rank }}{% else %}★{% endif %}</span>
+            {% if m.entity_type == 'player' %}{{ ui.headshot(m.entity_id) }}{% else %}<img class="mile__logo" src="{{ team_logo(m.entity_id) }}" alt="">{% endif %}
+            <span class="mile__text">
+              <span class="mile__head">{{ m.narrative_zh if lang == 'zh' else m.narrative_en }}</span>
+              <span class="mile__sub">
+                <a href="{{ url_for('metric_detail', metric_key=m.metric_key, season=m.season) }}">{{ (m.metric_name_zh if lang == 'zh' and m.metric_name_zh else m.metric_name) }}</a>
+                {% if m.window %}<span class="chip">{{ m.window[1] if lang == 'zh' else m.window[0] }}</span>{% endif %}
+                <a class="muted" href="{{ url_for('game_page', slug=m.game_slug) }}">{{ t('Game', '比赛') }} →</a>
+              </span>
+            </span>
+            <span class="mile__val big-num">{{ m.value_str }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+        <div class="empty">{{ t('No milestones recorded for the latest slate yet.', '最近一轮比赛暂无里程碑。') }}</div>
+      {% endif %}
+    </div>
+
+    <aside>
+      {{ ui.sec_head(t('Game score', '比赛评分'), t('Best lines', '最佳表现'), small=True) }}
+      <ol class="lines">
+        {% for p in (nx.standouts or [])[:8] %}
+          <li>
+            <a href="{{ player_url(p.player_id) }}" class="lines__row" style="--tc: {{ team_color(p.team_id) }}">
+              <span class="lines__n mono">{{ loop.index }}</span>
+              {{ ui.headshot(p.player_id, '', p.team_id) }}
+              <span class="lines__who">
+                <b>{{ pname(p) }}</b>
+                <span class="mono muted">{{ p.pts }} PTS · {{ p.reb }} REB · {{ p.ast }} AST{% if p.blk >= 3 %} · {{ p.blk }} BLK{% endif %}{% if p.stl >= 3 %} · {{ p.stl }} STL{% endif %}</span>
+              </span>
+              <span class="lines__gs" data-tooltip="{{ t('Hollinger game score', 'Hollinger 比赛评分') }}">{{ '%.1f'|format(p.gmsc) }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ol>
+    </aside>
+  </div>
+</section>
+
+{# ═══ LEADERS ════════════════════════════════════════════════════════ #}
+{% if nx.leaders %}
+<section class="section">
+  {% call ui.sec_head(season_label(nx.season) if nx.season else '', t('League leaders', '数据王')) %}
+    <span class="kicker">{{ t('Per game · qualified players', '场均 · 达标球员') }}</span>
+  {% endcall %}
+  <div class="leaderboard">
+    {% for cat in nx.leaders %}
+      {% set top = cat.rows[0] if cat.rows else None %}
+      {% if top %}
+      <div class="lb rv" style="--tc: {{ team_color(top.team_id) }}; transition-delay: {{ loop.index0 * 50 }}ms">
+        <div class="lb__head">
+          <span class="kicker">{{ cat.label_zh if lang == 'zh' else cat.label_en }}</span>
+          <span class="kicker">{{ cat.abbr }}</span>
+        </div>
+        <a class="lb__top" href="{{ player_url(top.player_id) }}">
+          <span class="lb__shot"><img src="https://cdn.nba.com/headshots/nba/latest/260x190/{{ top.player_id }}.png" alt="" loading="lazy" onerror="this.remove()"></span>
+          <span class="lb__val big-num">{{ '%.1f'|format(top[cat.key]) }}</span>
+          <span class="lb__name">{{ pname(top) }}</span>
+          <span class="kicker">{{ team_info(top.team_id).abbr }} · {{ top.gp }} {{ t('GP', '场') }}</span>
+        </a>
+        <ol class="lb__rest">
+          {% for r in cat.rows[1:5] %}
+            <li><a href="{{ player_url(r.player_id) }}"><span class="mono muted">{{ loop.index + 1 }}</span><span class="lb__rname">{{ pname(r) }}</span><span class="mono muted">{{ team_info(r.team_id).abbr }}</span><b class="mono">{{ '%.1f'|format(r[cat.key]) }}</b></a></li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ═══ STANDINGS ══════════════════════════════════════════════════════ #}
+{% if east_standings or west_standings %}
+<section class="section" id="standings">
+  {% call ui.sec_head(season_label(selected_standing_season) if selected_standing_season else '', t('Standings', '排名')) %}
+    <form method="get" class="season-pick">
+      <select name="season" onchange="this.form.submit()" aria-label="{{ t('Season', '赛季') }}">
+        {% for sid in standing_season_ids[:30] %}<option value="{{ sid }}"{% if sid == selected_standing_season %} selected{% endif %}>{{ fmt_season(sid) if fmt_season else sid }}</option>{% endfor %}
+      </select>
+    </form>
+  {% endcall %}
+  <div class="standings">
+    {% for conf_name, rows in [(t('East', '东部'), east_standings), (t('West', '西部'), west_standings)] %}
+      {% set leader = rows[0] if rows else None %}
+      <div>
+        <h3 class="sub">{{ conf_name }}</h3>
+        <div class="table-scroll"><table class="dt st">
+          <thead><tr><th>#</th><th style="text-align:left">{{ t('Team', '球队') }}</th><th>W</th><th>L</th><th>PCT</th><th>GB</th></tr></thead>
+          <tbody>
+            {% for r in rows %}
+              {% set gb = ((leader.wins - r.wins) + (r.losses - leader.losses)) / 2 if leader else 0 %}
+              <tr class="{{ 'cut-playoff' if loop.index == 6 }}{{ ' cut-playin' if loop.index == 10 }}" style="--tc: {{ team_color(r.team_id) }}">
+                <td class="mono muted">{{ loop.index }}</td>
+                <td style="text-align:left">
+                  <a class="st__team" href="{{ url_for('team_page', slug=r.slug) if r.slug else '#' }}" style="--tc: {{ team_color(r.team_id) }}">
+                    <img src="{{ team_logo(r.team_id) }}" alt="" loading="lazy">
+                    <span>{{ (team_info(r.team_id).name_zh if lang == 'zh' and team_info(r.team_id).name_zh else r.full_name) }}</span>
+                  </a>
+                </td>
+                <td>{{ r.wins }}</td>
+                <td>{{ r.losses }}</td>
+                <td class="st__pct"><span class="st__bar"><i style="width: {{ (r.win_pct * 100)|round(1) }}%"></i></span>{{ ('%.3f'|format(r.win_pct))[1:] if r.win_pct < 1 else '1.000' }}</td>
+                <td class="mono muted">{{ '—' if gb == 0 else ('%g'|format(gb)) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="st__legend mono muted"><span><i class="l1"></i>{{ t('Playoff line', '季后赛线') }}</span><span><i class="l2"></i>{{ t('Play-in line', '附加赛线') }}</span></p>
+</section>
+{% endif %}
+
+{# ═══ METRICS CTA ════════════════════════════════════════════════════ #}
+<section class="section">
+  <div class="mcta">
+    <div>
+      <span class="kicker kicker--flame">{{ t('Metric lab', '指标实验室') }}</span>
+      {% set mc = metric_count() %}
+      {% if mc %}
+        <h2 class="display display-l"><span data-count="{{ mc }}">{{ mc }}</span> {{ t('ways to measure the game.', '种衡量比赛的方式。') }}</h2>
+      {% else %}
+        <h2 class="display display-l">{{ t('Every way to measure the game.', '衡量比赛的每一种方式。') }}</h2>
+      {% endif %}
+      <p class="lede">{{ t('Clutch shooting, comeback wins, 50-point nights, triple-doubles with 10+ blocks — every metric is ranked across seasons and careers. Ask for one in plain language, or build your own.', '关键时刻命中率、逆转胜、50 分之夜、10+ 盖帽的三双——每个指标都按赛季和生涯排名。用自然语言提问，或者自己创建一个。') }}</p>
+    </div>
+    <div class="mcta__actions">
+      <button class="searchbtn mcta__search" type="button" data-palette-open>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span>{{ t('“most 40-point games off the bench”', '“替补出场得 40+ 最多的球员”') }}</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a class="btn" href="{{ url_for('metrics_browse') }}">{{ t('Browse metrics', '浏览指标') }}</a>
+        <a class="btn btn--ghost" href="{{ url_for('metric_new') }}">{{ t('Create a metric', '创建指标') }}</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+{% endblock %}

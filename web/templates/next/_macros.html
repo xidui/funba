@@ -1,0 +1,42 @@
+{# Shared building blocks for the Next UI. Import with:
+   {% import "next/_macros.html" as ui with context %} #}
+
+{% macro team_badge(team_id, show_name=False, size=22, link=True, year=None) -%}
+  {%- set info = team_info(team_id) -%}
+  {%- set label = (info.name_zh if lang == 'zh' and info.name_zh else info.name) -%}
+  {%- set href = url_for('team_page', slug=info.slug) if (link and info.slug) else None -%}
+  <{{ 'a' if href else 'span' }} class="tb"{% if href %} href="{{ href }}"{% endif %} style="--tc: {{ team_color(team_id) }}">
+    <img src="{{ team_logo(team_id, year) }}" alt="" width="{{ size }}" height="{{ size }}" style="width:{{ size }}px;height:{{ size }}px" loading="lazy">
+    {%- if show_name %}<span class="tb__name">{{ label }}</span>{% else %}<span class="tb__abbr">{{ info.abbr }}</span>{% endif -%}
+  </{{ 'a' if href else 'span' }}>
+{%- endmacro %}
+
+{% macro headshot(player_id, size='', team_id=None, alt='') -%}
+  <span class="hs{% if size %} hs--{{ size }}{% endif %}{% if team_id %} hs--team{% endif %}"{% if team_id %} style="--tc: {{ team_color(team_id) }}"{% endif %}>
+    {%- if player_id %}<img src="{{ headshot_src(player_id) }}" alt="{{ alt }}" loading="lazy" onerror="this.remove()">{% endif -%}
+  </span>
+{%- endmacro %}
+
+{# rank pill: rank number + short window label #}
+{% macro rank(rank, label, total=None) -%}
+  {%- if rank -%}
+  {%- set r = rank|int -%}
+  <span class="rk{% if r == 1 %} rk--1{% elif r <= 3 %} rk--top{% endif %}"{% if total %} data-tooltip="{{ t('Rank', '排名') }} {{ r }} / {{ total }}"{% endif %}><b>#{{ r }}</b><span>{{ label }}</span></span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro sec_head(kicker, title, id=None, small=False) -%}
+  <div class="sec-head{% if small %} sec-head--sm{% endif %}"{% if id %} id="{{ id }}"{% endif %}>
+    <div class="sec-head__title">
+      {% if kicker %}<span class="kicker kicker--flame">{{ kicker }}</span>{% endif %}
+      <h2>{{ title }}</h2>
+    </div>
+    {% if caller is defined %}<div class="sec-head__aside">{{ caller() }}</div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro wl_dots(seq) -%}
+  <span class="wl">{% for r in seq %}<i class="{{ 'w' if r == 'W' else 'l' }}" title="{{ r }}"></i>{% endfor %}</span>
+{%- endmacro %}
+
+{% macro player_name(name, name_zh) -%}{{ name_zh if (lang == 'zh' and name_zh) else name }}{%- endmacro %}

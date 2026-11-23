@@ -1,0 +1,659 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% set metric_seo_description = (metric_dataset_description|default(metric_def.description, true)|striptags|replace('\n', ' ')|trim) or (metric_def.name ~ ' NBA metric rankings and leaderboards on FUNBA.') %}
+{% set _season_param = ('all_' ~ all_season_type) if show_all_seasons else selected_season %}
+{% set search_base_url = url_for('metric_detail', metric_key=metric_def.key, season=_season_param) %}
+{% set _drilldown_preview_enabled = current_access_level == 'anonymous' %}
+{% set _drilldown_login_url = url_for('auth_login', next=request.url) %}
+{% set _row_team = (nx.row_team if nx and nx.row_team else {}) %}
+{% set _has_games = metric_def.scope != 'game' and (result_rows|rejectattr('games_counted', 'none')|list|length > 0) %}
+{% set _bar_max = (nx.bar_max if nx and nx.bar_max else 0) %}
+{% set _scope_labels = {
+  'player': t('Player', '球员'), 'player_franchise': t('Player · franchise', '球员 · 队史'),
+  'team': t('Team', '球队'), 'game': t('Game', '比赛'), 'season': t('Season', '赛季'),
+} %}
+{% set _scope_vars = {'player': '--scope-player', 'player_franchise': '--scope-player', 'team': '--scope-team', 'game': '--scope-game', 'season': '--scope-season'} %}
+{% set _metric_index_statuses = ['queued', 'running', 'finalizing', 'not_started', 'draft'] %}
+{% set _cat_zh = {'scoring': '得分', 'record': '纪录', 'efficiency': '效率', 'aggregate': '累计', 'conditional': '条件', 'defense': '防守', 'playmaking': '组织', 'rebounding': '篮板', 'salary': '薪资', 'passing': '传球', 'impact': '影响力', 'shooting': '投篮'} %}
+
+{% block title %}{{ metric_def.name }} — {{ t('NBA Metric', 'NBA 指标') }} | {{ site_name }}{% endblock %}
+{% block meta_description %}{{ metric_seo_description|truncate(155, True) }}{% endblock %}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ metric_def.name }} — {{ site_name }}{% endblock %}
+{% block og_description %}{{ metric_seo_description|truncate(200, True) }}{% endblock %}
+{% block page_id %}metric{% endblock %}
+{% block head_extra %}
+  {% if request.query_string or (total is defined and total == 0) or (backfill and backfill.status in _metric_index_statuses) %}
+    <meta name="robots" content="noindex,follow" />
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='next/metrics.css') }}?v=1" />
+{% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{{ {"@context": "https://schema.org", "@type": "Dataset", "name": metric_def.name, "description": metric_seo_description, "url": canonical_url or request.url, "isAccessibleForFree": true, "creator": {"@type": "Organization", "name": "FUNBA"}}|tojson }}
+</script>
+<script type="application/ld+json">
+{{ {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+  {"@type": "ListItem", "position": 1, "name": t('Home', '首页'), "item": "https://funba.app/"},
+  {"@type": "ListItem", "position": 2, "name": t('Metrics', '指标'), "item": "https://funba.app/metrics"},
+  {"@type": "ListItem", "position": 3, "name": metric_def.name}
+]}|tojson }}
+</script>
+{% endblock %}
+
+{# ── helpers ──────────────────────────────────────────────────────────── #}
+{% macro yr(r) -%}{{ season_year(r.season_raw or current_metric_season) }}{%- endmacro %}
+{% macro clean_val(v) -%}{%- set v = (v if v is not none else '')|string -%}{{ v[:-3] if v.endswith('.00') else v }}{%- endmacro %}
+{% macro filter_btn(href, title) -%}
+  <a class="fbtn" href="{{ href }}" title="{{ title }}" aria-label="{{ title }}">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+  </a>
+{%- endmacro %}
+{% macro window_label(wt) -%}
+  {%- if wt == 'last3' -%}{{ t('Last 3 seasons', '近3个赛季') }}
+  {%- elif wt == 'last5' -%}{{ t('Last 5 seasons', '近5个赛季') }}
+  {%- elif wt == 'last10' -%}{{ t('Last 10 seasons', '近10个赛季') }}
+  {%- else -%}{{ t('Franchise history', '队史') if metric_def.scope == 'team' else t('Career', '生涯') }}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="wrap" style="--sc: var({{ _scope_vars.get(metric_def.scope, '--ink') }});">
+
+{# ═══ HERO ═══════════════════════════════════════════════════════════ #}
+<header class="mdhero">
+  <a class="mdback kicker" href="{{ url_for('metrics_browse') }}">← {{ t('Metric library', '指标库') }}</a>
+  <div class="mdhero__grid">
+    <div>
+      <div class="mdhero__chips">
+        <span class="chip scope-dot">{{ _scope_labels.get(metric_def.scope, metric_def.scope) }}</span>
+        {% if metric_def.category %}<span class="chip">{{ _cat_zh.get(metric_def.category) if lang == 'zh' and _cat_zh.get(metric_def.category) else metric_def.category|replace('_', ' ') }}</span>{% endif %}
+        {% if is_career_metric %}<span class="chip chip--solid">{{ window_label(current_window_type) }}</span>{% endif %}
+        {% if metric_def.sample_note %}<span class="chip chip--gold" title="{{ metric_def.sample_note }}">{{ metric_def.sample_note }}</span>{% endif %}
+        {% if metric_def.status == 'disabled' %}<span class="chip chip--flame">{{ t('Disabled', '已停用') }}</span>{% endif %}
+      </div>
+      <h1 class="display">{{ metric_def.name }}</h1>
+      {% if metric_def.description %}<p class="lede mdhero__desc">{{ metric_def.description }}</p>{% endif %}
+      {% if metric_def.eligibility_note %}
+        <div class="mdhero__note"><span class="kicker kicker--flame">{{ t('Qualifier', '资格线') }}</span><span>{{ metric_def.eligibility_note }}</span></div>
+      {% endif %}
+    </div>
+    <div class="mdhero__actions">
+      <span class="status-dot is-{{ backfill.status }}" id="metric-status-pill">{{ t('Live', '实时') if backfill.status == 'complete' else backfill.status|replace('_', ' ') }}</span>
+      {% if backfill.latest_run_at %}<span class="mono">{{ t('Updated', '更新于') }} {{ backfill.latest_run_at }}</span>{% endif %}
+      <span style="display:flex;gap:8px;flex-wrap:wrap;">
+        {% if can_create_metrics %}
+          <a class="btn btn--ghost btn--sm" href="{{ url_for('metric_edit', metric_key=metric_def.key) }}">✎ {{ t('Edit', '编辑') }}</a>
+        {% elif metric_create_required_level == 'admin' %}
+          <span class="btn btn--ghost btn--sm" style="opacity:.5;cursor:default;">{{ t('Admin only', '仅管理员') }}</span>
+        {% else %}
+          <a class="btn btn--ghost btn--sm" href="{{ url_for('auth_login', next=request.url) if current_access_level == 'anonymous' else url_for('pricing') }}">{% if current_access_level == 'anonymous' %}{{ t('Sign in to edit', '登录后编辑') }}{% else %}{{ t('Edit', '编辑') }} · PRO{% endif %}</a>
+        {% endif %}
+        {% if is_admin %}<a class="btn btn--ghost btn--sm" href="{{ ui_switch_url('classic') }}">{{ t('Admin tools', '管理工具') }} ↗</a>{% endif %}
+      </span>
+    </div>
+  </div>
+
+  {# window tabs + season picker #}
+  <div class="mdcontrols">
+    <div class="mdcontrols__left">
+      {% if window_tabs and window_tabs|length > 1 %}
+        <nav class="seg" aria-label="{{ t('Time window', '时间窗口') }}">
+          {% for tab in window_tabs %}
+            <a href="{{ url_for('metric_detail', metric_key=tab.metric_key) }}" class="{{ 'is-on' if tab.is_current }}">{{ tab.label }}</a>
+          {% endfor %}
+        </nav>
+      {% endif %}
+    </div>
+    {% if season_groups %}
+    {% set active_type = all_season_type if show_all_seasons else (selected_season[0] if selected_season and selected_season|length == 5 else season_groups[0].type_code) %}
+    <details class="picker" id="season-picker">
+      <summary>
+        <span class="kicker">{{ t('View', '范围') }}</span>
+        <span>{{ season_label }}</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </summary>
+      <div class="picker__panel">
+        {% if not is_career_metric %}
+          {% if season_groups|length > 1 %}
+          <div class="seg" data-tabs="seasons" role="tablist">
+            {% for group in season_groups %}
+              <button type="button" data-tab="{{ group.type_code }}" class="{{ 'is-on' if group.type_code == active_type }}">{{ group.type_name }}</button>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% for group in season_groups %}
+          <div class="picker__grid" data-panel-of="seasons" data-panel="{{ group.type_code }}" {% if group.type_code != active_type %}hidden{% endif %}>
+            {% if group.all_value %}
+            <a class="picker__all{% if show_all_seasons and all_season_type == group.type_code %} is-on{% endif %}" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=group.all_value) }}">{{ t('All', '全部') }} {{ group.type_name_plural }}</a>
+            {% endif %}
+            {% for s in group.seasons %}
+              <a class="{{ 'is-on' if (not show_all_seasons and s == selected_season) }}" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s) }}">{{ fmt_season_short(s) }}</a>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="picker__grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+            {% for group in season_groups %}{% for s in group.seasons %}
+              <a class="{{ 'is-on' if s.value == selected_season }}" href="{{ url_for('metric_detail', metric_key=metric_def.key, season=s.value) }}">{{ s.label }}</a>
+            {% endfor %}{% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</header>
+
+{# ═══ BACKFILL PROGRESS ══════════════════════════════════════════════ #}
+<div id="backfill-panel" class="mdbackfill" data-status="{{ backfill.status }}"
+     data-status-url="{{ url_for('api_metric_backfill_status', metric_key=metric_def.key) }}"
+     {% if backfill.status not in ['running', 'queued', 'finalizing'] %}hidden{% endif %}>
+  <div class="mdbackfill__row"><span>{{ t('Computing metric results…', '正在计算指标结果…') }}</span><span id="backfill-overall-pct" class="mono flame">{{ backfill.overall_pct|round(0)|int }}%</span></div>
+  <div class="meter"><i id="backfill-overall-fill" style="width: {{ backfill.overall_pct }}%"></i></div>
+</div>
+
+{# ═══ ACTIVE FILTERS ════════════════════════════════════════════════ #}
+{% if entity_filter_id or sub_key_filter %}
+<div class="mdfilters">
+  <span class="kicker">{{ t('Filtered to', '筛选') }}</span>
+  {% if entity_filter_id %}
+    <span class="chip chip--solid">{{ entity_filter_label }}<a href="{{ search_base_url }}{% if sub_key_filter %}&amp;sub_key={{ sub_key_filter|urlencode }}{% endif %}" title="{{ t('Clear', '清除') }}">✕</a></span>
+  {% endif %}
+  {% if sub_key_filter %}
+    <span class="chip chip--solid">vs {{ sub_key_filter_info.label if sub_key_filter_info else sub_key_filter }}<a href="{{ search_base_url }}{% if entity_filter_id %}&amp;entity={{ entity_filter_id|urlencode }}{% endif %}" title="{{ t('Clear', '清除') }}">✕</a></span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if result_rows %}
+
+{# ═══ PODIUM ════════════════════════════════════════════════════════ #}
+{% if nx and nx.show_podium %}
+<section class="podium" aria-label="{{ t('Top three', '前三名') }}">
+  {% for idx in [1, 0, 2] %}
+    {% set r = result_rows[idx] %}
+    {% set pos = ['first', 'second', 'third'][idx] %}
+    {% set tid = _row_team.get(idx) %}
+    {% set pid = r.entity_id.split(':')[0] if r.entity_id else '' %}
+    <div class="pod pod--{{ pos }} rv" {% if tid %}style="--tc: {{ team_color(tid) }}"{% endif %}>
+      <div class="pod__media">
+        {% if tid %}<span class="pod__halo"></span>{% endif %}
+        {% if r.entity_type in ('player', 'player_franchise') %}
+          <img class="pod__shot" src="https://cdn.nba.com/headshots/nba/latest/1040x760/{{ pid }}.png" alt="{{ r.entity_label }}" onerror="this.closest('.pod').classList.add('no-shot');this.remove()">
+          <span class="pod__mono" aria-hidden="true">{% for w in (r.entity_label or '?').split()[:2] %}{{ w[:1]|upper }}{% endfor %}</span>
+        {% elif r.entity_type == 'team' %}
+          <img class="pod__logo" src="{{ team_logo(r.entity_id, yr(r)) }}" alt="{{ r.entity_label }}" loading="lazy">
+        {% elif r.entity_type == 'game' %}
+          <span class="pod__logos">
+            {% if r.road_team_id %}<img src="{{ team_logo(r.road_team_id, yr(r)) }}" alt="">{% endif %}
+            <span>@</span>
+            {% if r.home_team_id %}<img src="{{ team_logo(r.home_team_id, yr(r)) }}" alt="">{% endif %}
+          </span>
+        {% else %}
+          <span class="pod__season">{{ fmt_season_short(r.season_raw) if r.season_raw else r.entity_label }}</span>
+        {% endif %}
+      </div>
+      <div class="pod__base">
+        <span class="pod__rank">#{{ r.rank }}{% if r.total %} / {{ r.total }}{% endif %}</span>
+        {% if r.entity_type in ('player', 'player_franchise') %}
+          <a class="pod__name" href="{{ player_url(pid) }}">{{ r.entity_label }}</a>
+        {% elif r.entity_type == 'team' %}
+          <a class="pod__name" href="{{ team_url(r.entity_id) or '#' }}">{{ r.entity_label }}</a>
+        {% elif r.entity_type == 'game' %}
+          <a class="pod__name" href="{{ game_url(r.entity_id.split(':')[0]) }}">{{ (team_abbr_for_year(r.road_team_id, yr(r)) if r.road_team_id else r.road_abbr) }} @ {{ (team_abbr_for_year(r.home_team_id, yr(r)) if r.home_team_id else r.home_abbr) }}</a>
+        {% else %}
+          <span class="pod__name">{{ r.entity_label }}</span>
+        {% endif %}
+        <span class="pod__val big-num">{{ clean_val(r.value_str or r.value_num) }}</span>
+        <span class="pod__ctx">{{ r.context_label or r.game_date_str or (r.season if show_all_seasons else '') or '' }}</span>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ═══ TOOLBAR ═══════════════════════════════════════════════════════ #}
+<div class="mdtoolbar">
+  <form class="mdfind" id="mdetail-search-form" method="get" action="{{ url_for('metric_detail', metric_key=metric_def.key) }}" autocomplete="off">
+    <input type="hidden" name="season" value="{{ _season_param }}">
+    {% if sort_by %}<input type="hidden" name="sort" value="{{ sort_by }}">{% endif %}
+    <label class="mdfind__box">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="mdetail-search-input" type="search" name="q" value="{{ search_q }}"
+             placeholder="{{ t('Find a player…', '搜索球员…') if is_player_scope else (t('Find a team…', '搜索球队…') if metric_def.scope == 'team' else t('Search this board…', '搜索榜单…')) }}"
+             data-hints="{{ '1' if is_player_scope else '' }}">
+      {% if search_q %}<a class="mdfind__clear" href="{{ search_base_url }}">✕ {{ t('Clear', '清除') }}</a>{% endif %}
+    </label>
+    <div class="mdfind__drop" id="mdetail-search-dropdown" hidden></div>
+  </form>
+  <div class="mdtoggles">
+    {% if is_season_scope %}
+      <nav class="seg" aria-label="{{ t('Sort', '排序') }}">
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param) }}" class="{{ 'is-on' if sort_by != 'season' }}">{{ t('By value', '按数值') }}</a>
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sort='season') }}" class="{{ 'is-on' if sort_by == 'season' }}">{{ t('By season', '按赛季') }}</a>
+      </nav>
+    {% endif %}
+    {% if is_player_scope %}
+      <nav class="seg" aria-label="{{ t('Players', '球员') }}">
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, expand='1' if expand else none, sort=sort_by if sort_by else none) }}" class="{{ 'is-on' if not active_only }}">{{ t('All players', '全部球员') }}</a>
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1', expand='1' if expand else none, sort=sort_by if sort_by else none) }}" class="{{ 'is-on' if active_only }}"><span class="active-dot" style="margin-right:6px;vertical-align:1px;"></span>{{ t('Active', '现役') }}</a>
+      </nav>
+    {% endif %}
+    {% if has_sub_keys %}
+      <nav class="seg" aria-label="{{ t('Entries', '条目') }}">
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1' if active_only else none, sort=sort_by if sort_by else none) }}" class="{{ 'is-on' if not expand }}">{{ t('Best per player', '每人最佳') }}</a>
+        <a href="{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, active='1' if active_only else none, expand='1', sort=sort_by if sort_by else none) }}" class="{{ 'is-on' if expand }}">{{ t('All entries', '全部条目') }}</a>
+      </nav>
+    {% endif %}
+  </div>
+</div>
+
+{% if total > 0 and total < 10 and not search_q and not entity_filter_id and not sub_key_filter %}
+<div class="mdnotice">{{ t('Limited data for this view — only %d result%s found. Try a wider time window or a different season type.' % (total, '' if total == 1 else 's'), '此视图数据较少——仅 %d 条结果。可尝试更宽的时间窗或其他赛季类型。' % total) }}</div>
+{% endif %}
+
+<div class="mdmeta">
+  {% if search_q %}
+    {{ total }} {{ t('result' if total == 1 else 'results', '条结果') }} {{ t('for', '匹配') }} “{{ search_q }}” · {{ season_label }}
+  {% else %}
+    {% set first = (page - 1) * page_size + 1 %}{% set last = [(page - 1) * page_size + result_rows|length, total]|min %}
+    {{ t('Showing', '显示') }} {{ first }}–{{ last }} {{ t('of', '/ 共') }} {{ total }} · {{ season_label }}
+  {% endif %}
+</div>
+{% if has_sub_keys %}
+  <div class="mdhint">{{ t('Showing every entry — the same player can appear more than once. Faded rows repeat the player above.', '显示全部条目——同一球员可能出现多次，淡色行与上方球员相同。') if expand else t('Each player shows their best entry. Switch to “All entries” to see every split.', '每位球员仅显示最佳条目。切换到「全部条目」查看所有切片。') }}</div>
+{% endif %}
+
+{# ═══ LEADERBOARD ═══════════════════════════════════════════════════ #}
+<div class="table-scroll">
+<table class="dt lb">
+  <thead>
+    <tr>
+      <th class="c-rank">#</th>
+      <th class="c-ent">{{ _scope_labels.get(metric_def.scope, metric_def.scope) }}</th>
+      {% if show_rank_group %}<th class="c-group">{{ t('Group', '分组') }}</th>{% endif %}
+      {% if has_sub_keys %}<th class="c-sub" style="text-align:left;">{{ metric_def.sub_key_label_zh if lang == 'zh' and metric_def.sub_key_label_zh else (metric_def.sub_key_label or t('Entry', '条目')) }}</th>{% endif %}
+      {% if show_all_seasons and not is_season_scope %}<th class="c-season">{{ t('Season', '赛季') }}</th>{% endif %}
+      <th class="c-val">{{ t('Value', '数值') }}</th>
+      {% if _has_games %}<th class="c-games">{{ t('Games', '场次') }}</th>{% endif %}
+      <th class="c-stand">{{ t('Standing', '排名') }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% set ns = namespace(prev_entity=None) %}
+    {% for r in result_rows %}
+    {% set i = loop.index0 %}
+    {% set tid = _row_team.get(i) %}
+    {% set is_repeat = has_sub_keys and expand and r.entity_id == ns.prev_entity %}
+    {% set width = ((r.value_num|abs) / _bar_max * 100) if (r.value_num is not none and _bar_max) else 0 %}
+    {% set _games_meta = r.games_meta or [] %}
+    <tr class="{{ 'is-top' if r.rank <= 3 }}{{ ' is-first' if r.rank == 1 }}{{ ' is-repeat' if is_repeat }}{{ ' is-ongoing' if (is_season_scope and current_metric_season and r.season_raw == current_metric_season) }}" {% if tid %}style="--tc: {{ team_color(tid) }}"{% endif %}>
+      <td class="c-rank"><span class="rnk">{{ r.rank }}</span></td>
+      <td class="c-ent">
+        <div class="ent">
+          {% if r.entity_type in ('player', 'player_franchise') %}
+            {% set pid = r.entity_id.split(':')[0] %}
+            {{ ui.headshot(pid, '', tid) }}
+            <span class="ent__body">
+              <span class="ent__name">
+                <a href="{{ player_url(pid) }}">{{ r.entity_label }}</a>
+                {% if r.is_active %}<span class="active-dot" title="{{ t('Active player', '现役球员') }}"></span>{% endif %}
+                {% if tid %}<span class="ent__team"><img src="{{ team_logo(tid, yr(r)) }}" alt="" loading="lazy">{{ team_abbr_for_year(tid, yr(r)) }}</span>{% endif %}
+                {% if has_sub_keys %}{{ filter_btn(url_for('metric_detail', metric_key=metric_def.key, season=_season_param, entity=r.entity_id), t('Only ' ~ r.entity_label, '只看 ' ~ r.entity_label)) }}{% endif %}
+              </span>
+              {% if r.notable_reason %}<span class="ent__why{{ ' is-notable' if (r.is_notable and r.rank <= 3) }}">{{ r.notable_reason }}</span>{% endif %}
+            </span>
+          {% elif r.entity_type == 'team' %}
+            <img class="ent__logo" src="{{ team_logo(r.entity_id, yr(r)) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+            <span class="ent__body">
+              <span class="ent__name">
+                <a href="{{ team_url(r.entity_id) or '#' }}">{{ r.entity_label }}</a>
+                {% if has_sub_keys %}{{ filter_btn(url_for('metric_detail', metric_key=metric_def.key, season=_season_param, entity=r.entity_id), t('Only ' ~ r.entity_label, '只看 ' ~ r.entity_label)) }}{% endif %}
+              </span>
+              {% if r.notable_reason %}<span class="ent__why{{ ' is-notable' if (r.is_notable and r.rank <= 3) }}">{{ r.notable_reason }}</span>{% endif %}
+            </span>
+          {% elif r.entity_type == 'game' %}
+            {% set _eid_parts = r.entity_id.split(':') %}
+            {% set subject_team_id = _eid_parts[1] if _eid_parts|length > 1 else None %}
+            {% set road_txt = team_abbr_for_year(r.road_team_id, yr(r)) if r.road_team_id else (r.road_abbr or '') %}
+            {% set home_txt = team_abbr_for_year(r.home_team_id, yr(r)) if r.home_team_id else (r.home_abbr or '') %}
+            <span class="ent__logos">
+              {% if r.road_team_id %}<img src="{{ team_logo(r.road_team_id, yr(r)) }}" alt="" loading="lazy">{% endif %}
+              {% if r.home_team_id %}<img src="{{ team_logo(r.home_team_id, yr(r)) }}" alt="" loading="lazy">{% endif %}
+            </span>
+            <span class="ent__body">
+              <span class="ent__name">
+                <a href="{{ game_url(_eid_parts[0]) }}">
+                  {% if subject_team_id %}
+                    <span class="{{ 'subj' if subject_team_id == (r.road_team_id|string) else 'other' }}">{{ road_txt }}</span> @ <span class="{{ 'subj' if subject_team_id == (r.home_team_id|string) else 'other' }}">{{ home_txt }}</span>
+                  {% else %}{{ road_txt }} @ {{ home_txt }}{% endif %}
+                </a>
+                {% if r.game_date_str %}<span class="ent__team">{{ r.game_date_str }}</span>{% endif %}
+              </span>
+              {% if r.notable_reason %}<span class="ent__why{{ ' is-notable' if (r.is_notable and r.rank <= 3) }}">{{ r.notable_reason }}</span>{% endif %}
+            </span>
+          {% elif r.entity_type == 'season' %}
+            <span class="ent__body">
+              <span class="ent__name">{{ r.entity_label }}{% if is_season_scope and current_metric_season and r.season_raw == current_metric_season %} <span class="chip chip--flame">{{ t('Ongoing', '进行中') }}</span>{% endif %}</span>
+              {% if r.notable_reason %}<span class="ent__why{{ ' is-notable' if (r.is_notable and r.rank <= 3) }}">{{ r.notable_reason }}</span>{% endif %}
+            </span>
+          {% else %}
+            <span class="ent__body"><span class="ent__name">{{ r.entity_label }}</span></span>
+          {% endif %}
+        </div>
+      </td>
+      {% if show_rank_group %}<td class="c-group">{{ r.rank_group_label or t('All', '全部') }}</td>{% endif %}
+      {% if has_sub_keys %}
+      <td class="c-sub">
+        <span class="subk">
+        {% if r.sub_key_info and r.sub_key_info.team_id %}
+          <a href="{{ team_url(r.sub_key_info.team_id) or '#' }}" class="subk"><img src="{{ team_logo(r.sub_key_info.team_id, yr(r)) }}" alt="" loading="lazy">{{ r.sub_key_info.abbr or r.sub_key_info.label }}</a>
+          {{ filter_btn(url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sub_key=r.sub_key), t('Everyone vs ' ~ (r.sub_key_info.abbr or r.sub_key_info.label), '所有人 vs ' ~ (r.sub_key_info.abbr or r.sub_key_info.label))) }}
+        {% elif r.sub_key_info and r.sub_key_info.player_id %}
+          <a href="{{ player_url(r.sub_key_info.player_id) }}">{{ r.sub_key_info.label }}</a>
+          {{ filter_btn(url_for('metric_detail', metric_key=metric_def.key, season=_season_param, sub_key=r.sub_key), t('Filter to this split', '只看此切片')) }}
+        {% elif r.sub_key_info and r.sub_key_info.type == 'game' %}
+          <a href="{{ game_url(r.sub_key_info.game_id) }}" class="subk">
+            {% if r.sub_key_info.road_team_id %}<img src="{{ team_logo(r.sub_key_info.road_team_id, season_year(r.sub_key_info.season or current_metric_season)) }}" alt="">{% endif %}{{ r.sub_key_info.road_abbr or '?' }} @
+            {% if r.sub_key_info.home_team_id %}<img src="{{ team_logo(r.sub_key_info.home_team_id, season_year(r.sub_key_info.season or current_metric_season)) }}" alt="">{% endif %}{{ r.sub_key_info.home_abbr or '?' }}
+            {% if r.sub_key_info.game_date_str %}<span class="mono muted" style="font-size:11px;">{{ r.sub_key_info.game_date_str }}</span>{% endif %}
+          </a>
+        {% else %}{{ r.sub_key or '—' }}{% endif %}
+        </span>
+      </td>
+      {% endif %}
+      {% if show_all_seasons and not is_season_scope %}<td class="c-season">{{ fmt_season_short(r.season_raw) if r.season_raw and r.season_raw|length == 5 else r.season }}</td>{% endif %}
+      <td class="c-val">
+        <div class="vbar">
+          <span class="vbar__track">{% if width %}<i class="vbar__fill" style="width: {{ [width, 1.5]|max|round(1) }}%; animation-delay: {{ [loop.index0 * 18, 600]|min }}ms"></i>{% endif %}</span>
+          <span class="vbar__v">
+            {% set shown = clean_val(r.value_str or r.value_num) %}
+            {% if metric_def.sub_key_type == 'game_id' and r.sub_key_info and r.sub_key_info.game_id %}
+              <a href="{{ game_url(r.sub_key_info.game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ shown }}</a>
+            {% elif _games_meta|length == 1 %}
+              <a href="{{ game_url(_games_meta[0].game_id) }}" title="{{ t('Open game', '查看比赛') }}">{{ shown }}</a>
+            {% elif _games_meta|length > 1 %}
+              <button type="button" class="js-split" data-idx="{{ loop.index }}" title="{{ r.qual_total }} {{ t('games — click to expand', '场比赛 — 点击展开') }}">{{ shown }}<sup>{{ r.qual_total }}</sup></button>
+            {% elif has_drilldown and r.value_num is not none %}
+              <button type="button" class="js-dd" data-idx="{{ loop.index }}" data-entity-id="{{ r.entity_id }}" data-season="{{ r.season_raw }}" title="{{ t('Show qualifying games', '查看符合条件的比赛') }}">{{ shown }}</button>
+            {% else %}{{ shown }}{% endif %}
+          </span>
+          {% if r.context_label %}<span class="vbar__ctx">{{ r.context_label }}</span>{% endif %}
+        </div>
+      </td>
+      {% if _has_games %}<td class="c-games">{{ r.games_counted if r.games_counted is not none else '—' }}</td>{% endif %}
+      <td class="c-stand{{ ' is-notable' if (r.is_notable and r.rank <= 3) }}">{% if r.value_num is not none %}{{ ordinal(r.rank) if lang != 'zh' else ('第' ~ r.rank) }} / {{ r.total }}{% else %}—{% endif %}</td>
+    </tr>
+
+    {% if _games_meta|length > 1 %}
+    <tr class="dd-row" id="split-{{ loop.index }}" data-nosort hidden>
+      <td colspan="99">
+        <div class="dd">
+          <div class="dd__title"><b>{{ r.entity_label }}</b>
+            {% if r.sub_key_info and r.sub_key_info.team_id %}<span>vs</span><img src="{{ team_logo(r.sub_key_info.team_id, yr(r)) }}" alt="" style="width:16px;height:16px;"><b>{{ r.sub_key_info.abbr or r.sub_key_info.label }}</b>{% endif %}
+            <span>· {{ clean_val(r.value_str or r.value_num) }} · {{ r.qual_total }} {{ t('games', '场') }}</span>
+          </div>
+          <div class="{{ 'dd__lock' if _drilldown_preview_enabled }}">
+            <table class="dd__table">
+              <thead><tr><th>{{ t('Date', '日期') }}</th><th>{{ t('Matchup', '对阵') }}</th><th style="text-align:right;">{{ t('Result', '结果') }}</th></tr></thead>
+              <tbody>
+              {% for gm in _games_meta[:500] %}
+                {% set _opp_id = r.sub_key if r.sub_key else '' %}
+                {% set _opp_is_home = gm.home_team_id == _opp_id %}
+                {% set _ps = gm.road_score if _opp_is_home else gm.home_score %}
+                {% set _os = gm.home_score if _opp_is_home else gm.road_score %}
+                {% set _has = _ps is not none and _os is not none %}
+                <tr class="js-split-row" data-href="{{ game_url(gm.game_id) }}">
+                  <td class="mono">{{ gm.date or '—' }}</td>
+                  <td>{{ '@' if _opp_is_home else 'vs' }} {% if _opp_id %}<img src="{{ team_logo(_opp_id, yr(r)) }}" alt=""> {{ r.sub_key_info.abbr if r.sub_key_info else _opp_id }}{% endif %}</td>
+                  <td style="text-align:right;">{% if _has %}<span class="{{ 'wl-w' if _ps > _os else 'wl-l' }}">{{ t('W', '胜') if _ps > _os else t('L', '负') }}</span> <span class="mono">{{ _ps }}–{{ _os }}</span>{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+            {% if _drilldown_preview_enabled %}
+            <div class="dd__cta">
+              <b>{{ t('See all', '查看全部') }} {{ _games_meta|length }} {{ t('games', '场比赛') }}</b>
+              <p>{{ t('Sign in or create an account to unlock the full drill-down game list.', '登录或注册账号即可解锁完整的比赛下钻列表。') }}</p>
+              <a class="btn btn--sm btn--flame" href="{{ _drilldown_login_url }}">{{ t('Sign in / Register', '登录 / 注册') }}</a>
+              <span class="meta">{{ t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') }}</span>
+            </div>
+            {% endif %}
+          </div>
+          {% if _games_meta|length > 20 and not _drilldown_preview_enabled %}
+          <div class="dd__pager js-split-pager"><button type="button" data-dir="-1">‹</button><span class="js-split-ind"></span><button type="button" data-dir="1">›</button></div>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% elif has_drilldown %}
+    <tr class="dd-row" id="dd-{{ loop.index }}" data-nosort hidden><td colspan="99"><div class="dd js-dd-panel"><div class="mdmeta">{{ t('Loading games…', '正在加载比赛…') }}</div></div></td></tr>
+    {% endif %}
+    {% set ns.prev_entity = r.entity_id %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{# ═══ PAGINATION ════════════════════════════════════════════════════ #}
+{% if total_pages > 1 and not search_q %}
+{% macro page_url(p) %}{{ url_for('metric_detail', metric_key=metric_def.key, season=_season_param, page=p, active='1' if active_only else none, expand='1' if expand else none, sort=sort_by if sort_by else none, entity=entity_filter_id or none, sub_key=sub_key_filter or none) }}{% endmacro %}
+<nav class="pager" aria-label="{{ t('Pages', '分页') }}">
+  <a class="{{ 'is-off' if page == 1 }}" href="{{ page_url(page - 1) }}" aria-label="{{ t('Previous', '上一页') }}">←</a>
+  {% set window = 2 %}
+  {% set pns = namespace(prev_shown=0) %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == 1 or p == total_pages or (p >= page - window and p <= page + window) %}
+      {% if pns.prev_shown > 0 and p > pns.prev_shown + 1 %}<span>…</span>{% endif %}
+      <a class="{{ 'is-on' if p == page }}" href="{{ page_url(p) }}">{{ p }}</a>
+      {% set pns.prev_shown = p %}
+    {% endif %}
+  {% endfor %}
+  <a class="{{ 'is-off' if page == total_pages }}" href="{{ page_url(page + 1) }}" aria-label="{{ t('Next', '下一页') }}">→</a>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="mdempty">
+  {% if search_q %}
+    <div class="display">{{ t('No match', '没有结果') }}</div>
+    <p>{{ t('Nothing on this board matches', '榜单中没有匹配') }} “{{ search_q }}”. <a class="flame" href="{{ search_base_url }}">{{ t('Clear search', '清除搜索') }}</a></p>
+  {% else %}
+    <div class="display">{{ t('Board is empty', '榜单为空') }}</div>
+    <p>{{ t('Results appear after the nightly job computes recent games.', '每晚任务计算最近比赛后会出现结果。') }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ═══ RELATED ═══════════════════════════════════════════════════════ #}
+{% if related_metrics %}
+<section class="mdrelated">
+  {% call ui.sec_head(t('Keep exploring', '继续探索'), t('In the same family', '同类指标'), small=True) %}
+    {% if related_metrics|length > 12 %}<button type="button" class="btn btn--ghost btn--sm" id="related-more">+{{ related_metrics|length - 12 }} {{ t('more', '更多') }}</button>{% endif %}
+  {% endcall %}
+  <div class="mdrel">
+    {% for rm in related_metrics %}
+      <a href="{{ url_for('metric_detail', metric_key=rm.metric_key) }}" class="{{ 'is-hidden' if loop.index > 12 }}">{{ rm.label }}</a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX, esc = FX.esc;
+  var metricKey = {{ metric_def.key|tojson }};
+  var previewOnly = {{ _drilldown_preview_enabled|tojson }};
+  var loginUrl = {{ _drilldown_login_url|tojson }};
+  var gameBase = {{ url_for('game_page', slug='__SLUG__')|tojson }};
+
+  /* close season picker on outside click */
+  var picker = document.getElementById('season-picker');
+  if (picker) document.addEventListener('click', function (e) { if (picker.open && !picker.contains(e.target)) picker.open = false; });
+
+  /* related "more" */
+  var more = document.getElementById('related-more');
+  if (more) more.addEventListener('click', function () { FX.$$('.mdrel a.is-hidden').forEach(function (a) { a.classList.remove('is-hidden'); }); more.remove(); });
+
+  /* player hints for the in-board search */
+  (function () {
+    var input = document.getElementById('mdetail-search-input');
+    var drop = document.getElementById('mdetail-search-dropdown');
+    var form = document.getElementById('mdetail-search-form');
+    if (!input || !drop || !input.getAttribute('data-hints')) return;
+    var season = form.querySelector('input[name=season]').value;
+    var items = [], active = -1, timer;
+    function url(pid) { return form.getAttribute('action') + '?season=' + encodeURIComponent(season) + '&entity=' + encodeURIComponent(pid); }
+    function render(list) {
+      items = list; active = -1;
+      if (!list.length) { drop.hidden = true; drop.innerHTML = ''; return; }
+      drop.innerHTML = list.map(function (it) {
+        return '<a href="' + url(it.player_id) + '"><span class="hs hs--sm"><img src="https://cdn.nba.com/headshots/nba/latest/260x190/' + esc(it.player_id) + '.png" alt="" loading="lazy" onerror="this.remove()"></span><span>' + esc(it.full_name) + '</span></a>';
+      }).join('');
+      drop.hidden = false;
+    }
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      var q = input.value.trim();
+      if (!q) { render([]); return; }
+      timer = setTimeout(function () {
+        fetch('/api/players/hints?q=' + encodeURIComponent(q) + '&limit=8').then(function (r) { return r.json(); })
+          .then(function (d) { render(d.items || []); }).catch(function () { render([]); });
+      }, 150);
+    });
+    input.addEventListener('blur', function () { setTimeout(function () { drop.hidden = true; }, 180); });
+    input.addEventListener('focus', function () { if (items.length) drop.hidden = false; });
+    input.addEventListener('keydown', function (e) {
+      if (!items.length) return;
+      var links = FX.$$('a', drop);
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, items.length - 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); }
+      else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); window.location.href = url(items[active].player_id); return; }
+      else if (e.key === 'Escape') { drop.hidden = true; return; }
+      else return;
+      links.forEach(function (a, i) { a.classList.toggle('is-active', i === active); });
+    });
+  })();
+
+  /* inline split drilldown (games_meta) */
+  var PAGE = 20;
+  function paginate(row) {
+    var rows = FX.$$('.js-split-row', row), pager = row.querySelector('.js-split-pager');
+    if (rows.length <= PAGE || previewOnly) { if (previewOnly) rows.forEach(function (r, i) { r.hidden = i >= 8; }); return; }
+    var pageNo = 0, pages = Math.ceil(rows.length / PAGE), ind = row.querySelector('.js-split-ind');
+    function show() {
+      rows.forEach(function (r, i) { r.hidden = !(i >= pageNo * PAGE && i < (pageNo + 1) * PAGE); });
+      ind.textContent = (pageNo + 1) + ' / ' + pages;
+      pager.querySelector('[data-dir="-1"]').disabled = pageNo === 0;
+      pager.querySelector('[data-dir="1"]').disabled = pageNo >= pages - 1;
+    }
+    if (!pager.dataset.bound) {
+      pager.dataset.bound = '1';
+      pager.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-dir]'); if (!b || b.disabled) return;
+        pageNo = Math.max(0, Math.min(pages - 1, pageNo + (+b.dataset.dir))); show();
+      });
+    }
+    show();
+  }
+  document.addEventListener('click', function (e) {
+    var tr = e.target.closest('.js-split-row');
+    if (tr && !previewOnly) { window.location.href = tr.getAttribute('data-href'); return; }
+    var btn = e.target.closest('.js-split');
+    if (btn) {
+      var row = document.getElementById('split-' + btn.dataset.idx);
+      if (!row) return;
+      var open = row.hidden;
+      FX.$$('tr.dd-row').forEach(function (r) { if (r !== row) r.hidden = true; });
+      row.hidden = !open;
+      if (open) paginate(row);
+      return;
+    }
+    var dd = e.target.closest('.js-dd');
+    if (dd) {
+      var ddRow = document.getElementById('dd-' + dd.dataset.idx);
+      if (!ddRow) return;
+      if (!ddRow.hidden) { ddRow.hidden = true; return; }
+      FX.$$('tr.dd-row').forEach(function (r) { r.hidden = true; });
+      ddRow.hidden = false;
+      loadGames(ddRow.querySelector('.js-dd-panel'), dd.dataset.entityId, dd.dataset.season || '', 1);
+    }
+  });
+
+  /* async qualifying-games drilldown */
+  var cache = {};
+  function logo(id) { return id ? '<img src="https://cdn.nba.com/logos/nba/' + esc(id) + '/global/L/logo.svg" alt="" onerror="this.remove()">' : ''; }
+  function loadGames(panel, entityId, season, page) {
+    var key = entityId + ':' + season + ':' + page;
+    if (cache[key]) { renderGames(panel, cache[key], entityId, season); return; }
+    panel.style.opacity = panel.querySelector('table') ? .5 : 1;
+    var p = new URLSearchParams({ entity_id: entityId, season: season, page: page });
+    fetch('/api/metrics/' + encodeURIComponent(metricKey) + '/qualifying-games?' + p.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        panel.style.opacity = 1;
+        if (!data.ok || !data.games || !data.games.length) { panel.innerHTML = '<div class="mdmeta">' + FX.t('No qualifying games found.', '没有符合条件的比赛。') + '</div>'; return; }
+        cache[key] = data; renderGames(panel, data, entityId, season);
+      })
+      .catch(function () { panel.style.opacity = 1; panel.innerHTML = '<div class="mdmeta">' + FX.t('Failed to load games.', '比赛加载失败。') + '</div>'; });
+  }
+  function renderGames(panel, data, entityId, season) {
+    var games = data.games, hasStat = games.some(function (g) { return g.player_line || g.team_line; });
+    var rows = games.map(function (g) {
+      var url = gameBase.replace('__SLUG__', g.game_slug || g.game_id);
+      var score = (g.home_score != null && g.road_score != null) ? g.road_score + '–' + g.home_score : '';
+      var wl = g.win === true ? '<span class="wl-w">' + FX.t('W', '胜') + '</span>' : g.win === false ? '<span class="wl-l">' + FX.t('L', '负') + '</span>' : '';
+      return '<tr class="js-split-row" data-href="' + url + '"><td class="mono">' + esc(g.game_date || '') + '</td><td>' + logo(g.road_team_id) + ' ' + esc(g.road_team || '') + ' @ ' + logo(g.home_team_id) + ' ' + esc(g.home_team || '') + '</td><td class="mono">' + score + '</td><td>' + wl + '</td>' + (hasStat ? '<td class="mono">' + esc(g.player_line || g.team_line || '') + '</td>' : '') + '</tr>';
+    }).join('');
+    var table = '<table class="dd__table"><thead><tr><th>' + FX.t('Date', '日期') + '</th><th>' + FX.t('Matchup', '对阵') + '</th><th>' + FX.t('Score', '比分') + '</th><th>W/L</th>' + (hasStat ? '<th>' + FX.t('Line', '数据') + '</th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    var html = '<div class="dd__title">' + FX.t('Qualifying games', '符合条件的比赛') + ' <b>' + data.total + '</b></div>';
+    if (previewOnly) {
+      html += '<div class="dd__lock">' + table + '<div class="dd__cta"><b>' + FX.t('See all ' + data.total + ' games', '查看全部 ' + data.total + ' 场比赛') + '</b><p>' +
+        FX.t('Sign in or create an account to unlock the full drill-down game list.', '登录或注册账号即可解锁完整的比赛下钻列表。') + '</p><a class="btn btn--sm btn--flame" href="' + loginUrl + '">' +
+        FX.t('Sign in / Register', '登录 / 注册') + '</a><span class="meta">' + FX.t('Free · 30 seconds · no credit card', '免费 · 30 秒 · 不需要信用卡') + '</span></div></div>';
+    } else {
+      html += table;
+      if (data.total_pages > 1) {
+        html += '<div class="dd__pager"><button type="button" data-page="' + (data.page - 1) + '"' + (data.page <= 1 ? ' disabled' : '') + '>‹</button><span>' + data.page + ' / ' + data.total_pages + '</span><button type="button" data-page="' + (data.page + 1) + '"' + (data.page >= data.total_pages ? ' disabled' : '') + '>›</button></div>';
+      }
+    }
+    panel.innerHTML = html;
+    FX.$$('.dd__pager button:not([disabled])', panel).forEach(function (b) {
+      b.addEventListener('click', function () { loadGames(panel, entityId, season, parseInt(b.dataset.page, 10)); });
+    });
+  }
+
+  /* backfill polling */
+  (function () {
+    var panel = document.getElementById('backfill-panel');
+    if (!panel) return;
+    var pill = document.getElementById('metric-status-pill');
+    var fill = document.getElementById('backfill-overall-fill');
+    var pct = document.getElementById('backfill-overall-pct');
+    var timer = null;
+    function active(s) { return s === 'queued' || s === 'running' || s === 'finalizing'; }
+    function sync(s) {
+      if (active(s) && !timer) timer = setInterval(refresh, 5000);
+      if (!active(s) && timer) { clearInterval(timer); timer = null; }
+    }
+    function refresh() {
+      fetch(panel.getAttribute('data-status-url'), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok || !d.backfill) return;
+          var b = d.backfill;
+          panel.hidden = !active(b.status);
+          if (fill) fill.style.width = (b.overall_pct || 0) + '%';
+          if (pct) pct.textContent = Math.round(b.overall_pct || 0) + '%';
+          if (pill) { pill.className = 'status-dot is-' + b.status; pill.textContent = b.status === 'complete' ? FX.t('Live', '实时') : b.status.replace(/_/g, ' '); }
+          sync(b.status);
+        }).catch(function () {});
+    }
+    sync(panel.getAttribute('data-status'));
+  })();
+});
+</script>
+{% endblock %}

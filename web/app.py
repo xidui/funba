@@ -7992,6 +7992,46 @@ def inject_template_helpers():
     }
 
 
+# ── Next UI (opt-in redesign; see web/next_ui.py) ────────────────────────────
+# Rebinding ``render_template`` routes every page render through the variant
+# switch: requests that opted in (``?ui=next`` / cookie) get
+# ``templates/next/<name>`` when it exists; everything else is unchanged.
+from web.next_ui import register_next_ui as _register_next_ui
+
+render_template = _register_next_ui(
+    app,
+    base_render=render_template,
+    deps=SimpleNamespace(
+        session_local=SessionLocal,
+        Game=Game,
+        Team=Team,
+        Player=Player,
+        PlayerGameStats=PlayerGameStats,
+        TeamGameStats=TeamGameStats,
+        GamePlayByPlay=GamePlayByPlay,
+        MetricDefinition=MetricDefinitionModel,
+        t=_t,
+        url_for=_localized_url_for,
+        player_url=_player_url,
+        team_url=_team_url,
+        game_url=_game_url,
+        team_logo=_team_logo,
+        milestone_cards_for_game=_milestone_cards_for_game,
+        catalog_metrics_total=_catalog_metrics_total,
+        # Catalog helpers reused by web/next_pages/metrics.py (category filter + count APIs).
+        catalog_helpers=SimpleNamespace(
+            _current_user=_current_user,
+            _catalog_metric_base_query=_catalog_metric_base_query,
+            _catalog_metric_ordered_query=_catalog_metric_ordered_query,
+            _catalog_metric_entries_for_row=_catalog_metric_entries_for_row,
+            _catalog_top3=_catalog_top3,
+            _catalog_metrics_total=_catalog_metrics_total,
+        ),
+        limiter=limiter,
+    ),
+)
+
+
 # ── Auth routes ──────────────────────────────────────────────────────────────
 _auth_views = register_auth_routes(
     app,

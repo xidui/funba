@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}" class="{{ 'zh' if lang == 'zh' else 'en' }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>{% block title %}{{ title or site_name }}{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}{{ t('NBA stats, metrics, and analytics — player profiles, team standings, game breakdowns, and shot charts.', 'NBA 数据、指标与分析——球员档案、球队战绩、比赛拆解与投篮图。') }}{% endblock %}" />
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml" />
+  {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}" />{% endif %}
+  {% for alt in hreflang_links %}<link rel="alternate" hreflang="{{ alt.lang }}" href="{{ alt.url }}" />
+  {% endfor %}
+  <meta property="og:site_name" content="{{ site_name }}" />
+  <meta property="og:type" content="{% block og_type %}website{% endblock %}" />
+  <meta property="og:title" content="{% block og_title %}{{ title or (site_name ~ ' — NBA Analytics') }}{% endblock %}" />
+  <meta property="og:description" content="{% block og_description %}NBA stats, metrics, and analytics.{% endblock %}" />
+  <meta property="og:url" content="{{ canonical_url or request.url }}" />
+  <meta property="og:image" content="{% block og_image %}{{ url_for('static', filename='og-default.png', _external=True) }}{% endblock %}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#0F0F0E" />
+  {% block json_ld %}{% endblock %}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        var dark = saved ? saved === 'dark' : false;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      } catch (_) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.nba.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..100,500..900&family=Geist:wght@400..700&family=Geist+Mono:wght@400..600{% if lang == 'zh' %}&family=Noto+Sans+SC:wght@400;500;700;900{% endif %}&display=swap" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='next/next.css') }}?v=1" />
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="page-{% block page_id %}generic{% endblock %}">
+
+  {# ── Masthead ─────────────────────────────────────────────────────── #}
+  {% set nav_items = [
+    ('home', t('Today', '今日')),
+    ('games_list', t('Games', '比赛')),
+    ('players_browse', t('Players', '球员')),
+    ('teams_list_page', t('Teams', '球队')),
+    ('metrics_browse', t('Metrics', '指标')),
+    ('awards_page', t('Awards', '荣誉')),
+    ('news_page', t('News', '资讯')),
+  ] %}
+  <header class="masthead">
+    <div class="wrap masthead__row">
+      <a class="brand" href="{{ url_for('home') }}" aria-label="FUNBA">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill="var(--ink)"/>
+          <path d="M6.5 24C8.5 13 15 7.5 21.5 8.2" fill="none" stroke="var(--paper)" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+          <circle cx="23.6" cy="9.6" r="3.6" fill="var(--flame)"/>
+          <path d="M17 23.5h9.5" stroke="var(--paper)" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M18.6 23.5l1.6 3.2 1.6-3.2 1.6 3.2 1.6-3.2" fill="none" stroke="var(--paper)" stroke-width="1.1" stroke-linejoin="round" opacity=".6"/>
+        </svg>
+        <span class="brand__word">{% if lang == 'zh' %}智趣<i>NBA</i>{% else %}Fun<i>ba</i>{% endif %}</span>
+      </a>
+
+      <nav class="nav" id="nav" aria-label="{{ t('Primary', '主导航') }}">
+        {% for ep, label in nav_items %}
+          <a href="{{ url_for(ep) }}"{% if active_public_endpoint == ep %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+        {% if is_admin %}<a href="{{ url_for('admin_pipeline') }}">{{ t('Admin', '管理') }}</a>{% endif %}
+      </nav>
+
+      <div class="masthead__tools">
+        <button class="searchbtn" type="button" data-palette-open aria-label="{{ t('Search', '搜索') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <span>{{ t('Players, teams, metrics…', '球员、球队、指标…') }}</span>
+          <kbd class="kbd">⌘K</kbd>
+        </button>
+        {% if toggle_language_url %}
+          <a class="iconbtn" href="{{ toggle_language_url }}" title="{{ t('中文', 'English') }}">{{ 'EN' if lang == 'zh' else '中' }}</a>
+        {% endif %}
+        <button class="iconbtn" type="button" data-theme-toggle aria-label="{{ t('Toggle theme', '切换主题') }}">
+          <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg>
+        </button>
+        {% if current_user %}
+          <a class="iconbtn" href="{{ url_for('account_page') }}" title="{{ current_user.display_name or t('Account', '账户') }}">
+            <span style="display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--paper);font-weight:700;font-size:12px;">{{ ((current_user.display_name or 'U')[:1])|upper }}</span>
+          </a>
+        {% else %}
+          <a class="btn btn--sm" href="{{ url_for('auth_login', next=request.url) }}">{{ t('Sign in', '登录') }}</a>
+        {% endif %}
+        <button class="iconbtn menu-toggle" type="button" data-menu-toggle aria-controls="nav" aria-expanded="false" aria-label="{{ t('Menu', '菜单') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h16M4 16h16"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  {# ── Scoreboard ticker ────────────────────────────────────────────── #}
+  {% block ticker %}
+  {% set tk_games = ticker_games() %}
+  {% if tk_games %}
+  <div class="ticker" aria-label="{{ t('Scoreboard', '比分') }}">
+    <div class="ticker__inner" data-ticker>
+      <div class="ticker__label">{{ t('Scores', '比分') }}</div>
+      {% set ns = namespace(day=None) %}
+      {% for gm in tk_games %}
+        {% set day_key = 'today' if gm.is_today else 'prev' %}
+        {% if day_key != ns.day %}
+          <div class="ticker__day">{{ t('Today', '今天') if gm.is_today else t('Final', '昨日') }}</div>
+          {% set ns.day = day_key %}
+        {% endif %}
+        {% set road = team_info(gm.road_id) %}{% set home = team_info(gm.home_id) %}
+        {% set done = gm.status == 'completed' %}
+        {% set road_lost = done and gm.winner and gm.winner != gm.road_id %}
+        {% set home_lost = done and gm.winner and gm.winner != gm.home_id %}
+        <a class="tk" href="{{ url_for('game_page', slug=gm.slug) if gm.slug else '#' }}">
+          <span class="tk__team{% if road_lost %} is-loser{% endif %}" style="--tc: {{ team_color(gm.road_id) }}">{{ road.abbr }}</span>
+          <span class="tk__score{% if road_lost %} is-loser{% endif %}">{{ gm.road_score if gm.status != 'upcoming' and gm.road_score is not none else '' }}</span>
+          <span class="tk__team{% if home_lost %} is-loser{% endif %}" style="--tc: {{ team_color(gm.home_id) }}">{{ home.abbr }}</span>
+          <span class="tk__score{% if home_lost %} is-loser{% endif %}">{{ gm.home_score if gm.status != 'upcoming' and gm.home_score is not none else '' }}</span>
+          {% if gm.status == 'live' %}
+            <span class="tk__status is-live"><span class="live-dot"></span>{{ t('Live', '直播中') }}</span>
+          {% elif done %}
+            <span class="tk__status">{{ t('Final', '终场') }}</span>
+          {% else %}
+            <span class="tk__status">{{ gm.tipoff or t('Tonight', '今晚') }}</span>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endblock %}
+
+  <main id="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="wrap" style="padding-top:16px;"><div class="panel panel--pad" role="alert">{{ message }}</div></div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  {# ── Footer ───────────────────────────────────────────────────────── #}
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer__grid">
+        <div>
+          <h4>{{ site_name }}</h4>
+          <p style="margin:0;max-width:38ch;color:var(--band-ink-3);font-size:14px;line-height:1.6;">
+            {{ t('Independent NBA analytics. Every game broken down into numbers worth arguing about.', '独立 NBA 数据分析。把每一场比赛拆成值得争论的数字。') }}
+          </p>
+        </div>
+        <div>
+          <h4>{{ t('Explore', '浏览') }}</h4>
+          <ul>
+            {% for ep, label in nav_items %}<li><a href="{{ url_for(ep) }}">{{ label }}</a></li>{% endfor %}
+          </ul>
+        </div>
+        <div>
+          <h4>{{ t('Build', '创作') }}</h4>
+          <ul>
+            <li><a href="{{ url_for('metric_new') }}">{{ t('Create a metric', '创建指标') }}</a></li>
+            <li><a href="{{ url_for('players_compare') }}">{{ t('Compare players', '球员对比') }}</a></li>
+            <li><a href="{{ url_for('pricing') }}">{{ t('Pricing', '价格') }}</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>{{ t('Elsewhere', '关注') }}</h4>
+          <ul>
+            <li><a href="https://x.com/FUNBA_APP" target="_blank" rel="noopener">X / Twitter</a></li>
+            <li><a href="mailto:hi@funba.app">hi@funba.app</a></li>
+            <li><a href="{{ ui_switch_url('classic') }}">{{ t('Classic site', '旧版界面') }}</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer__wordmark" aria-hidden="true">FUNBA</div>
+    <div class="wrap footer__base">
+      <span>© {{ current_year }} {{ site_name }}</span>
+      <span>{{ t('Data: NBA Stats API · Not affiliated with the NBA', '数据来源 NBA Stats API · 与 NBA 官方无关') }}</span>
+    </div>
+  </footer>
+
+  {# ── Command palette ──────────────────────────────────────────────── #}
+  <div class="palette" data-palette role="dialog" aria-modal="true" aria-label="{{ t('Search', '搜索') }}">
+    <div class="palette__box">
+      <label class="palette__field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="text" autocomplete="off" spellcheck="false" data-palette-input
+               placeholder="{{ t('Search players, teams, metrics…', '搜索球员、球队、指标…') }}" />
+        <kbd class="kbd">esc</kbd>
+      </label>
+      <div class="palette__results" data-palette-results>
+        <div class="palette__hint">
+          <div class="kicker" style="margin-bottom:8px;">{{ t('Try', '试试') }}</div>
+          {% for q in (['LeBron', 'Warriors', 'clutch', 'triple-double', 'Wembanyama'] if lang != 'zh' else ['詹姆斯', '勇士', '三双', '关键时刻', '文班亚马']) %}
+            <span class="chip" data-palette-try>{{ q }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="palette__foot">
+        <span><kbd class="kbd">↑</kbd> <kbd class="kbd">↓</kbd> {{ t('navigate', '选择') }}</span>
+        <span><kbd class="kbd">↵</kbd> {{ t('open', '打开') }}</span>
+        <span style="margin-left:auto;">{{ t('Funba search', 'Funba 搜索') }}</span>
+      </div>
+    </div>
+  </div>
+
+  {# ── Preview flag ─────────────────────────────────────────────────── #}
+  <div class="uiflag" data-uiflag hidden>
+    <span>{{ t('You’re previewing the new Funba', '你正在预览新版 Funba') }}</span>
+    <a href="{{ ui_switch_url('classic') }}">{{ t('Back to classic', '返回旧版') }}</a>
+    <button type="button" data-uiflag-close aria-label="{{ t('Dismiss', '关闭') }}">✕</button>
+  </div>
+
+  <div class="tip" data-tip role="tooltip"></div>
+
+  <script>window.FUNBA = { lang: {{ lang|tojson }}, searchUrl: {{ url_for('api_next_search')|tojson }} };</script>
+  <script src="{{ url_for('static', filename='next/next.js') }}?v=1" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

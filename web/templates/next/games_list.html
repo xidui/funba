@@ -1,0 +1,338 @@
+{% extends "next/_shell.html" %}
+{% import "next/_macros.html" as ui with context %}
+{% block title %}{{ t('Games', '比赛') }} · {{ year_label(selected_year) if selected_year else '' }} · {{ site_name }}{% endblock %}
+{% block meta_description %}{{ t('NBA scores, results and schedule — every game with box scores, game flow and storylines.', 'NBA 比分、赛果与赛程——每场比赛的技术统计、比分走势与看点。') }}{% endblock %}
+{% block page_id %}games{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ url_for('static', filename='next/lists.css') }}?v=1" />{% endblock %}
+
+{% set WD_ZH = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] %}
+{% set phase_names = {'all': t('All phases', '全部阶段')} %}
+
+{% macro day_head(dt, n) -%}
+  {%- set is_today = (dt == today) -%}
+  <div class="day__head">
+    <span class="day__num">{{ dt.day if dt else '–' }}</span>
+    <span class="day__meta">
+      {% if dt %}
+        <span class="day__dow">{% if is_today %}{{ t('Today', '今天') }}{% else %}{{ WD_ZH[dt.weekday()] if lang == 'zh' else dt.strftime('%A') }}{% endif %}</span>
+        <span class="day__mon">{{ (dt.year ~ '年' ~ dt.month ~ '月') if lang == 'zh' else dt.strftime('%b %Y') }}</span>
+      {% else %}
+        <span class="day__dow">{{ t('Date TBD', '日期待定') }}</span>
+      {% endif %}
+    </span>
+    <span class="day__rule"></span>
+    <span class="day__count">{{ n }} {{ t('games' if n != 1 else 'game', '场') }}</span>
+  </div>
+{%- endmacro %}
+
+{% macro game_card(entry) -%}
+  {%- set game = entry.game -%}
+  {%- set yr = season_year(game.season) if game and game.season else selected_year -%}
+  {%- set colors = matchup_colors(entry.road_team_id, entry.home_team_id) -%}
+  {%- set done = entry.status == 'completed' -%}
+  {%- set live = entry.status == 'live' -%}
+  {%- set up = entry.status == 'upcoming' -%}
+  {%- set prefix = (entry.season or '')[:1] -%}
+  {%- set href = game_url(entry.game_id) if entry.link_enabled else None -%}
+  <{{ 'a' if href else 'div' }} class="gc{% if live %} is-live{% elif up %} is-upcoming{% endif %}{% if not href %} no-link{% endif %}"
+    {% if href %}href="{{ href }}"{% endif %}
+    style="--road: {{ colors[0] }}; --home: {{ colors[1] }};"
+    data-road-team="{{ entry.road_team_id or '' }}" data-home-team="{{ entry.home_team_id or '' }}"
+    {% if live %}data-live-game-id="{{ entry.game_id }}"{% endif %}>
+    <div class="gc__top">
+      {% if live %}
+        <span class="gc__status is-live"><span class="live-dot"></span>{{ t('Live', '进行中') }} <span data-role="live-summary">{{ entry.status_summary or '' }}</span></span>
+      {% elif done %}
+        <span class="gc__status is-final">{{ t('Final', '终场') }}</span>
+      {% else %}
+        <span class="gc__status">{{ (game.tipoff_time if game and game.tipoff_time else t('Scheduled', '待开赛')) }}</span>
+      {% endif %}
+      <span class="gc__chips">
+        {% if prefix == '4' %}<span class="chip chip--playoffs">{{ t('Playoffs', '季后赛') }}</span>
+        {% elif prefix == '5' %}<span class="chip chip--playin">{{ t('Play-In', '附加赛') }}</span>
+        {% elif prefix in ('1', '3') %}<span class="chip">{{ phase_label_for(entry.season) }}</span>{% endif %}
+        {% if game and game.national_tv_broadcaster and not done %}<span class="chip">{{ game.national_tv_broadcaster }}</span>{% endif %}
+      </span>
+    </div>
+    <div class="gc__teams">
+      {% for tid, score, won, lost in [(entry.road_team_id, entry.road_score, entry.road_won, entry.home_won), (entry.home_team_id, entry.home_score, entry.home_won, entry.road_won)] %}
+        {%- set tm = team_lookup.get(tid) if tid else None -%}
+        {%- set abbr = (team_abbr_for_year(tid, yr) if tid else 'TBD') -%}
+        {%- set nick = ((tm.full_name_zh if lang == 'zh' and tm.full_name_zh else (tm.nick_name if tm and tm.abbr == abbr else team_name_for_year(tid, yr))) if tm else t('To be determined', '待定')) -%}
+        <div class="gc__row{% if done and won %} is-winner{% elif done and lost %} is-loser{% endif %}">
+          {% if tid %}<img src="{{ team_logo(tid, yr) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">{% else %}<span></span>{% endif %}
+          <span class="gc__abbr">{{ abbr }}</span>
+          <span class="gc__nick">{{ nick }}</span>
+          {% if up %}<span></span>{% else %}<span class="gc__score" data-role="{{ 'road' if loop.first else 'home' }}-score">{{ score if score is not none else '–' }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    {% if done %}
+      {% set series = (nx.spark or {}).get(entry.game_id) if nx else None %}
+      {% if series %}<div class="spark" data-spark='{{ series|tojson }}' data-home="{{ colors[1] }}" data-road="{{ colors[0] }}"></div>{% endif %}
+      {% set tops = (nx.top or {}).get(entry.game_id) if nx else None %}
+      {% if tops and (tops.road or tops.home) %}
+        <div class="gc__tops">
+          {% for p, tid in [(tops.road, entry.road_team_id), (tops.home, entry.home_team_id)] %}
+            {% if p %}
+            <span class="gc__top-p">
+              {{ ui.headshot(p.player_id, '', tid) }}
+              {%- set parts = (p.name or '').split(' ') -%}
+              {%- set last = (parts[-2] if parts|length > 2 and parts[-1]|lower|replace('.', '') in ('jr', 'sr', 'ii', 'iii', 'iv') else parts[-1]) -%}
+              <span><b>{{ (p.name_zh if lang == 'zh' and p.name_zh else last) }}</b><em>{{ p.pts }} PTS{% if p.reb >= 10 and p.reb >= p.ast %} · {{ p.reb }} REB{% elif p.ast >= 10 %} · {{ p.ast }} AST{% endif %}</em></span>
+            </span>
+            {% else %}<span></span>{% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endif %}
+  </{{ 'a' if href else 'div' }}>
+{%- endmacro %}
+
+{% macro render_groups(groups) -%}
+  {% for dt, entries in groups %}
+    <section class="day{% if dt == today %} is-today{% endif %}">
+      {{ day_head(dt, entries|length) }}
+      <div class="gcards">
+        {% for entry in entries %}{{ game_card(entry) }}{% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+{%- endmacro %}
+
+{# bracket pieces #}
+{% macro ser_logo(tid) -%}{% if tid %}<img src="{{ team_logo(tid, selected_year) }}" alt="" loading="lazy">{% else %}<span></span>{% endif %}{%- endmacro %}
+{% macro series_card(s) -%}
+  {% if s %}
+  <div class="ser{% if s.top and s.bot %} is-click{% endif %}"{% if s.top and s.bot %} data-matchup-top="{{ s.top }}" data-matchup-bot="{{ s.bot }}"{% endif %}>
+    {% for tid, seed, wins in [(s.top, s.ts, s.tw), (s.bot, s.bs, s.bw)] %}
+      <div class="ser__row{% if s.winner and tid and s.winner == tid %} is-w{% elif s.winner and tid %} is-l{% endif %}" style="--tc: {{ team_color(tid) }}">
+        <span class="ser__seed">{{ seed or '' }}</span>
+        {{ ser_logo(tid) }}
+        <span class="ser__abbr">{{ team_abbr_for_year(tid, selected_year) if tid else 'TBD' }}</span>
+        <span class="ser__w">{{ wins if wins is not none else '' }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="ser tbd"><div class="ser__row"><span></span><span></span><span class="ser__abbr">TBD</span><span></span></div><div class="ser__row"><span></span><span></span><span class="ser__abbr">TBD</span><span></span></div></div>
+  {% endif %}
+{%- endmacro %}
+{% macro playin_card(gm) -%}
+  {% if gm %}
+  <div class="ser{% if gm.top and gm.bot %} is-click{% endif %}"{% if gm.top and gm.bot %} data-matchup-top="{{ gm.top }}" data-matchup-bot="{{ gm.bot }}"{% endif %}>
+    {% for tid, score in [(gm.top, gm.top_score), (gm.bot, gm.bot_score)] %}
+      <div class="ser__row{% if gm.winner and tid and gm.winner == tid|string %} is-w{% elif gm.winner and tid %} is-l{% endif %}" style="--tc: {{ team_color(tid) }}">
+        <span class="ser__seed"></span>
+        {{ ser_logo(tid) }}
+        <span class="ser__abbr">{{ team_abbr_for_year(tid, selected_year) if tid else 'TBD' }}</span>
+        <span class="ser__w">{{ score if score is not none else '' }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}{{ series_card(None) }}{% endif %}
+{%- endmacro %}
+
+{% block content %}
+{% set phase_label_current = (available_phases|selectattr(0, 'equalto', selected_phase)|map(attribute=1)|first) if selected_phase != 'all' else t('All phases', '全部阶段') %}
+
+<header class="lhero">
+  <div class="wrap lhero__row">
+    <div>
+      <span class="kicker kicker--flame">{{ t('Scoreboard', '比分板') }} · {{ year_label(selected_year) if selected_year else '' }}{% if phase_label_current %} · {{ phase_label_current }}{% endif %}</span>
+      <h1 class="display display-xl">{{ t('Games', '比赛') }}</h1>
+      {% if selected_team_obj %}
+        <p class="lede">{{ t('Showing every game for', '正在查看') }} <a class="flame" href="{{ team_url(selected_team_obj.team_id) or '#' }}">{{ display_team_name(selected_team_obj) }}</a>.</p>
+      {% endif %}
+    </div>
+    <div class="lstats">
+      {% if live_count %}<div class="is-live"><span class="kicker"><span class="live-dot"></span>{{ t('Live now', '进行中') }}</span><span class="big-num">{{ live_count }}</span></div>{% endif %}
+      <div><span class="kicker">{{ t('Final', '已完赛') }}</span><span class="big-num" data-count="{{ results_count }}">{{ results_count }}</span></div>
+      <div><span class="kicker">{{ t('Scheduled', '未开赛') }}</span><span class="big-num" data-count="{{ schedule_count }}">{{ schedule_count }}</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <form class="wrap toolbar__row" method="get" action="{{ url_for('games_list') }}" data-games-filters>
+    <span class="toolbar__label">{{ t('Season', '赛季') }}</span>
+    <label class="pick">
+      <select name="year" aria-label="{{ t('Season', '赛季') }}" onchange="this.form.submit()">
+        {% for y in all_years %}<option value="{{ y }}"{% if y == selected_year %} selected{% endif %}>{{ year_label(y) }}</option>{% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="phase" value="{{ selected_phase or 'all' }}">
+    <div class="seg" role="tablist" aria-label="{{ t('Phase', '阶段') }}">
+      <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase='all') }}" class="{{ 'is-on' if selected_phase == 'all' }}">{{ t('All', '全部') }}</a>
+      {% for code, label in available_phases %}
+        <a href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=code) }}" class="{{ 'is-on' if code == selected_phase }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <span class="toolbar__spacer"></span>
+    <label class="pick{% if selected_team %} pick--team{% endif %}">
+      {% if selected_team %}<img src="{{ team_logo(selected_team) }}" alt="">{% endif %}
+      <select name="team" aria-label="{{ t('Team', '球队') }}" onchange="this.form.submit()">
+        <option value="">{{ t('All teams', '全部球队') }}</option>
+        {% for team in all_teams %}
+          <option value="{{ team.team_id }}"{% if team.team_id == selected_team %} selected{% endif %}>{{ team.abbr }} — {{ display_team_name(team) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button class="btn btn--sm" type="submit">{{ t('Apply', '应用') }}</button></noscript>
+  </form>
+</div>
+
+<div class="wrap">
+
+{# ── Playoff bracket ───────────────────────────────────────────────── #}
+{% if bracket and selected_phase == '4' %}
+<section class="bracket-wrap">
+  {% call ui.sec_head(year_label(selected_year) ~ ' ' ~ t('Postseason', '季后赛'), t('Playoff bracket', '季后赛对阵')) %}
+    <span class="kicker">{{ t('Click a series to filter games', '点击对阵筛选比赛') }}</span>
+  {% endcall %}
+  <div class="bracket">
+    <div class="bk-col"><div class="bk-col__label">{{ t('East R1', '东部首轮') }}</div>{% for s in bracket.er1 %}{{ series_card(s) }}{% endfor %}</div>
+    <div class="bk-col"><div class="bk-col__label">{{ t('East semis', '东部半决赛') }}</div>{% for s in bracket.er2 %}{{ series_card(s) }}{% endfor %}</div>
+    <div class="bk-col"><div class="bk-col__label">{{ t('East finals', '东部决赛') }}</div>{{ series_card(bracket.ecf) }}</div>
+    <div class="bk-col bk-col--finals">
+      <div class="bk-col__label">{{ t('NBA Finals', '总决赛') }}</div>
+      {{ series_card(bracket.finals) }}
+      {% if bracket.finals and bracket.finals.winner %}
+        <div class="bk-champ">
+          <img src="{{ team_logo(bracket.finals.winner, selected_year) }}" alt="">
+          <span class="kicker">{{ t('Champion', '总冠军') }}</span>
+          {{ team_abbr_for_year(bracket.finals.winner, selected_year) }}
+        </div>
+      {% endif %}
+    </div>
+    <div class="bk-col"><div class="bk-col__label">{{ t('West finals', '西部决赛') }}</div>{{ series_card(bracket.wcf) }}</div>
+    <div class="bk-col"><div class="bk-col__label">{{ t('West semis', '西部半决赛') }}</div>{% for s in bracket.wr2 %}{{ series_card(s) }}{% endfor %}</div>
+    <div class="bk-col"><div class="bk-col__label">{{ t('West R1', '西部首轮') }}</div>{% for s in bracket.wr1 %}{{ series_card(s) }}{% endfor %}</div>
+  </div>
+  {% if bracket.playin is defined and bracket.playin %}
+    <div class="bk-playin">
+      {% for conf, label in [('east', t('East play-in', '东部附加赛')), ('west', t('West play-in', '西部附加赛'))] %}
+        <div class="bk-playin__conf">
+          <h4>{{ label }}</h4>
+          <div><div class="bk-col__label">7 v 8</div>{{ playin_card(bracket.playin[conf ~ '_78']) }}</div>
+          <div><div class="bk-col__label">9 v 10</div>{{ playin_card(bracket.playin[conf ~ '_910']) }}</div>
+          <div><div class="bk-col__label">{{ t('8th seed', '8号种子') }}</div>{{ playin_card(bracket.playin[conf ~ '_final']) }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  <div class="mfilter" data-mfilter role="status" aria-live="polite">
+    <span class="kicker kicker--flame">{{ t('Filtered', '筛选') }}</span>
+    <b data-mfilter-teams></b>
+    <span class="muted" data-mfilter-count></span>
+    <button type="button" data-mfilter-clear>{{ t('Clear', '清除') }} ✕</button>
+  </div>
+</section>
+{% endif %}
+
+{# ── Game list ─────────────────────────────────────────────────────── #}
+{% if date_groups %}
+  {% if future_date_groups %}
+    <details class="future"{% if not past_date_groups %} open{% endif %}>
+      <summary><i>›</i>{{ t('Upcoming', '未来赛程') }} <span class="muted">{{ future_games_count }} {{ t('games', '场') }}</span></summary>
+      {{ render_groups(future_date_groups) }}
+    </details>
+  {% endif %}
+  {% if past_date_groups %}{{ render_groups(past_date_groups) }}{% endif %}
+  {% if nx and nx.recent %}
+    <div class="recent-head">
+      <span class="kicker kicker--flame">{{ t('Latest results', '最新赛果') }}</span>
+      {% if page < total_pages %}<a class="btn btn--ghost btn--sm" href="{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, page=page + 1) }}">{{ t('Earlier games', '更早的比赛') }} →</a>{% endif %}
+    </div>
+    {{ render_groups(nx.recent) }}
+  {% endif %}
+{% else %}
+  <div class="empty" style="margin-top:40px;">
+    {% if selected_team_obj %}{{ t('No games found for', '这个赛季没有找到') }} {{ display_team_name(selected_team_obj) }} {{ t('in this season.', '的比赛。') }}
+    {% else %}{{ t('No games found for this season.', '这个赛季没有找到比赛。') }}{% endif %}
+  </div>
+{% endif %}
+
+{% if total_pages > 1 %}
+  {% macro page_url(p) %}{{ url_for('games_list', year=selected_year, team=selected_team, phase=selected_phase, page=p) }}{% endmacro %}
+  <nav class="pager" aria-label="{{ t('Pages', '分页') }}">
+    <a class="{{ 'is-off' if page <= 1 }}" href="{{ page_url(page - 1) }}" aria-label="{{ t('Newer', '较新') }}">←</a>
+    {% set ns = namespace(prev=None) %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        {% if ns.prev is not none and p - ns.prev > 1 %}<span class="gap">…</span>{% endif %}
+        <a class="{{ 'is-on' if p == page }}" href="{{ page_url(p) }}">{{ p }}</a>
+        {% set ns.prev = p %}
+      {% endif %}
+    {% endfor %}
+    <a class="{{ 'is-off' if page >= total_pages }}" href="{{ page_url(page + 1) }}" aria-label="{{ t('Older', '较早') }}">→</a>
+  </nav>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('fx:ready', function () {
+  var FX = window.FX;
+
+  // Bracket → filter game cards by matchup
+  var cards = FX.$$('.ser.is-click');
+  var banner = document.querySelector('[data-mfilter]');
+  var active = null;
+  function clearFilter() {
+    if (active) active.classList.remove('is-active');
+    active = null;
+    if (banner) banner.classList.remove('is-on');
+    FX.$$('.matchup-hidden').forEach(function (el) { el.classList.remove('matchup-hidden'); });
+  }
+  function applyFilter(card) {
+    var a = card.getAttribute('data-matchup-top'), b = card.getAttribute('data-matchup-bot');
+    if (active) active.classList.remove('is-active');
+    active = card; card.classList.add('is-active');
+    var shown = 0;
+    FX.$$('.gc').forEach(function (g) {
+      var r = g.getAttribute('data-road-team'), h = g.getAttribute('data-home-team');
+      var ok = (r === a && h === b) || (r === b && h === a);
+      g.classList.toggle('matchup-hidden', !ok);
+      if (ok) { shown++; var d = g.closest('details'); if (d) d.open = true; }
+    });
+    FX.$$('.day').forEach(function (day) {
+      day.classList.toggle('matchup-hidden', !day.querySelector('.gc:not(.matchup-hidden)'));
+    });
+    var abbrs = FX.$$('.ser__abbr', card).map(function (x) { return x.textContent.trim(); });
+    banner.querySelector('[data-mfilter-teams]').textContent = abbrs.join(' vs ');
+    banner.querySelector('[data-mfilter-count]').textContent = shown ? shown + ' ' + FX.t('games', '场比赛') : FX.t('no games on this page', '本页没有这组比赛');
+    banner.classList.add('is-on');
+    var first = document.querySelector('.gc:not(.matchup-hidden)');
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  cards.forEach(function (card) {
+    card.addEventListener('click', function () { card === active ? clearFilter() : applyFilter(card); });
+  });
+  var clr = document.querySelector('[data-mfilter-clear]');
+  if (clr) clr.addEventListener('click', clearFilter);
+
+  {% if has_live %}
+  // Live score refresh
+  function refreshLive() {
+    fetch({{ url_for('api_games_live')|tojson }}, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (payload) {
+        if (!payload) return;
+        (payload.games || []).forEach(function (game) {
+          var card = document.querySelector('[data-live-game-id="' + game.game_id + '"]');
+          if (!card) return;
+          var rs = card.querySelector('[data-role="road-score"]'), hs = card.querySelector('[data-role="home-score"]'), sm = card.querySelector('[data-role="live-summary"]');
+          if (rs) rs.textContent = game.road_score;
+          if (hs) hs.textContent = game.home_score;
+          if (sm) sm.textContent = game.summary || '';
+          if (game.status !== 'live') window.location.reload();
+        });
+      }).catch(function () {});
+  }
+  setInterval(refreshLive, 30000);
+  {% endif %}
+});
+</script>
+{% endblock %}
